@@ -24,8 +24,12 @@
 var H = require('./lib/harness.js');
 
 var SEEDS = [11, 22, 33];
-var NEVER = ['calm', 'sway', 'walking', 'running', 'normal', 'normalSlow', 'firm60', 'vigorous60', 'veryVigorous',
+var NEVER = ['calm', 'sway', 'walking', 'running', 'normal', 'normalSlow', 'firm60',
   'lateralFirm', 'knocks', 'hardJerks', 'drop', 'fingerWiggle', 'wristTwist', 'tableSpin'];
+// Firm shaking may creak at most. Vigorous and very vigorous shaking may crack it,
+// but never before 4.5 s and never without three rising creaks first.
+var CREAK_OK = { firm60: true, hardJerks: true };
+var MAY = ['vigorous60', 'veryVigorous'];
 var CRACK = { vigSlow60: [4.5, 9, 4], veryVigSlow: [4.5, 10, -1], lateralVV: [4.5, 8, -1] };
 
 function job(j) {
@@ -47,7 +51,7 @@ if (H.isWorker) {
   H.workerMain(job);
 } else {
   var jobs = [];
-  NEVER.concat(Object.keys(CRACK)).forEach(function (name) {
+  NEVER.concat(MAY, Object.keys(CRACK)).forEach(function (name) {
     SEEDS.forEach(function (seed) {
       for (var fill = 0; fill < H.FILLS.length; fill++) jobs.push({ name: name, seed: seed, fill: fill, crack: !!CRACK[name] });
     });
@@ -65,6 +69,22 @@ if (H.isWorker) {
     var errors = res.filter(function (r) { return r && r.error; });
     if (errors.length) { console.log(errors[0].error); process.exit(1); }
     var common = function (r) { return r.census === 0 && r.conserve === 0 && r.over === 0 && r.holesNearGate === 0; };
+    // may crack, but only after a warning and never early
+    MAY.forEach(function (name) {
+      var n = 0, cracked = 0, bad = [];
+      jobs.forEach(function (j, i) {
+        if (j.name !== name || j.kind) return;
+        var r = res[i];
+        n++;
+        if (!common(r)) bad.push('census or valve');
+        if (r.crackT >= 0) {
+          cracked++;
+          if (r.crackT < 4.5) bad.push('crack at ' + r.crackT.toFixed(2) + ' s');
+          if (r.warns < 3) bad.push('only ' + r.warns + ' creaks first');
+        }
+      });
+      report(bad.length === 0, name + ': ' + n + ' runs, ' + cracked + ' cracked (never before 4.5 s, always after creaks)' + (bad.length ? '; ' + bad.join('; ') : ''));
+    });
     // never crack
     NEVER.forEach(function (name) {
       var worst = 0, at = '', bad = 0, n = 0;
@@ -73,7 +93,7 @@ if (H.isWorker) {
         var r = res[i];
         n++;
         if (r.dMax > worst) { worst = r.dMax; at = 'seed ' + j.seed + ', ' + H.fillName(H.FILLS[j.fill]) + ', ' + r.site; }
-        if (r.cracks > 0 || r.dMax >= 0.4 || !common(r)) bad++;
+        if (r.cracks > 0 || (r.dMax >= 0.4 && !CREAK_OK[name]) || !common(r)) bad++;
       });
       report(bad === 0, name + ': ' + n + ' runs, no crack; worst dMax ' + worst.toFixed(3) + (at ? ' (' + at + ')' : '') +
         (bad ? '; ' + bad + ' runs failed (crack, dMax ≥ 0.4, census or valve)' : ''));

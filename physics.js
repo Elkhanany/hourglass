@@ -315,7 +315,7 @@
     nSeg: WALL_BINS,     // wall segments per bulb and side (bins of u; read-only)
     weibull: 20,         // Weibull modulus of the flaw strengths (median 1)
     n: 16,               // stress-corrosion exponent of soda-lime glass
-    vc: 20,              // landing speed v/√(G·cell) of the reference stress
+    vc: 16,              // landing speed v/√(G·cell) of the reference stress (very hard shaking cracks it in ~6 s)
     xTh: 0.78,           // fatigue limit K_th/K_IC: below it a crack never grows
     A: 0.40,             // damage per reference column landing
     hRef: 40,            // grains in a reference column (h = min(2, n/hRef))
