@@ -287,10 +287,12 @@ test('leak at rest, lower dome: rates by width, ring entries, census (acceptance
     ok(r.badPos === 0 && r.badVel === 0, 'w=' + w + ': ' + r.badPos + ' entries away from a hole, ' + r.badVel + ' moving inward');
     out.push('w' + w + ' ' + rate.toFixed(2) + '/s');
   });
-  // shaken (T = 1): the leak law opens a one-grain breach (P0 sets the temperature by hand)
+  // shaken (T = 1): the leak law opens a one-grain breach. A steady 1 g of
+  // shaking out of the screen's plane holds the sand's temperature at 1.
   var s = glass({ lower: 1, seed: 29 });
   var cr = s.forceCrack(segOf(1, 1, 0.9), 40, 1);
   s.agit[1] = 1;
+  s.setMotion(0, 0, 0, 0, 0, 1);
   var r = leakRun(s, 5, [cr.holes[0]]);
   ok(r.bottom / 5 >= 4, 'shaken w=1: ' + (r.bottom / 5).toFixed(2) + ' grains/s, want ≥ 4');
   out.push('shaken w1 ' + (r.bottom / 5).toFixed(1) + '/s');
@@ -312,6 +314,7 @@ test('escape ring: entries until full, overflow still counted in lost', function
   var s = glass({ lower: 1, seed: 41 });
   s.forceCrack(segOf(1, 1, 0.9), 40, 3);
   s.agit[1] = 1;
+  s.setMotion(0, 0, 0, 0, 0, 1);
   var n = 0;
   while (s.lost < 300 && n++ < 120 * 60) { s.beginFrame(); s.step(); }
   ok(s.lost >= 300 && s.escN === 256, 'lost ' + s.lost + ', escN ' + s.escN);
