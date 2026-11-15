@@ -28,6 +28,7 @@ var G = require('./app-gestures.test.js');
         await G.testTurn(s, env);
         await G.testFree(s, env);
         await G.testCatch(s, env);
+        await G.testCatchMove(s, env);
         await G.testMend(s, env);
         await G.testTap(s, env);
       }

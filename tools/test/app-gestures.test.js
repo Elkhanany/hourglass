@@ -28,12 +28,13 @@ function recBody(t) {
       var b = H.body;
       return [performance.now(), b.px, b.py, b.ax, b.ay, H.sim.angle, b.w, H.sim.mAx, H.sim.mAy,
               H.flip.active ? 1 : 0, b.mode, H.timer.state, document.getElementById('status').textContent,
-              document.getElementById('app').classList.contains('zen') ? 1 : 0, H.sim.frame.slides];
+              document.getElementById('app').classList.contains('zen') ? 1 : 0, H.sim.frame.slides,
+              b.vx, b.vy, H.flip.grabAngle];
     });
   });
 }
 var R_T = 0, R_PX = 1, R_PY = 2, R_AX = 3, R_AY = 4, R_TH = 5, R_W = 6, R_MAX = 7, R_MAY = 8, R_FLIP = 9,
-    R_MODE = 10, R_STATE = 11, R_STATUS = 12, R_ZEN = 13, R_SLIDES = 14;
+    R_MODE = 10, R_STATE = 11, R_STATUS = 12, R_ZEN = 13, R_SLIDES = 14, R_VX = 15, R_VY = 16, R_GRAB = 17;
 
 /**
  * Per frame, how far (mean rows from the neck) the sand of the bulb that was
@@ -166,6 +167,20 @@ async function testTurn(s, env) {
     return { rows: __rec.stop(), flips: __mon.flips, rem: H.timer.rem, remAt: H.remAt(H.sim.nTop), state: H.timer.state, angle: H.sim.angle };
   });
   s.check('TURN: a 200° arc gives exactly one swap', r.flips === 1, r.flips + ' swaps');
+  // an ordinary turn follows the finger closely: the glass trails where the
+  // finger has turned it to by about 2ζ/ω ≈ 65 ms (the catch's brake never
+  // applies to it)
+  var lags = [], maxErr = 0;
+  r.rows.forEach(function (q) {
+    if (q[R_MODE] !== 'held-turn') return;
+    var e = q[R_GRAB] - q[R_TH];
+    if (Math.abs(e) > maxErr) maxErr = Math.abs(e);
+    if (Math.abs(q[R_W]) > 1) lags.push(1000 * e / q[R_W]);
+  });
+  var lag = H.pct(lags, 50);
+  s.check('TURN: follows the finger closely (lags it by ≤ 85 ms)', lags.length > 20 && lag > 0 && lag <= 85,
+          'median lag ' + (lags.length ? lag.toFixed(0) : '?') + ' ms over ' + lags.length + ' steps; largest gap ' +
+          (maxErr * 180 / Math.PI).toFixed(1) + '°');
   s.check('TURN: slow release settles at 0 within 1.5 s', restAt > 0 && restAt - up <= 1500 && r.angle === 0,
           restAt > 0 ? 'settled ' + (restAt - up).toFixed(0) + ' ms after release' : 'never settled');
   s.check('TURN: T.rem === remAt(sim.nTop) after the turn', Math.abs(r.rem - r.remAt) < 1e-6,
@@ -260,23 +275,95 @@ async function testCatch(s, env, page) {
   await recBody(t);
   var g2 = await t.glass();
   await t.touch.down(g2.cx, g2.cy);
-  await sleep(320);
+  await sleep(200);
+  // a resting finger is never quite still: a pixel of tremor right by the
+  // centre (45° as seen from it) must not turn the glass
+  await t.touch.move(g2.cx + 1, g2.cy + 1);
+  await sleep(50);
+  await t.touch.move(g2.cx, g2.cy);
+  await sleep(120);
   await t.touch.up();
   await sleep(300);
   var r = await t.eval(function () { return { rows: __rec.stop(), down: __mon.downAt, up: __mon.upAt, state: window.Hourglass.timer.state }; });
-  var first = -1, rebound = 0, lastFast = -1;
+  var first = -1, wTouch = 0, after = 0, back = 0, th60 = null, drift = 0, n60 = 0;
   r.rows.forEach(function (q) {
-    if (q[R_T] < r.down || q[R_T] > r.up) return;        // while the finger holds it
-    if (first < 0 && Math.abs(q[R_W]) < 0.5) first = q[R_T] - r.down;
-    if (first >= 0 && Math.abs(q[R_W]) > rebound) rebound = Math.abs(q[R_W]);
-    if (Math.abs(q[R_W]) >= 0.5) lastFast = q[R_T] - r.down;
+    var dt = q[R_T] - r.down;
+    if (q[R_T] < r.down) { wTouch = q[R_W]; return; }
+    if (q[R_T] > r.up) return;                           // only while the finger holds it
+    if (first < 0 && Math.abs(q[R_W]) < 0.5) first = dt;
+    if (wTouch && q[R_W] * wTouch < 0 && Math.abs(q[R_W]) > back) back = Math.abs(q[R_W]);   // turning back
+    if (dt < 60) return;
+    n60++;
+    if (Math.abs(q[R_W]) > after) after = Math.abs(q[R_W]);
+    if (th60 === null) th60 = q[R_TH];
+    else if (Math.abs(q[R_TH] - th60) > drift) drift = Math.abs(q[R_TH] - th60);
   });
-  s.check('CATCH: spinning at ≥ 6 rad/s when touched', fast && Math.abs(w0) >= 6, 'ω ' + w0.toFixed(2) + ' rad/s');
-  s.check('CATCH: |ω| below 0.5 within 120 ms of the touch', first >= 0 && first <= 120,
-          'first below 0.5 at ' + first.toFixed(0) + ' ms; then, held, the finger\'s give swings it back at up to ' +
-          rebound.toFixed(2) + ' rad/s, last ≥ 0.5 at ' + lastFast.toFixed(0) + ' ms');
+  s.check('CATCH: spinning at ≥ 6 rad/s when touched', fast && Math.abs(w0) >= 6 && Math.abs(wTouch) >= 3,
+          'ω ' + w0.toFixed(2) + ' rad/s a moment before, ' + wTouch.toFixed(2) + ' rad/s as the finger came down');
+  s.check('CATCH: |ω| below 0.5 within 120 ms of the touch', first >= 0 && first <= 120, 'first below 0.5 at ' + first.toFixed(0) + ' ms');
+  s.check('CATCH: held still, it stays put (|ω| < 0.3 rad/s from 60 ms until the lift)', n60 > 10 && after < 0.3,
+          'max |ω| ' + after.toFixed(3) + ' rad/s over ' + n60 + ' steps');
+  s.check('CATCH: it never swings back (against its spin ≤ 0.3 rad/s; drift < 0.5° after 60 ms, tremor included)',
+          back <= 0.3 && drift < 0.5 * Math.PI / 180,
+          'back ' + back.toFixed(3) + ' rad/s, drift ' + (drift * 180 / Math.PI).toFixed(3) + '°');
   s.check('CATCH: no toggle', r.state === state0, state0 + ' → ' + r.state);
   if (!page) { await H.invariants(s, t, 'CATCH'); await t.close(); }
+}
+
+/**
+ * CATCH on the way home: pulled out by the waist and let go, the glass is
+ * caught as it springs back. It stops where the finger met it and stays
+ * there (a pixel of tremor moves it by less than that), then goes home when
+ * the finger lifts.
+ */
+async function testCatchMove(s, env) {
+  var t = await env.open({ motionStub: CFG.stub });
+  var g = await t.glass();
+  var state0 = await t.eval(function () { return window.Hourglass.timer.state; });
+  await t.touch.down(g.cx, g.cy);
+  await t.touch.path(function (u) { return { x: g.cx + 140 * u, y: g.cy }; }, 200);
+  await sleep(250);
+  await recBody(t);
+  await t.touch.up();
+  await sleep(80);                                           // on its way home, near its fastest
+  var g2 = await t.glass();
+  await t.touch.down(g2.cx, g2.cy);
+  await sleep(200);
+  await t.touch.move(g2.cx + 1, g2.cy);                      // tremor
+  await sleep(50);
+  await t.touch.move(g2.cx, g2.cy);
+  await sleep(150);
+  await t.touch.up();
+  var restAt = await waitRest(t, 2000);
+  var r = await t.eval(function () {
+    var b = window.Hourglass.body;
+    return { rows: __rec.stop(), down: __mon.downAt, up: __mon.upAt, state: window.Hourglass.timer.state, px: b.px };
+  });
+  var vTouch = 0, pTouch = 0, first = -1, after = 0, p60 = null, drift = 0, n60 = 0, back = 0, mode = '';
+  r.rows.forEach(function (q) {
+    var dt = q[R_T] - r.down, v = Math.sqrt(q[R_VX] * q[R_VX] + q[R_VY] * q[R_VY]);
+    if (q[R_T] < r.down) { vTouch = q[R_VX]; pTouch = q[R_PX]; return; }
+    if (q[R_T] > r.up) return;
+    mode = q[R_MODE];
+    if (first < 0 && v < 5) first = dt;
+    if (dt < 200 && vTouch && q[R_VX] * vTouch < 0 && Math.abs(q[R_VX]) > back) back = Math.abs(q[R_VX]);   // before the tremor
+    if (dt < 60) return;
+    n60++;
+    if (v > after && dt < 200) after = v;                    // before the tremor
+    if (p60 === null) p60 = q[R_PX];
+    else if (Math.abs(q[R_PX] - p60) > drift) drift = Math.abs(q[R_PX] - p60);
+  });
+  s.check('CATCH (move): caught on its way home', vTouch < -100 && pTouch > 20,
+          'at ' + pTouch.toFixed(1) + ' px from home, moving ' + vTouch.toFixed(0) + ' px/s');
+  s.check('CATCH (move): stopped within 120 ms, held as a move', first >= 0 && first <= 120 && mode === 'held-move',
+          'below 5 px/s at ' + first.toFixed(0) + ' ms, mode ' + mode);
+  s.check('CATCH (move): held still, it stays put (< 3 px/s from 60 ms; never back toward where it was caught)',
+          n60 > 10 && after < 3 && back < 3, 'max ' + after.toFixed(2) + ' px/s, back ' + back.toFixed(2) + ' px/s');
+  s.check('CATCH (move): a pixel of tremor moves it by less than a pixel', drift < 1, 'drift ' + drift.toFixed(2) + ' px after 60 ms');
+  s.check('CATCH (move): let go, it springs home', restAt > 0 && r.px === 0, restAt > 0 ? 'home ' + (restAt - r.up).toFixed(0) + ' ms after the lift' : 'not home');
+  s.check('CATCH (move): no toggle', r.state === state0, state0 + ' → ' + r.state);
+  await H.invariants(s, t, 'CATCH (move)');
+  await t.close();
 }
 
 /* ---- 6. MEND ------------------------------------------------------------- */
@@ -491,7 +578,7 @@ async function main() {
     if (!only || only === 'move') await testMoveAlone(s, env);
     if (!only || only === 'turn') await testTurn(s, env);
     if (!only || only === 'free') await testFree(s, env);
-    if (!only || only === 'catch') await testCatch(s, env);
+    if (!only || only === 'catch') { await testCatch(s, env); await testCatchMove(s, env); }
     if (!only || only === 'mend') await testMend(s, env);
     if (!only || only === 'zen') await testZen(s, env);
     if (!only || only === 'reduced') await testReduced(s, env);
@@ -505,6 +592,6 @@ async function main() {
 
 module.exports = {
   CFG: CFG, testMove: testMoveAlone, testTurn: testTurn, testFree: testFree, testCatch: testCatch,
-  testMend: testMend, testZen: testZen, testReduced: testReduced, testTap: testTap
+  testCatchMove: testCatchMove, testMend: testMend, testZen: testZen, testReduced: testReduced, testTap: testTap
 };
 if (require.main === module) main();
