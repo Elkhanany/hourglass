@@ -20,9 +20,12 @@ Live (once GitHub Pages is enabled): `https://elkhanany.github.io/hourglass/`
 | Material, frame, sound, gravity, screen | **Tune** | |
 
 After four seconds of running without a touch the controls fade to 12 %
-(or disappear entirely with *Full Zen*). The first tap only brings them back.
-The moon icon dims them at once and, where the browser allows it, goes
-full screen.
+(or disappear entirely with *Full Zen*) and the glass grows to fill the
+screen. The first tap only brings them back. The moon icon dims them at once
+and, where the browser allows it, goes full screen.
+
+A longer glass holds more sand: about a third full for one minute, half for
+five, three quarters for 45.
 
 **Tune** holds the rest:
 
@@ -46,12 +49,17 @@ timer carries on from the wall clock, a paused one comes back as it was left.
   arrays (one cell = one grain). Grains that leave the neck, are poured in, or
   splash become ballistic particles with sub-pixel position and velocity
   (`v = v0 + g·Δt`), and return to the lattice when they come to rest.
-- **Angle of repose.** A static grain holds until the slope over three columns
-  exceeds 2:3 (33.7°). A grain already moving keeps running on slopes down to
-  1:2, and wakes its neighbours as it goes. Landed grains keep tumbling
-  downslope in short hops while the surface is steeper than 2:3. Measured in
-  the test harness: 33° at rest, up to about 39° transiently under a very fast
-  pour.
+- **Stick and slip.** Sand does not creep, it lets go. A static grain holds
+  until the slope over four columns passes 3:4 (37°, the angle of maximum
+  stability); once moving it keeps running on slopes down to 1:2 and wakes its
+  neighbours, so the surface gives way in small avalanches and builds again.
+  Landed grains tumble downslope in short hops while the surface is steeper
+  than 3:4. Measured in the test harness the slope breathes between about 32°
+  and 36° and averages 33° to 34°.
+- **A living stream.** The flow rate swings by tens of percent around its mean
+  (slow breathing, pulses near 2 Hz, fine flutter) and the stream leaves the
+  neck as one thin thread that wanders. The swings average to zero and fade
+  out before the end, so timing is unaffected.
 - **Drain funnel.** Voids rise from the neck and diffuse sideways, so the upper
   surface dips in the middle instead of sinking flat.
 - **Exact timing.** The wall clock (`performance.now()`) is the master. For any
@@ -68,14 +76,22 @@ timer carries on from the wall clock, a paused one comes back as it was left.
   and elapsed and remaining time swap.
 - **Sleep map.** Only rows near something that changed are swept, so a settled
   pile costs almost nothing during long timers.
-- **Rendering.** Each grain is a lit 2×2 bead with a persistent colour seed,
-  depth-based ambient occlusion, a rim-lit surface, glossy facets and mica
-  glints, written straight into an `ImageData` buffer. A half-resolution bloom
-  layer adds the light scattered around the brightest grains. The glass, caps
-  and lighting are pre-rendered canvas layers composited by the browser.
+- **Sand rendering.** Each grain is a lit 2×2 bead with a persistent colour
+  seed, depth-based ambient occlusion, a rim-lit surface, glossy facets and
+  mica glints, written straight into an `ImageData` buffer. A half-resolution
+  bloom layer adds the light scattered around the brightest grains.
+- **Glass rendering.** The vessel is a surface of revolution, so every pixel
+  has an exact 3-D normal. A WebGL fragment shader lights it like a renderer
+  would: Fresnel reflection of a small studio (softbox, strip, two kickers
+  behind for the bright rim, one hard lamp), the mirrored second highlight of
+  the far wall behind the sand, absorption along the true path through the
+  shell, and light bent through the solid rim. The room stays put while the
+  glass turns, so highlights slide across it. Without WebGL the app falls
+  back to a drawn glass on 2-D canvas.
 
-Grain counts: about 17,400 on phones and 25,300 on larger screens, up to
-23,000 / 33,400 after adding sand.
+Grain counts depend on the duration: on phones from about 10,000 (one minute)
+to 21,000 (45 minutes), up to 24,000 after adding sand; roughly 45 % more on
+larger screens.
 
 ### `audio.js` — procedural sound
 

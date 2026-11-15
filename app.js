@@ -17,7 +17,7 @@
    *  Elements
    * ==================================================================== */
   var app = $('app'), stage = $('stage'), assembly = $('assembly');
-  var rotor = $('rotor'), shadow = $('shadow'), lightCanvas = $('c-light');
+  var rotor = $('rotor'), shadow = $('shadow'), lightCanvas = $('c-light'), zoom = $('zoom');
   var hudTop = $('hud-top'), hudBottom = $('hud-bottom');
   var tMain = $('t-main'), tFrac = $('t-frac'), statusEl = $('status');
   var btnPlay = $('btn-play'), btnFlip = $('btn-flip'), btnSand = $('btn-sand');
@@ -63,7 +63,8 @@
   var roomy = Math.min(window.innerWidth, window.innerHeight) >= 700;
   var sim = new P.Sim({ scale: roomy ? 1.3 : 1.08, seed: (Date.now() & 0x7fffffff) | 1 });
   var renderer = new P.Renderer(sim, {
-    back: $('c-back'), sand: $('c-sand'), bloom: $('c-bloom'), front: $('c-front'), light: lightCanvas
+    back: $('c-back'), sand: $('c-sand'), bloom: $('c-bloom'), front: $('c-front'), light: lightCanvas,
+    glBack: $('c-glass-back'), glFront: $('c-glass-front')
   });
   renderer.setFrame(settings.frame);
   var audio = new window.HourglassAudio();
@@ -97,6 +98,16 @@
     tailGrains: 30,
     lastTick: Date.now()
   };
+
+  /**
+   * How much sand a glass of this length holds. A longer glass is a fuller
+   * one (roughly a third full for a minute, three quarters for 45 minutes);
+   * the neck's flow rate makes up the rest.
+   */
+  function grainsFor(ms) {
+    var f = 0.36 + 0.40 * Math.log(ms / 60000) / Math.log(45);
+    return Math.round(sim.capacity * Math.max(0.17, Math.min(0.78, f)));
+  }
 
   function calibrate() {
     var N = sim.total, d = T.durationMs;
@@ -201,7 +212,7 @@
       if (flip.active) { flip.active = false; flip.dragging = false; }
       grav.base = 0;
       applyFlip(0);
-      sim.reset(sim.defaultGrains);
+      sim.reset(grainsFor(T.durationMs));
       sim.tilt = 0;
       calibrate();
       T.rem = T.durationMs;
@@ -300,7 +311,7 @@
   function stepFlip(now, dtMs) {
     var prev = sim.angle, a;
     if (flip.dragging) {
-      a = prev + (flip.grabAngle - prev) * 0.2;         // follow the finger with some weight
+      a = prev + (flip.grabAngle - prev) * (1 - Math.exp(-Math.min(dtMs, 100) / 75));   // follow the finger with some weight
       if (a > Math.PI) { swapEnds(); a -= Math.PI; prev -= Math.PI; flip.grabAngle -= Math.PI; }
       else if (a < -Math.PI) { swapEnds(); a += Math.PI; prev += Math.PI; flip.grabAngle += Math.PI; }
     } else {
@@ -439,12 +450,12 @@
     setState(stateAfterSwap(was, false));
   }
 
-  function stepGravity() {
+  function stepGravity(dtMs) {
     var want = grav.on ? grav.target : 0;
     if (want > -0.045 && want < 0.045) want = 0;          // standing straight: let the sand sleep
     var d = wrapPi(want + grav.base - sim.tilt);
     if (d > 0.0008 || d < -0.0008) {
-      sim.tilt = wrapPi(sim.tilt + d * 0.07);              // gravity eases over, never snaps
+      sim.tilt = wrapPi(sim.tilt + d * (1 - Math.exp(-dtMs / 240)));   // gravity eases over, never snaps
       sim.wakeAll();
     } else if (d !== 0) {
       sim.tilt = wrapPi(want + grav.base);
@@ -466,7 +477,7 @@
     if (flip.active) stepFlip(now, dtMs);
     handlePour(now, dtMs);
 
-    stepGravity();
+    stepGravity(Math.min(dtMs, 100));
 
     var running = T.state === 'running' && !flip.active;
     var draining = T.state === 'done' && sim.nTop > 0 && !flip.active;
@@ -475,10 +486,17 @@
     var target = sim.nTop;
     if (running) {
       var ideal = topAt(T.rem);
-      if (T.rem > T.tailMs + 1200) {
-        // organic micro-fluctuation of the flow (zero-mean, vanishes at the end)
-        var a = Math.min(5, T.rate * 0.03), ts = now / 1000;
-        ideal += a * (0.6 * Math.sin(ts * 5.2) + 0.4 * Math.sin(ts * 14.4 + 1.3));
+      var fade = (T.rem - T.tailMs - 1200) / 3000;
+      if (fade > 0) {
+        // Sand does not pour like water. The stream breathes and pulses as
+        // air trades places with it through the neck. These swings average
+        // to zero and fade out before the end, so the clock stays exact.
+        if (fade > 1) fade = 1;
+        var ts = now / 1000;
+        ideal += T.rate * fade * (
+          0.113 * Math.sin(ts * 1.95 + 1.3 * Math.sin(ts * 0.37)) +     // slow breathing, ±22 %
+          0.022 * Math.sin(ts * 11.9 + 1.1 * Math.sin(ts * 1.7)) +      // pulses near 2 Hz, ±26 %
+          0.007 * Math.sin(ts * 28.9 + 0.5));                           // fine flutter, ±20 %
       }
       target = Math.ceil(ideal - 1e-7);
       if (target < 0) target = 0;
@@ -506,6 +524,7 @@
       dirty = false;
     }
 
+    renderer.drawGlass(sim.angle + sim.tilt);            // reflections follow the room, not the glass
     feedAudio(dtMs / 1000, active, running);
     if (now - lastSave > 5000) { lastSave = now; if (T.state === 'running') saveSession(); }
     showTime(flip.active ? flip.shown : T.rem);
@@ -560,17 +579,18 @@
   function wake() {
     lastInput = performance.now();
     zenForced = false;
-    if (app.classList.contains('zen')) app.classList.remove('zen');
+    if (app.classList.contains('zen')) { app.classList.remove('zen'); applyZoom(); }
   }
   function updateZen(now) {
     var zen = zenForced || (T.state === 'running' && !sheetOpen && !pour.held && !flip.active &&
               now - lastInput > 4000);
-    if (zen !== app.classList.contains('zen')) app.classList.toggle('zen', zen);
+    if (zen !== app.classList.contains('zen')) { app.classList.toggle('zen', zen); applyZoom(); }
   }
   /** Dim the controls right away; where the browser allows, hide its chrome too. */
   function zenNow() {
     zenForced = true;
     app.classList.add('zen');
+    applyZoom();
     var el = document.documentElement;
     var req = el.requestFullscreen || el.webkitRequestFullscreen;
     var inFs = document.fullscreenElement || document.webkitFullscreenElement;
@@ -591,8 +611,15 @@
     layoutQueued = true;
     requestAnimationFrame(function () { layoutQueued = false; layout(); });
   }
+  var Z = { normal: '', k0: 1 };                 // how the big view is shrunk to sit between the controls
+  function safeInsets() {
+    var cs = getComputedStyle($('safe'));
+    return { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0,
+             b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+  }
   function layout() {
     var vw = window.innerWidth, vh = window.innerHeight;
+    // room between the controls
     var left = 0, right = vw, top, bottom;
     if (vw > vh && vh < 520) {
       // landscape phone: readout left, controls right, glass between them
@@ -604,25 +631,32 @@
       top = hudTop.getBoundingClientRect().bottom + (settings.frame ? 6 : 14);
       bottom = hudBottom.querySelector('.panel').getBoundingClientRect().top - (settings.frame ? 12 : 18);
     }
-    var g = sim.geo;
-    var availW = Math.max(60, right - left - 20);
-    var availH = Math.max(120, bottom - top);
-    // never let a grain grow past ~2 CSS px: it stops reading as sand
-    availH = Math.min(availH, renderer._box().h * 2.05);
-    var r = renderer.layout(availW, availH, window.devicePixelRatio || 1);
-    L.width = r.width; L.height = r.height;
-    var x = left + (right - left - r.width) / 2;
-    var y = top + (bottom - top - r.height) / 2;
+    // room when the controls are dimmed: the whole screen
+    var safe = safeInsets();
+    var zl = safe.l + 8, zr = vw - safe.r - 8, zt = safe.t + 12, zb = vh - safe.b - 14;
+    var zw = Math.max(60, zr - zl), zh = Math.max(120, zb - zt);
+    // never let a grain grow past ~2.3 CSS px: it stops reading as sand
+    zh = Math.min(zh, renderer._box().h * 2.3);
+    var r = renderer.layout(zw, zh, window.devicePixelRatio || 1);
+    var x = zl + (zr - zl - r.width) / 2, y = zt + (zb - zt - r.height) / 2;
+    zoom.style.width = r.width + 'px';
+    zoom.style.height = r.height + 'px';
+    zoom.style.left = Math.round(x) + 'px';
+    zoom.style.top = Math.round(y) + 'px';
     assembly.style.width = r.width + 'px';
     assembly.style.height = r.height + 'px';
-    assembly.style.left = Math.round(x) + 'px';
-    assembly.style.top = Math.round(y) + 'px';
-    shadow.style.left = (x - r.width * 0.06) + 'px';
-    shadow.style.width = (r.width * 1.12) + 'px';
-    shadow.style.top = (y + r.height * 0.955) + 'px';
-    shadow.style.height = (r.height * 0.075) + 'px';
+    var k0 = Math.min(1, Math.max(60, right - left - 20) / r.width, Math.max(120, bottom - top) / r.height);
+    var dx = (left + right) / 2 - (x + r.width / 2), dy = (top + bottom) / 2 - (y + r.height / 2);
+    Z.k0 = k0;
+    Z.normal = 'translate(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px) scale(' + k0.toFixed(4) + ')';
+    L.width = r.width * k0; L.height = r.height * k0;
+    applyZoom();
     if (flip.active) applyFlip(sim.angle);
     dirty = true;
+  }
+  /** Dimmed controls give the glass the whole screen; it grows and settles back slowly. */
+  function applyZoom() {
+    zoom.style.transform = app.classList.contains('zen') ? '' : Z.normal;
   }
 
   /* ======================================================================
@@ -1119,6 +1153,7 @@
   /* ======================================================================
    *  Boot
    * ==================================================================== */
+  sim.reset(grainsFor(T.durationMs));
   calibrate();
   T.rem = T.durationMs;
   var restored = restoreSession();                     // pick up where the glass was left
