@@ -821,11 +821,36 @@
     this.wakeAll();
   };
 
+  /**
+   * Put every airborne grain to rest on the surface of its own column, in its own
+   * bulb, so a bulk move can never bury a grain in flight.
+   */
+  Sim.prototype._landAll = function () {
+    var W = this.W, cell = this.cell, gate = this.gateY, keep = 0;
+    for (var p = 0; p < this.np; p++) {
+      var x = this.px[p] | 0, y = this.py[p] | 0, i = y * W + x, j = i;
+      while (cell[j] >= REST) j -= W;                  // climb out of the sand; glass and the closed neck stop it
+      if (cell[j] !== EMPTY) {                         // met the glass: look close by, never across the neck
+        j = this._freeNear(i, W);
+        if (j >= 0 && (((j / W) | 0) < gate) !== (y < gate)) j = -1;
+      }
+      if (j < 0) {                                     // nowhere to put it: let it keep flying
+        this.px[keep] = this.px[p]; this.py[keep] = this.py[p];
+        this.pvx[keep] = this.pvx[p]; this.pvy[keep] = this.pvy[p];
+        this.pseed[keep] = this.pseed[p]; this.pinfo[keep] = this.pinfo[p];
+        keep++; continue;
+      }
+      this._settleAt(j % W, (j / W) | 0, this.pseed[p]);
+    }
+    this.np = keep;
+  };
+
   /* ---------------------------------------------------------------- *
-   *  Fast-forward: the tab was hidden and the clock ran on. Move `n`
+   *  Fast-forward: the page was asleep and the clock ran on. Move `n`
    *  grains through the neck in bulk (no per-grain flight) and relax.
    * ---------------------------------------------------------------- */
   Sim.prototype.fastForward = function (n) {
+    this._landAll();
     var W = this.W, cell = this.cell, seed = this.seed;
     var gy0 = this.gateY, below = (gy0 + 1) * W, moved = 0, guard = 0;
     var span = this.gateX1 - this.gateX0 + 1;

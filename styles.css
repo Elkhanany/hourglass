@@ -28,6 +28,7 @@
   --sar: env(safe-area-inset-right, 0px);
 
   --ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+  --sine: cubic-bezier(0.37, 0, 0.63, 1);      /* even, unhurried: settling in and out */
 /* A soft system serif: New York on Apple devices, Noto Serif on Android,
      Palatino / Cambria on Windows. Nothing is downloaded. */
   --font: ui-serif, "New York", "Iowan Old Style", "Palatino Linotype", Palatino,
@@ -160,10 +161,15 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   pointer-events: none;
 }
 .hud > * { pointer-events: auto; }
-#app.zen .hud { opacity: 0.12; }
+#app.zen .hud { opacity: 0.12; transition: opacity 2.8s var(--sine); }   /* settle in slowly */
 #app.zen.zen-full .hud { opacity: 0; }
-#app.zen .hud > * { pointer-events: none; }
-#app:not(.zen) .hud { transition-duration: 0.5s; }
+#app.zen-deep .hud > * { pointer-events: none; }   /* controls stay live while still visibly fading */
+#app:not(.zen) .hud { transition-duration: 0.5s; }  /* a touch wakes them promptly */
+#app.zen #zoom { transition: transform 2.8s var(--sine); }
+#app.zen #t-frac { opacity: 0; transition: opacity 1.2s var(--sine); }
+#app.zen-deep .panel { -webkit-backdrop-filter: none; backdrop-filter: none; }   /* invisible at 12 %: stop re-blurring the sand */
+/* the end of a glass: the controls rise and the glass settles back slowly */
+#app.slow .hud, #app.slow #zoom, #app.slow #t-frac { transition-duration: 2.4s; transition-timing-function: var(--sine); }
 
 /* ---- top ---------------------------------------------------------- */
 #hud-top {
@@ -228,6 +234,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   display: inline-block; min-width: 1.15em; text-align: left;   /* tenths never nudge the minutes */
   color: var(--ink-3);
   margin-left: 0.04em;
+  transition: opacity 0.5s var(--ease);
 }
 #status {
   margin-top: 5px;
@@ -536,6 +543,9 @@ input[type="range"]::-moz-range-thumb {
   opacity: 0; pointer-events: none;
   transition: opacity 0.9s var(--ease);
 }
+#veil.boot { opacity: 1; transition: none; animation: veil-lift 1.4s var(--sine) 2.5s forwards; }  /* failsafe */
+#veil.lift { transition: opacity 1.4s var(--sine); }
+@keyframes veil-lift { to { opacity: 0; } }
 #veil.on { opacity: 1; transition: none; }
 
 /* ---- toast -------------------------------------------------------- */
@@ -588,4 +598,6 @@ input[type="range"]::-moz-range-thumb {
 }
 @media (prefers-reduced-motion: reduce) {
   .hud, .sheet, #scrim, #toast, .pill, .act, .card { transition-duration: 0.01s !important; }
+  #zoom, #t-frac { transition-duration: 0.01s !important; }   /* the glass does not grow or shrink either */
+  #app.zen .hud > * { pointer-events: none; }                 /* dim at once, so a tap only wakes */
 }

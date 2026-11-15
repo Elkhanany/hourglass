@@ -93,6 +93,7 @@
    *    tail phase:  the final grains thin into single drops
    * ==================================================================== */
   var TAIL_P = 1.7;
+  var back = false;                  // just woke from a sleep: deliver the backlog quietly
   var T = {
     state: 'idle',                   // idle | running | paused | done
     durationMs: settings.durationMs,
@@ -143,6 +144,7 @@
   function tickClock() {
     var now = Date.now(), d = now - T.lastTick;
     T.lastTick = now;
+    if (d > 1500) back = true;                 // frames and timers stopped: we were asleep
     // on its side (real gravity) the neck cannot flow, so time stands still too
     if (d <= 0 || T.state !== 'running' || flip.active || (grav.on && sim.gy < 0.7)) return;
     T.rem -= d;
@@ -200,10 +202,18 @@
     buzz(10);
   }
   function finish() {
+    endWall = Date.now();            // before setState: the wake lock covers the ending
     setState('done');
     audio.chime(0.75);               // after the last grain has landed
+    audio.end(0.75);                 // the stream flows on to the bowl, then recedes under it
     buzz([16, 110, 16, 110, 42]);
-    wake();
+    setTimeout(syncWakeLock, END_AWAKE + 100);
+    // Dimmed and watched: hold still through the last grains and the bowl, then rise slowly.
+    if (app.classList.contains('zen') && !document.hidden && !back && performance.now() - lastFrame < 250) {
+      var bowl = settings.chime && !settings.muted && settings.volume > 0 && audio.isRunning();
+      endHoldUntil = performance.now() + (bowl ? END_HOLD : END_HOLD_QUIET);
+      zenForced = false;             // the hold keeps them dim; the end releases the moon, as before
+    } else wake();
   }
 
   /* ---- reset / duration -------------------------------------------- */
@@ -519,7 +529,8 @@
       if (sim.gateOpen) {
         // the tab was asleep and the clock ran on: catch up without flight
         var owed = sim.nTop - target;
-        if (owed > Math.max(400, T.rate * 1.2)) sim.fastForward(owed - 30);
+        var cap = back ? Math.max(12, T.rate * 0.4) : Math.max(400, T.rate * 1.2);
+        if (owed > cap) sim.fastForward(owed - Math.min(30, Math.ceil(cap * 0.5)));
       }
       acc += Math.min(dtMs, 100);
       var n = 0;
@@ -529,6 +540,7 @@
       dirty = false;
     }
 
+    back = false;
     renderer.drawGlass(sim.angle + sim.tilt);            // reflections follow the room, not the glass
     feedAudio(dtMs / 1000, active, running);
     if (now - lastSave > 5000) { lastSave = now; if (T.state === 'running') saveSession(); }
@@ -555,6 +567,7 @@
       slides: S.slides,
       pouring: pour.active,
       running: running,
+      ambient: T.state === 'running',  // a running glass keeps its ambience while being turned
       flipping: flip.active,
       spin: Math.abs(flip.spin),
       angle: sim.angle,
@@ -572,7 +585,7 @@
   function showTime(ms) {
     var f = fmt(ms);
     if (f[0] !== shownMain) { shownMain = f[0]; tMain.textContent = f[0]; }
-    if (f[1] !== shownFrac) { shownFrac = f[1]; tFrac.textContent = f[1]; }
+    if (f[1] !== shownFrac && !app.classList.contains('zen')) { shownFrac = f[1]; tFrac.textContent = f[1]; }   // tenths rest while dimmed
     var title = T.state === 'running' ? f[0] + ' · Hourglass'
               : (T.state === 'done' ? 'Time · Hourglass' : 'Hourglass');
     if (title !== shownTitle) { shownTitle = title; document.title = title; }
@@ -581,19 +594,45 @@
   /* ======================================================================
    *  Zen HUD
    * ==================================================================== */
-  var zenForced = false;
+  var zenForced = false, zenSince = 0;
+  var END_HOLD = 3000, END_HOLD_QUIET = 1500, END_AWAKE = 12000;
+  var endHoldUntil = 0, endWall = -1e9, slowTimer = 0;
   function wake() {
     lastInput = performance.now();
     zenForced = false;
+    endHoldUntil = 0;
+    clearTimeout(slowTimer);
+    app.classList.remove('slow', 'zen-deep');
     if (app.classList.contains('zen')) { app.classList.remove('zen'); applyZoom(); }
   }
+  /** The end of a glass: the controls rise and the glass settles back, slowly. */
+  function rise() {
+    var dim = app.classList.contains('zen');
+    wake();
+    if (dim) {
+      app.classList.add('slow');
+      slowTimer = setTimeout(function () { app.classList.remove('slow'); }, 2600);
+    }
+  }
   function updateZen(now) {
-    var zen = zenForced || (T.state === 'running' && !sheetOpen && !pour.held && !flip.active &&
+    var hold = false;
+    if (endHoldUntil) {
+      if (T.state !== 'done' || flip.active) endHoldUntil = 0;   // turned over: it runs again, like any start
+      else if (now < endHoldUntil) hold = true;
+      else rise();
+    }
+    var zen = hold || zenForced || (T.state === 'running' && !sheetOpen && !pour.held && !flip.active &&
               now - lastInput > 4000);
     if (zen !== app.classList.contains('zen')) { app.classList.toggle('zen', zen); applyZoom(); }
+    // settled: once fully dim, stop re-blurring the panel and stop taking taps on the controls
+    var on = app.classList.contains('zen');          // read the class: the moon button sets it directly
+    if (!on) zenSince = 0; else if (!zenSince) zenSince = now;
+    var deep = on && now - zenSince > 2900;
+    if (deep !== app.classList.contains('zen-deep')) app.classList.toggle('zen-deep', deep);
   }
   /** Dim the controls right away; where the browser allows, hide its chrome too. */
   function zenNow() {
+    zoom.style.transition = '';                       // even within the launch's first moments: settle slowly
     zenForced = true;
     app.classList.add('zen');
     applyZoom();
@@ -684,7 +723,8 @@
   var wakeLock = null, wakePending = false, wakeState = 'idle';   // idle | active | failed | unsupported
   var awakeNote = $('awake-note');
   function wantAwake() {
-    return settings.keepAwake && T.state === 'running' && !document.hidden;
+    return settings.keepAwake && !document.hidden &&
+      (T.state === 'running' || (T.state === 'done' && Date.now() - endWall < END_AWAKE));
   }
   function showAwake() {
     awakeNote.textContent =
@@ -1137,12 +1177,14 @@
       var inTail = T.rem < T.tailMs;
       audio.hold(inTail ? 1 : T.rate, inTail ? T.rem / T.tailMs : 1);
     } else {
-      audio.hush();
+      audio.hold(0, 0);                // sand silent; the ambience finishes its own course
     }
   }
   document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) back = true;   // before tickClock: an end found on return is not held
     tickClock();
     if (document.hidden) {
+      if (endHoldUntil) wake();        // away during the ending: the controls are up on return
       backgroundHold();
       pourEnd();
       if (grab && grab.turning) { grab = null; releaseTurn(); }
@@ -1197,12 +1239,22 @@
   setMuted(settings.muted);
   setCharacter(settings.character);
   syncPills();
+  zoom.style.transition = 'none';                     // arrive in place, not shrinking from the Zen size
   layout();
+  void zoom.offsetWidth;
   setTheme(settings.theme);
   setState(restored ? T.state : 'idle');
   if (settings.tilt) setTilt(true, false);
   showTime(T.rem);
-  requestAnimationFrame(function (t) { lastFrame = t; T.lastTick = Date.now(); requestAnimationFrame(frame); });
+  requestAnimationFrame(function (t) {
+    lastFrame = t; T.lastTick = Date.now(); requestAnimationFrame(frame);
+    requestAnimationFrame(function () {               // the first frame is drawn: fade up from dark
+      veil.style.opacity = getComputedStyle(veil).opacity;   // (on a slow first visit the CSS failsafe
+      veil.classList.remove('boot'); void veil.offsetWidth;  //  may already be lifting it: go on from there)
+      veil.classList.add('lift'); veil.style.opacity = '';
+      setTimeout(function () { zoom.style.transition = ''; veil.classList.remove('lift'); }, 1500);
+    });
+  });
 
   // Synthesise the sound beds while idle so the first touch is instant.
   if (window.requestIdleCallback) window.requestIdleCallback(function () { audio.prepare(); }, { timeout: 2500 });
