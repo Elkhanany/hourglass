@@ -26,7 +26,7 @@
   <div id="ambient" aria-hidden="true"></div>
 
   <!-- the instrument -->
-  <main id="stage" aria-label="Hourglass. Tap to start or pause.">
+  <main id="stage" aria-label="Hourglass. Tap to start or pause. Drag to move or turn it.">
     <div id="zoom">
     <div id="shadow" aria-hidden="true"></div>
     <div id="assembly">
@@ -40,6 +40,8 @@
       </div>
       <canvas id="c-light" aria-hidden="true"></canvas>
     </div>
+    <!-- sand that got out of the glass, on the desk below it -->
+    <canvas id="c-spill" aria-hidden="true"></canvas>
     </div>
   </main>
 
@@ -183,7 +185,7 @@
           <input id="opt-awake" class="switch" type="checkbox" role="switch" checked>
         </label>
         <label class="row" for="opt-tilt">
-          <span><b>Real gravity</b><small>Sand follows how you hold the phone. Turn it over to flip.</small></span>
+          <span><b>Real motion</b><small>Sand feels every lean, turn and shake. Shaken very hard, the glass can crack.</small></span>
           <input id="opt-tilt" class="switch" type="checkbox" role="switch">
         </label>
         <label class="row" for="opt-zen">
@@ -196,7 +198,7 @@
         </label>
       </div>
 
-      <p class="colophon"><span id="grain-count">—</span> grains, each one simulated. Every sound is synthesised live.</p>
+      <p class="colophon"><span id="grain-count">—</span> grains<span id="spilled"></span>, each one simulated. Every sound is synthesised live.</p>
     </div>
   </section>
 
@@ -239,6 +241,7 @@
 
 <script src="./physics.js" defer></script>
 <script src="./audio.js" defer></script>
+<script src="./motion.js" defer></script>
 <script src="./app.js" defer></script>
 </body>
 </html>
