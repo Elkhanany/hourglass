@@ -19,10 +19,16 @@ Live (once GitHub Pages is enabled): `https://elkhanany.github.io/hourglass/`
 | Mute | Speaker icon | `M` |
 | Material, frame, sound, gravity, screen | **Tune** | |
 
-After four seconds of running without a touch the controls fade to 12 %
-(or disappear entirely with *Full Zen*) and the glass grows to fill the
-screen. The first tap only brings them back. The moon icon dims them at once
-and, where the browser allows it, goes full screen.
+After four seconds of running without a touch the controls fade slowly, over
+about three seconds, to 12 % (or disappear entirely with *Full Zen*) as the
+glass grows to fill the screen; while they are dimmed the tenths rest. The
+first tap only brings them back. The moon icon dims them at once and, where
+the browser allows it, goes full screen.
+
+When the sand runs out while the controls are dimmed, the glass stays still
+through the last grains and the bowl, then the controls return slowly. A
+touch brings them back at once. The app itself opens by fading up from dark,
+with the glass already in its place.
 
 A longer glass holds more sand: about a third full for one minute, half for
 five, three quarters for 45.
@@ -63,13 +69,14 @@ timer carries on from the wall clock, a paused one comes back as it was left.
   out before the end, so timing is unaffected.
 - **Drain funnel.** Voids rise from the neck and diffuse sideways, so the upper
   surface dips in the middle instead of sinking flat.
-- **Exact timing.** The wall clock (`performance.now()`) is the master. For any
+- **Exact timing.** The wall clock (`Date.now()`) is the master. For any
   remaining time the app knows how many grains must still be above the neck,
   and the neck releases exactly the difference on each fixed 120 Hz step. The
   flow therefore self-corrects after dropped frames, and the last grain leaves
   the neck on the frame the readout reaches `00:00.0`. The final grains thin
-  out into single drops. If the tab was hidden, the backlog is moved in bulk
-  when it returns.
+  out into single drops. If the page was asleep, the sand that should have
+  fallen is laid down at once when it returns (grains still in the air land
+  first), and the stream carries on as its usual thin thread.
 - **Turning and gravity.** Gravity is a vector. While the glass turns (by the
   button, by hand, or because the device itself is turned) it rotates
   continuously in the vessel's frame, so the sand tumbles along the glass.
@@ -129,21 +136,31 @@ itself, by retuning the resonator bank and the pitch of each grain:
   phone speaker reproduces; it is meant for headphones.
 
 An optional **ambience** plays behind the sand while it runs, bypassing the
-character's tone shaping:
+character's tone shaping. It keeps flowing through the last grain, then
+recedes under the bowl.
 
-- *Brook*: each trapped air bubble is a decaying sine whose pitch follows its
-  size (Minnaert) and rises as it surfaces; a few hundred a second, in small
-  cascades, over a band-limited wash.
+- *Brook*: running water, built from the air it traps. Each bubble rings at a
+  pitch set by its size (Minnaert) and dies within milliseconds: about 280 a
+  second of tiny ones (the fizz above 2.4 kHz), 170 middling ones (the
+  babble) and a dozen big, low ones, over the flickering rush of the current.
+  Its spectrum, burstiness, tonality, flicker and stereo image were matched
+  band by band to six field recordings of small streams; it lands inside the
+  range of 53 to 54 of the 54 measures, where the previous brook missed 34.
+  Both ears hear the same bubbles, panned and slightly delayed. The flow loops
+  every 9.3 s and the big bubbles every 14.3 s, so the two only line up again
+  after about 22 minutes.
 - *Rain*: a dense patter of fine filtered clicks, a few heavier drops and a
   distant hiss.
 
-Both are synthesised into seamless loops the first time they are chosen.
+Both are synthesised into seamless loops in short idle slices: the saved one
+while the page settles after loading, another the first time it is chosen.
 
 Levels and spectra were set by offline rendering and measurement (about
 −25 dBFS RMS with grain peaks near −9 dBFS at the default volume; the brook
-and rain sit near −25 and −28 dBFS at their default level). The three newer
-characters and both ambiences have not been tuned by ear, so treat the tables
-at the top of `audio.js` (`CHARACTERS`, the `MODES_*` sets, `AMBIENCES`) as a
+and rain sit near −26 and −28 dBFS at their default level). The three newer
+characters and the ambiences have not been tuned by ear (the brook was matched
+to measurements, not by listening), so treat the tables at the top of
+`audio.js` (`CHARACTERS`, the `MODES_*` sets, `WATER`, `AMBIENCES`) as a
 starting point.
 
 ### `app.js`, `index.html`, `styles.css`

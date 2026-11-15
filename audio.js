@@ -296,42 +296,181 @@
     return out;
   }
 
+  /* ---- running water ---------------------------------------------------
+   * A brook is mostly the sound of air. Every bubble the current traps rings
+   * at a pitch set by its size (Minnaert: ≈ 3.3 kHz·mm / radius) and dies in
+   * a few milliseconds, so thousands a second blur into the sound of
+   * running water: the fizz of tiny bubbles and splashes above 2.4 kHz, the
+   * babble of middling ones, now and then a big, low bloop, all over the
+   * diffuse rush of the current itself.
+   *
+   * The proportions come from six field recordings of small streams,
+   * measured band by band: spectrum, how bursty and how tonal each band is,
+   * how it flickers and swells, how alike the two ears are. Pitches barely
+   * glide (real bubbles rise by a few percent, not by octaves) and no event
+   * is louder than three times the median, so nothing stands out enough to
+   * be noticed coming round again.
+   *
+   * Both ears hear the same bubbles: each channel is rendered from the same
+   * seed, every event panned and the far ear delayed by up to 0.35 ms. The
+   * current is part shared, part independent, for a wide but whole image.
+   * ------------------------------------------------------------------- */
+
+  /** Seeded PRNG (mulberry32), so both channels draw the same bubbles. */
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  /** Roughly N(0, 1), cheaply. */
+  function gauss(r) { return (r() + r() + r() + r() - 2) * 1.732; }
+
   /**
-   * A brook. Running water is mostly the sound of air: each trapped bubble
-   * rings at a pitch set by its size (Minnaert), rises a little as it nears
-   * the surface, and dies in a few milliseconds. Hundreds a second, in small
-   * cascades, over the soft wash of the current.
+   * A smooth random curve of `n` control steps that loops seamlessly: zero
+   * mean, unit deviation, low-passed at `fc` Hz (control rate `cr`). With
+   * `hp`, its own `hp` Hz low-pass is taken away, so a quick flicker does not
+   * leak into the slow swell.
    */
-  function rawBrook(sr, seconds) {
-    var n = Math.floor(sr * seconds);
-    var out = level(rawWash(sr, seconds, 520, 3200), 0.034);
-    var tab = SINE;
-    function bubble(t, f0, gain) {
-      var d = 0.043 * f0 + 0.0014 * Math.pow(f0, 1.5);              // damping, 1/s
-      var len = Math.min(n, Math.ceil(sr * 4.6 / d)), start = Math.floor(t * sr) % n;
-      var env = gain * 0.085 * Math.pow(f0 / 900, -0.55), dec = Math.exp(-d / sr);
-      // phase in table steps; the pitch rises as the bubble nears the surface
-      var ph = rnd() * 4096, dph = 4096 * f0 / sr, rise = 4096 * f0 * (0.15 + 0.6 * rnd()) * d / (sr * sr);
-      var j = start;
-      for (var i = 0; i < len; i++) {
-        out[j] += env * tab[ph & 4095] * (i < 12 ? i / 12 : 1);
-        if (++j === n) j = 0;                                       // wraps → seamless
-        ph += dph + rise * i; env *= dec;
-      }
+  function ctrlCurve(r, n, fc, cr, hp) {
+    var m = Math.ceil(cr / fc * 2), raw = new Float32Array(n + m), out = new Float32Array(n), i;
+    var k = 1 - Math.exp(-TAU * fc / cr), a = 0, b = 0, warm = Math.ceil(cr / Math.min(fc, hp || fc) * 4);
+    var kh = hp ? 1 - Math.exp(-TAU * hp / cr) : 0, c = 0, e = 0;
+    for (i = -warm; i < n + m; i++) {
+      a += k * (gauss(r) - a); b += k * (a - b);
+      if (hp) { c += kh * (b - c); e += kh * (c - e); }
+      if (i >= 0) raw[i] = b - e;
     }
-    var t = 0;
+    for (i = 0; i < n; i++) out[i] = raw[i];
+    for (i = 0; i < m; i++) { var x = i / m; out[i] = raw[i] * Math.sqrt(x) + raw[n + i] * Math.sqrt(1 - x); }
+    var mu = 0, s = 0;
+    for (i = 0; i < n; i++) mu += out[i];
+    mu /= n;
+    for (i = 0; i < n; i++) { out[i] -= mu; s += out[i] * out[i]; }
+    s = Math.sqrt(s / n) || 1;
+    for (i = 0; i < n; i++) out[i] /= s;
+    return out;
+  }
+
+  var WATER = {
+    cr: 200,                                  // control rate of the curves, Hz
+    swell: 0.06,                              // slow swell of the whole flow (log-amplitude σ, ≈ ±0.5 dB)
+    itd: 0.35e-3,                             // the far ear hears a hard-panned bubble this much later
+    cap: 3,                                   // no bubble louder than 3× the median
+    // the current: noise band-passed and flickering (σ of a log-normal gain
+    // band-passed to fhp…fc Hz); `rho` of the noise and `rhoEnv` of the flicker
+    // are shared between the ears; `gain` is its RMS beside the bubbles' amplitudes
+    bed: { gain: 0.081, lp: 2400, hp: 300, fc: 18, fhp: 3, sigma: 0.28, rho: 0.35, rhoEnv: 0.5 },
+    body: { gain: 0.031, lp: 500, hp: 110, fc: 8, fhp: 2, sigma: 0.40, rho: 0.5, rhoEnv: 0.6 },
+    // bubbles: rate /s, pitch range (skew < 1 leans high), median amplitude,
+    // its log-normal σ and tilt with pitch, damping × Minnaert's, pitch glide
+    // ξ0…ξ1 per decay time, the rhythm of the rate (σ of a log-normal
+    // band-passed to rhp…rfc Hz), and how wide they are panned
+    fizz: { rate: 280, f0: 2400, f1: 9000, skew: 1.0, amp: 0.16, sigma: 1.3, tilt: -0.35,
+            damp: 3.0, xi0: 0, xi1: 0.08, rfc: 14, rhp: 3, rsigma: 0.6, pan: 0.9 },
+    babble: { rate: 170, f0: 750, f1: 3000, skew: 0.8, amp: 0.07, sigma: 0.8, tilt: -0.4,
+              damp: 1.3, xi0: -0.02, xi1: 0.08, rfc: 5, rhp: 1.5, rsigma: 0.6, pan: 0.8 },
+    bloop: { rate: 12, f0: 300, f1: 700, skew: 1.0, amp: 0.06, sigma: 0.45, tilt: -0.3,
+             damp: 1.15, xi0: -0.03, xi1: 0.09, rfc: 3, rhp: 1, rsigma: 0.4, pan: 0.7 },
+    // per-channel RMS of the two loops (0.080 together; the bloops carry ≈ 6 % of the power)
+    rmsFlow: 0.0774, rmsBloops: 0.0202
+  };
+
+  /**
+   * One channel of the current: noise into a 2-pole low-pass and a 1-pole
+   * high-pass, its gain flickering on the control curves. Unit RMS.
+   */
+  function waterBed(sr, n, nc, B, swell, rS, rC) {
+    var fade = Math.floor(sr * 0.25), raw = new Float32Array(n + fade), out = new Float32Array(n);
+    var cr = WATER.cr, i;
+    var kl = 1 - Math.exp(-TAU * B.lp / sr), kh = 1 - Math.exp(-TAU * B.hp / sr);
+    var fS = ctrlCurve(rS, nc, B.fc, cr, B.fhp), fC = ctrlCurve(rC, nc, B.fc, cr, B.fhp);
+    var cs = Math.sqrt(B.rho), cc = Math.sqrt(1 - B.rho), es = Math.sqrt(B.rhoEnv), ec = Math.sqrt(1 - B.rhoEnv);
+    // the gain curve once per control step (exp per sample is costly), then interpolated
+    var G = new Float32Array(nc + 1);
+    for (i = 0; i < nc; i++) G[i] = Math.exp(B.sigma * (es * fS[i] + ec * fC[i]) + WATER.swell * swell[i]);
+    G[nc] = G[0];
+    var l1 = 0, l2 = 0, h = 0, pos = 0, step = nc / n;
+    for (i = 0; i < raw.length; i++) {
+      var w = cs * (rS() * 2 - 1) + cc * (rC() * 2 - 1);
+      l1 += kl * (w - l1); l2 += kl * (l1 - l2);
+      h += kh * (l2 - h);
+      var c0 = pos | 0;
+      raw[i] = (l2 - h) * (G[c0] + (G[c0 + 1] - G[c0]) * (pos - c0));
+      pos += step; if (pos >= nc) pos -= nc;
+    }
+    for (i = 0; i < n; i++) out[i] = raw[i];
+    for (i = 0; i < fade; i++) {                     // equal-power crossfade → seamless loop
+      var a = i / fade;
+      out[i] = raw[i] * Math.sqrt(a) + raw[n + i] * Math.sqrt(1 - a);
+    }
+    var s = 0;
+    for (i = 0; i < n; i++) s += out[i] * out[i];
+    s = Math.sqrt(s / n) || 1;
+    for (i = 0; i < n; i++) out[i] /= s;
+    return out;
+  }
+
+  /** Add one class of bubbles to a channel: shared events, this ear's pan and delay. */
+  function waterBubbles(out, sr, seconds, nc, C, swell, rE, ch) {
+    var n = out.length, cr = WATER.cr, tab = SINE, itd = WATER.itd * sr;
+    var rate = ctrlCurve(rE, nc, C.rfc, cr, C.rhp);
+    // a Poisson stream whose rate swings log-normally: thin a faster one
+    var mMax = Math.exp(C.rsigma * 2.5), lam = C.rate * mMax, lr = Math.log(C.f1 / C.f0), t = 0;
     for (;;) {
-      t += -Math.log(1 - rnd()) / 70;
+      t += -Math.log(1 - rE()) / lam;
       if (t >= seconds) break;
-      var f0 = 420 * Math.pow(2, 3.7 * Math.pow(rnd(), 1.5));       // 0.4 – 5.5 kHz, mostly low
-      bubble(t, f0, 0.2 + rnd() * rnd() * 1.6);
-      if (rnd() < 0.3) {                                            // a little cascade
-        for (var k = 1 + ((rnd() * 4) | 0); k > 0; k--) {
-          bubble(t + rnd() * 0.07, f0 * (0.75 + rnd() * 0.6), 0.15 + rnd() * 0.7);
-        }
+      var c = Math.min(nc - 1, (t / seconds * nc) | 0);
+      var keep = Math.exp(C.rsigma * rate[c] - C.rsigma * C.rsigma * 0.5) / mMax;
+      var u = rE(), uf = rE(), ua = gauss(rE), ux = rE(), up = rE();   // drawn alike in both ears
+      if (u > keep) continue;
+      var f0 = C.f0 * Math.exp(lr * Math.pow(uf, C.skew));
+      var amp = C.amp * Math.min(WATER.cap, Math.exp(C.sigma * ua)) * Math.pow(f0 / 1000, C.tilt) *
+                Math.exp(WATER.swell * swell[c]);
+      var d = C.damp * (0.043 * f0 + 0.0014 * f0 * Math.sqrt(f0));      // damping, 1/s
+      var xi = C.xi0 + (C.xi1 - C.xi0) * ux;
+      var p = (up * 2 - 1) * C.pan, ang = (p + 1) * Math.PI / 4;
+      var env = amp * 1.414 * (ch ? Math.sin(ang) : Math.cos(ang)), dec = Math.exp(-d / sr);
+      var delay = Math.round(itd * (ch ? Math.max(0, -p) : Math.max(0, p)));   // far ear later
+      // phase in table steps; the pitch glides by ξ per decay time
+      var ph = rE() * 4096, dph = 4096 * f0 / sr, rise = 4096 * f0 * xi * d / (sr * sr);
+      var len = Math.min(n, Math.ceil(sr * 4.6 / d)), j = (Math.floor(t * sr) + delay) % n;
+      for (var k = 0; k < len; k++) {
+        out[j] += env * tab[ph & 4095] * (k < 8 ? k / 8 : 1);
+        if (++j === n) j = 0;                                         // wraps → seamless
+        ph += dph + rise * k; env *= dec;
       }
     }
-    return level(out, 0.085);
+  }
+
+  /** One channel of the brook's flow: the current, fizz and babble. */
+  function rawBrookFlow(sr, seconds, ch, seed) {
+    var n = Math.floor(sr * seconds), nc = Math.round(seconds * WATER.cr), i;
+    var rE = mulberry32(seed * 7919 + 13);                      // shared by both ears
+    var rC = mulberry32(seed * 104729 + 31 + ch * 977);         // this ear's own
+    var swell = ctrlCurve(rE, nc, 0.5, WATER.cr);
+    var bed = waterBed(sr, n, nc, WATER.bed, swell, mulberry32(seed * 31 + 101), rC);
+    var body = waterBed(sr, n, nc, WATER.body, swell, mulberry32(seed * 31 + 202), rC);
+    var out = new Float32Array(n);
+    for (i = 0; i < n; i++) out[i] = WATER.bed.gain * bed[i] + WATER.body.gain * body[i];
+    waterBubbles(out, sr, seconds, nc, WATER.fizz, swell, rE, ch);
+    waterBubbles(out, sr, seconds, nc, WATER.babble, swell, rE, ch);
+    return level(out, WATER.rmsFlow);
+  }
+
+  /**
+   * One channel of the brook's big, low bubbles. They loop on their own,
+   * co-prime with the flow, so the two line up again only every ~22 min.
+   */
+  function rawBrookBloops(sr, seconds, ch, seed) {
+    var n = Math.floor(sr * seconds), nc = Math.round(seconds * WATER.cr);
+    var rE = mulberry32(seed * 7919 + 4099);
+    var swell = ctrlCurve(rE, nc, 0.5, WATER.cr);
+    var out = new Float32Array(n);
+    waterBubbles(out, sr, seconds, nc, WATER.bloop, swell, rE, ch);
+    return level(out, WATER.rmsBloops);
   }
 
   /** One raindrop: a tiny filtered click. */
@@ -362,10 +501,19 @@
     return level(out, 0.075);
   }
 
+  /*
+   * Each ambience is one or more seamless loops, played together. `make(sr,
+   * seconds, ch, seed)` renders one channel; both channels get the same seed.
+   */
   var AMBIENCES = {
     none: { name: 'None' },
-    brook: { name: 'Brook', seconds: 9.3, make: rawBrook },
-    rain: { name: 'Rain', seconds: 7.9, make: rawRain }
+    brook: { name: 'Brook', layers: [
+      { make: rawBrookFlow, seconds: 9.3, sr: PRE_SR },
+      { make: rawBrookBloops, seconds: 14.3, sr: 24000 }       // ≤ 700 Hz: a lower rate is plenty
+    ] },
+    rain: { name: 'Rain', layers: [
+      { make: rawRain, seconds: 7.9, sr: PRE_SR }
+    ] }
   };
 
   function softClipCurve() {
@@ -397,9 +545,12 @@
     this._silenced = false;
     this.ambience = 'none';   // optional second layer: 'none' | 'brook' | 'rain'
     this.ambLevel = 0.5;
-    this._ambRaw = {};        // synthesised ambiences, by id
+    this._ambRaw = {};        // synthesised ambiences, by id: [L, R] per layer…
+    this._ambBuf = {};        // …wrapped into AudioBuffers once there is a context
+    this._ambJobs = {};       // ambiences being synthesised, by id
     this._amb = null;         // the one playing
     this._ambPreview = 0;     // audition until this context time
+    this._ambUntil = 0;       // after a glass ends: flows on until this context time
     this._raw = {};           // pre-synthesised source material
     this._prepStep = 0;
     this.onstate = null;      // callback(stateString)
@@ -428,9 +579,14 @@
     var self = this;
     if (!AC || this._prepTimer || this._prepStep >= PREP_STEPS.length) return;
     (function next() {
-      if (self._prepStep >= PREP_STEPS.length) { self._prepTimer = 0; return; }
-      PREP_STEPS[self._prepStep++](self._raw);
-      self._prepTimer = setTimeout(next, 30);
+      if (self._prepStep < PREP_STEPS.length) {
+        PREP_STEPS[self._prepStep++](self._raw);
+        self._prepTimer = setTimeout(next, 30);
+        return;
+      }
+      self._prepTimer = 0;
+      // then the chosen ambience, so a first touch with it saved stays instant too
+      if (self.ambience !== 'none') self._synthAmbience(self.ambience);
     })();
   };
   /** Finish whatever `prepare()` has not done yet (synchronously). */
@@ -506,6 +662,11 @@
       try { g.cancelScheduledValues(t); } catch (e) {}
       g.setValueAtTime(0, t);
       g.setTargetAtTime(this._masterTarget(), t + 0.01, 0.09);
+      // the stream comes back with the glass, never as a leftover from before the pause
+      var ab = this.ambBus.gain;
+      try { ab.cancelScheduledValues(t); } catch (e1) {}
+      ab.setValueAtTime(0, t);
+      this._ambUntil = 0;
       this._last = {};                 // force every parameter to re-sync
     } else if (!document.hidden) {
       this._recover();                 // 'interrupted' / 'suspended'
@@ -734,62 +895,107 @@
   HourglassAudio.prototype._ambGain = function () {
     return Math.pow(this.ambLevel, 1.5) * 1.1;
   };
-  /** Synthesise an ambience right now (blocking). Returns its two channels. */
-  HourglassAudio.prototype._makeAmbience = function (id) {
+  /** Synthesise an ambience right now (blocking; for tests). Returns [L, R] per layer. */
+  HourglassAudio.prototype._makeAmbience = function (id, seed) {
     var d = AMBIENCES[id];
-    if (!d || !d.make) return null;
-    if (!this._ambRaw[id]) this._ambRaw[id] = [d.make(PRE_SR, d.seconds), d.make(PRE_SR, d.seconds)];
+    if (!d || !d.layers) return null;
+    seed = seed || 1;
+    if (!this._ambRaw[id]) {
+      this._ambRaw[id] = d.layers.map(function (L) {
+        return [L.make(L.sr, L.seconds, 0, seed), L.make(L.sr, L.seconds, 1, seed)];
+      });
+    }
     return this._ambRaw[id];
   };
-  /** Synthesise it a channel at a time so the page stays responsive, then play it. */
-  HourglassAudio.prototype._loadAmbience = function (id) {
+  /**
+   * Synthesise an ambience one channel of one layer per slice, so the page
+   * stays responsive, then call `done`. However often it is asked for, each
+   * ambience is synthesised once.
+   */
+  HourglassAudio.prototype._synthAmbience = function (id, done) {
     var self = this, d = AMBIENCES[id];
-    if (!d || !d.make) return;
-    if (this._ambRaw[id]) { this._startAmbience(id); return; }
-    var chans = [];
-    (function next() {
-      chans.push(d.make(PRE_SR, d.seconds));
-      if (chans.length < 2) { setTimeout(next, 40); return; }
-      self._ambRaw[id] = chans;
-      if (self.ambience === id) self._startAmbience(id);
-    })();
+    if (!d || !d.layers) return;
+    if (this._ambRaw[id] || this._ambBuf[id]) { if (done) done(); return; }
+    var job = this._ambJobs[id];
+    if (job) { if (done) job.done.push(done); return; }               // already on its way
+    job = this._ambJobs[id] = { seed: 1 + ((rnd() * 2147483646) | 0), k: 0, out: [], done: done ? [done] : [] };
+    function next() {
+      var li = job.k >> 1, ch = job.k & 1, L = d.layers[li];
+      if (!ch) job.out[li] = [];
+      job.out[li][ch] = L.make(L.sr, L.seconds, ch, job.seed);          // both ears: one seed
+      if (++job.k < d.layers.length * 2) { setTimeout(next, 30); return; }
+      self._ambRaw[id] = job.out;
+      delete self._ambJobs[id];
+      for (var i = 0; i < job.done.length; i++) job.done[i]();
+    }
+    setTimeout(next, 30);                                // never inside the tap that asked for it
+  };
+  /** Synthesise if need be, then play — if it is still the one wanted. */
+  HourglassAudio.prototype._loadAmbience = function (id) {
+    var self = this;
+    this._synthAmbience(id, function () { if (self.ambience === id) self._startAmbience(id); });
   };
   HourglassAudio.prototype._startAmbience = function (id) {
     if (!this.ready) return;
-    var ctx = this.ctx, t = ctx.currentTime, old = this._amb;
-    if (old && old.id === id) return;
-    if (old) {                                           // cross-fade out of the previous one
-      old.g.gain.setTargetAtTime(0, t, 0.3);
-      setTimeout(function () { try { old.src.stop(); old.g.disconnect(); } catch (e) {} }, 1800);
-      this._amb = null;
+    var ctx = this.ctx, t = ctx.currentTime, d = AMBIENCES[id], i;
+    if (this._amb && this._amb.id === id) return;
+    this._stopAmbience();                                // cross-fade out of the previous one
+    var bufs = this._ambBuf[id], raw = this._ambRaw[id];
+    if (!bufs) {
+      if (!raw) return;
+      bufs = this._ambBuf[id] = [];                      // wrap once, then let the arrays go
+      for (i = 0; i < raw.length; i++) bufs.push(toBuffer(ctx, raw[i], d.layers[i].sr));
+      delete this._ambRaw[id];
     }
-    var raw = this._ambRaw[id];
-    if (!raw) return;
-    var src = ctx.createBufferSource(), g = ctx.createGain();
-    src.buffer = toBuffer(ctx, raw, PRE_SR);
-    src.loop = true;
+    var g = ctx.createGain(), srcs = [];
     g.gain.value = 0;
-    src.connect(g); g.connect(this.ambBus);
-    src.start(0, rnd() * src.buffer.duration * 0.5);
+    g.connect(this.ambBus);
+    for (i = 0; i < bufs.length; i++) {                  // the layers loop independently
+      var src = ctx.createBufferSource();
+      src.buffer = bufs[i];
+      src.loop = true;
+      src.connect(g);
+      src.start(0, rnd() * bufs[i].duration);
+      srcs.push(src);
+    }
     g.gain.setTargetAtTime(1, t, 0.4);
-    this._amb = { id: id, src: src, g: g };
+    this._amb = { id: id, srcs: srcs, g: g };
+  };
+  /** Fade out the ambience that is playing, then let it go. */
+  HourglassAudio.prototype._stopAmbience = function () {
+    var old = this._amb;
+    if (!old) return;
+    this._amb = null;
+    old.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.3);
+    setTimeout(function () {
+      for (var i = 0; i < old.srcs.length; i++) { try { old.srcs[i].stop(); } catch (e) {} }
+      try { old.g.disconnect(); } catch (e) {}
+    }, 1800);
   };
   /** 'none' | 'brook' | 'rain'. Plays while the sand runs; auditions briefly when chosen. */
   HourglassAudio.prototype.setAmbience = function (id, audition) {
     if (!AMBIENCES[id]) return;
     this.ambience = id;
     if (!this.ready) return;
-    if (id === 'none') {
-      var old = this._amb, t = this.ctx.currentTime;
-      if (old) {
-        old.g.gain.setTargetAtTime(0, t, 0.3);
-        setTimeout(function () { try { old.src.stop(); old.g.disconnect(); } catch (e) {} }, 1800);
-        this._amb = null;
-      }
-      return;
-    }
+    if (id === 'none') { this._stopAmbience(); return; }
     if (audition) this._ambPreview = this.ctx.currentTime + 5;
     this._loadAmbience(id);
+  };
+  /**
+   * Glide the ambience bus. On while `on` (the glass is running), while it is
+   * auditioned, and until the bowl after a glass ends. Then it recedes: slowly
+   * after a glass (τ 2 s, −4.3 dB/s: −20 dB 5 s after the bowl, −40 dB at 10 s),
+   * gently (τ 0.9 s) on pause or reset.
+   */
+  HourglassAudio.prototype._ambience = function (on) {
+    var t = this.ctx.currentTime;
+    on = !!this._amb && this.ambience !== 'none' && (on || t < this._ambPreview || t < this._ambUntil);
+    this._set('amb', this.ambBus.gain, on ? this._ambGain() : 0,
+              on ? 0.5 : (this._ambUntil && t < this._ambUntil + 1 ? 2.0 : 0.9));
+  };
+  /** The glass has run out: the stream flows on until the bowl sounds (`delay` s), then recedes under it. */
+  HourglassAudio.prototype.end = function (delay) {
+    if (this.ready && this.ctx.state === 'running') this._ambUntil = this.ctx.currentTime + (delay || 0);
   };
   HourglassAudio.prototype.setAmbienceLevel = function (v, audition) {
     this.ambLevel = Math.max(0, Math.min(1, v));
@@ -820,9 +1026,8 @@
     if (!this.ready || this.ctx.state !== 'running') return;
     var ctx = this.ctx, t = ctx.currentTime;
     var dt = st.dt > 0 ? Math.min(st.dt, 0.1) : 0.016;
-    // ---- ambience: on while the sand runs (or while being auditioned) ------
-    var ambOn = this._amb && this.ambience !== 'none' && (st.running || t < this._ambPreview);
-    this._set('amb', this.ambBus.gain, ambOn ? this._ambGain() : 0, ambOn ? 0.5 : 0.9);
+    // ---- ambience: on while the glass runs, even while it is being turned ---
+    this._ambience(st.ambient != null ? st.ambient : st.running);
 
     // ---- Layer 2: whisper follows the flow ------------------------------
     var flow = st.flow || 0;
@@ -919,14 +1124,16 @@
     this._set('pat', this.patEnv.gain, dens * this._cushion * 0.9, 0.3);
     this._set('tnk', this.tinkEnv.gain, dens * (1 - this._cushion) * 0.8, 0.3);
     this._set('rush', this.rEnv.gain, 0, 0.2);
-    this._set('amb', this.ambBus.gain, this._amb && flow > 0.4 ? this._ambGain() : 0, 0.6);
+    this._ambience(flow > 0.4);
     if (this._last.pour) { this._last.pour = 0; this.pEnv.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1); }
   };
 
-  /** Glide every sand layer to silence (pause, reset…). */
+  /** Glide every sand layer, and the ambience, to silence (pause, reset…). */
   HourglassAudio.prototype.hush = function () {
     if (!this.ready) return;
     var t = this.ctx.currentTime;
+    this._ambUntil = 0;
+    this._ambience(false);
     this._set('w', this.wEnv.gain, 0, 0.12);
     this._set('pat', this.patEnv.gain, 0, 0.12);
     this._set('tnk', this.tinkEnv.gain, 0, 0.1);
