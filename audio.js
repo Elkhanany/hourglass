@@ -11,6 +11,9 @@
  *   Layer 3  Grain impacts     0.8–3 ms micro-impulses fired by physics events
  *                              (bare-glass "tink" ⇄ sand-on-sand "patter")
  *   Layer 4  Foley             pour rush, flip thud + sweep, end-of-timer bowl
+ *   Layer 5  The glass in hand bed landings and slams when shaken, a shaker
+ *                              shimmer, creaks, a crack, the trickle of a leak,
+ *                              the hum of mending
  *
  *   → micro-room convolution → compressor → soft clipper → master
  *
@@ -101,6 +104,32 @@
       modes: MODES_DUNE, send: 0.9, tick: 0.5, band: 0.52, body: 1.0
     }
   };
+
+  /*
+   * How a glass rings once it has been through something: [mode frequency ×,
+   * Q ×] against the character's own table. A crack lets the vessel's modes
+   * leak energy, so they ring lower and duller; the gold seam of a mended
+   * glass damps them only a little.
+   */
+  var GLASS_STATES = {
+    intact: [1, 1],
+    cracked: [0.97, 0.6],
+    mended: [0.99, 0.85]
+  };
+  /*
+   * Output levels of the glass's own sounds against their recipes, found by
+   * rendering offline through the real chain (whose compressor lets a few
+   * milliseconds of transient through and lifts them):
+   *   crack  the snap, the ring and the knock of a crack: it peaks about
+   *          15 dB under the completion bowl (13.5 at the least), surprising
+   *          but never alarming
+   *   tick   the tiny ticks of strained glass (creaks, a crack settling or
+   *          growing): four creak ticks peak under −32 dBFS, panned or not,
+   *          on an intact or a cracked glass
+   *   hum    the mend hum; at its recipe's level it rendered at −70 dBFS,
+   *          below hearing, and sits near −48 dBFS RMS with this
+   */
+  var LEVEL = { crack: 0.045, tick: 0.2, hum: 12 };
 
   /* ======================================================================
    *  Buffer synthesis
@@ -575,7 +604,38 @@
     this._raw = {};           // pre-synthesised source material
     this._prepStep = 0;
     this.onstate = null;      // callback(stateString)
+    // ---- the glass in hand -----------------------------------------------
+    this.cracked = 'intact';  // 'intact' | 'cracked' | 'mended': how the vessel rings
+    this._crF = 1;            // mode frequency × for that state
+    this._crQ = 1;            // mode Q × for that state
+    this._fill = 0;           // last fill seen by update()
+    this._agit = 0;           // agitation (0–3) behind the shaker shimmer
+    this._leakPan = 0;
+    // Poisson streams of grains: leaking out through a chip, landing on the desk.
+    // `ring` holds the last `cap` arrivals, so no second ever hears more.
+    this._leakS = { kind: 0, next: 0, cap: 40, head: 0, ring: new Float64Array(40) };
+    this._spillS = { kind: 1, next: 0, cap: 20, head: 0, ring: new Float64Array(20) };
+    // rate limits of the one-shots: the last time each played (context time)
+    this._thumpT = new Float64Array(2);           // one per bulb
+    this._clackT = new Float64Array(12);          // the last 12 clacks
+    this._growT = new Float64Array(4);            // the last 4 crack growths
+    this._clackHead = 0; this._growHead = 0;
+    this._last1 = { clack: 0, creak: 0, crack: 0, chip: 0, catchThud: 0, mended: 0, newGlass: 0 };   // set below
+    this._hum = null;         // the mend hum while a finger holds the glass
+    this._resetRates();
   }
+
+  /** Forget every rate limit (a new context starts its clock at 0). */
+  HourglassAudio.prototype._resetRates = function () {
+    var k;
+    for (k = 0; k < 2; k++) this._thumpT[k] = -1e9;
+    for (k = 0; k < 12; k++) this._clackT[k] = -1e9;
+    for (k = 0; k < 4; k++) this._growT[k] = -1e9;
+    for (k = 0; k < 40; k++) this._leakS.ring[k] = -1e9;
+    for (k = 0; k < 20; k++) this._spillS.ring[k] = -1e9;
+    for (k in this._last1) this._last1[k] = -1e9;
+    this._leakS.next = 0; this._spillS.next = 0;
+  };
 
   /* ---------------------------------------------------------------- *
    *  Source material, synthesised in small slices
@@ -764,6 +824,13 @@
       this.pats.push(toBuffer(ctx, [raw.pats[i]], PRE_SR));
     }
     this.brown = brown;
+    this.pink = pink;
+    // A fifth of a second of white noise, for the glass's own clicks and
+    // snaps. Seeded, so the crack's snap (always the same stretch of it) has
+    // the same peak every time; the other clicks start anywhere in it.
+    var wn = new Float32Array(Math.floor(PRE_SR * 0.2)), wr = mulberry32(0x9e3779b9);
+    for (i = 0; i < wn.length; i++) wn[i] = wr() * 2 - 1;
+    this.white = toBuffer(ctx, [wn], PRE_SR);
 
     // ---- Layer 1: glass cavity (modal bank) ----------------------------
     this.modalIn = G(1);
@@ -837,6 +904,13 @@
     this.rEnv.connect(this.rPan); this.rPan.connect(this.gFoley);
     var sR = G(0.45); this.rEnv.connect(sR); sR.connect(this.modalIn);
 
+    // ---- Layer 5: outside the glass -------------------------------------
+    // Spilled grains landing on the desk: no vessel to excite, so this bus
+    // bypasses the modal bank. Its level follows the character's grains.
+    this.spillBus = G(0);
+    this.spillBus.connect(this.gFoley);
+    this._resetRates();
+
     this._raw = {};                         // wrapped into AudioBuffers: free the originals
     // ---- ambience: an optional layer behind the sand ----------------------
     // It bypasses the character's tone shaping (a dune should not muffle a brook).
@@ -882,17 +956,36 @@
     this.toneLow.gain.setTargetAtTime(c.low, t, tau);
     this.toneHigh.gain.setTargetAtTime(c.high, t, tau);
     this.toneLP.frequency.setTargetAtTime(c.lp, t, tau);
-    // re-voice the vessel itself
+    // re-voice the vessel itself (a cracked or mended glass keeps its state)
     var modes = this._modes = c.modes || MODES;
     for (var i = 0; i < this.modes.length; i++) {
-      this.modes[i].Q.setTargetAtTime(modes[i][1], t, tau);
+      this.modes[i].Q.setTargetAtTime(modes[i][1] * this._crQ, t, tau);
       this.modeGains[i].gain.setTargetAtTime(modes[i][2], t, tau);
     }
     this._last.fill = undefined;                         // retune on the next update
     this.wSend.gain.setTargetAtTime(c.send != null ? c.send : 0.55, t, tau);
     this.wBodyGain.gain.setTargetAtTime(c.body != null ? c.body : 0.42, t, tau);
+    this.spillBus.gain.setTargetAtTime(0.2 * c.ticks, t, tau);   // grains on the desk: very quiet
     this._tickRate = c.tick || 1;
     this._band = c.band || 1;
+  };
+
+  /**
+   * 'intact' | 'cracked' | 'mended': how the vessel rings. May be called
+   * before there is a context; the state is applied when the graph is built.
+   */
+  HourglassAudio.prototype.setCracked = function (state) {
+    var v = GLASS_STATES[state];
+    if (!v) return;
+    this.cracked = state;
+    this._crF = v[0];
+    this._crQ = v[1];
+    if (!this.ready) return;
+    var t = this.ctx.currentTime, modes = this._modes, fill = this._fill;
+    for (var i = 0; i < this.modes.length; i++) {
+      this.modes[i].Q.setTargetAtTime(modes[i][1] * this._crQ, t, 0.15);
+      this.modes[i].frequency.setTargetAtTime(modes[i][0] * (1 + modes[i][3] * fill) * this._crF, t, 0.15);
+    }
   };
 
   HourglassAudio.prototype.setVolume = function (v) {
@@ -1051,6 +1144,16 @@
    *    angle     current flip angle (rad)
    *    running   true while the timer is running (keeps the ambience on)
    *    sim       the Sim (for this frame's impact events), or null
+   *
+   *    — optional, the glass in hand —
+   *    agit      0 … 3 how agitated the sand is (sim.agitation())
+   *    rushPan   −1 … 1 where the sliding sand is, as heard (−0.6·f_x/G of
+   *              the fuller bulb, page frame); followed while not flipping
+   *    thump     Float32Array(4) [E0, x0, E1, x1]: this frame's bed landings
+   *              per bulb, energy and pan (sim.frame.thump), or null
+   *    slam      Float32Array(2) [E, x]: sand slamming the far end, or null
+   *    leak      grains / s escaping through a chip;  leakPan  −1 … 1
+   *    spillPats grains / s landing on the desk below
    *  }
    * ---------------------------------------------------------------- */
   HourglassAudio.prototype.update = function (st) {
@@ -1083,6 +1186,14 @@
     // ---- Layer 3a: dense textures ---------------------------------------
     var imp = st.impacts || 0;
     var dens = imp <= 0 ? 0 : Math.min(1, Math.pow(imp / 300, 0.5));
+    // Shaken, every grain rattles at once: the textures rise to a floor set by
+    // the agitation, a soft shaker shimmer, and settle back when it calms.
+    var agit = st.agit > 0 ? (st.agit < 3 ? st.agit : 3) : 0;
+    this._agit = agit;
+    if (agit > 0) {
+      var floor = 0.5 * Math.pow(agit, 1.5);
+      if (floor > dens) dens = floor < 1 ? floor : 1;
+    }
     this._set('pat', this.patEnv.gain, dens * cushion * 0.9, 0.12);
     this._set('tnk', this.tinkEnv.gain, dens * (1 - cushion) * 0.8, 0.10);
 
@@ -1103,12 +1214,27 @@
       }
     }
 
+    // ---- Layer 5: shaken, the bed lands and slams the far end -----------
+    var th = st.thump;
+    if (th) {
+      if (th[0] > 0) this.thump(th[0], th[1], 0);
+      if (th[2] > 0) this.thump(th[2], th[3], 1);
+    }
+    var sl = st.slam;
+    if (sl && sl[0] > 0) this.clack(sl[0], sl[1]);
+    // ---- Layer 5: grains trickling out of a chip, and landing on the desk ---
+    var lp = st.leakPan;
+    this._leakPan = lp > -1 ? (lp < 1 ? lp : 1) : (lp <= -1 ? -1 : 0);
+    this._stream(this._leakS, st.leak > 0 ? (st.leak < 40 ? st.leak : 40) : 0, t + 0.004, dt);
+    this._stream(this._spillS, st.spillPats > 0 ? (st.spillPats < 20 ? st.spillPats : 20) : 0, t + 0.004, dt);
+
     // ---- Layer 1: the air cavity shrinks as the lower bulb fills --------
     var fill = st.fill || 0;
+    this._fill = fill;
     if (this._last.fill === undefined || Math.abs(this._last.fill - fill) > 0.004) {
       this._last.fill = fill;
       for (var m = 0; m < this.modes.length; m++) {
-        this.modes[m].frequency.setTargetAtTime(this._modes[m][0] * (1 + this._modes[m][3] * fill), t, 0.4);
+        this.modes[m].frequency.setTargetAtTime(this._modes[m][0] * (1 + this._modes[m][3] * fill) * this._crF, t, 0.4);
       }
     }
 
@@ -1137,6 +1263,9 @@
       var spin = Math.min(1, (st.spin || 0) / 3);
       rush = Math.max(rush, Math.pow(spin, 0.8) * (0.3 + 0.55 * turn));
       panTo = Math.sin(st.angle || 0) * 0.65;
+    } else if (st.rushPan > -2 && st.rushPan < 2) {
+      // the slosh moves between the ears with the sand it is made of
+      panTo = st.rushPan < -0.65 ? -0.65 : (st.rushPan > 0.65 ? 0.65 : st.rushPan);
     }
     this._set('rush', this.rEnv.gain, rush * 0.5, rush > (this._last.rush || 0) ? 0.06 : 0.22);
     if (rush > 0.01) {
@@ -1157,6 +1286,7 @@
     this._set('rush', this.rEnv.gain, 0, 0.2);
     this._ambience(flow > 0.4);
     if (this._last.pour) { this._last.pour = 0; this.pEnv.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1); }
+    this._quietHand();                 // the textures above already left out the agitation
   };
 
   /** Glide every sand layer, and the ambience, to silence (pause, reset…). */
@@ -1171,17 +1301,65 @@
     this._set('rush', this.rEnv.gain, 0, 0.2);
     this.pEnv.gain.setTargetAtTime(0, t, 0.1);
     this._last.pour = 0;
+    this._quietHand();
+  };
+
+  /**
+   * The glass-in-hand layers fall silent too: no agitation floor, no more
+   * trickle or desk pats scheduled, no mend hum. The next update() brings
+   * back whatever the physics is still doing.
+   */
+  HourglassAudio.prototype._quietHand = function () {
+    this._agit = 0;
+    this._leakS.next = 0;
+    this._spillS.next = 0;
+    this.mendHum(0);
+  };
+
+  /**
+   * A Poisson stream of grains in [t, t + span): arrivals carry over from
+   * frame to frame, and the ring caps them at `cap` in any second. Nothing
+   * is allocated: one stream object per kind lives for the engine's life.
+   */
+  HourglassAudio.prototype._stream = function (s, rate, t, span) {
+    if (!(rate > 0)) { s.next = 0; return; }
+    // (re)start without back-filling a gap (a hidden page, a long frame)
+    if (s.next <= 0 || s.next < t - 0.05) s.next = t - Math.log(1 - rnd()) / rate;
+    var end = t + span;
+    for (var n = 0; s.next < end && n < 8; n++) {
+      var when = s.next < t ? t : s.next;
+      s.next += -Math.log(1 - rnd()) / rate;
+      if (when - s.ring[s.head] < 1) continue;           // already `cap` in the last second
+      s.ring[s.head] = when;
+      s.head = (s.head + 1) % s.cap;
+      if (s.kind === 0) this._leakPat(when);
+      else this._spillPat(when);
+    }
+  };
+
+  /** A grain escaping through the chip: fine sand rattling out past glass. */
+  HourglassAudio.prototype._leakPat = function (when) {
+    this._tick(when, false, 0.25 + 0.15 * rnd(), this._leakPan, 1.3);
+  };
+
+  /** A grain landing on the dune on the desk: outside the glass, very quiet. */
+  HourglassAudio.prototype._spillPat = function (when) {
+    var s = this.ctx.createBufferSource();
+    s.buffer = this.pats[(rnd() * this.pats.length) | 0];
+    s.playbackRate.value = 0.75 + rnd() * 0.2;
+    s.connect(this.spillBus);
+    s.start(when);
   };
 
   /* ---------------------------------------------------------------- *
    *  One grain hitting something
    * ---------------------------------------------------------------- */
-  HourglassAudio.prototype._tick = function (when, glass, amp, x) {
+  HourglassAudio.prototype._tick = function (when, glass, amp, x, rate) {
     var ctx = this.ctx;
     var bank = glass ? this.tinks : this.pats;
     var s = ctx.createBufferSource();
     s.buffer = bank[(rnd() * bank.length) | 0];
-    s.playbackRate.value = (glass ? 0.88 + rnd() * 0.3 : 0.8 + rnd() * 0.45) * (this._tickRate || 1);
+    s.playbackRate.value = (glass ? 0.88 + rnd() * 0.3 : 0.8 + rnd() * 0.45) * (this._tickRate || 1) * (rate || 1);
     var p = x < -0.22 ? 0 : (x > 0.22 ? 2 : 1);
     if (rnd() < 0.3) p = (rnd() * 3) | 0;           // a little air between grains
     if (!glass) amp *= 0.8;
@@ -1245,22 +1423,255 @@
     this._thud(this.ctx.currentTime + 0.005, 0.48, 1);       // set down
   };
 
+  /* ---------------------------------------------------------------- *
+   *  The glass in hand
+   *
+   *  Every one-shot plays only for something physical, is a no-op until
+   *  the context runs, and limits its own rate. They use the existing
+   *  buses and buffers; only short-lived nodes are made.
+   * ---------------------------------------------------------------- */
+
+  HourglassAudio.prototype._live = function () {
+    return this.ready && this.ctx.state === 'running';
+  };
+  /** True (and remembered) if `key` last played at least `gap` s ago. */
+  HourglassAudio.prototype._spaced = function (key, gap) {
+    var t = this.ctx.currentTime;
+    if (t - this._last1[key] < gap) return false;
+    this._last1[key] = t;
+    return true;
+  };
+  HourglassAudio.prototype._panner = function (p) {
+    var ctx = this.ctx;
+    if (!ctx.createStereoPanner) return ctx.createGain();
+    var n = ctx.createStereoPanner();
+    n.pan.value = p < -1 ? -1 : (p > 1 ? 1 : (p === p ? p : 0));
+    return n;
+  };
+  /**
+   * A burst of white noise `len` s long, high-passed at `hp` Hz, `gain` at
+   * its peak, panned into the foley bus; `send` of it sets the glass ringing.
+   * `from`: where in the noise to start (s), anywhere if left out.
+   */
+  HourglassAudio.prototype._click = function (when, len, hp, gain, pan, send, from) {
+    var ctx = this.ctx;
+    var s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = this.white;
+    f.type = 'highpass'; f.frequency.value = hp; f.Q.value = 0.7;
+    var a = Math.min(0.0002, len * 0.25);
+    g.gain.setValueAtTime(0, when);
+    g.gain.linearRampToValueAtTime(gain, when + a);
+    g.gain.setValueAtTime(gain, when + len - a);
+    g.gain.linearRampToValueAtTime(0, when + len);
+    s.connect(f); f.connect(g);
+    var p = this._panner(pan);
+    g.connect(p); p.connect(this.gFoley);
+    if (send) { var sg = ctx.createGain(); sg.gain.value = send; g.connect(sg); sg.connect(this.modalIn); }
+    s.start(when, from >= 0 ? from : rnd() * 0.15);
+    s.stop(when + len + 0.002);
+  };
+  /** A short kick of noise straight into the modal bank: the vessel rings. */
+  HourglassAudio.prototype._ring = function (when, gain) {
+    var ctx = this.ctx, s = ctx.createBufferSource(), g = ctx.createGain();
+    s.buffer = this.white;
+    g.gain.setValueAtTime(gain, when);
+    g.gain.linearRampToValueAtTime(0, when + 0.001);
+    s.connect(g); g.connect(this.modalIn);
+    s.start(when, rnd() * 0.15);
+    s.stop(when + 0.003);
+  };
+
+  /**
+   * The sand bed lands on its end of the glass: a soft, low thump with a
+   * little grain in it, and the vessel answering. E is the landing's
+   * dimensionless energy (≈ 0.1 normal, 0.3 vigorous, 1 violent), pan −1 … 1,
+   * bulb 0 upper, 1 lower: at most one per bulb every 60 ms.
+   */
+  HourglassAudio.prototype.thump = function (E, pan, bulb) {
+    if (!this._live()) return;
+    var s = E > 0 ? 1.3 * Math.sqrt(E) : 0;
+    if (s > 1) s = 1;
+    if (s < 0.05) return;
+    var b = bulb ? 1 : 0, t = this.ctx.currentTime;
+    if (t - this._thumpT[b] < 0.06) return;
+    this._thumpT[b] = t;
+    this._thumpAt(t + 0.004, s, pan === pan && pan ? pan : 0);
+  };
+  HourglassAudio.prototype._thumpAt = function (when, s, pan) {
+    var ctx = this.ctx;
+    var dur = 0.025 + 0.035 * s;                       // a bigger bed lands for longer
+    var fc = 300 * (1 + 0.6 * (1 - s));                // …and lower
+    var n = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    n.buffer = this.brown;
+    f.type = 'bandpass'; f.frequency.value = fc < 180 ? 180 : (fc > 700 ? 700 : fc); f.Q.value = 0.9;
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(0.16 * Math.pow(s, 0.8), when + 0.002);
+    g.gain.setTargetAtTime(0, when + 0.002, dur / 3);
+    var p = this._panner(0.6 * pan), send = ctx.createGain();
+    send.gain.value = 0.3 * s;
+    n.connect(f); f.connect(g); g.connect(p); p.connect(this.gFoley);
+    g.connect(send); send.connect(this.modalIn);       // the vessel answers
+    n.start(when, rnd() * 3); n.stop(when + dur + 0.1);
+    for (var k = 2 + ((rnd() * 3) | 0); k > 0; k--) {  // and a few grains in it
+      this._tick(when + rnd() * 0.012, false, (0.3 + 0.2 * rnd()) * s, pan);
+    }
+  };
+
+  /**
+   * Sand slamming the far end of the glass: glassier than a landing, a
+   * cluster of tinks and a hard ring of the vessel. ≤ 12 a second, ≥ 70 ms apart.
+   */
+  HourglassAudio.prototype.clack = function (E, pan) {
+    if (!this._live()) return;
+    var s = E > 0 ? 1.3 * Math.sqrt(E) : 0;
+    if (s > 1) s = 1;
+    if (s < 0.05) return;
+    var t = this.ctx.currentTime;
+    if (t - this._last1.clack < 0.07 || t - this._clackT[this._clackHead] < 1) return;
+    this._last1.clack = t;
+    this._clackT[this._clackHead] = t;
+    this._clackHead = (this._clackHead + 1) % 12;
+    this._clackAt(t + 0.004, s, pan === pan && pan ? pan : 0);
+  };
+  HourglassAudio.prototype._clackAt = function (when, s, pan) {
+    for (var k = 3 + ((rnd() * 4) | 0); k > 0; k--) {
+      this._tick(when + rnd() * 0.008, true, (0.4 + 0.3 * rnd()) * s, pan);
+    }
+    this._ring(when, 3 * s);
+  };
+
+  /**
+   * The glass under strain: `level` (1–4) tiny ticks, like a cooling glass,
+   * each a 1.2 ms high hiss that sets the vessel ringing. One call per 300 ms.
+   */
+  HourglassAudio.prototype.creak = function (level, pan) {
+    if (!this._live() || !this._spaced('creak', 0.3)) return;
+    var n = level | 0;
+    n = n < 1 ? 1 : (n > 4 ? 4 : n);
+    var when = this.ctx.currentTime + 0.004;
+    pan = (pan === pan && pan ? pan : 0) * 0.6;          // a site on the glass, not at the ear
+    for (var k = 0; k < n; k++) {
+      this._creakAt(when, (0.03 + 0.02 * rnd()) * LEVEL.tick, pan);
+      when += 0.035 + 0.055 * rnd();
+    }
+  };
+  HourglassAudio.prototype._creakAt = function (when, gain, pan) {
+    this._click(when, 0.0012, 5000, gain, pan, 0.8);
+  };
+
+  /**
+   * The glass cracks: a bright snap, the whole vessel ringing, a faint knock
+   * of its body, then the small ticks of the glass settling round the new
+   * crack. Surprising, never alarming: well below the bowl.
+   */
+  HourglassAudio.prototype.crack = function (pan) {
+    if (!this._live() || !this._spaced('crack', 0.25)) return;
+    var t = this.ctx.currentTime + 0.004;
+    pan = (pan === pan && pan ? pan : 0) * 0.6;
+    this._click(t, 0.003, 2000, 0.3 * LEVEL.crack, pan, 0, 0.05);   // the snap
+    this._ring(t, 3 * LEVEL.crack);                              // the vessel rings, 0.3–0.6 s
+    this._thud(t, 0.22 * LEVEL.crack, 1.7);                      // the body of the glass
+    var n = 6 + ((rnd() * 3) | 0);                               // and it settles
+    for (var k = 0; k < n; k++) {
+      var u = k / (n - 1);
+      var when = t + 0.12 * Math.pow(15, u) * (0.9 + 0.2 * rnd());   // 0.12 … 1.8 s, spaced exponentially
+      this._click(when, 0.0006, 3000, 0.05 * Math.pow(0.3, u) * LEVEL.tick, pan, 0.5);   // 0.05 → 0.015
+    }
+  };
+
+  /** The crack grows: 2–5 tiny clicks in 40 ms, like ice settling. ≤ 4 a second. */
+  HourglassAudio.prototype.crackGrow = function (pan) {
+    if (!this._live()) return;
+    var t = this.ctx.currentTime;
+    if (t - this._growT[this._growHead] < 1) return;
+    this._growT[this._growHead] = t;
+    this._growHead = (this._growHead + 1) % 4;
+    pan = (pan === pan && pan ? pan : 0) * 0.6;
+    for (var k = 2 + ((rnd() * 4) | 0); k > 0; k--) {
+      this._click(t + 0.004 + rnd() * 0.04, 0.0003 + 0.0005 * rnd(), 3000, (0.02 + 0.02 * rnd()) * LEVEL.tick, pan, 0.4);
+    }
+  };
+
+  /** A chip breaks out (a breach, or one that widens): a tink and a little rattle. */
+  HourglassAudio.prototype.chip = function (pan) {
+    if (!this._live() || !this._spaced('chip', 0.08)) return;
+    var t = this.ctx.currentTime + 0.004;
+    pan = pan === pan && pan ? pan : 0;
+    this._tick(t, true, 0.6, pan);
+    for (var k = 0; k < 4; k++) this._tick(t + 0.008 + k * 0.013 + rnd() * 0.008, false, 0.3 + 0.15 * rnd(), pan);
+  };
+
+  /** A finger stops a spinning glass: a soft felt stop. */
+  HourglassAudio.prototype.catchThud = function () {
+    if (!this._live() || !this._spaced('catchThud', 0.1)) return;
+    this._thud(this.ctx.currentTime + 0.004, 0.3, 1.1);
+  };
+
+  /**
+   * While a finger holds a cracked glass still and gold flows into the
+   * crack, the glass hums under it. p 0 … 1 is the mend's progress; 0 stops.
+   */
+  HourglassAudio.prototype.mendHum = function (p) {
+    if (!this.ready) return;
+    var ctx = this.ctx, t = ctx.currentTime, h = this._hum;
+    p = p > 0 ? (p < 1 ? p : 1) : 0;
+    if (p > 0 && ctx.state === 'running') {
+      if (!h) {
+        h = this._hum = { src: ctx.createBufferSource(), g: ctx.createGain() };
+        h.src.buffer = this.pink; h.src.loop = true;
+        h.g.gain.value = 0;
+        h.src.connect(h.g); h.g.connect(this.modalIn);
+        h.src.start(t, rnd() * this.pink.duration * 0.5);
+      }
+      h.g.gain.setTargetAtTime(0.02 * LEVEL.hum * p, t, 0.1);
+    } else if (h) {
+      this._hum = null;
+      h.g.gain.setTargetAtTime(0, t, 0.1);
+      setTimeout(function () {
+        try { h.src.stop(); } catch (e) {}
+        try { h.g.disconnect(); } catch (e2) {}
+      }, 800);
+    }
+  };
+
+  /** Mended: a small bell. Feedback for an action, so it plays even with the bowl off. */
+  HourglassAudio.prototype.mended = function () {
+    if (!this._live() || !this._spaced('mended', 0.3)) return;
+    this._bell(this.ctx.currentTime + 0.03, 698.46, 0.06, 0.6);     // F5
+  };
+
+  /** A fresh glass after a cracked or mended one: one soft, clear ring. */
+  HourglassAudio.prototype.newGlass = function () {
+    if (!this._live() || !this._spaced('newGlass', 0.3)) return;
+    var ctx = this.ctx, t = ctx.currentTime + 0.01;
+    var s = ctx.createBufferSource(), g = ctx.createGain();
+    s.buffer = this.tinks[(rnd() * this.tinks.length) | 0];
+    s.playbackRate.value = 0.92 + rnd() * 0.1;
+    g.gain.value = 0.7;
+    s.connect(g); g.connect(this.modalIn);
+    s.start(t);
+  };
+
   /**
    * End of timer: a warm singing-bowl bloom. Inharmonic partials, each a
    * slowly beating pair, soft attack (no mallet), ≈5 s natural decay.
    */
   HourglassAudio.prototype.chime = function (delay) {
     if (!this.ready || !this.chimeEnabled || this.ctx.state !== 'running') return;
-    var ctx = this.ctx, t0 = ctx.currentTime + (delay || 0) + 0.03;
-    var f0 = 349.23;            // F4: warm, yet audible on small phone speakers
+    this._bell(this.ctx.currentTime + (delay || 0) + 0.03, 349.23, 0.12, 1);   // F4: warm, yet audible on small phone speakers
+  };
+
+  /** The bowl's partials at f0, `level` out, each decay × `decay`. */
+  HourglassAudio.prototype._bell = function (t0, f0, level, decay) {
+    var ctx = this.ctx;
     //            ratio  level  decay τ  attack
     var parts = [[1.00, 1.00, 1.25, 0.16],
                  [2.00, 0.07, 0.95, 0.12],
                  [2.74, 0.40, 0.85, 0.09],
                  [5.18, 0.15, 0.50, 0.05],
                  [8.05, 0.045, 0.30, 0.03]];
-    var out = ctx.createGain();
-    out.gain.value = 0.12;
+    var out = ctx.createGain(), end = t0 + 8.5 * decay;
+    out.gain.value = level;
     out.connect(this.gChime);
     for (var i = 0; i < parts.length; i++) {
       var p = parts[i];
@@ -1270,17 +1681,17 @@
         o.frequency.value = f0 * p[0] * (1 + side * 0.0013);   // slow beating
         g.gain.setValueAtTime(0, t0);
         g.gain.linearRampToValueAtTime(p[1] * 0.5, t0 + p[3]);
-        g.gain.setTargetAtTime(0, t0 + p[3], p[2]);
+        g.gain.setTargetAtTime(0, t0 + p[3], p[2] * decay);
         o.connect(g);
         if (ctx.createStereoPanner) {
           var pn = ctx.createStereoPanner();
           pn.pan.value = side * 0.32;
           g.connect(pn); pn.connect(out);
         } else g.connect(out);
-        o.start(t0); o.stop(t0 + 8.5);
+        o.start(t0); o.stop(end);
       }
     }
-    setTimeout(function () { try { out.disconnect(); } catch (e) {} }, (delay || 0) * 1000 + 9500);
+    setTimeout(function () { try { out.disconnect(); } catch (e) {} }, (end - ctx.currentTime) * 1000 + 1000);
   };
 
   root.HourglassAudio = HourglassAudio;
