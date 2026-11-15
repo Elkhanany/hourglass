@@ -83,12 +83,17 @@ timer carries on from the wall clock, a paused one comes back as it was left.
   bloom layer adds the light scattered around the brightest grains.
 - **Glass rendering.** The vessel is a surface of revolution, so every pixel
   has an exact 3-D normal. A WebGL fragment shader lights it like a renderer
-  would: Fresnel reflection of a small studio (softbox, strip, two kickers
-  behind for the bright rim, one hard lamp), the mirrored second highlight of
-  the far wall behind the sand, absorption along the true path through the
-  shell, and light bent through the solid rim. The room stays put while the
-  glass turns, so highlights slide across it. Without WebGL the app falls
-  back to a drawn glass on 2-D canvas.
+  would: Fresnel reflection of a small studio (softbox, strip, kickers, a
+  pair of rim strips almost straight behind that draw a fine bright line
+  along the glass's own edge, one hard lamp), the mirrored second highlight
+  of the far wall behind the sand, absorption along the true path through the
+  shell, light bent through the solid rim, and the inner surface turning
+  mirror-like at a glance, so the sand darkens softly where it meets the
+  glass. The room stays put while the glass turns, so highlights slide across
+  it. Without WebGL the app falls back to a drawn glass on 2-D canvas.
+- **Sand stays inside the glass.** The lattice only knows whole cells, so
+  grains, motion streaks and the glow are all clipped at half-cell resolution
+  to the same smooth inner surface the glass is drawn with.
 
 Grain counts depend on the duration: on phones from about 10,000 (one minute)
 to 21,000 (45 minutes), up to 24,000 after adding sand; roughly 45 % more on

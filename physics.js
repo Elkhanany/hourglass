@@ -1001,7 +1001,7 @@
     '  float u = abs(y) / (uGeo.y + uWall);',
     '  if (u >= 1.0) return 0.0;',
     // heavier at the waist, where blown glass is drawn out; closed at the tip
-    '  return prof(u) + uWall * (1.0 + 1.15 * exp(-u * u / 0.0035)) * smoothstep(1.0, 0.985, u);',
+    '  return prof(u) + uWall * (1.0 + 1.15 * exp(-u * u / 0.0035)) * (1.0 - smoothstep(0.985, 1.0, u));',
     '}',
     'vec3 rotZ(vec3 v, float a) {',
     '  float c = cos(a), s = sin(a);',
@@ -1014,27 +1014,41 @@
     '  vec3 ux = normalize(cross(vec3(0.0, 1.0, 0.0), c));',
     '  vec3 uy = cross(c, ux);',
     '  vec2 q = abs(vec2(dot(d, ux), dot(d, uy)) / k);',
-    '  vec2 m = smoothstep(hs + soft, hs - soft, q);',
+    '  vec2 m = 1.0 - smoothstep(hs - soft, hs + soft, q);',
     '  return m.x * m.y;',
     '}',
     'vec3 room(vec3 d) {',
-    '  vec3 col = vec3(0.028) * (0.7 - 0.5 * d.y);',                                                                    // the dark room
-    '  col += vec3(1.0, 0.96, 0.90) * 4.6 * panel(d, normalize(vec3(-0.66, -0.52, 0.54)), vec2(0.20, 0.46), 0.12);',    // key softbox
-    '  col += vec3(0.90, 0.94, 1.0) * 1.7 * panel(d, normalize(vec3(0.88, -0.02, 0.36)), vec2(0.05, 0.80), 0.05);',     // fill strip
-    '  col += vec3(1.0) * 2.6 * panel(d, normalize(vec3(-0.78, -0.05, -0.62)), vec2(0.07, 1.1), 0.06);',                // kicker, behind left
-    '  col += vec3(1.0) * 1.9 * panel(d, normalize(vec3(0.78, -0.05, -0.62)), vec2(0.07, 1.1), 0.06);',                 // kicker, behind right
+    '  vec3 col = vec3(0.028) * (0.7 - 0.5 * d.y);',                                                                     // the dark room
+    '  col += vec3(1.0, 0.96, 0.90) * 4.6 * panel(d, normalize(vec3(-0.66, -0.52, 0.54)), vec2(0.20, 0.46), 0.12);',     // key softbox
+    '  col += vec3(0.90, 0.94, 1.0) * 1.7 * panel(d, normalize(vec3(0.88, -0.02, 0.36)), vec2(0.05, 0.80), 0.05);',      // fill strip
+    '  col += vec3(1.0) * 1.5 * panel(d, normalize(vec3(-0.78, -0.05, -0.62)), vec2(0.07, 1.1), 0.06);',                 // kickers: the long
+    '  col += vec3(1.0) * 1.1 * panel(d, normalize(vec3(0.78, -0.05, -0.62)), vec2(0.07, 1.1), 0.06);',                  //   soft side streaks
+    // rim strips almost straight behind: they draw the bright line along the
+    // glass's own edge, outside the sand, which is what tells the eye where
+    // the glass ends
+    '  col += vec3(1.0) * 1.7 * panel(d, normalize(vec3(-0.30, -0.04, -0.95)), vec2(0.05, 0.7), 0.08);',
+    '  col += vec3(1.0) * 1.3 * panel(d, normalize(vec3(0.30, -0.04, -0.95)), vec2(0.05, 0.7), 0.08);',
+    // soft light from the sides, which the thick rim bends round into the eye
+    '  col += vec3(0.86, 0.89, 0.94) * 0.55 * panel(d, normalize(vec3(-1.0, -0.06, 0.04)), vec2(0.5, 0.55), 0.3);',
+    '  col += vec3(0.86, 0.89, 0.94) * 0.45 * panel(d, normalize(vec3(1.0, -0.06, 0.04)), vec2(0.5, 0.55), 0.3);',
     '  float lamp = dot(d, normalize(vec3(-0.40, -0.50, 0.77)));',
     '  col += vec3(1.0, 0.98, 0.94) * (22.0 * smoothstep(0.99905, 0.99975, lamp) + 1.4 * pow(max(lamp, 0.0), 900.0));', // small hard lamp
-    '  col += uGlow * 0.5 * smoothstep(0.25, 1.0, d.y);',                                                               // the desk below
+    '  col += uGlow * 0.5 * smoothstep(0.25, 1.0, d.y);',                                                                // the desk below
     '  return col;',
     '}',
     'void main() {',
     '  vec2 p = (gl_FragCoord.xy / uRes - 0.5) * uBox;',
     '  p.y = -p.y;',
     '  float ro = rOut(p.y), ri = rIn(p.y), ax = abs(p.x);',
-    '  float edge = smoothstep(ro, ro - 1.6 * uPx, ax);',
+    '  float edge = 1.0 - smoothstep(ro - 1.6 * uPx, ro, ax);',
     '  if (ro <= 0.0 || edge <= 0.0) { gl_FragColor = vec4(0.0); return; }',
     '  const float E = 0.6;',
+    // signed distance to the inner surface, positive inside the bore: the
+    // horizontal gap shrunk by the wall's slope (it overstates the distance
+    // where the surface lies flat, at the domes), and below the dome's tip
+    // the vertical gap. Being a distance, not a column test, it has no seam.
+    '  float dri = clamp((rIn(p.y + E) - rIn(p.y - E)) / (2.0 * E), -12.0, 12.0);',
+    '  float dIn = min((ri - ax) / sqrt(1.0 + dri * dri), uGeo.y - abs(p.y));',
     '  float hlf = sqrt(max(ro * ro - ax * ax, 0.0));',
     '  float path = hlf - sqrt(max(ri * ri - ax * ax, 0.0));',          // glass crossed in one wall
     '  vec3 absorb = exp(-uAbs * path);',
@@ -1048,28 +1062,34 @@
     '    n = normalize(n);',
     '    float F = 0.04 + 0.96 * pow(1.0 - max(n.z, 0.0), 5.0);',
     '    col = room(rotZ(vec3(0.0, 0.0, -1.0) + 2.0 * n.z * n, uRot)) * F;',
-    '    vec3 tr = absorb * (1.0 - F);',
+    // leaving the wall into the bore the inner surface mirrors at a glance,
+    // so the sand darkens softly just where it meets the glass
+    '    float si = clamp(ax / max(ri, 0.001), 0.0, 0.9995);',
+    // (the dome's slope barely counts: the straight-through ray is a poor guide there)
+    '    vec3 ni = normalize(vec3(si, -dri * 0.15, sqrt(1.0 - si * si)));',
+    '    float Fi = ri > 0.5 ? 0.04 + 0.96 * pow(1.0 - max(ni.z, 0.0), 8.0) : 1.0;',
+    '    vec3 tr = absorb * (1.0 - F) * (1.0 - Fi);',
     '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;',
     // edge-on, the wall is solid glass: it bends light in from the sides
-    '    float rim = smoothstep(ri - 0.2, ri + 0.5, ax);',
+    '    float rim = 1.0 - smoothstep(-0.25, 0.35, dIn);',
     '    if (rim > 0.0) {',
-    '      float si = min(ax / ro, 0.9995);',
-    '      float dv = 2.0 * (asin(si) - asin(si / 1.5));',
-    '      vec3 o = normalize(vec3(-sign(p.x) * sin(dv), -dro * 0.5, -cos(dv)));',
+    '      float sr = min(ax / ro, 0.9995);',
+    '      float dv = 2.0 * (asin(sr) - asin(sr / 1.5));',
+    '      float sx = p.x < 0.0 ? -1.0 : 1.0;',
+    '      vec3 o = normalize(vec3(-sx * sin(dv), -dro * 0.5, -cos(dv)));',
     '      col += rim * room(rotZ(o, uRot)) * (1.0 - F) * (1.0 - F) * exp(-uAbs * hlf * 0.5);',
     '      a = mix(a, 0.82, rim);',
     '    }',
     '  } else {',
-    '    if (ax >= ri) { gl_FragColor = vec4(0.0); return; }',
-    '    float dri = clamp((rIn(p.y + E) - rIn(p.y - E)) / (2.0 * E), -8.0, 8.0);',
-    '    float sb = clamp(p.x / ri, -0.9995, 0.9995);',
+    '    if (dIn <= -0.3) { gl_FragColor = vec4(0.0); return; }',
+    '    float sb = clamp(p.x / max(ri, 0.001), -0.9995, 0.9995);',
     '    vec3 nb = normalize(vec3(-sb, dri, sqrt(1.0 - sb * sb)));',
     // inner surfaces mirror strongly at a glance (total internal reflection)
     '    float Fb = 0.05 + 0.95 * pow(1.0 - max(nb.z, 0.0), 3.5);',
     '    col = room(rotZ(vec3(0.0, 0.0, -1.0) + 2.0 * nb.z * nb, uRot)) * Fb * 0.5;',
     '    vec3 tb = absorb * (1.0 - Fb * 0.7);',
     '    a = 1.0 - (tb.r + tb.g + tb.b) / 3.0;',
-    '    edge = smoothstep(ri, ri - 1.6 * uPx, ax);',
+    '    edge *= smoothstep(-0.3, 0.3, dIn);',
     '  }',
     '  col = vec3(1.0) - exp(-col * uGain);',                             // film-like roll-off
     '  a = clamp(max(a, max(col.r, max(col.g, col.b))), 0.0, 1.0);',
@@ -1177,8 +1197,52 @@
     this.scale = 1;       // CSS px per cell
     this.dpr = 1;
     this._buildLightMap();
+    this._buildMasks();
     this._buildLUT();
   }
+
+  /**
+   * Where the glass really is, finer than the lattice can say. A cell is
+   * inside when its centre is, so a grain against the wall would poke its
+   * square corner past the smooth inner surface the glass is drawn with.
+   *   edgeMask   which of each cell's four drawn sub-pixels lie inside the
+   *              curve (bit 0 top-left, 1 top-right, 2 bottom-left,
+   *              3 bottom-right); 0 for glass, 15 for the open interior
+   *   bloomMask  the share of each half-resolution glow pixel that lies
+   *              inside, drawn in a little so light never spills onto the glass
+   */
+  Renderer.prototype._buildMasks = function () {
+    var sim = this.sim, g = sim.geo, W = sim.W, H = sim.H, cell = sim.cell;
+    var em = this.edgeMask = new Uint8Array(W * H);
+    var x, y, i, rt, rb, dl, dr, m;
+    for (y = 0; y < H; y++) {
+      rt = profile(Math.abs(y + 0.25 - g.cy) / g.HB, g);
+      rb = profile(Math.abs(y + 0.75 - g.cy) / g.HB, g);
+      for (x = 0; x < W; x++) {
+        i = y * W + x;
+        if (cell[i] === WALL) continue;
+        dl = Math.abs(x + 0.25 - g.cx); dr = Math.abs(x + 0.75 - g.cx);
+        m = 0;
+        if (dl < rt) m |= 1;
+        if (dr < rt) m |= 2;
+        if (dl < rb) m |= 4;
+        if (dr < rb) m |= 8;
+        em[i] = m;
+      }
+    }
+    var bw = this.bw, bh = this.bh, bm = this.bloomMask = new Float32Array(bw * bh);
+    var ry = new Float32Array(4), by, bx, sy, sx, n;
+    for (by = 0; by < bh; by++) {
+      for (sy = 0; sy < 4; sy++) ry[sy] = profile(Math.abs(by * 2 + sy * 0.5 + 0.25 - g.cy) / g.HB, g) - 2;
+      for (bx = 0; bx < bw; bx++) {
+        n = 0;
+        for (sy = 0; sy < 4; sy++) {
+          for (sx = 0; sx < 4; sx++) if (Math.abs(bx * 2 + sx * 0.5 + 0.25 - g.cx) < ry[sy]) n++;
+        }
+        bm[by * bw + bx] = n / 16;
+      }
+    }
+  };
 
   /** Set up the rendered glass; fall back to the drawn one if WebGL is missing. */
   Renderer.prototype._initGlass = function () {
@@ -1338,20 +1402,23 @@
     if (this.glass) {
       // the shading is smooth, so the glass can render a little below device
       // resolution on very dense screens
-      var gk = Math.min(dpr, Math.sqrt(1.5e6 / (cssW * cssH)));
+      var gk = Math.min(dpr, Math.sqrt(2.4e6 / (cssW * cssH)));
       for (i = 0; i < this.glass.length; i++) {
         c = this.glass[i].canvas;
         c.width = Math.max(2, Math.round(cssW * gk)); c.height = Math.max(2, Math.round(cssH * gk));
         c.style.width = cssW + 'px'; c.style.height = cssH + 'px';
       }
     }
-    var grid = [els.sand, els.bloom];
+    // sand: one buffer pixel per half cell; glow: one per 2×2 cells, which can
+    // run a cell past the lattice when its size is odd, so size it by its own grid
+    var grid = [[els.sand, this.sim.W, this.sim.H], [els.bloom, this.bw * 2, this.bh * 2]];
     for (i = 0; i < grid.length; i++) {
-      if (!grid[i]) continue;
-      grid[i].style.width = (this.sim.W * s) + 'px';
-      grid[i].style.height = (this.sim.H * s) + 'px';
-      grid[i].style.left = ((box.w - this.sim.W) / 2 * s) + 'px';
-      grid[i].style.top = ((box.h - this.sim.H) / 2 * s) + 'px';
+      c = grid[i][0];
+      if (!c) continue;
+      c.style.width = (grid[i][1] * s) + 'px';
+      c.style.height = (grid[i][2] * s) + 'px';
+      c.style.left = ((box.w - this.sim.W) / 2 * s) + 'px';
+      c.style.top = ((box.h - this.sim.H) / 2 * s) + 'px';
     }
     this.cssW = cssW; this.cssH = cssH;
     this.drawStatic();
@@ -1366,9 +1433,9 @@
     var cell = sim.cell, seed = sim.seed, buf = this.buf, lut = this.lut;
     var base = this.baseLevel, ao = this.aoTab, depth = this.depth;
     var isMica = this.isMica, glint = this.glintColor;
-    var hiOff = this.hiOff, loOff = this.loOff, hiBoost = this.hiBoost;
+    var hiOff = this.hiOff, loOff = this.loOff, hiBoost = this.hiBoost, edge = this.edgeMask;
     var rowMin = sim.rowMin, rowMax = sim.rowMax, gateY = sim.gateY;
-    var fr = ++this.frameNo;
+    var fr = ++this.frameNo, em;
     var up = sim.gy < 0;                 // vessel currently upside-down?
     var y, x, i, c, s, d, lv, bi, x0, x1, hi, lo, mid, h, hl;
     // bloom is soft and slow: refresh it every third frame
@@ -1403,6 +1470,13 @@
           if (c === MOVE ? (h >>> 30) === 0 : (d < 3 && (h >>> 27) === 0)) {
             buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = glint;
             if (glow) glow[gi] += 0.7;
+            em = edge[i];
+            if (em !== 15) {                 // against the glass: keep only what is inside
+              if (!(em & 1)) buf[bi] = 0;
+              if (!(em & 2)) buf[bi + 1] = 0;
+              if (!(em & 4)) buf[bi + BW] = 0;
+              if (!(em & 8)) buf[bi + BW + 1] = 0;
+            }
             continue;
           }
         }
@@ -1414,6 +1488,13 @@
         buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = mid;
         if (up) { buf[bi + loOff[s]] = hi; buf[bi + hiOff[s]] = lo; }
         else { buf[bi + hiOff[s]] = hi; buf[bi + loOff[s]] = lo; }
+        em = edge[i];
+        if (em !== 15) {                     // against the glass: keep only what is inside
+          if (!(em & 1)) buf[bi] = 0;
+          if (!(em & 2)) buf[bi + 1] = 0;
+          if (!(em & 4)) buf[bi + BW] = 0;
+          if (!(em & 8)) buf[bi + BW + 1] = 0;
+        }
       }
     }
 
@@ -1437,16 +1518,23 @@
         var ux = -vx / sp, uy = -vy / sp, rgb = col & 0x00FFFFFF;
         for (var k = 1; k <= len; k++) {
           var qx = (fx + ux * (k + 0.5)) | 0, qy = (fy + uy * (k + 0.5)) | 0;
+          if (qx < 0 || qy < 0 || qx >= BW - 1 || qy >= BH) continue;
           var qi = qy * BW + qx;
-          if (qi < 0 || qi >= N || buf[qi] !== 0) continue;
+          if (buf[qi] !== 0) continue;
+          // a grain that has just bounced trails back the way it came: never through the glass
+          if (!((edge[(qy >> 1) * W + (qx >> 1)] >> (((qy & 1) << 1) | (qx & 1))) & 1)) continue;
           var a = (150 * (1 - k / (len + 1)) * (1 - k / (len + 1))) | 0;
           buf[qi] = ((a << 24) | rgb) >>> 0;
-          if (k < 3) buf[qi + 1] = buf[qi];
+          if (k < 3 && ((edge[(qy >> 1) * W + ((qx + 1) >> 1)] >> (((qy & 1) << 1) | ((qx + 1) & 1))) & 1)) buf[qi + 1] = buf[qi];
         }
       }
-      bi = iy * BW + ix;
-      buf[bi] = buf[bi + 1] = col;
-      buf[bi + BW] = buf[bi + BW + 1] = col;
+      // the grain itself: a 2×2 bead at its sub-cell position, clipped the same way
+      for (var dy2 = 0; dy2 < 2; dy2++) {
+        for (var dx2 = 0; dx2 < 2; dx2++) {
+          var gx2 = ix + dx2, gy2 = iy + dy2;
+          if ((edge[(gy2 >> 1) * W + (gx2 >> 1)] >> (((gy2 & 1) << 1) | (gx2 & 1))) & 1) buf[gy2 * BW + gx2] = col;
+        }
+      }
       if (glow) glow[(py[p] >> 1) * bw + (px[p] >> 1)] += 0.3;
     }
 
@@ -1469,8 +1557,9 @@
       }
     }
     var out = this.bbuf, rgb = this.bloomRGB, k = this.theme.light.bloom * 255, v, n = bw * bh;
+    var mask = this.bloomMask;
     for (i = 0; i < n; i++) {
-      v = a[i] * k;
+      v = a[i] * k * mask[i];                          // light stays inside the glass
       out[i] = v < 1 ? 0 : (((v > 200 ? 200 : v | 0) << 24) | rgb) >>> 0;
     }
     this.bctx.putImageData(this.bimg, 0, 0);
