@@ -26,6 +26,46 @@
   /* ======================================================================
    *  Acoustic characters
    * ==================================================================== */
+  // Vessel modes: [Hz, Q, gain, upward shift when the cavity is full]
+  var MODES = [                         // thin blown glass
+    [680, 24, 1.00, 0.16],
+    [1420, 28, 0.85, 0.13],
+    [2350, 32, 0.70, 0.09],
+    [3800, 30, 0.52, 0.05],
+    [5450, 26, 0.34, 0.03],
+    [7250, 22, 0.20, 0.02]
+  ];
+  var MODES_CHIME = [                   // D major pentatonic: every grain rings a small bell
+    [587.3, 70, 1.00, 0.004],
+    [880.0, 78, 0.95, 0.004],
+    [1174.7, 84, 0.85, 0.004],
+    [1480.0, 88, 0.70, 0.004],
+    [1760.0, 90, 0.60, 0.004],
+    [2637.0, 90, 0.36, 0.004]
+  ];
+  var MODES_BAMBOO = [                  // a hollow cane: broad, woody, quickly damped
+    [430, 9, 1.00, 0.05],
+    [770, 10, 0.90, 0.05],
+    [1190, 11, 0.70, 0.04],
+    [1680, 9, 0.50, 0.03],
+    [2350, 8, 0.32, 0.02],
+    [3150, 6, 0.18, 0.02]
+  ];
+  var MODES_DUNE = [                    // the low hum of sand sliding down a dune
+    [150, 14, 1.00, 0.03],
+    [225, 16, 0.85, 0.03],
+    [338, 16, 0.65, 0.03],
+    [505, 14, 0.45, 0.02],
+    [760, 12, 0.30, 0.02],
+    [1140, 10, 0.18, 0.02]
+  ];
+
+  /*
+   * Acoustic characters. Layer levels, tone, and how the vessel itself is
+   * voiced: `modes` its resonances, `send` how much of the whisper excites
+   * them, `tick` the pitch of each grain impact, `band` the centre of the
+   * whisper, `body` the weight underneath it.
+   */
   var CHARACTERS = {
     asmr: {
       name: 'Close-Miked ASMR',
@@ -41,18 +81,26 @@
       name: 'Pure Sand Whisper',
       whisper: 0.21, ticks: 0.03, beds: 0.085, modal: 0.045, room: 0.12,
       low: -1, high: 0, lp: 11500
+    },
+    chime: {
+      name: 'Singing Glass',
+      whisper: 0.10, ticks: 0.17, beds: 0.12, modal: 0.30, room: 0.36,
+      low: 0, high: 0, lp: 11000,
+      modes: MODES_CHIME, send: 0.10, tick: 1.0, band: 1.0, body: 0.30
+    },
+    bamboo: {
+      name: 'Bamboo Rainstick',
+      whisper: 0.06, ticks: 0.20, beds: 0.21, modal: 0.34, room: 0.22,
+      low: 2, high: -4, lp: 8500,
+      modes: MODES_BAMBOO, send: 0.30, tick: 0.58, band: 0.8, body: 0.55
+    },
+    dune: {
+      name: 'Desert Dune',
+      whisper: 0.15, ticks: 0.07, beds: 0.14, modal: 0.46, room: 0.26,
+      low: 5, high: -9, lp: 5200,
+      modes: MODES_DUNE, send: 0.9, tick: 0.5, band: 0.52, body: 1.0
     }
   };
-
-  // Glass-vessel modes: [Hz, Q, gain, upward shift when the cavity is full]
-  var MODES = [
-    [680, 24, 1.00, 0.16],
-    [1420, 28, 0.85, 0.13],
-    [2350, 32, 0.70, 0.09],
-    [3800, 30, 0.52, 0.05],
-    [5450, 26, 0.34, 0.03],
-    [7250, 22, 0.20, 0.02]
-  ];
 
   /* ======================================================================
    *  Buffer synthesis
@@ -210,6 +258,116 @@
     return buf;
   }
 
+  /* ----------------------------------------------------------------------
+   *  Ambiences — an optional second layer behind the sand
+   * -------------------------------------------------------------------- */
+
+  var SINE = new Float32Array(4096);
+  for (var si = 0; si < 4096; si++) SINE[si] = Math.sin(si / 4096 * TAU);
+
+  /** Scale a channel to a target RMS, keeping the peak under 0.95. */
+  function level(out, rms) {
+    var s = 0, pk = 0, i, v;
+    for (i = 0; i < out.length; i++) { v = out[i]; s += v * v; if (v < 0) v = -v; if (v > pk) pk = v; }
+    s = Math.sqrt(s / out.length);
+    var g = s > 0 ? rms / s : 1;
+    if (pk * g > 0.95) g = 0.95 / pk;
+    for (i = 0; i < out.length; i++) out[i] *= g;
+    return out;
+  }
+
+  /** Looping band-limited noise with a slow swell (one channel). */
+  function rawWash(sr, seconds, loHz, hiHz) {
+    var n = Math.floor(sr * seconds), fade = Math.floor(sr * 0.3);
+    var raw = new Float32Array(n + fade), out = new Float32Array(n), i;
+    var kl = 1 - Math.exp(-TAU * hiHz / sr), kh = 1 - Math.exp(-TAU * loHz / sr);
+    var l1 = 0, l2 = 0, h = 0, p1 = rnd() * TAU, p2 = rnd() * TAU;
+    for (i = 0; i < raw.length; i++) {
+      var t = i / sr;
+      l1 += kl * ((rnd() * 2 - 1) - l1); l2 += kl * (l1 - l2);     // two-pole low-pass
+      h += kh * (l2 - h);                                          // …minus its own lows
+      raw[i] = (l2 - h) * (0.66 + 0.2 * Math.sin(t * 1.3 + p1 + 2 * Math.sin(t * 0.31)) + 0.12 * Math.sin(t * 3.7 + p2));
+    }
+    for (i = 0; i < n; i++) out[i] = raw[i];
+    for (i = 0; i < fade; i++) {
+      var a = i / fade;
+      out[i] = raw[i] * Math.sqrt(a) + raw[n + i] * Math.sqrt(1 - a);
+    }
+    return out;
+  }
+
+  /**
+   * A brook. Running water is mostly the sound of air: each trapped bubble
+   * rings at a pitch set by its size (Minnaert), rises a little as it nears
+   * the surface, and dies in a few milliseconds. Hundreds a second, in small
+   * cascades, over the soft wash of the current.
+   */
+  function rawBrook(sr, seconds) {
+    var n = Math.floor(sr * seconds);
+    var out = level(rawWash(sr, seconds, 520, 3200), 0.034);
+    var tab = SINE;
+    function bubble(t, f0, gain) {
+      var d = 0.043 * f0 + 0.0014 * Math.pow(f0, 1.5);              // damping, 1/s
+      var len = Math.min(n, Math.ceil(sr * 4.6 / d)), start = Math.floor(t * sr) % n;
+      var env = gain * 0.085 * Math.pow(f0 / 900, -0.55), dec = Math.exp(-d / sr);
+      // phase in table steps; the pitch rises as the bubble nears the surface
+      var ph = rnd() * 4096, dph = 4096 * f0 / sr, rise = 4096 * f0 * (0.15 + 0.6 * rnd()) * d / (sr * sr);
+      var j = start;
+      for (var i = 0; i < len; i++) {
+        out[j] += env * tab[ph & 4095] * (i < 12 ? i / 12 : 1);
+        if (++j === n) j = 0;                                       // wraps → seamless
+        ph += dph + rise * i; env *= dec;
+      }
+    }
+    var t = 0;
+    for (;;) {
+      t += -Math.log(1 - rnd()) / 70;
+      if (t >= seconds) break;
+      var f0 = 420 * Math.pow(2, 3.7 * Math.pow(rnd(), 1.5));       // 0.4 – 5.5 kHz, mostly low
+      bubble(t, f0, 0.2 + rnd() * rnd() * 1.6);
+      if (rnd() < 0.3) {                                            // a little cascade
+        for (var k = 1 + ((rnd() * 4) | 0); k > 0; k--) {
+          bubble(t + rnd() * 0.07, f0 * (0.75 + rnd() * 0.6), 0.15 + rnd() * 0.7);
+        }
+      }
+    }
+    return level(out, 0.085);
+  }
+
+  /** One raindrop: a tiny filtered click. */
+  function synthDrop(sr, fc, Q, tau) {
+    var n = Math.ceil(sr * (tau * 6 + 0.0008)), a = new Float32Array(n);
+    var w0 = TAU * fc / sr, alpha = Math.sin(w0) / (2 * Q);
+    var b0 = alpha, b2 = -alpha, a0 = 1 + alpha, a1 = -2 * Math.cos(w0), a2 = 1 - alpha;
+    var x1 = 0, x2 = 0, y1 = 0, y2 = 0, atk = Math.max(3, Math.round(sr * 0.00015));
+    for (var i = 0; i < n; i++) {
+      var env = Math.exp(-(i / sr) / tau) * (i < atk ? i / atk : 1);
+      var x = (rnd() * 2 - 1) * env;
+      var y = (b0 * x + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+      x2 = x1; x1 = x; y2 = y1; y1 = y;
+      a[i] = y;
+    }
+    for (i = Math.floor(n * 0.7); i < n; i++) a[i] *= (n - i) / (n * 0.3);
+    return normalize(a, 1);
+  }
+
+  /** Soft rain: a dense patter of fine drops, a few heavy ones, a distant hiss. */
+  function rawRain(sr, seconds) {
+    var fine = [], heavy = [], i;
+    for (i = 0; i < 18; i++) fine.push(synthDrop(sr, 1800 + rnd() * 3400, 1.2 + rnd(), 0.0003 + rnd() * 0.0004));
+    for (i = 0; i < 10; i++) heavy.push(synthDrop(sr, 700 + rnd() * 1000, 1.6 + rnd() * 1.4, 0.0015 + rnd() * 0.0025));
+    var out = level(rawWash(sr, seconds, 900, 5500), 0.022);
+    var a = rawBed(sr, seconds, fine, 520), b = rawBed(sr, seconds, heavy, 14);
+    for (i = 0; i < out.length; i++) out[i] += a[i] * 0.42 + b[i] * 0.85;
+    return level(out, 0.075);
+  }
+
+  var AMBIENCES = {
+    none: { name: 'None' },
+    brook: { name: 'Brook', seconds: 9.3, make: rawBrook },
+    rain: { name: 'Rain', seconds: 7.9, make: rawRain }
+  };
+
   function softClipCurve() {
     var n = 2048, c = new Float32Array(n), k = 1.5, norm = Math.tanh(k);
     for (var i = 0; i < n; i++) {
@@ -237,6 +395,11 @@
     this._flutter = 0;
     this._voices = 0;
     this._silenced = false;
+    this.ambience = 'none';   // optional second layer: 'none' | 'brook' | 'rain'
+    this.ambLevel = 0.5;
+    this._ambRaw = {};        // synthesised ambiences, by id
+    this._amb = null;         // the one playing
+    this._ambPreview = 0;     // audition until this context time
     this._raw = {};           // pre-synthesised source material
     this._prepStep = 0;
     this.onstate = null;      // callback(stateString)
@@ -277,6 +440,7 @@
   };
 
   HourglassAudio.CHARACTERS = CHARACTERS;
+  HourglassAudio.AMBIENCES = AMBIENCES;
 
   /* ---------------------------------------------------------------- *
    *  Unlocking / lifecycle (iOS Safari is strict about all of this)
@@ -423,9 +587,11 @@
     this.modalIn = G(1);
     this.modalOut = G(2.6);
     this.modes = [];
+    this.modeGains = [];
     for (i = 0; i < MODES.length; i++) {
       var bp = BQ('bandpass', MODES[i][0], MODES[i][1]);
       var mg = G(MODES[i][2]);
+      this.modeGains.push(mg);
       this.modalIn.connect(bp); bp.connect(mg); mg.connect(this.modalOut);
       this.modes.push(bp);
     }
@@ -443,10 +609,10 @@
     this.wAir.connect(this.wLP); this.wLP.connect(this.wEnv);
     // a little velvet underneath the hiss
     this.wBody = BQ('bandpass', 950, 0.8);
-    var body = G(0.42);
+    var body = this.wBodyGain = G(0.42);
     loop(brown).connect(this.wBody); this.wBody.connect(body); body.connect(this.wEnv);
     this.wEnv.connect(this.wLfo); this.wLfo.connect(this.gWhisper);
-    var sW = G(0.55); this.wLfo.connect(sW); sW.connect(this.modalIn);
+    var sW = this.wSend = G(0.55); this.wLfo.connect(sW); sW.connect(this.modalIn);
     var lf = [[0.19, 0.085], [0.47, 0.05], [1.3, 0.02]];
     for (i = 0; i < lf.length; i++) {
       var o = ctx.createOscillator(), og = G(lf[i][1]);
@@ -490,7 +656,14 @@
     var sR = G(0.45); this.rEnv.connect(sR); sR.connect(this.modalIn);
 
     this._raw = {};                         // wrapped into AudioBuffers: free the originals
+    // ---- ambience: an optional layer behind the sand ----------------------
+    // It bypasses the character's tone shaping (a dune should not muffle a brook).
+    this.ambBus = G(0);
+    this.ambBus.connect(this.comp);
+    var aW = G(0.12); this.ambBus.connect(aW); aW.connect(this.conv);
+
     this.ready = true;
+    if (this.ambience !== 'none') this._loadAmbience(this.ambience);
     this._applyCharacter(0.01);
     this._applyMaster();
   };
@@ -527,6 +700,17 @@
     this.toneLow.gain.setTargetAtTime(c.low, t, tau);
     this.toneHigh.gain.setTargetAtTime(c.high, t, tau);
     this.toneLP.frequency.setTargetAtTime(c.lp, t, tau);
+    // re-voice the vessel itself
+    var modes = this._modes = c.modes || MODES;
+    for (var i = 0; i < this.modes.length; i++) {
+      this.modes[i].Q.setTargetAtTime(modes[i][1], t, tau);
+      this.modeGains[i].gain.setTargetAtTime(modes[i][2], t, tau);
+    }
+    this._last.fill = undefined;                         // retune on the next update
+    this.wSend.gain.setTargetAtTime(c.send != null ? c.send : 0.55, t, tau);
+    this.wBodyGain.gain.setTargetAtTime(c.body != null ? c.body : 0.42, t, tau);
+    this._tickRate = c.tick || 1;
+    this._band = c.band || 1;
   };
 
   HourglassAudio.prototype.setVolume = function (v) {
@@ -545,6 +729,75 @@
   HourglassAudio.prototype.setChimeEnabled = function (on) { this.chimeEnabled = !!on; };
 
   /* ---------------------------------------------------------------- *
+   *  Ambience
+   * ---------------------------------------------------------------- */
+  HourglassAudio.prototype._ambGain = function () {
+    return Math.pow(this.ambLevel, 1.5) * 1.1;
+  };
+  /** Synthesise an ambience right now (blocking). Returns its two channels. */
+  HourglassAudio.prototype._makeAmbience = function (id) {
+    var d = AMBIENCES[id];
+    if (!d || !d.make) return null;
+    if (!this._ambRaw[id]) this._ambRaw[id] = [d.make(PRE_SR, d.seconds), d.make(PRE_SR, d.seconds)];
+    return this._ambRaw[id];
+  };
+  /** Synthesise it a channel at a time so the page stays responsive, then play it. */
+  HourglassAudio.prototype._loadAmbience = function (id) {
+    var self = this, d = AMBIENCES[id];
+    if (!d || !d.make) return;
+    if (this._ambRaw[id]) { this._startAmbience(id); return; }
+    var chans = [];
+    (function next() {
+      chans.push(d.make(PRE_SR, d.seconds));
+      if (chans.length < 2) { setTimeout(next, 40); return; }
+      self._ambRaw[id] = chans;
+      if (self.ambience === id) self._startAmbience(id);
+    })();
+  };
+  HourglassAudio.prototype._startAmbience = function (id) {
+    if (!this.ready) return;
+    var ctx = this.ctx, t = ctx.currentTime, old = this._amb;
+    if (old && old.id === id) return;
+    if (old) {                                           // cross-fade out of the previous one
+      old.g.gain.setTargetAtTime(0, t, 0.3);
+      setTimeout(function () { try { old.src.stop(); old.g.disconnect(); } catch (e) {} }, 1800);
+      this._amb = null;
+    }
+    var raw = this._ambRaw[id];
+    if (!raw) return;
+    var src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = toBuffer(ctx, raw, PRE_SR);
+    src.loop = true;
+    g.gain.value = 0;
+    src.connect(g); g.connect(this.ambBus);
+    src.start(0, rnd() * src.buffer.duration * 0.5);
+    g.gain.setTargetAtTime(1, t, 0.4);
+    this._amb = { id: id, src: src, g: g };
+  };
+  /** 'none' | 'brook' | 'rain'. Plays while the sand runs; auditions briefly when chosen. */
+  HourglassAudio.prototype.setAmbience = function (id, audition) {
+    if (!AMBIENCES[id]) return;
+    this.ambience = id;
+    if (!this.ready) return;
+    if (id === 'none') {
+      var old = this._amb, t = this.ctx.currentTime;
+      if (old) {
+        old.g.gain.setTargetAtTime(0, t, 0.3);
+        setTimeout(function () { try { old.src.stop(); old.g.disconnect(); } catch (e) {} }, 1800);
+        this._amb = null;
+      }
+      return;
+    }
+    if (audition) this._ambPreview = this.ctx.currentTime + 5;
+    this._loadAmbience(id);
+  };
+  HourglassAudio.prototype.setAmbienceLevel = function (v, audition) {
+    this.ambLevel = Math.max(0, Math.min(1, v));
+    this._last.amb = undefined;
+    if (audition && this.ready) this._ambPreview = this.ctx.currentTime + 3;
+  };
+
+  /* ---------------------------------------------------------------- *
    *  Per-frame update from the physics
    *
    *  st = {
@@ -559,6 +812,7 @@
    *    flipping  true while the vessel is turning
    *    spin      how fast it is turning (rad/s)
    *    angle     current flip angle (rad)
+   *    running   true while the timer is running (keeps the ambience on)
    *    sim       the Sim (for this frame's impact events), or null
    *  }
    * ---------------------------------------------------------------- */
@@ -566,6 +820,10 @@
     if (!this.ready || this.ctx.state !== 'running') return;
     var ctx = this.ctx, t = ctx.currentTime;
     var dt = st.dt > 0 ? Math.min(st.dt, 0.1) : 0.016;
+    // ---- ambience: on while the sand runs (or while being auditioned) ------
+    var ambOn = this._amb && this.ambience !== 'none' && (st.running || t < this._ambPreview);
+    this._set('amb', this.ambBus.gain, ambOn ? this._ambGain() : 0, ambOn ? 0.5 : 0.9);
+
     // ---- Layer 2: whisper follows the flow ------------------------------
     var flow = st.flow || 0;
     var f01 = flow <= 0 ? 0 : Math.min(1, Math.pow(flow / 320, 0.45));
@@ -576,7 +834,7 @@
     this._drift += dt;
     if (this._drift > 0.27) {
       this._drift = 0;
-      var centre = 4700 - 900 * f01;         // heavier flow = slightly darker
+      var centre = (4700 - 900 * f01) * (this._band || 1);   // heavier flow = slightly darker
       this.wBand.frequency.setTargetAtTime(centre * (0.9 + rnd() * 0.22), t, 0.45);
       this.wBody.frequency.setTargetAtTime(850 + rnd() * 260, t, 0.6);
     }
@@ -614,7 +872,7 @@
     if (this._last.fill === undefined || Math.abs(this._last.fill - fill) > 0.004) {
       this._last.fill = fill;
       for (var m = 0; m < this.modes.length; m++) {
-        this.modes[m].frequency.setTargetAtTime(MODES[m][0] * (1 + MODES[m][3] * fill), t, 0.4);
+        this.modes[m].frequency.setTargetAtTime(this._modes[m][0] * (1 + this._modes[m][3] * fill), t, 0.4);
       }
     }
 
@@ -661,6 +919,7 @@
     this._set('pat', this.patEnv.gain, dens * this._cushion * 0.9, 0.3);
     this._set('tnk', this.tinkEnv.gain, dens * (1 - this._cushion) * 0.8, 0.3);
     this._set('rush', this.rEnv.gain, 0, 0.2);
+    this._set('amb', this.ambBus.gain, this._amb && flow > 0.4 ? this._ambGain() : 0, 0.6);
     if (this._last.pour) { this._last.pour = 0; this.pEnv.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1); }
   };
 
@@ -684,7 +943,7 @@
     var bank = glass ? this.tinks : this.pats;
     var s = ctx.createBufferSource();
     s.buffer = bank[(rnd() * bank.length) | 0];
-    s.playbackRate.value = glass ? 0.88 + rnd() * 0.3 : 0.8 + rnd() * 0.45;
+    s.playbackRate.value = (glass ? 0.88 + rnd() * 0.3 : 0.8 + rnd() * 0.45) * (this._tickRate || 1);
     var p = x < -0.22 ? 0 : (x > 0.22 ? 2 : 1);
     if (rnd() < 0.3) p = (rnd() * 3) | 0;           // a little air between grains
     if (!glass) amp *= 0.8;

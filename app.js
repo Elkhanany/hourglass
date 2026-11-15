@@ -35,6 +35,7 @@
     theme: 'sahara', character: 'asmr', volume: 0.8, muted: false,
     chime: true, tilt: false, zenFull: false, haptics: true,
     keepAwake: true, frame: true,
+    ambience: 'none', ambienceLevel: 0.5,
     durationMs: 5 * 60000
   };
   try {
@@ -72,6 +73,10 @@
   audio.muted = settings.muted;
   audio.character = settings.character;
   audio.chimeEnabled = settings.chime;
+  if (!window.HourglassAudio.CHARACTERS[settings.character]) settings.character = 'asmr';
+  if (!window.HourglassAudio.AMBIENCES[settings.ambience]) settings.ambience = 'none';
+  audio.ambience = settings.ambience;
+  audio.ambLevel = settings.ambienceLevel;
 
   var STEP_MS = 1000 / P.STEP_HZ;
   var MAX_STEPS = 6;                 // per frame → real-time down to 20 fps
@@ -549,6 +554,7 @@
       bottom: sim.nBottom,
       slides: S.slides,
       pouring: pour.active,
+      running: running,
       flipping: flip.active,
       spin: Math.abs(flip.spin),
       angle: sim.angle,
@@ -962,6 +968,29 @@
     var b = e.target.closest('button');
     if (b) { setCharacter(b.dataset.character); buzz(8); }
   });
+  // ambience: an optional layer behind the sand
+  var ambRow = $('amb-row'), ambLevel = $('amb-level'), ambOut = $('amb-out');
+  function showAmbience() {
+    var b = document.querySelectorAll('#ambiences button');
+    for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-checked', b[i].dataset.ambience === settings.ambience ? 'true' : 'false');
+    ambRow.hidden = settings.ambience === 'none';
+    var v = Math.round(settings.ambienceLevel * 100);
+    ambLevel.value = v; ambOut.textContent = v;
+    ambLevel.style.setProperty('--fill', v + '%');
+  }
+  $('ambiences').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    settings.ambience = b.dataset.ambience; save();
+    audio.setAmbience(settings.ambience, true);          // plays a few seconds so it can be heard
+    showAmbience();
+    buzz(8);
+  });
+  ambLevel.addEventListener('input', function () {
+    settings.ambienceLevel = ambLevel.value / 100; save();
+    audio.setAmbienceLevel(settings.ambienceLevel, true);
+    showAmbience();
+  });
   var vol = $('volume'), volOut = $('volume-out');
   function showVolume() {
     var v = Math.round(settings.volume * 100);
@@ -1164,6 +1193,7 @@
   $('opt-zen').checked = settings.zenFull;
   $('opt-haptics').checked = settings.haptics;
   showVolume();
+  showAmbience();
   setMuted(settings.muted);
   setCharacter(settings.character);
   syncPills();
