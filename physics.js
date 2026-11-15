@@ -133,14 +133,15 @@
                               // stream reads as individual accelerating grains)
     this.pDiag = 150;         // /256 chance per step of a 45° slide (also the
                               //   lateral diffusion of voids → drain funnel)
-    this.pCreep = 72;         // /256 chance a *static* surface grain lets go
-                              //   once the local slope exceeds 2:3 (≈33.7°)
-    this.pSlide = 150;        // /256 chance a *moving* grain keeps running
+    this.pCreep = 96;         // /256 chance a *static* surface grain lets go
+                              //   once the slope passes the angle of maximum
+                              //   stability (3:4 ≈ 37°)
+    this.pSlide = 214;        // /256 chance a *moving* grain keeps running
                               //   down a shallower 1:2 slope (dynamic friction)
-    this.pWake = 64;          // /256 chance a slide wakes its neighbours
-                              //   (avalanche propagation)
+    this.pWake = 150;         // /256 chance a slide wakes its neighbours
+                              //   (how far an avalanche spreads)
     this.pRollStop = 3;       // /256 chance a rolling grain snags and stops
-    this.focus = 9;           // stream self-focusing spring (1/s²)
+    this.focus = 2.4;         // stream self-focusing spring (1/s²)
 
     // state --------------------------------------------------------------
     this.angle = 0;           // rotation of the vessel (rad, clockwise)
@@ -203,7 +204,7 @@
     }
     this.capacity = cap;
     this.defaultGrains = Math.round(cap * 0.62);
-    this.maxTotal = Math.round(cap * 0.82);
+    this.maxTotal = Math.round(cap * 0.86);
 
     // Surface normals for every wall cell that touches the interior
     // (used to bounce ballistic grains off the curved glass).
@@ -388,15 +389,20 @@
   /** A grain leaves the orifice with the Beverloo exit speed ~ sqrt(g·D). */
   Sim.prototype._spawnStream = function (x, sd) {
     if (this.np >= this.PCAP) return false;
-    if (x < this.gateX0 || x > this.gateX1) {
-      x = this.gateX0 + ((this._rand() * (this.gateX1 - this.gateX0 + 1)) | 0);
-    }
+    // Sand leaves the neck as one thin thread that wanders a little — not as
+    // rain across the whole orifice.
+    var t = this.steps * DT;
+    var mid = (this.gateX0 + this.gateX1 + 1) * 0.5;
+    var wob = Math.sin(t * 2.1 + 1.9 * Math.sin(t * 0.53)) * 1.2 + Math.sin(t * 5.3 + 0.7) * 0.35;
+    var fx = mid + wob + (this._rand() + this._rand() - 1) * 1.05;
+    if (fx < this.gateX0 + 0.15) fx = this.gateX0 + 0.15;
+    if (fx > this.gateX1 + 0.85) fx = this.gateX1 + 0.85;
     var y = this.gateY + 1;
-    if (this.cell[y * this.W + x] !== EMPTY) return false;   // lower bulb is full
+    if (this.cell[y * this.W + (fx | 0)] !== EMPTY) return false;   // lower bulb is full
     var p = this.np++;
-    this.px[p] = x + 0.2 + this._rand() * 0.6;
+    this.px[p] = fx;
     this.py[p] = y + 0.05 + this._rand() * 0.6;
-    this.pvx[p] = (this._rand() - 0.5) * 26;
+    this.pvx[p] = (this._rand() - 0.5) * 16;
     this.pvy[p] = 118 + this._rand() * 64;
     this.pseed[p] = sd;
     this.pinfo[p] = K_STREAM;
@@ -530,20 +536,21 @@
           continue;
         }
 
-        // --- surface creep (static vs. dynamic friction) -----------------
-        // A static grain holds until the slope measured over three columns
-        // exceeds 2:3 (≈33.7°, the angle of repose). A grain that is already
-        // moving — or one resting on smooth glass — keeps running on slopes
-        // as shallow as 1:2. The pile therefore breathes between the two
-        // angles in small avalanches instead of stacking in 45° stairs.
+        // --- stick and slip (static vs. dynamic friction) ----------------
+        // Sand does not creep, it lets go. A static grain holds until the
+        // slope over four columns passes 3:4 (≈37°, the angle of maximum
+        // stability). Once moving — or on smooth glass — it keeps running on
+        // slopes as shallow as 1:2 and wakes its neighbours, so the surface
+        // gives way in an avalanche and comes to rest near 30°, then builds
+        // again. Averaged over time that is the ≈33° angle of repose.
         okL = cell[i + sl] === EMPTY && cell[i + sl + l] === EMPTY;
         okR = cell[i + sr] === EMPTY && cell[i + sr + r] === EMPTY;
         if (okL || okR) {
           if (cj === WALL) p = 256;
           else if (c === MOVE) p = pSlide;
           else {
-            okL = okL && cell[i + sl + l + l] === EMPTY;
-            okR = okR && cell[i + sr + r + r] === EMPTY;
+            okL = okL && cell[i + sl + l + l] === EMPTY && cell[i + sl + l + l + l] === EMPTY;
+            okR = okR && cell[i + sr + r + r] === EMPTY && cell[i + sr + r + r + r] === EMPTY;
             p = pCreep;
           }
           if (okL || okR) {
@@ -555,6 +562,7 @@
               moved++; slides++;
               if (((s >>> 9) & 255) < pWake) {
                 if (cell[i - t] === REST) cell[i - t] = MOVE;     // the grain uphill
+                if (cell[j + m] === REST) cell[j + m] = MOVE;     // and the one it lands on
               }
               continue;
             }
@@ -608,7 +616,7 @@
       if (focus && (info & K_MASK) === K_STREAM) {
         // By continuity an accelerating stream necks down: a soft, damped
         // pull toward the axis reproduces that narrowing.
-        vx += (-(x - cx) * focus * 3.2 - vx * 3.0) * DT;
+        vx += (-(x - cx) * focus * 3.2 - vx * 1.6) * DT;
       }
       // aerodynamic micro-jitter
       vx += ((s & 1023) - 511.5) * 0.011;
@@ -664,20 +672,20 @@
         }
         bounces++;
         if (bounces > 3 || sp < 70) settle = true;
-      } else if (bounces < 2 && sp > 210 && r1 < 0.42) {
+      } else if (bounces < 2 && sp > 190 && r1 < 0.55) {
         // kinetic splash: a 2–5 cell hop off the sand before settling
-        var hop = sp * (0.07 + r2 * 0.1);
-        if (hop > 185) hop = 185;
+        var hop = sp * (0.06 + r2 * 0.15);
+        if (hop > 235) hop = 235;
         s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
-        var lat = ((s & 1023) / 511.5 - 1) * hop * 0.95;
+        var lat = ((s & 1023) / 511.5 - 1) * hop * 1.15;
         vx = -gx * hop + gy * lat;
         vy = -gy * hop - gx * lat;
         bounces++;
         info = (info & 3) | K_SPLASH;
         if (cell[hit] === REST) { cell[hit] = MOVE; this._touchRow((hit / W) | 0); }   // the struck grain stirs
       } else {
-        // Landed on sand. If the surface here is steeper than the angle of
-        // repose (drop ≥ 2 over a run of 3 ≈ 33.7°) the grain keeps tumbling
+        // Landed on sand. If the surface here is steeper than sand can hold
+        // (drop ≥ 3 over a run of 4 ≈ 37°) the grain keeps tumbling
         // downslope in short ballistic hops; otherwise it comes to rest.
         var li = (ly | 0) * W + (lx | 0);
         // Another grain may have settled into this very cell during the
@@ -692,9 +700,11 @@
           vx = 0; vy = 0;                                  // buried: wait
         } else {
           var rollL = cell[li + oSL] === EMPTY &&
-            (cell[li + oL] === EMPTY || (cell[li + oSL + oL] === EMPTY && cell[li + oSL + oL + oL] === EMPTY));
+            (cell[li + oL] === EMPTY || (cell[li + oSL + oL] === EMPTY && cell[li + oSL + oL + oL] === EMPTY &&
+                                         cell[li + oSL + oL + oL + oL] === EMPTY));
           var rollR = cell[li + oSR] === EMPTY &&
-            (cell[li + oR] === EMPTY || (cell[li + oSR + oR] === EMPTY && cell[li + oSR + oR + oR] === EMPTY));
+            (cell[li + oR] === EMPTY || (cell[li + oSR + oR] === EMPTY && cell[li + oSR + oR + oR] === EMPTY &&
+                                         cell[li + oSR + oR + oR + oR] === EMPTY));
           if ((rollL || rollR) && ((s >>> 20) & 255) >= pRollStop) {
             // keep rolling the way it is already heading when possible
             var side = gy * vx - gx * vy;                  // lateral velocity
@@ -955,6 +965,157 @@
   }
 
   /* ======================================================================
+   *  Glass — rendered, not drawn
+   *
+   *  The vessel is a surface of revolution, so every pixel of it has an
+   *  exact 3-D normal. A small fragment shader lights that surface the way
+   *  a renderer would: Fresnel reflection of a studio (softbox, strip,
+   *  kickers behind for the bright rim, one small hard lamp), the mirrored
+   *  second highlight of the far wall, absorption along the true path
+   *  through the shell, and light bent through the solid rim. The room stays
+   *  put while the glass turns, so highlights slide across it.
+   * ==================================================================== */
+  var GLASS_VS = 'attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }';
+  var GLASS_FS = [
+    'precision highp float;',
+    'uniform vec2 uRes;',      // drawing buffer, px
+    'uniform vec2 uBox;',      // the same rectangle in cells
+    'uniform vec4 uGeo;',      // R, HB, RN, equator
+    'uniform float uWall;',    // wall thickness, cells
+    'uniform float uRot;',     // vessel against the room, rad clockwise
+    'uniform float uPass;',    // 0 far wall (behind the sand), 1 near wall
+    'uniform vec3 uAbs;',      // absorption per cell of glass
+    'uniform vec3 uGlow;',     // warm bounce from the desk
+    'uniform float uPx;',      // cells per pixel (edge anti-aliasing)
+    'uniform float uGain;',    // exposure
+
+    'float prof(float u) {',
+    '  if (u >= 1.0) return 0.0;',
+    '  float c = uGeo.w;',
+    '  if (u <= c) return uGeo.z + (uGeo.x - uGeo.z) * sin(1.5707963 * pow(u / c, 1.22));',
+    '  float w = (u - c) / (1.0 - c);',
+    '  return uGeo.x * sqrt(max(0.0, 1.0 - pow(w, 2.3)));',
+    '}',
+    'float rIn(float y) { return prof(abs(y) / uGeo.y); }',
+    'float rOut(float y) {',
+    '  float u = abs(y) / (uGeo.y + uWall);',
+    '  if (u >= 1.0) return 0.0;',
+    // heavier at the waist, where blown glass is drawn out; closed at the tip
+    '  return prof(u) + uWall * (1.0 + 1.15 * exp(-u * u / 0.0035)) * smoothstep(1.0, 0.985, u);',
+    '}',
+    'vec3 rotZ(vec3 v, float a) {',
+    '  float c = cos(a), s = sin(a);',
+    '  return vec3(v.x * c - v.y * s, v.x * s + v.y * c, v.z);',
+    '}',
+    // a rectangular soft light seen in direction d (x right, y down, z to the eye)
+    'float panel(vec3 d, vec3 c, vec2 hs, float soft) {',
+    '  float k = dot(d, c);',
+    '  if (k <= 0.02) return 0.0;',
+    '  vec3 ux = normalize(cross(vec3(0.0, 1.0, 0.0), c));',
+    '  vec3 uy = cross(c, ux);',
+    '  vec2 q = abs(vec2(dot(d, ux), dot(d, uy)) / k);',
+    '  vec2 m = smoothstep(hs + soft, hs - soft, q);',
+    '  return m.x * m.y;',
+    '}',
+    'vec3 room(vec3 d) {',
+    '  vec3 col = vec3(0.028) * (0.7 - 0.5 * d.y);',                                                                    // the dark room
+    '  col += vec3(1.0, 0.96, 0.90) * 4.6 * panel(d, normalize(vec3(-0.66, -0.52, 0.54)), vec2(0.20, 0.46), 0.12);',    // key softbox
+    '  col += vec3(0.90, 0.94, 1.0) * 1.7 * panel(d, normalize(vec3(0.88, -0.02, 0.36)), vec2(0.05, 0.80), 0.05);',     // fill strip
+    '  col += vec3(1.0) * 2.6 * panel(d, normalize(vec3(-0.78, -0.05, -0.62)), vec2(0.07, 1.1), 0.06);',                // kicker, behind left
+    '  col += vec3(1.0) * 1.9 * panel(d, normalize(vec3(0.78, -0.05, -0.62)), vec2(0.07, 1.1), 0.06);',                 // kicker, behind right
+    '  float lamp = dot(d, normalize(vec3(-0.40, -0.50, 0.77)));',
+    '  col += vec3(1.0, 0.98, 0.94) * (22.0 * smoothstep(0.99905, 0.99975, lamp) + 1.4 * pow(max(lamp, 0.0), 900.0));', // small hard lamp
+    '  col += uGlow * 0.5 * smoothstep(0.25, 1.0, d.y);',                                                               // the desk below
+    '  return col;',
+    '}',
+    'void main() {',
+    '  vec2 p = (gl_FragCoord.xy / uRes - 0.5) * uBox;',
+    '  p.y = -p.y;',
+    '  float ro = rOut(p.y), ri = rIn(p.y), ax = abs(p.x);',
+    '  float edge = smoothstep(ro, ro - 1.6 * uPx, ax);',
+    '  if (ro <= 0.0 || edge <= 0.0) { gl_FragColor = vec4(0.0); return; }',
+    '  const float E = 0.6;',
+    '  float hlf = sqrt(max(ro * ro - ax * ax, 0.0));',
+    '  float path = hlf - sqrt(max(ri * ri - ax * ax, 0.0));',          // glass crossed in one wall
+    '  vec3 absorb = exp(-uAbs * path);',
+    '  vec3 col; float a;',
+    '  if (uPass > 0.5) {',
+    '    float dro = clamp((rOut(p.y + E) - rOut(p.y - E)) / (2.0 * E), -8.0, 8.0);',
+    '    float s = clamp(p.x / ro, -0.9995, 0.9995);',
+    '    vec3 n = normalize(vec3(s, -dro, sqrt(1.0 - s * s)));',
+    // hand-blown glass is never optically perfect
+    '    n.xy += 0.010 * vec2(sin(p.y * 0.115 + 1.7 * sin(p.x * 0.06)), sin(p.x * 0.09 + p.y * 0.045));',
+    '    n = normalize(n);',
+    '    float F = 0.04 + 0.96 * pow(1.0 - max(n.z, 0.0), 5.0);',
+    '    col = room(rotZ(vec3(0.0, 0.0, -1.0) + 2.0 * n.z * n, uRot)) * F;',
+    '    vec3 tr = absorb * (1.0 - F);',
+    '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;',
+    // edge-on, the wall is solid glass: it bends light in from the sides
+    '    float rim = smoothstep(ri - 0.2, ri + 0.5, ax);',
+    '    if (rim > 0.0) {',
+    '      float si = min(ax / ro, 0.9995);',
+    '      float dv = 2.0 * (asin(si) - asin(si / 1.5));',
+    '      vec3 o = normalize(vec3(-sign(p.x) * sin(dv), -dro * 0.5, -cos(dv)));',
+    '      col += rim * room(rotZ(o, uRot)) * (1.0 - F) * (1.0 - F) * exp(-uAbs * hlf * 0.5);',
+    '      a = mix(a, 0.82, rim);',
+    '    }',
+    '  } else {',
+    '    if (ax >= ri) { gl_FragColor = vec4(0.0); return; }',
+    '    float dri = clamp((rIn(p.y + E) - rIn(p.y - E)) / (2.0 * E), -8.0, 8.0);',
+    '    float sb = clamp(p.x / ri, -0.9995, 0.9995);',
+    '    vec3 nb = normalize(vec3(-sb, dri, sqrt(1.0 - sb * sb)));',
+    // inner surfaces mirror strongly at a glance (total internal reflection)
+    '    float Fb = 0.05 + 0.95 * pow(1.0 - max(nb.z, 0.0), 3.5);',
+    '    col = room(rotZ(vec3(0.0, 0.0, -1.0) + 2.0 * nb.z * nb, uRot)) * Fb * 0.5;',
+    '    vec3 tb = absorb * (1.0 - Fb * 0.7);',
+    '    a = 1.0 - (tb.r + tb.g + tb.b) / 3.0;',
+    '    edge = smoothstep(ri, ri - 1.6 * uPx, ax);',
+    '  }',
+    '  col = vec3(1.0) - exp(-col * uGain);',                             // film-like roll-off
+    '  a = clamp(max(a, max(col.r, max(col.g, col.b))), 0.0, 1.0);',
+    '  gl_FragColor = vec4(col, a) * edge;',
+    '}'
+  ].join('\n');
+
+  /** One WebGL layer of the glass. Returns null where WebGL cannot do it. */
+  function makeGlass(canvas, pass) {
+    var opts = { alpha: true, premultipliedAlpha: true, antialias: false, depth: false,
+                 stencil: false, preserveDrawingBuffer: false, powerPreference: 'low-power' };
+    var gl = null;
+    try { gl = canvas.getContext('webgl', opts) || canvas.getContext('experimental-webgl', opts); } catch (e) {}
+    if (!gl) return null;
+    var hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+    if (!hp || !hp.precision) return null;                 // needs full float precision
+    var g = { gl: gl, canvas: canvas, pass: pass, prog: null, u: {}, lost: false };
+    g.build = function () {
+      function sh(type, src) {
+        var o = gl.createShader(type);
+        gl.shaderSource(o, src); gl.compileShader(o);
+        if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o) || 'shader');
+        return o;
+      }
+      var prog = gl.createProgram();
+      gl.attachShader(prog, sh(gl.VERTEX_SHADER, GLASS_VS));
+      gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, GLASS_FS));
+      gl.bindAttribLocation(prog, 0, 'p');
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'link');
+      gl.useProgram(prog);
+      var buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);   // one big triangle
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
+      var names = ['uRes', 'uBox', 'uGeo', 'uWall', 'uRot', 'uPass', 'uAbs', 'uGlow', 'uPx', 'uGain'];
+      for (var i = 0; i < names.length; i++) g.u[names[i]] = gl.getUniformLocation(prog, names[i]);
+      g.prog = prog;
+    };
+    try { g.build(); } catch (e) { return null; }
+    return g;
+  }
+
+  /* ======================================================================
    *  Renderer
    * ==================================================================== */
 
@@ -1008,6 +1169,9 @@
       this.bbuf = new Uint32Array(this.bimg.data.buffer);
     }
     this.frame = true;    // caps + posts around the glass
+    this.glass = null;    // [far wall, near wall] WebGL layers, or null → drawn glass
+    this.glassRot = 0;
+    this._initGlass();
     this.frameNo = 0;
     this.theme = THEMES.sahara;
     this.scale = 1;       // CSS px per cell
@@ -1015,6 +1179,60 @@
     this._buildLightMap();
     this._buildLUT();
   }
+
+  /** Set up the rendered glass; fall back to the drawn one if WebGL is missing. */
+  Renderer.prototype._initGlass = function () {
+    var els = this.els, self = this;
+    this.glass = null;
+    if (els.glBack && els.glFront) {
+      var a = makeGlass(els.glBack, 0), b = a && makeGlass(els.glFront, 1);
+      if (a && b) {
+        this.glass = [a, b];
+        this.glass.forEach(function (g) {
+          g.canvas.addEventListener('webglcontextlost', function (e) { e.preventDefault(); g.lost = true; });
+          g.canvas.addEventListener('webglcontextrestored', function () {
+            try { g.build(); g.lost = false; self.drawGlass(self.glassRot, true); } catch (err) {}
+          });
+        });
+      }
+    }
+    if (els.glBack) els.glBack.style.display = this.glass ? '' : 'none';
+    if (els.glFront) els.glFront.style.display = this.glass ? '' : 'none';
+  };
+
+  /**
+   * Render the glass. `rot` is how far the vessel is turned against the room
+   * (rad, clockwise): the lights stay where they are, the reflections move.
+   */
+  Renderer.prototype.drawGlass = function (rot, force) {
+    var gs = this.glass;
+    if (!gs || !this.cssW) return;
+    if (!force && Math.abs(rot - this.glassRot) < 0.01) return;    // under 0.6°: not worth a redraw
+    this.glassRot = rot;
+    var g = this.sim.geo, th = this.theme, box = this._box();
+    var tint = th.glass.tint, dens = 0.0035 + th.glass.smoke * 0.02;
+    for (var i = 0; i < gs.length; i++) {
+      var o = gs[i], gl = o.gl, u = o.u;
+      if (o.lost || !o.prog) continue;
+      gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+      gl.useProgram(o.prog);
+      gl.uniform2f(u.uRes, gl.drawingBufferWidth, gl.drawingBufferHeight);
+      gl.uniform2f(u.uBox, box.w, box.h);
+      gl.uniform4f(u.uGeo, g.R, g.HB, g.RN, g.equator);
+      gl.uniform1f(u.uWall, g.wall);
+      gl.uniform1f(u.uRot, rot);
+      gl.uniform1f(u.uPass, o.pass);
+      gl.uniform3f(u.uAbs, dens * (0.6 + 2.4 * (1 - tint[0] / 255)),
+                           dens * (0.6 + 2.4 * (1 - tint[1] / 255)),
+                           dens * (0.6 + 2.4 * (1 - tint[2] / 255)));
+      gl.uniform3f(u.uGlow, th.glow[0] / 255, th.glow[1] / 255, th.glow[2] / 255);
+      gl.uniform1f(u.uPx, box.w / gl.drawingBufferWidth);
+      gl.uniform1f(u.uGain, 1.1);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+  };
 
   /** Assembly box in cells: the framed instrument, or the bare glass. */
   Renderer.prototype._box = function () {
@@ -1116,6 +1334,16 @@
       var c = els[names[i]];
       c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr);
       c.style.width = cssW + 'px'; c.style.height = cssH + 'px';
+    }
+    if (this.glass) {
+      // the shading is smooth, so the glass can render a little below device
+      // resolution on very dense screens
+      var gk = Math.min(dpr, Math.sqrt(1.5e6 / (cssW * cssH)));
+      for (i = 0; i < this.glass.length; i++) {
+        c = this.glass[i].canvas;
+        c.width = Math.max(2, Math.round(cssW * gk)); c.height = Math.max(2, Math.round(cssH * gk));
+        c.style.width = cssW + 'px'; c.style.height = cssH + 'px';
+      }
     }
     var grid = [els.sand, els.bloom];
     for (i = 0; i < grid.length; i++) {
@@ -1302,6 +1530,7 @@
     this._drawBack();
     this._drawFront();
     this._drawLight();
+    this.drawGlass(this.glassRot, true);
   };
 
   /** Material ramp across a turned / brushed part (symmetric → flip-safe). */
@@ -1345,7 +1574,8 @@
     }
 
     // Glass body: almost clear in the middle, denser toward the silhouette
-    // where the wall is seen edge-on.
+    // where the wall is seen edge-on. (Skipped when the glass is rendered.)
+    var drawn = !this.glass;
     tracePath(ctx, g, g.wall);
     var body = ctx.createLinearGradient(-g.R - g.wall, 0, g.R + g.wall, 0);
     body.addColorStop(0, rgba(tint, 0.17));
@@ -1353,20 +1583,24 @@
     body.addColorStop(0.5, rgba(tint, 0.018));
     body.addColorStop(0.84, rgba(tint, 0.06));
     body.addColorStop(1, rgba(tint, 0.17));
-    ctx.fillStyle = 'rgba(4,5,7,' + th.glass.smoke + ')';
-    ctx.fill();
-    ctx.fillStyle = body;
-    ctx.fill();
+    if (drawn) {
+      ctx.fillStyle = 'rgba(4,5,7,' + th.glass.smoke + ')';
+      ctx.fill();
+      ctx.fillStyle = body;
+      ctx.fill();
+    }
 
     // faint reflection of the far wall
     ctx.save();
     tracePath(ctx, g, 0);
     ctx.clip();
-    tracePath(ctx, g, 0);
-    ctx.strokeStyle = rgba(tint, 0.035);
-    ctx.lineWidth = 16 * q; ctx.stroke();
-    ctx.strokeStyle = rgba(tint, 0.045);
-    ctx.lineWidth = 7 * q; ctx.stroke();
+    if (drawn) {
+      tracePath(ctx, g, 0);
+      ctx.strokeStyle = rgba(tint, 0.035);
+      ctx.lineWidth = 16 * q; ctx.stroke();
+      ctx.strokeStyle = rgba(tint, 0.045);
+      ctx.lineWidth = 7 * q; ctx.stroke();
+    }
     // a breath of light held inside each bulb, so dark sand has something to
     // stand against (identical in both bulbs: the layer turns with the glass)
     var bl = th.light.backlight;
@@ -1389,6 +1623,8 @@
     var ctx = this._ctx('front'), g = this.sim.geo, th = this.theme, q = g.q;
     var tint = th.glass.tint, cap = th.cap, k, i;
 
+    var drawn = !this.glass;
+    if (drawn) {
     // double wall: the band between the outer and inner surface
     ctx.save();
     tracePath(ctx, g, g.wall);
@@ -1414,6 +1650,7 @@
 
     ctx.strokeStyle = rgba(tint, 0.42); ctx.lineWidth = 0.75 * q; ctx.stroke(outer);
     ctx.strokeStyle = rgba(tint, 0.20); ctx.lineWidth = 0.5 * q; ctx.stroke(inner);
+    }
 
     // End caps (collar + slab). Draw the top one, rotate for the bottom.
     for (var side = 0; side < 2 && this.frame; side++) {
@@ -1483,9 +1720,10 @@
     var glow = th.glow, k, u;
     var outer = new Path2D(); tracePathTo(outer, g, g.wall);
 
+    var drawn = !this.glass;                          // rendered glass brings its own highlights
     ctx.save();
     ctx.clip(outer);
-    for (var b = -1; b <= 1; b += 2) {                // -1 upper bulb, +1 lower
+    for (var b = -1; b <= 1 && drawn; b += 2) {       // -1 upper bulb, +1 lower
       var cyB = b * g.HB * g.equator;
 
       // broad soft sheen from a key light up and to the left
@@ -1546,11 +1784,12 @@
     // caustic: light focused through the lower bulb onto its floor
     ctx.globalCompositeOperation = 'lighter';
     var ca = ctx.createRadialGradient(g.R * 0.20, g.HB * 0.93, 0, g.R * 0.20, g.HB * 0.93, g.R * 0.75);
-    ca.addColorStop(0, rgba(glow, 0.20));
-    ca.addColorStop(0.4, rgba(glow, 0.07));
+    ca.addColorStop(0, rgba(glow, drawn ? 0.20 : 0.13));
+    ca.addColorStop(0.4, rgba(glow, drawn ? 0.07 : 0.045));
     ca.addColorStop(1, rgba(glow, 0));
     ctx.fillStyle = ca;
     ctx.fillRect(-g.R, g.HB * 0.6, g.R * 2, g.HB * 0.45);
+    if (drawn) {
     // refracted arc following the dome
     ctx.beginPath();
     for (k = 0; k <= 26; k++) {
@@ -1567,6 +1806,7 @@
     nk.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = nk;
     ctx.fillRect(-g.RN - 12 * q, -10 * q, 22 * q, 20 * q);
+    }
     ctx.restore();
     ctx.globalCompositeOperation = 'source-over';
 

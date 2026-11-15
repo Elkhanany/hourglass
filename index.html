@@ -26,15 +26,19 @@
 
   <!-- the instrument -->
   <main id="stage" aria-label="Hourglass. Tap to start or pause.">
+    <div id="zoom">
     <div id="shadow" aria-hidden="true"></div>
     <div id="assembly">
       <div id="rotor">
         <canvas id="c-back" aria-hidden="true"></canvas>
+        <canvas id="c-glass-back" aria-hidden="true"></canvas>
         <canvas id="c-sand" aria-hidden="true"></canvas>
         <canvas id="c-bloom" aria-hidden="true"></canvas>
+        <canvas id="c-glass-front" aria-hidden="true"></canvas>
         <canvas id="c-front" aria-hidden="true"></canvas>
       </div>
       <canvas id="c-light" aria-hidden="true"></canvas>
+    </div>
     </div>
   </main>
 
@@ -212,6 +216,7 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
   <div id="veil" aria-hidden="true"></div>
+  <div id="safe" aria-hidden="true"></div>
 </div>
 
 <noscript><p style="position:fixed;inset:0;display:grid;place-items:center;color:#d8d2c8;font:16px system-ui">Hourglass needs JavaScript to simulate its sand.</p></noscript>
