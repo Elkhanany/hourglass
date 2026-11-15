@@ -149,12 +149,27 @@
         <button type="button" role="radio" aria-checked="true" data-character="asmr">Close-Miked ASMR</button>
         <button type="button" role="radio" aria-checked="false" data-character="warm">Warm Glass</button>
         <button type="button" role="radio" aria-checked="false" data-character="pure">Pure Sand Whisper</button>
+        <button type="button" role="radio" aria-checked="false" data-character="chime">Singing Glass</button>
+        <button type="button" role="radio" aria-checked="false" data-character="bamboo">Bamboo Rainstick</button>
+        <button type="button" role="radio" aria-checked="false" data-character="dune">Desert Dune</button>
       </div>
 
       <label class="slider-row" for="volume">
         <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z"/><path d="M15.2 9.2a4 4 0 0 1 0 5.6"/></svg>
         <input id="volume" type="range" min="0" max="100" step="1" value="80" aria-label="Volume">
         <output id="volume-out" for="volume">80</output>
+      </label>
+
+      <h3>Ambience</h3>
+      <div id="ambiences" class="segmented" role="radiogroup" aria-label="Ambience behind the sand">
+        <button type="button" role="radio" aria-checked="true" data-ambience="none">None</button>
+        <button type="button" role="radio" aria-checked="false" data-ambience="brook">Brook</button>
+        <button type="button" role="radio" aria-checked="false" data-ambience="rain">Rain</button>
+      </div>
+      <label class="slider-row" id="amb-row" for="amb-level" hidden>
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2c3 3.9 5.2 6.7 5.2 9.6a5.2 5.2 0 0 1-10.4 0c0-2.9 2.2-5.700 5.2-9.6z"/></svg>
+        <input id="amb-level" type="range" min="0" max="100" step="1" value="50" aria-label="Ambience level">
+        <output id="amb-out" for="amb-level">50</output>
       </label>
 
       <div class="rows">

@@ -31,7 +31,8 @@ five, three quarters for 45.
 
 - **Material**: Sahara Quartz, Volcanic Black, Moonstone; **Frame** hides the
   caps and posts so only the glass remains.
-- **Acoustic character** and volume; **Completion bowl**.
+- **Acoustic character** (six voicings) and volume; **Ambience** (a brook or
+  rain behind the sand, with its own level); **Completion bowl**.
 - **Keep screen awake** while the sand is flowing (Screen Wake Lock API).
 - **Real gravity**: the sand follows how the device is held. Lean it and the
   piles slump, lay it on its side and the flow (and the clock) stop, turn it
@@ -108,13 +109,37 @@ Web Audio API only.
    the end (optional).
 
 Output passes through a generated 0.35 s room impulse response, a compressor and
-a soft clipper. Three characters are available: *Close-Miked ASMR*, *Warm Glass*
-and *Pure Sand Whisper*.
+a soft clipper.
+
+Six characters re-voice the same engine. *Close-Miked ASMR*, *Warm Glass* and
+*Pure Sand Whisper* differ in balance and tone. Three more change the vessel
+itself, by retuning the resonator bank and the pitch of each grain:
+
+- *Singing Glass*: resonators tuned to a D major pentatonic with long rings, so
+  every grain strikes a small bell.
+- *Bamboo Rainstick*: broad, quickly damped woody resonances and lower-pitched
+  impacts.
+- *Desert Dune*: low resonances (150 Hz upward) driven hard by the whisper and
+  the avalanches, for the hum of sliding sand. Much of it sits below what a
+  phone speaker reproduces; it is meant for headphones.
+
+An optional **ambience** plays behind the sand while it runs, bypassing the
+character's tone shaping:
+
+- *Brook*: each trapped air bubble is a decaying sine whose pitch follows its
+  size (Minnaert) and rises as it surfaces; a few hundred a second, in small
+  cascades, over a band-limited wash.
+- *Rain*: a dense patter of fine filtered clicks, a few heavier drops and a
+  distant hiss.
+
+Both are synthesised into seamless loops the first time they are chosen.
 
 Levels and spectra were set by offline rendering and measurement (about
-−25 dBFS RMS with grain peaks near −9 dBFS at the default volume). They have
-not been tuned by ear on real devices, so treat the mix constants at the top of
-`audio.js` (`CHARACTERS`, `MODES`) as a starting point.
+−25 dBFS RMS with grain peaks near −9 dBFS at the default volume; the brook
+and rain sit near −25 and −28 dBFS at their default level). The three newer
+characters and both ambiences have not been tuned by ear, so treat the tables
+at the top of `audio.js` (`CHARACTERS`, the `MODES_*` sets, `AMBIENCES`) as a
+starting point.
 
 ### `app.js`, `index.html`, `styles.css`
 

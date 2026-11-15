@@ -7,7 +7,7 @@
 'use strict';
 
 // Bump on every release: a new name retires the previous cache.
-var VERSION = 'hourglass-v1.2.0';
+var VERSION = 'hourglass-v1.3.0';
 
 var SHELL = [
   './',
