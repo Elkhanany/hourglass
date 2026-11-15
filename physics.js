@@ -322,6 +322,7 @@
     capCol: 0.5,         // the most one column landing can supply
     Pmax: 0.15,          // the most one blow can ever do
     gamTh: 4.6, gamC: 6, nB: 16, tauB: 0.5, capB: 0.02, bendBins: 3,   // the waist bends
+    spinTh: 0.2, spinC: 0.8, spinRate: 0.6, domeBins: 4,              // a hard spin loads the domes (g at the dome)
     rMax: 0.30,          // 1/s: fastest sub-critical growth (bounded crack velocity)
     tauP: 0.6,           // s: an unabsorbed blow fades
     tauHeal: 8,          // s: micro-damage arrests while no crack is visible
@@ -419,6 +420,7 @@
     this.mLam = 0;                       // true-size scale of the rotational terms
     this.mGz = 0;                        // out-of-plane shaking, g
     this.damageArmed = false;            // only sustained real phone motion arms damage
+    this.spinArmed = false;              // a spin made by hand (flick, turn) loads the domes
     this.relCap = 0;                     // most grains the neck may release per step (0: no cap)
     this.reduced = false;                // Reduce Motion: gentler physics, a glass that cannot crack
     this.quality = 2;                    // 2 full, 1 lighter, 0 lightest (set by the app)
@@ -2213,6 +2215,29 @@
             if (sc[s] >= 0 && this.cracks[sc[s]].sealed) continue;
             d = r * Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
             if (d > MOT.capB) d = MOT.capB;
+            this.segHit[s] += d;
+            p = segP[s] + d;
+            segP[s] = p > MOT.Pmax ? MOT.Pmax : p;
+            this._pendP = true;
+          }
+        }
+      }
+    }
+    // A fast spin presses the sand into both domes (centrifugal ω²r). Flicked
+    // hard again and again, the glass creaks and then cracks at its weakest
+    // dome. Finger play counts here: spinning it this hard is as deliberate
+    // as shaking it, and a turn or the Flip (≤ 2.2 rad/s) never comes close.
+    if (motion && this.spinArmed && !this.reduced && this.mLam > 0) {
+      var wv = this.mW < 0 ? -this.mW : this.mW;
+      var gc = this.mLam * wv * wv * this.geo.HB / this.G;          // g at the dome
+      if (gc > MOT.spinTh) {
+        var rs = (gc - MOT.spinTh) / (MOT.spinC - MOT.spinTh);
+        rs = (rs > 1 ? 1 : rs) * MOT.spinRate * DT;
+        for (var q2 = 0; q2 < 4; q2++) {
+          for (var u2 = WALL_BINS - MOT.domeBins; u2 < WALL_BINS; u2++) {
+            s = q2 * WALL_BINS + u2;
+            if (sc[s] >= 0 && this.cracks[sc[s]].sealed) continue;
+            d = rs * Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
             this.segHit[s] += d;
             p = segP[s] + d;
             segP[s] = p > MOT.Pmax ? MOT.Pmax : p;

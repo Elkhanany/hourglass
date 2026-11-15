@@ -65,7 +65,9 @@ The glass is an object you can hold. Take it by its waist and it follows the
 finger on a soft tether, lifting off its shadow; let go and it springs home
 with a small sway. Take it by a bulb and it turns; flick it and it spins on by
 itself, slowing as its sand is flung outward, and settles upright or inverted.
-Each half turn swaps the time, as the Flip button does. Touch it while it
+Each half turn swaps the time, as the Flip button does. Flicked hard again
+and again (five or six times in a row), the spinning sand presses so hard
+into the domes that the glass creaks, then cracks. Touch it while it
 moves and it stops under your finger, and stays where it stopped until the
 finger moves it on. The sand feels all of this at the true scale of the glass
 on the screen, so a gentle drag barely stirs it and a hard spin pins it to
@@ -487,8 +489,9 @@ template; it is not part of the installed app.
   the moon icon enters full screen.
 - Haptics use `navigator.vibrate` on Android. iOS has no vibration API; on
   iOS 18 and later a hidden switch control is flipped instead, which taps the
-  Taptic Engine lightly, but only from inside a touch (catching, flicking and
-  turning the glass), never from timers or shaking.
+  Taptic Engine lightly. iOS allows that only as a finger lifts or taps, so
+  a tap wanted while the finger is down (a catch, a half turn) plays as it
+  lifts; timers and shaking cannot tap at all.
 - The completion sound can only play in a hidden tab if the browser keeps the
   page's audio running; on a locked phone it generally will not.
 
