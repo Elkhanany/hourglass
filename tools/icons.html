@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hourglass — icon generator</title>
+<style>
+  body { margin: 0; padding: 28px; background: #0b0c0e; color: #ece7df; font: 15px/1.5 system-ui, sans-serif; }
+  h1 { font-weight: 600; font-size: 20px; margin: 0 0 4px; }
+  p { color: #9b968e; margin: 0 0 22px; max-width: 60ch; }
+  .grid { display: flex; flex-wrap: wrap; gap: 22px; }
+  figure { margin: 0; text-align: center; }
+  canvas { display: block; width: 144px; height: 144px; background: repeating-conic-gradient(#222 0 25%, #2c2c2c 0 50%) 0 0 / 16px 16px; border-radius: 6px; }
+  figcaption { margin-top: 8px; font-size: 12px; color: #9b968e; }
+  a { color: #e9b872; }
+</style>
+</head>
+<body>
+<h1>Hourglass icon generator</h1>
+<p>Zero dependencies: the artwork below is an SVG string rendered to canvas in your browser.
+Click a file name to download it, then drop the files into <code>icons/</code>.</p>
+<div class="grid" id="grid"></div>
+<script>
+(function () {
+  'use strict';
+  // One piece of artwork, three framings.
+  function svg(rounded, artScale) {
+    var bg = rounded
+      ? '<rect width="512" height="512" rx="112" fill="url(#bg)"/><rect width="512" height="512" rx="112" fill="url(#glow)"/>'
+      : '<rect width="512" height="512" fill="url(#bg)"/><rect width="512" height="512" fill="url(#glow)"/>';
+    var glass = 'M256 112C312 112 352 132 352 168C352 222 263 236 263 256C263 276 352 290 352 344C352 380 312 400 256 400C200 400 160 380 160 344C160 290 249 276 249 256C249 236 160 222 160 168C160 132 200 112 256 112Z';
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">' +
+      '<title>Hourglass</title><defs>' +
+      '<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b1c21"/><stop offset="1" stop-color="#08090b"/></linearGradient>' +
+      '<radialGradient id="glow" cx="50%" cy="62%" r="52%"><stop offset="0" stop-color="#ffb05c" stop-opacity="0.34"/><stop offset="0.6" stop-color="#ffb05c" stop-opacity="0.07"/><stop offset="1" stop-color="#ffb05c" stop-opacity="0"/></radialGradient>' +
+      '<linearGradient id="sand" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6d08c"/><stop offset="1" stop-color="#c98a3a"/></linearGradient>' +
+      '<linearGradient id="cap" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2a170d"/><stop offset="0.3" stop-color="#7a4b2b"/><stop offset="0.5" stop-color="#5a3520"/><stop offset="1" stop-color="#1e1009"/></linearGradient>' +
+      '<linearGradient id="rim" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0.85"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.28"/><stop offset="1" stop-color="#fff" stop-opacity="0.55"/></linearGradient>' +
+      '<clipPath id="in"><path d="' + glass + '"/></clipPath></defs>' + bg +
+      '<g transform="translate(256 256) scale(' + artScale + ') translate(-256 -256)">' +
+      '<path d="' + glass + '" fill="#fff" fill-opacity="0.045"/>' +
+      '<g clip-path="url(#in)">' +
+      '<path d="M150 196Q256 232 362 196V262H150Z" fill="url(#sand)"/>' +
+      '<path d="M150 404V376Q206 356 256 318Q306 356 362 376V404Z" fill="url(#sand)"/>' +
+      '<path d="M256 254V330" stroke="#f3c57c" stroke-width="5" stroke-linecap="round"/>' +
+      '<path d="M150 404V388Q256 372 362 388V404Z" fill="#8a5a22" fill-opacity="0.35"/></g>' +
+      '<path d="' + glass + '" fill="none" stroke="url(#rim)" stroke-width="6" stroke-linejoin="round"/>' +
+      '<path d="M182 150Q170 172 186 196" fill="none" stroke="#fff" stroke-opacity="0.6" stroke-width="7" stroke-linecap="round"/>' +
+      '<path d="M182 326Q170 348 184 366" fill="none" stroke="#fff" stroke-opacity="0.4" stroke-width="7" stroke-linecap="round"/>' +
+      '<rect x="136" y="84" width="240" height="26" rx="9" fill="url(#cap)"/>' +
+      '<rect x="136" y="402" width="240" height="26" rx="9" fill="url(#cap)"/>' +
+      '<rect x="140" y="86" width="232" height="3" rx="1.5" fill="#fff" fill-opacity="0.22"/>' +
+      '<rect x="140" y="404" width="232" height="3" rx="1.5" fill="#fff" fill-opacity="0.22"/>' +
+      '</g></svg>';
+  }
+  var jobs = [
+    // name, size, rounded background, art scale
+    ['icon-192.png', 192, true, 1.0],
+    ['icon-512.png', 512, true, 1.0],
+    ['icon-maskable-192.png', 192, false, 0.74],   // art inside the 80 % safe zone
+    ['icon-maskable-512.png', 512, false, 0.74],
+    ['apple-touch-icon.png', 180, false, 0.94]
+  ];
+  var grid = document.getElementById('grid');
+  function add(name, href, canvas) {
+    var fig = document.createElement('figure'), cap = document.createElement('figcaption'), a = document.createElement('a');
+    a.href = href; a.download = name; a.textContent = name;
+    cap.appendChild(a);
+    if (canvas) fig.appendChild(canvas);
+    fig.appendChild(cap); grid.appendChild(fig);
+  }
+  jobs.forEach(function (job) {
+    var img = new Image();
+    var url = URL.createObjectURL(new Blob([svg(job[2], job[3])], { type: 'image/svg+xml' }));
+    img.onload = function () {
+      var c = document.createElement('canvas');
+      c.width = c.height = job[1];
+      c.getContext('2d').drawImage(img, 0, 0, job[1], job[1]);
+      URL.revokeObjectURL(url);
+      add(job[0], c.toDataURL('image/png'), c);
+    };
+    img.src = url;
+  });
+  [['icon.svg', true, 1.0], ['icon-maskable.svg', false, 0.74]].forEach(function (v) {
+    add(v[0], URL.createObjectURL(new Blob([svg(v[1], v[2])], { type: 'image/svg+xml' })), null);
+  });
+})();
+</script>
+</body>
+</html>
