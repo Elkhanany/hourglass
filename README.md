@@ -197,8 +197,10 @@ is recent a backlog drains as a slightly thicker thread instead of a clump,
 and the page's sleep catch-up never teleports sand. Once the glass is calm
 again, the rest of the run is re-timed so the sand that is there lasts
 exactly the time that is left: the last grain still leaves at `00:00.0`. Sand
-leaking from the upper bulb is absorbed the same way; sand leaking from the
-lower bulb never touches the time.
+leaking from the upper bulb thins the stream (the neck lets through less), and
+where it leaks faster than the stream can make up, the rest of the run is
+re-timed the same way; sand leaking from the lower bulb never touches the
+time.
 
 ### Sensors
 
