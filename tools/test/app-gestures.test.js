@@ -9,12 +9,17 @@
  * Exits 0 when every check passes. Runs against the motion stub; the sim,
  * renderer and audio are whatever the served tree has (shims where the
  * renderer or audio module has not landed).
+ *
+ * e2e-gestures.test.js runs the same scenarios against the real modules
+ * (integration E6–E8), with the extra checks that need the motion path.
  */
 'use strict';
 var H = require('./stubs/harness.js');
 var sleep = H.sleep;
 
 var UPPER_SHOULDER = 6;          // upper bulb, left side, u ≈ 0.16 (segment 0·40 + 6)
+// stub: drive the motion stub (else the tree's own motion.js); e2e: the integration extras
+var CFG = { stub: true, e2e: false };
 
 /** Per-step recording of the body (and what the sim was given). */
 function recBody(t) {
@@ -23,12 +28,33 @@ function recBody(t) {
       var b = H.body;
       return [performance.now(), b.px, b.py, b.ax, b.ay, H.sim.angle, b.w, H.sim.mAx, H.sim.mAy,
               H.flip.active ? 1 : 0, b.mode, H.timer.state, document.getElementById('status').textContent,
-              document.getElementById('app').classList.contains('zen') ? 1 : 0];
+              document.getElementById('app').classList.contains('zen') ? 1 : 0, H.sim.frame.slides];
     });
   });
 }
 var R_T = 0, R_PX = 1, R_PY = 2, R_AX = 3, R_AY = 4, R_TH = 5, R_W = 6, R_MAX = 7, R_MAY = 8, R_FLIP = 9,
-    R_MODE = 10, R_STATE = 11, R_STATUS = 12, R_ZEN = 13;
+    R_MODE = 10, R_STATE = 11, R_STATUS = 12, R_ZEN = 13, R_SLIDES = 14;
+
+/**
+ * Per frame, how far (mean rows from the neck) the sand of the bulb that was
+ * on top when it started lies: that bulb is lattice bulb 0 after an even
+ * number of swaps and bulb 1 after an odd one.
+ */
+function recTopBulb(t) {
+  return t.eval(function () {
+    var flips0 = __mon.flips;
+    window.__topD = [];
+    (function f() {
+      var H = window.Hourglass, s = H.sim, W = s.W, gate = s.gateY, odd = (__mon.flips - flips0) % 2 === 1;
+      var y0 = odd ? gate + 1 : 1, y1 = odd ? s.H - 1 : gate, sum = 0, n = 0;
+      for (var y = y0; y < y1; y += 2) {
+        for (var x = s.rowMin[y]; x <= s.rowMax[y]; x += 2) if (s.cell[y * W + x] >= 2) { sum += Math.abs(y - gate); n++; }
+      }
+      window.__topD.push([performance.now(), n ? sum / n : 0, H.body.mode]);
+      if (window.__topD.length < 2000 && !window.__topStop) requestAnimationFrame(f);
+    })();
+  });
+}
 
 /** Drag a bulb round the glass: grab at angle a0 (screen, rad), engage radially, sweep `sweep` rad in ms, release. */
 async function arc(t, g, sweep, ms, opts) {
@@ -69,7 +95,7 @@ async function lmax(t, reduced) {
 async function testMove(s, env, opts) {
   opts = opts || {};
   var label = opts.reduced ? 'reduced MOVE' : 'MOVE';
-  var t = opts.page || await env.open({ motionStub: true, reducedMotion: !!opts.reduced });
+  var t = opts.page || await env.open({ motionStub: CFG.stub, reducedMotion: !!opts.reduced });
   if (!opts.page) { await t.eval(function () { window.Hourglass.start(); }); await sleep(700); }
   var g = await t.glass();
   var L = await lmax(t, opts.reduced);
@@ -111,13 +137,18 @@ async function testMove(s, env, opts) {
             'T.rem −' + dRem.toFixed(0) + ' ms over ' + dWall + ' ms');
     s.check(label + ': sim gets ax < 0 while the glass accelerates right', axN > 3 && axBad === 0,
             axN + ' steps accelerating right (peak ' + maxAx.toFixed(0) + ' px/s² = ' + (maxAx * 1.631e-5).toFixed(2) + ' g), ' + axBad + ' with ax ≥ 0');
+    if (CFG.e2e) {
+      var slides = 0;
+      rows.forEach(function (q) { if (q[R_T] <= r.upAt + 300 && q[R_SLIDES] > slides) slides = q[R_SLIDES]; });
+      s.check(label + ': the sand slid while the glass was dragged (frame.slides > 0)', slides > 0, 'up to ' + slides + ' slides a frame');
+    }
   }
   return t;
 }
 
 /* ---- 3. TURN -------------------------------------------------------------- */
 async function testTurn(s, env) {
-  var t = await env.open({ motionStub: true });
+  var t = await env.open({ motionStub: CFG.stub });
   // a glass that has run a little, then paused: its clock must swap exactly
   await t.eval(function () { window.Hourglass.start(); });
   await sleep(2500);
@@ -169,7 +200,7 @@ async function testTurn(s, env) {
 
 /* ---- 4. FREE / DETENT --------------------------------------------------- */
 async function testFree(s, env) {
-  var t = await env.open({ motionStub: true });
+  var t = await env.open({ motionStub: CFG.stub });
   var cases = [[4, 1, 1], [9, 2, 99]];          // finger rad/s, at least / at most half-turns
   for (var c = 0; c < cases.length; c++) {
     var wf = cases[c][0];
@@ -177,12 +208,21 @@ async function testFree(s, env) {
     var was = await t.eval(function () { return window.Hourglass.timer.state; });
     var g = await t.glass();
     await recBody(t);
+    if (CFG.e2e) { await t.eval(function () { window.__topStop = false; }); await recTopBulb(t); }
     var rel = await arc(t, g, wf * 0.26, 260, {});
     var restAt = await waitRest(t, 5000);
     var r = await t.eval(function () {
       var H = window.Hourglass;
-      return { rows: __rec.stop(), flips: __mon.flips, state: H.timer.state, angle: H.sim.angle };
+      window.__topStop = true;
+      return { rows: __rec.stop(), flips: __mon.flips, state: H.timer.state, angle: H.sim.angle, top: window.__topD || [] };
     });
+    if (CFG.e2e && wf >= 9) {
+      // the sand of the bulb that was on top is flung (and falls) toward its own dome while the glass spins
+      var d0 = r.top.length ? r.top[0][1] : 0, dMax = d0;
+      r.top.forEach(function (q) { if (q[2] === 'free' || q[2] === 'detent' || q[2] === 'held-turn') { if (q[1] > dMax) dMax = q[1]; } });
+      s.check('FREE: (' + wf + ' rad/s) the top bulb\'s sand moves toward its dome by ≥ 15 cells during the spin', dMax - d0 >= 15,
+              'mean distance from the neck ' + d0.toFixed(1) + ' → up to ' + dMax.toFixed(1) + ' cells');
+    }
     var maxW = 0;
     r.rows.forEach(function (q) { if (Math.abs(q[R_W]) > maxW) maxW = Math.abs(q[R_W]); });
     var odd = r.flips % 2 === 1;
@@ -204,7 +244,7 @@ async function testFree(s, env) {
 
 /* ---- 5. CATCH ------------------------------------------------------------ */
 async function testCatch(s, env, page) {
-  var t = page || await env.open({ motionStub: true });
+  var t = page || await env.open({ motionStub: CFG.stub });
   var g = await t.glass();
   var state0 = await t.eval(function () { return window.Hourglass.timer.state; });
   await arc(t, g, 16 * 0.26, 260, {});
@@ -260,7 +300,7 @@ async function freshGlass(t) {
   await sleep(900);
 }
 async function testMend(s, env) {
-  var t = await env.open({ motionStub: true });
+  var t = await env.open({ motionStub: CFG.stub });
   await spyMend(t);
   var g = await t.glass();
   // a still press of 1.6 s seals it
@@ -278,6 +318,14 @@ async function testMend(s, env) {
   s.check('MEND: a still press of 1.6 s seals the crack', a.sealed && a.open === 0, 'sealed ' + a.sealed);
   s.check('MEND: setMend reached 1', a.max === 1, 'max ' + a.max);
   s.check('MEND: the long press did not toggle', a.state === st0, st0 + ' → ' + a.state);
+  if (CFG.e2e) {
+    // sealed: nothing leaks any more, from either bulb (the timer may run meanwhile)
+    var k0 = await t.eval(function () { var S = window.Hourglass.sim; window.Hourglass.start(); return [S.leakedBottom, S.leakedTop, S.lost]; });
+    await sleep(2000);
+    var k1 = await t.eval(function () { var S = window.Hourglass.sim; window.Hourglass.pause(); return [S.leakedBottom, S.leakedTop, S.lost]; });
+    s.check('MEND: once sealed, sim.leakedBottom (and leakedTop) stay constant for 2 s', k0[0] === k1[0] && k0[1] === k1[1] && k0[2] === k1[2],
+            JSON.stringify({ before: k0, after: k1 }));
+  }
 
   // released at 0.8 s: not sealed, and the gold recedes to 0 within 0.5 s
   await freshGlass(t);
@@ -319,7 +367,7 @@ async function zenOn(t) {
   return t.eval(function () { return document.getElementById('app').classList.contains('zen'); });
 }
 async function testZen(s, env) {
-  var t = await env.open({ motionStub: true });
+  var t = await env.open({ motionStub: CFG.stub });
   var g0 = await t.glass();
   await t.touch.tap(g0.cx, g0.cy, 60);                      // start, by a tap on the glass
   try {
@@ -363,7 +411,7 @@ async function testZen(s, env) {
 
 /* ---- 12. REDUCE MOTION -------------------------------------------------- */
 async function testReduced(s, env) {
-  var t = await env.open({ motionStub: true, reducedMotion: true });
+  var t = await env.open({ motionStub: CFG.stub, reducedMotion: true });
   var red = await t.eval(function () { return { sim: window.Hourglass.sim.reduced, app: window.Hourglass.reduceMotion }; });
   s.check('REDUCED: sim.reduced is true', red.sim === true && red.app === true, JSON.stringify(red));
   await t.eval(function () { window.Hourglass.start(); });
@@ -375,20 +423,72 @@ async function testReduced(s, env) {
   await waitRest(t, 4000);
   var n = await t.eval(function () { return __mon.flips; });
   s.check('REDUCED: a flick gives ≤ 1 half-turn', n <= 1, 'released at ' + rel.w.toFixed(2) + ' rad/s → ' + n);
+  if (CFG.e2e) {
+    // shaken very hard with Real motion on: gentler sand, and a glass that cannot crack
+    await t.page.tap('#btn-settings');
+    await sleep(700);
+    await t.page.$eval('#opt-tilt', function (el) { el.scrollIntoView({ block: 'center' }); });
+    await sleep(150);
+    await t.page.tap('#opt-tilt');
+    await sleep(300);
+    await t.page.tap('#sheet-settings .sheet-close');
+    await sleep(700);
+    await t.eval(function () {
+      window.__drive({ profile: 'calm', conv: 'ios' });
+      window.__rm = { air: 0, spray: 0, hops: 0, steps: 0 };
+      __rec.start(function (H) {
+        var f = H.sim.frame, m = window.__rm;
+        m.steps++;
+        if (H.sim.airborne()) m.air++;
+        if (f.sprayed) m.spray++;
+        if (f.hops) m.hops++;
+        return 0;
+      });
+    });
+    await sleep(1500);
+    await t.eval(function () { window.__drive({ profile: 'veryVigSlow', conv: 'ios', durS: 15 }); });
+    await sleep(15500);
+    var rm = await t.eval(function () {
+      __rec.stop();
+      window.__driveStop();
+      var H = window.Hourglass;
+      return { m: window.__rm, cracks: H.sim.cracks.length, dMax: H.sim.dMax, on: H.grav.on };
+    });
+    s.check('REDUCED: veryVigSlow 15 s never cracks it', rm.on && rm.cracks === 0 && rm.dMax === 0, 'cracks ' + rm.cracks + ', dMax ' + rm.dMax);
+    s.check('REDUCED: ... the bed never flies, nothing sprays or hops', rm.m.air === 0 && rm.m.spray === 0 && rm.m.hops === 0 && rm.m.steps > 1000,
+            JSON.stringify(rm.m));
+  }
   await H.invariants(s, t, 'REDUCED');
   await t.close();
 }
 
-(async function main() {
+/** A plain tap on the glass still starts and pauses it. */
+async function testTap(s, env) {
+  var t = await env.open({ motionStub: CFG.stub });
+  var g = await t.glass();
+  await t.touch.tap(g.cx, g.cy, 80);
+  await sleep(300);
+  var a = await t.eval(function () { return window.Hourglass.timer.state; });
+  await t.touch.tap(g.cx, g.cy, 80);
+  await sleep(300);
+  var b = await t.eval(function () { return window.Hourglass.timer.state; });
+  s.check('TAP: a tap starts the glass, another pauses it', a === 'running' && b === 'paused', 'idle → ' + a + ' → ' + b);
+  await H.invariants(s, t, 'TAP');
+  await t.close();
+}
+
+async function testMoveAlone(s, env) {
+  var t = await testMove(s, env, {});
+  await H.invariants(s, t, 'MOVE');
+  await t.close();
+}
+
+async function main() {
   var s = new H.Suite('app-gestures');
   var env = await H.start();
   var only = env.args.only;
   try {
-    if (!only || only === 'move') {
-      var t = await testMove(s, env, {});
-      await H.invariants(s, t, 'MOVE');
-      await t.close();
-    }
+    if (!only || only === 'move') await testMoveAlone(s, env);
     if (!only || only === 'turn') await testTurn(s, env);
     if (!only || only === 'free') await testFree(s, env);
     if (!only || only === 'catch') await testCatch(s, env);
@@ -401,4 +501,10 @@ async function testReduced(s, env) {
     await env.close();
   }
   s.done();
-})();
+}
+
+module.exports = {
+  CFG: CFG, testMove: testMoveAlone, testTurn: testTurn, testFree: testFree, testCatch: testCatch,
+  testMend: testMend, testZen: testZen, testReduced: testReduced, testTap: testTap
+};
+if (require.main === module) main();

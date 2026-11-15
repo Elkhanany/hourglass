@@ -14,9 +14,10 @@
 'use strict';
 var H = require('./stubs/harness.js');
 var sleep = H.sleep;
+var CFG = { stub: true };          // drive the motion stub (e2e-calm.test.js runs these on the real modules)
 
 async function testFlow(s, env) {
-  var t = await env.open({ motionStub: true });
+  var t = await env.open({ motionStub: CFG.stub });
   // the lean main screen
   var ui = await t.eval(function () {
     var row = document.getElementById('opt-tilt').closest('.row');
@@ -129,7 +130,7 @@ async function testFlow(s, env) {
 async function testServiceWorker(s, root) {
   var env = await H.start({ root: root, needMotionFile: true });
   try {
-    var t = await env.open({ motionStub: true, serviceWorkers: true });
+    var t = await env.open({ motionStub: CFG.stub, serviceWorkers: true });
     var c = await t.eval(function () {
       return navigator.serviceWorker.ready.then(function () {
         return new Promise(function (r) { setTimeout(r, 1500); });
@@ -148,7 +149,7 @@ async function testServiceWorker(s, root) {
   }
 }
 
-(async function main() {
+async function main() {
   var s = new H.Suite('app-regression');
   var env = await H.start();
   var root = env.root;
@@ -165,4 +166,7 @@ async function testServiceWorker(s, root) {
     s.check('no exception (service worker)', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   }
   s.done();
-})();
+}
+
+module.exports = { CFG: CFG, testFlow: testFlow, testServiceWorker: testServiceWorker };
+if (require.main === module) main();

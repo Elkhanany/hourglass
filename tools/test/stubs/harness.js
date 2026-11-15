@@ -289,7 +289,33 @@ async function perfSince(t, from, n) {
   }, { from: from });
 }
 
+/**
+ * Collect the perf rings over a long stretch (they hold 600 frames): call
+ * poll() at least every few seconds, and stop() for everything gathered.
+ */
+async function perfWatch(t) {
+  var w = { frame: [], sim: [], draw: [], interval: [], quality: [] };
+  var at = await t.page.evaluate(function () { return window.Hourglass.perf.i; });
+  w.poll = async function () {
+    var p = await perfSince(t, at);
+    at = (at + p.frame.length) % 600;
+    w.frame = w.frame.concat(p.frame); w.sim = w.sim.concat(p.sim);
+    w.draw = w.draw.concat(p.draw); w.interval = w.interval.concat(p.interval);
+    w.quality.push(p.quality);
+    return w;
+  };
+  /** Wait ms, polling the rings meanwhile. */
+  w.wait = async function (ms) {
+    var end = Date.now() + ms;
+    while (Date.now() < end) {
+      await sleep(Math.min(3000, end - Date.now()));
+      await w.poll();
+    }
+  };
+  return w;
+}
+
 module.exports = {
   REPO: REPO, sleep: sleep, start: start, Suite: Suite, invariants: invariants, pct: pct,
-  perfSince: perfSince, capabilities: capabilities, rootWithMotion: rootWithMotion
+  perfSince: perfSince, perfWatch: perfWatch, capabilities: capabilities, rootWithMotion: rootWithMotion
 };

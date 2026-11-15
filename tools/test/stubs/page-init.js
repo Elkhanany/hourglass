@@ -94,6 +94,14 @@
     d.timer = setInterval(tick, 1000 / 60);
     tick();
   };
+  /** Change how the phone is held (beta, gamma, o) or the profile while it is driven. */
+  window.__driveSet = function (o) {
+    if (!drive) return;
+    for (var k in o) {
+      if (k === 'profile') drive.name = o[k];
+      else drive[k] = o[k];
+    }
+  };
   window.__driveStop = function () {
     if (!drive) return;
     clearInterval(drive.timer);

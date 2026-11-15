@@ -521,8 +521,7 @@
       flip.prog += dt * 1000 / flip.dur;
       if (flip.prog >= 1) {
         if (flip.to !== 0) swapEnds();
-        if (flip.active) endTurn();
-        else { sim.angle = 0; body.theta = 0; body.w = 0; rot = 'none'; }
+        if (flip.active) endTurn(); else endNudge();
         return;
       }
       var p = flip.prog;
@@ -564,10 +563,15 @@
       var d = th - body.td;
       if (d < 0.002 && d > -0.002 && w < 0.05 && w > -0.05) {
         if (body.td > 1 || body.td < -1) swapEnds();
-        if (flip.active) endTurn();
-        else { sim.angle = 0; body.theta = 0; body.w = 0; rot = 'none'; }
+        if (flip.active) endTurn(); else endNudge();
       }
     }
+  }
+  /** A nudge that never became a turn has sprung back: nothing to undo but the angle. */
+  function endNudge() {
+    sim.angle = 0; sim.flipping = false;
+    body.theta = 0; body.w = 0;
+    rot = 'none';
   }
 
   /** True while the glass is still moving on its own: a touch now catches it. */
@@ -855,7 +859,7 @@
     // Shaken, the neck stutters and falls behind. While that is recent, a
     // backlog drains as a slightly thicker thread, never as a clump.
     var motionRecent = motionRecentNow = now - lastMotionAt < 2000;
-    sim.relCap =motionRecent ? T.rate * DT * (3 + 20 * Math.max(0, 1 - (T.rem - T.tailMs) / 5000)) : 0;
+    sim.relCap = motionRecent ?T.rate * DT * (3 + 20 * Math.max(0, 1 - (T.rem - T.tailMs) / 5000)) : 0;
     // only sustained, very hard real shaking can crack the glass
     sim.damageArmed = grav.on && motion.armed && !reduceMotion;
     sim.reduced = reduceMotion;
@@ -1943,8 +1947,9 @@
   /** Record `secs` of raw devicemotion and deviceorientation, from the first sample. */
   function startTrace(secs) {
     var r = dbg.rec = { t0: -1, done: false, motion: [], orient: [] };
-    function stamp(e) {
-      var t = e.timeStamp;
+    // (one clock for both sensors: event time stamps differ between engines)
+    function stamp() {
+      var t = performance.now();
       if (r.t0 < 0) r.t0 = t;
       if (t - r.t0 > secs * 1000) { finish(); return -1; }
       return Math.round((t - r.t0) * 10) / 10;
@@ -1952,15 +1957,16 @@
     function v3(o, a, b, c) { return o ? [o[a], o[b], o[c]] : [null, null, null]; }
     function onM(e) {
       if (r.done) return;
-      var t = stamp(e);
-      if (t < 0) return;
       var a = v3(e.acceleration, 'x', 'y', 'z'), g = v3(e.accelerationIncludingGravity, 'x', 'y', 'z');
+      if (a[0] == null && g[0] == null) return;           // a browser without sensors says so with an empty reading
+      var t = stamp();
+      if (t < 0) return;
       var q = v3(e.rotationRate, 'alpha', 'beta', 'gamma');
       r.motion.push([t, a[0], a[1], a[2], g[0], g[1], g[2], q[0], q[1], q[2]]);
     }
     function onO(e) {
-      if (r.done) return;
-      var t = stamp(e);
+      if (r.done || e.beta == null) return;
+      var t = stamp();
       if (t >= 0) r.orient.push([t, e.beta, e.gamma]);
     }
     function finish() {
@@ -1973,7 +1979,7 @@
       a.href = URL.createObjectURL(blob);
       a.download = 'hourglass-motion-' + secs + 's.json';
       a.textContent = 'save the ' + secs + ' s trace (' + r.motion.length + ' + ' + r.orient.length + ' samples)';
-      a.style.cssText = 'pointer-events:auto;color:#fff;text-decoration:underline';
+      a.style.cssText = 'display:block;pointer-events:auto;color:#fff;text-decoration:underline';
       dbg.el.appendChild(a);
     }
     window.addEventListener('devicemotion', onM, { passive: true });

@@ -13,6 +13,7 @@ var H = require('./stubs/harness.js');
 var sleep = H.sleep;
 
 var SEG = 156;                       // lower bulb, right side, u ≈ 0.91 (the dome)
+var CFG = { stub: true };            // drive the motion stub (e2e-session.test.js runs this on the real modules)
 
 /** Pixels of c-front within `cells` of crack k's chip, as a flat array (canvas px). */
 function frontPatch(t, k, cells) {
@@ -36,17 +37,20 @@ function diffCount(a, b) {
   return n;
 }
 
-(async function main() {
-  var s = new H.Suite('app-session');
-  var env = await H.start();
+/**
+ * The scenario. opts.seg: where to crack it; opts.leak: before Reset, wait
+ * for the breach to leak and the escaped sand to reach the spill (E10).
+ */
+async function run(s, env, opts) {
+  opts = opts || {};
+  var t = await env.open({ motionStub: CFG.stub });
   try {
-    var t = await env.open({ motionStub: true });
     await t.eval(function () { window.Hourglass.start(); });
     await sleep(1500);
     var cr = await t.eval(function (seg) {
       var c = window.Hourglass.debug.forceCrack(seg, 40, 2);
       return { seg: c.seg, w: c.w, seed: c.seed, x: c.x, y: c.y };
-    }, SEG);
+    }, opts.seg === undefined ? SEG : opts.seg);
     await sleep(1000);
     var before = await t.eval(function () {
       var H = window.Hourglass;
@@ -76,6 +80,17 @@ function diffCount(a, b) {
       s.check('SESSION: the app asks the renderer to draw it (renderer shim: syncDamage calls)', after.sync > 0, after.sync + ' calls');
     }
 
+    if (opts.leak) {
+      // E10 starts from a glass that has leaked, with sand on the desk
+      try {
+        await t.page.waitForFunction(function () { var H = window.Hourglass; return H.sim.lost > 0 && H.spill.count > 0; },
+                                     null, { timeout: 6000, polling: 100 });
+      } catch (e) {}
+      var lk = await t.eval(function () { return { lost: window.Hourglass.sim.lost, spill: window.Hourglass.spill.count }; });
+      s.check('RESET (E10): the breach leaked and the sand reached the desk first', lk.lost > 0 && lk.spill > 0,
+              'lost ' + lk.lost + ', spill.count ' + lk.spill);
+    }
+
     // Reset: a new glass inside the cross-fade
     var pre = drawnAfter;
     await t.page.tap('#btn-reset');
@@ -100,11 +115,23 @@ function diffCount(a, b) {
               diffCount(pre.px, gone) + ' px changed where the crack was');
     }
     await H.invariants(s, t, 'SESSION/RESET');
+  } finally {
     await t.close();
+  }
+}
+
+async function main() {
+  var s = new H.Suite('app-session');
+  var env = await H.start();
+  try {
+    await run(s, env, {});
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {
     await env.close();
   }
   s.done();
-})();
+}
+
+module.exports = { CFG: CFG, run: run };
+if (require.main === module) main();
