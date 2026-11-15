@@ -10,7 +10,7 @@
  *     time swaps), pour, Zen, the end and its quiet hold, the wake lock
  *     (app-regression's flow on the real modules); turning the phone over
  *     (deviceorientation beta → −90°) for 300 ms swaps once, a 120 ms glitch
- *     does not; the service worker caches 'hourglass-v1.5.0' with motion.js.
+ *     does not; the service worker caches its current VERSION with motion.js.
  *
  *   node tools/test/e2e-calm.test.js [--root <dir>] [--port <n>] [--only e1|e11]
  */
@@ -31,7 +31,7 @@ async function e1(s, env) {
     };
   });
   // f446085 had 3 buttons at the top, 13 below and 6 Tune rows
-  s.check('E1: the main screen\'s controls are unchanged', ui.top === 3 && ui.bottom === 13 && ui.rows === 6, JSON.stringify(ui));
+  s.check('E1: the main screen\'s controls are unchanged', ui.top === 3 && ui.bottom === 12 && ui.rows === 6, JSON.stringify(ui));
   s.check('E1: the #opt-tilt row reads "Real motion"', ui.tilt === 'Real motion', '"' + ui.tilt + '"');
   await t.eval(function () { window.Hourglass.setDuration(20000); });
   await sleep(1000);

@@ -323,6 +323,7 @@
     Pmax: 0.15,          // the most one blow can ever do
     gamTh: 4.6, gamC: 6, nB: 16, tauB: 0.5, capB: 0.02, bendBins: 3,   // the waist bends
     spinTh: 0.2, spinC: 0.8, spinRate: 0.6, domeBins: 4,              // a hard spin loads the domes (g at the dome)
+    knockTh: 0.85, knockA: 0.08, knockCap: 0.1,                       // a knock on the glass (tap or click)
     rMax: 0.30,          // 1/s: fastest sub-critical growth (bounded crack velocity)
     tauP: 0.6,           // s: an unabsorbed blow fades
     tauHeal: 8,          // s: micro-damage arrests while no crack is visible
@@ -672,7 +673,41 @@
   Sim.prototype.isActive = function () {
     return this.np > 0 || this.quiet < 24 || this.flipping ||
       this._motionStep || this.slug[0].air || this.slug[1].air ||
-      this._leakLive || this.steps - this._leakStep < MOT.leakLinger;
+      this._leakLive || this.steps - this._leakStep < MOT.leakLinger || this._pendP;
+  };
+
+  /**
+   * A knock on the glass: a tap or a click near (x, y) (lattice cells), `s`
+   * how hard (about 0.55 for an ordinary tap, up to ~1.3 for a quick, hard
+   * burst). The blow lands on the nearest wall and obeys the same fatigue
+   * limit as the sand's blows, so ordinary taps never mark the glass; a
+   * burst of hard knocks creaks, then cracks it where it is struck.
+   * Returns the segment struck, or −1.
+   */
+  Sim.prototype.knock = function (x, y, s) {
+    if (this.reduced || !(s > 0)) return -1;
+    var W = this.W, H = this.H, seg = -1, yi = Math.round(y), k, sg, yy;
+    if (yi < 1) yi = 1; else if (yi > H - 2) yi = H - 2;
+    for (k = 0; k < 8 && seg < 0; k++) {               // the nearest row with glass on both sides
+      for (sg = -1; sg <= 1 && seg < 0; sg += 2) {
+        yy = yi + sg * k;
+        if (yy < 1 || yy > H - 2 || this.rowMin[yy] > this.rowMax[yy]) continue;
+        seg = this.segOf[yy * W + (x < this.geo.cx ? this.rowMin[yy] - 1 : this.rowMax[yy] + 1)];
+      }
+    }
+    if (seg < 0) return -1;
+    var sc = this.segCrack[seg];
+    if (sc >= 0 && this.cracks[sc].sealed) return seg;             // mended gold holds
+    var raw = Math.pow(s * this.segKt[seg] / this.segS[seg], MOT.nB) - Math.pow(MOT.knockTh, MOT.nB);
+    if (raw <= 0) return seg;
+    var d = MOT.knockA * raw;
+    if (d > MOT.knockCap) d = MOT.knockCap;
+    this.segHit[seg] += d;
+    d += this.segP[seg];
+    this.segP[seg] = d > MOT.Pmax ? MOT.Pmax : d;
+    this._pendP = true;
+    this.quiet = 0;
+    return seg;
   };
 
   /**
@@ -2810,6 +2845,67 @@
       glass: { tint: [214, 232, 255], smoke: 0.07 },
       cap: { kind: 'silver', hi: [236, 240, 245], mid: [160, 166, 176], lo: [72, 77, 86] },
       glow: [168, 196, 235]
+    },
+    lapis: {
+      id: 'lapis',
+      name: 'Lapis Lazuli & Gold',
+      short: 'Lapis Lazuli',
+      sand: {
+        h: 224, s: 0.62, l: 0.36, dh: 8, dl: 0.07,
+        dark: { p: 0.10, h: 230, s: 0.58, l: 0.24 },    // deep ultramarine
+        alt: { p: 0.10, h: 214, s: 0.22, l: 0.66 },      // pale calcite veins
+        mica: { p: 0.07, h: 45, s: 0.85, l: 0.62 }       // pyrite: flecks of gold
+      },
+      glint: [255, 226, 150],
+      // a dark sand, lit like the volcanic one so it reads against the night
+      light: {
+        rim: [8, 4], aoMax: 6, gloss: 0.20, glossBoost: 10, hl: 1.1, tint: [236, 240, 255],
+        bloom: 0.75, bloomColor: [170, 190, 255],
+        emit: { mica: 0.30, gloss: 0.04, rim: 0.14, haze: 0.009 }, backlight: 0.08
+      },
+      glass: { tint: [222, 230, 255], smoke: 0.16 },
+      cap: { kind: 'gold', hi: [236, 204, 128], mid: [178, 140, 60], lo: [84, 60, 20] },
+      glow: [104, 136, 230]
+    },
+    rosequartz: {
+      id: 'rosequartz',
+      name: 'Rose Quartz & Copper',
+      short: 'Rose Quartz',
+      sand: {
+        h: 352, s: 0.42, l: 0.80, dh: 8, dl: 0.07,
+        dark: { p: 0.05, h: 345, s: 0.32, l: 0.60 },
+        alt: { p: 0.12, h: 12, s: 0.48, l: 0.83 },       // peach
+        mica: { p: 0.05, h: 0, s: 0.10, l: 0.97 }
+      },
+      glint: [255, 244, 244],
+      light: {
+        rim: [3, 1], aoMax: 8, gloss: 0.14, glossBoost: 4, hl: 0.9, tint: [255, 255, 255],
+        bloom: 0.5, bloomColor: [255, 214, 222],
+        emit: { mica: 0.10, gloss: 0.02, rim: 0.05, haze: 0.006 }, backlight: 0.045
+      },
+      glass: { tint: [255, 232, 236], smoke: 0.08 },
+      cap: { kind: 'copper', hi: [228, 164, 132], mid: [170, 98, 66], lo: [76, 38, 22] },
+      glow: [236, 168, 178]
+    },
+    seaglass: {
+      id: 'seaglass',
+      name: 'Sea Glass & Driftwood',
+      short: 'Sea Glass',
+      sand: {
+        h: 166, s: 0.30, l: 0.72, dh: 10, dl: 0.07,
+        dark: { p: 0.05, h: 188, s: 0.30, l: 0.50 },     // deeper teal
+        alt: { p: 0.12, h: 140, s: 0.28, l: 0.78 },      // pale green
+        mica: { p: 0.05, h: 180, s: 0.14, l: 0.96 }
+      },
+      glint: [236, 255, 250],
+      light: {
+        rim: [3, 1], aoMax: 8, gloss: 0.14, glossBoost: 4, hl: 0.9, tint: [255, 255, 255],
+        bloom: 0.5, bloomColor: [200, 245, 232],
+        emit: { mica: 0.10, gloss: 0.02, rim: 0.05, haze: 0.006 }, backlight: 0.045
+      },
+      glass: { tint: [222, 246, 240], smoke: 0.08 },
+      cap: { kind: 'wood', hi: [178, 168, 150], mid: [128, 118, 102], lo: [66, 59, 50] },   // bleached driftwood
+      glow: [150, 212, 198]
     }
   };
 

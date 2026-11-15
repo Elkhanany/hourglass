@@ -16,7 +16,7 @@ Live (once GitHub Pages is enabled): `https://elkhanany.github.io/hourglass/`
 | Mend a crack | Hold a finger still on the glass | |
 | Add sand (extends the timer) | Tap or hold **Sand** | focus + hold `Space` |
 | Reset | **Reset** | `R` |
-| Duration | Pills `1 3 5 10 15 25 45` min, **Custom**, or tap the time (10 s to 99:59) | |
+| Duration | Pills `1 5 10 15 30 60` min, **Custom**, or tap the time (10 s to 99:59) | |
 | Dim the controls now | Moon icon | |
 | Mute | Speaker icon | `M` |
 | Material, frame, sound, motion, screen | **Tune** | |
@@ -41,7 +41,8 @@ five, three quarters for 45.
 
 **Tune** holds the rest:
 
-- **Material**: Sahara Quartz, Volcanic Black, Moonstone; **Frame** hides the
+- **Material**: Sahara Quartz, Volcanic Black, Moonstone, Lapis Lazuli (gold
+  flecks, gold caps), Rose Quartz (copper), Sea Glass (driftwood); **Frame** hides the
   caps and posts so only the glass remains.
 - **Acoustic character** (six voicings) and volume; **Ambience** (a brook or
   rain behind the sand, with its own level); **Completion bowl**.
@@ -67,7 +68,10 @@ with a small sway. Take it by a bulb and it turns; flick it and it spins on by
 itself, slowing as its sand is flung outward, and settles upright or inverted.
 Each half turn swaps the time, as the Flip button does. Flicked hard again
 and again (five or six times in a row), the spinning sand presses so hard
-into the domes that the glass creaks, then cracks. Touch it while it
+into the domes that the glass creaks, then cracks. Knocking works too: a quick
+burst of taps or clicks on the glass lands harder and harder, and after a few
+seconds of it the glass creaks, then cracks where it is struck (the first tap
+of a burst still starts or pauses it; ordinary taps never mark it). Touch it while it
 moves and it stops under your finger, and stays where it stopped until the
 finger moves it on. The sand feels all of this at the true scale of the glass
 on the screen, so a gentle drag barely stirs it and a hard spin pins it to
