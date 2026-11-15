@@ -46,6 +46,24 @@
   --glow: 168, 196, 235;
   --glow-a: 0.19;
 }
+[data-theme="lapis"] {
+  --accent: #d1ad5e;
+  --accent-ink: #0a1022;
+  --glow: 104, 136, 230;
+  --glow-a: 0.16;
+}
+[data-theme="rosequartz"] {
+  --accent: #e9b0b2;
+  --accent-ink: #1f1012;
+  --glow: 236, 168, 178;
+  --glow-a: 0.17;
+}
+[data-theme="seaglass"] {
+  --accent: #a3d6c9;
+  --accent-ink: #0b1816;
+  --glow: 150, 212, 198;
+  --glow-a: 0.17;
+}
 
 /* ------------------------------------------------------------------ *
  *  Page: full-bleed, no scroll, no bounce
@@ -421,6 +439,24 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
     radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.95), transparent 30%),
     radial-gradient(circle at 60% 72%, #9aa2af 0 34%, transparent 35%),
     linear-gradient(160deg, #f6f3ec, #cfd6e2 55%, #8e99ab);
+}
+.orb-lapis {
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.5), transparent 28%),
+    radial-gradient(circle at 60% 72%, #d6b05a 0 34%, transparent 35%),
+    linear-gradient(160deg, #3c5bb8, #1e2f72 55%, #0d1638);
+}
+.orb-rosequartz {
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.85), transparent 30%),
+    radial-gradient(circle at 60% 72%, #b8714e 0 34%, transparent 35%),
+    linear-gradient(160deg, #fbe3e4, #e8b4ba 55%, #b97f88);
+}
+.orb-seaglass {
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.85), transparent 30%),
+    radial-gradient(circle at 60% 72%, #a39a8a 0 34%, transparent 35%),
+    linear-gradient(160deg, #e6f6f1, #a9d6cb 55%, #5f9a8e);
 }
 
 .segmented {

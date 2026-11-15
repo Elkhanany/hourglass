@@ -30,8 +30,8 @@ async function testFlow(s, env) {
       spill: !!document.querySelector('#zoom > #c-spill')
     };
   });
-  s.check('UI: the main screen has the same buttons (3 top, 13 bottom) and Tune rows (6)',
-          ui.top === 3 && ui.bottom === 13 && ui.rows === 6, JSON.stringify(ui));
+  s.check('UI: the main screen has the same buttons (3 top, 12 bottom: six duration pills) and Tune rows (6)',
+          ui.top === 3 && ui.bottom === 12 && ui.rows === 6, JSON.stringify(ui));
   s.check('UI: the Tune switch reads "Real motion"', ui.tilt === 'Real motion', '"' + ui.tilt + '"');
   s.check('UI: the stage says how to play with the glass', ui.aria === 'Hourglass. Tap to start or pause. Drag to move or turn it.');
   s.check('UI: #c-spill sits in the zoom, outside the glass', ui.spill);

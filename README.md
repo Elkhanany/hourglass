@@ -16,7 +16,7 @@ Live (once GitHub Pages is enabled): `https://elkhanany.github.io/hourglass/`
 | Mend a crack | Hold a finger still on the glass | |
 | Add sand (extends the timer) | Tap or hold **Sand** | focus + hold `Space` |
 | Reset | **Reset** | `R` |
-| Duration | Pills `1 3 5 10 15 25 45` min, **Custom**, or tap the time (10 s to 99:59) | |
+| Duration | Pills `1 5 10 15 30 60` min, **Custom**, or tap the time (10 s to 99:59) | |
 | Dim the controls now | Moon icon | |
 | Mute | Speaker icon | `M` |
 | Material, frame, sound, motion, screen | **Tune** | |
@@ -41,7 +41,8 @@ five, three quarters for 45.
 
 **Tune** holds the rest:
 
-- **Material**: Sahara Quartz, Volcanic Black, Moonstone; **Frame** hides the
+- **Material**: Sahara Quartz, Volcanic Black, Moonstone, Lapis Lazuli (gold
+  flecks, gold caps), Rose Quartz (copper), Sea Glass (driftwood); **Frame** hides the
   caps and posts so only the glass remains.
 - **Acoustic character** (six voicings) and volume; **Ambience** (a brook or
   rain behind the sand, with its own level); **Completion bowl**.

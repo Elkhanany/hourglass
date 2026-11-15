@@ -1725,7 +1725,7 @@
   btnMute.addEventListener('click', function () { setMuted(!settings.muted); buzz(8); });
   btnZen.addEventListener('click', function () { buzz(8); zenNow(); });
 
-  var THEME_ORDER = ['sahara', 'volcanic', 'moonstone'];
+  var THEME_ORDER = ['sahara', 'volcanic', 'moonstone', 'lapis', 'rosequartz', 'seaglass'];
   /** Change something about the instrument behind a slow cross-fade. */
   var softTimer = 0;
   function softSwap(fn) {

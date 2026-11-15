@@ -2845,6 +2845,67 @@
       glass: { tint: [214, 232, 255], smoke: 0.07 },
       cap: { kind: 'silver', hi: [236, 240, 245], mid: [160, 166, 176], lo: [72, 77, 86] },
       glow: [168, 196, 235]
+    },
+    lapis: {
+      id: 'lapis',
+      name: 'Lapis Lazuli & Gold',
+      short: 'Lapis Lazuli',
+      sand: {
+        h: 224, s: 0.62, l: 0.36, dh: 8, dl: 0.07,
+        dark: { p: 0.10, h: 230, s: 0.58, l: 0.24 },    // deep ultramarine
+        alt: { p: 0.10, h: 214, s: 0.22, l: 0.66 },      // pale calcite veins
+        mica: { p: 0.07, h: 45, s: 0.85, l: 0.62 }       // pyrite: flecks of gold
+      },
+      glint: [255, 226, 150],
+      // a dark sand, lit like the volcanic one so it reads against the night
+      light: {
+        rim: [8, 4], aoMax: 6, gloss: 0.20, glossBoost: 10, hl: 1.1, tint: [236, 240, 255],
+        bloom: 0.75, bloomColor: [170, 190, 255],
+        emit: { mica: 0.30, gloss: 0.04, rim: 0.14, haze: 0.009 }, backlight: 0.08
+      },
+      glass: { tint: [222, 230, 255], smoke: 0.16 },
+      cap: { kind: 'gold', hi: [236, 204, 128], mid: [178, 140, 60], lo: [84, 60, 20] },
+      glow: [104, 136, 230]
+    },
+    rosequartz: {
+      id: 'rosequartz',
+      name: 'Rose Quartz & Copper',
+      short: 'Rose Quartz',
+      sand: {
+        h: 352, s: 0.42, l: 0.80, dh: 8, dl: 0.07,
+        dark: { p: 0.05, h: 345, s: 0.32, l: 0.60 },
+        alt: { p: 0.12, h: 12, s: 0.48, l: 0.83 },       // peach
+        mica: { p: 0.05, h: 0, s: 0.10, l: 0.97 }
+      },
+      glint: [255, 244, 244],
+      light: {
+        rim: [3, 1], aoMax: 8, gloss: 0.14, glossBoost: 4, hl: 0.9, tint: [255, 255, 255],
+        bloom: 0.5, bloomColor: [255, 214, 222],
+        emit: { mica: 0.10, gloss: 0.02, rim: 0.05, haze: 0.006 }, backlight: 0.045
+      },
+      glass: { tint: [255, 232, 236], smoke: 0.08 },
+      cap: { kind: 'copper', hi: [228, 164, 132], mid: [170, 98, 66], lo: [76, 38, 22] },
+      glow: [236, 168, 178]
+    },
+    seaglass: {
+      id: 'seaglass',
+      name: 'Sea Glass & Driftwood',
+      short: 'Sea Glass',
+      sand: {
+        h: 166, s: 0.30, l: 0.72, dh: 10, dl: 0.07,
+        dark: { p: 0.05, h: 188, s: 0.30, l: 0.50 },     // deeper teal
+        alt: { p: 0.12, h: 140, s: 0.28, l: 0.78 },      // pale green
+        mica: { p: 0.05, h: 180, s: 0.14, l: 0.96 }
+      },
+      glint: [236, 255, 250],
+      light: {
+        rim: [3, 1], aoMax: 8, gloss: 0.14, glossBoost: 4, hl: 0.9, tint: [255, 255, 255],
+        bloom: 0.5, bloomColor: [200, 245, 232],
+        emit: { mica: 0.10, gloss: 0.02, rim: 0.05, haze: 0.006 }, backlight: 0.045
+      },
+      glass: { tint: [222, 246, 240], smoke: 0.08 },
+      cap: { kind: 'wood', hi: [178, 168, 150], mid: [128, 118, 102], lo: [66, 59, 50] },   // bleached driftwood
+      glow: [150, 212, 198]
     }
   };
 
