@@ -575,8 +575,8 @@
       S.air = false; S.U = 0; S.Z = 0; S.kZ = 0; S.seat = 1;
       this.nAir[b] = 0;
       this.cair[b].fill(0); this.cpin[b].fill(0); this.cdOff[b].fill(0);
-      this.bf[2 * b] = this.bfSlow[2 * b] = G * gx;
-      this.bf[2 * b + 1] = this.bfSlow[2 * b + 1] = G * gy;
+      this.bf[2 * b] = G * gx; this.bfSlow[2 * b] = 0;       // the slow mean of what is not gravity
+      this.bf[2 * b + 1] = G * gy; this.bfSlow[2 * b + 1] = 0;
     }
     this.cen.fill(0); this.agit.fill(0); this.sweepAcc.fill(0);
     this._landAt[0] = this._landAt[1] = -1e9;
@@ -867,13 +867,17 @@
       var rx = cen[2 * b], ry = cen[2 * b + 1];
       var fx = Fx + w2 * rx + la * ry, fy = Fy + w2 * ry - la * rx;
       bf[2 * b] = fx; bf[2 * b + 1] = fy;
+      // Heat comes from the push of the hand and the spin changing, never
+      // from gravity swinging round as the glass is turned: a turn, or the
+      // Flip button, stays as calm as it always was.
+      var hx = fx - G * gx, hy = fy - G * gy;
       if (entry) {                                    // no fake kick on the way in
-        bs[2 * b] = fx; bs[2 * b + 1] = fy;
+        bs[2 * b] = hx; bs[2 * b + 1] = hy;
       } else {
-        bs[2 * b] += (fx - bs[2 * b]) * kS;
-        bs[2 * b + 1] += (fy - bs[2 * b + 1]) * kS;
+        bs[2 * b] += (hx - bs[2 * b]) * kS;
+        bs[2 * b + 1] += (hy - bs[2 * b + 1]) * kS;
       }
-      var ex = fx - bs[2 * b], ey = fy - bs[2 * b + 1];
+      var ex = hx - bs[2 * b], ey = hy - bs[2 * b + 1];
       var D = Math.sqrt(ex * ex + ey * ey) / G + gzD;
       if (D > 3) D = 3;
       T = agit[b] + (D - agit[b]) * kT;
