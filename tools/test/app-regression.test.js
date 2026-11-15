@@ -6,7 +6,7 @@
  *     the bowl; pour adds exactly the time its sand is worth
  *   - the main screen is as lean as before: the same buttons, the same Tune
  *     rows, the switch now reads 'Real motion'
- *   - the service worker caches 'hourglass-v1.5.0', motion.js included
+ *   - the service worker caches its current VERSION (sw.js), motion.js included
  *   - no page errors
  *
  *   node tools/test/app-regression.test.js [--root <dir>] [--port <n>]
@@ -135,12 +135,14 @@ async function testServiceWorker(s, root) {
       return navigator.serviceWorker.ready.then(function () {
         return new Promise(function (r) { setTimeout(r, 1500); });
       }).then(function () { return caches.keys(); }).then(function (keys) {
-        return caches.open('hourglass-v1.5.0').then(function (cache) { return cache.keys(); }).then(function (reqs) {
+        var key = keys.filter(function (k) { return k.indexOf('hourglass-v') === 0; })[0] || 'none';
+        return caches.open(key).then(function (cache) { return cache.keys(); }).then(function (reqs) {
           return { keys: keys, files: reqs.map(function (q) { return new URL(q.url).pathname; }) };
         });
       });
     });
-    s.check('SW: the cache is hourglass-v1.5.0', c.keys.indexOf('hourglass-v1.5.0') >= 0, JSON.stringify(c.keys));
+    var SWV = /VERSION = '([^']+)'/.exec(require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'sw.js'), 'utf8'))[1];
+    s.check('SW: the cache is ' + SWV + ' (sw.js VERSION)', c.keys.indexOf(SWV) >= 0, JSON.stringify(c.keys));
     s.check('SW: ... and it holds ./motion.js', c.files.indexOf('/motion.js') >= 0, c.files.length + ' files');
     s.check('SW: no page or console errors', t.errors.length === 0, t.errors.slice(0, 3).join(' | '));
     await t.close();

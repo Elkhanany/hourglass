@@ -456,6 +456,7 @@ async function zenOn(t) {
 async function testZen(s, env) {
   var t = await env.open({ motionStub: CFG.stub });
   var g0 = await t.glass();
+  await sleep(500);                                         // apart from any earlier tap: not a knock
   await t.touch.tap(g0.cx, g0.cy, 60);                      // start, by a tap on the glass
   try {
     await t.page.waitForFunction(function () { return document.getElementById('app').classList.contains('zen'); }, null, { timeout: 9000 });
@@ -554,10 +555,10 @@ async function testTap(s, env) {
   var t = await env.open({ motionStub: CFG.stub });
   var g = await t.glass();
   await t.touch.tap(g.cx, g.cy, 80);
-  await sleep(300);
+  await sleep(600);                                         // taps closer than 0.45 s are knocks
   var a = await t.eval(function () { return window.Hourglass.timer.state; });
   await t.touch.tap(g.cx, g.cy, 80);
-  await sleep(300);
+  await sleep(600);
   var b = await t.eval(function () { return window.Hourglass.timer.state; });
   s.check('TAP: a tap starts the glass, another pauses it', a === 'running' && b === 'paused', 'idle → ' + a + ' → ' + b);
   await H.invariants(s, t, 'TAP');

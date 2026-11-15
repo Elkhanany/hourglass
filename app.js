@@ -1507,7 +1507,8 @@
       far: 0,                      // farthest the finger has strayed (px²)
       caught: false, mendable: false,
       lx: e.clientX, ly: e.clientY,                // where the finger is now
-      fx: 0, fy: 0, p0x: 0, p0y: 0, last: 0
+      fx: 0, fy: 0, p0x: 0, p0y: 0, last: 0,
+      pt: e.pointerType, pm: e.pressure || 0, am: (e.width || 0) * (e.height || 0)   // how hard it pressed
     };
     try { stage.setPointerCapture(e.pointerId); } catch (err) {}
     if (!g.inside || sheetOpen || resetting || (flip.active && flip.mode === 'script')) { g.kind = 'none'; return; }
@@ -1519,6 +1520,8 @@
     if (!g || e.pointerId !== g.id) return;
     var dx = e.clientX - g.x, dy = e.clientY - g.y, d2 = dx * dx + dy * dy;
     if (d2 > g.far) g.far = d2;
+    if (e.pressure > g.pm) g.pm = e.pressure;
+    if ((e.width || 0) * (e.height || 0) > g.am) g.am = e.width * e.height;
     g.lx = e.clientX; g.ly = e.clientY;
     if (g.kind === 'move') { tether(g, e.clientX, e.clientY); return; }
     if (g.kind === 'turn') { turnTo(g, e.clientX, e.clientY); return; }
@@ -1546,7 +1549,36 @@
     if (g.defer) { wake(); return; }               // dimmed: a tap only brings the controls back
     if (g.zen || g.kind !== 'press' || sheetOpen || !g.inside || flip.active) return;
     audio.tap();                       // fingertip on glass
+    if (knock(g)) return;              // one of a quick burst: a knock, not a start or pause
     toggle();
+  }
+  /*
+   * Knocking. Quick taps or clicks on the glass land harder and harder; the
+   * first of a burst still starts or pauses it, the rest only knock. Where
+   * the device says how hard the finger pressed (a pencil, 3D Touch) or how
+   * broad its touch was, that counts too. A burst of hard knocks creaks,
+   * then cracks the glass where it is struck.
+   */
+  var knockAt = 0, knockRun = 0, touchArea = 0;
+  function knock(g) {
+    var now = performance.now(), quick = now - knockAt < 450;
+    knockAt = now;
+    knockRun = quick ? knockRun + 1 : 0;
+    var s = 0.55 + 0.17 * Math.min(knockRun, 4);
+    if (g.pt === 'pen' || (g.pm > 0 && g.pm !== 0.5)) s *= 0.5 + g.pm;
+    else if (g.pt === 'touch' && g.am > 1) {
+      touchArea = touchArea ? touchArea + (g.am - touchArea) * 0.2 : g.am;
+      var k = Math.sqrt(g.am / touchArea);
+      s *= k < 0.8 ? 0.8 : (k > 1.4 ? 1.4 : k);
+    }
+    if (sim.angle === 0) {
+      var r = $('c-sand').getBoundingClientRect();     // the lattice, upright on screen
+      var lx = (g.x - r.left) / r.width * sim.W, ly = (g.y - r.top) / r.height * sim.H;
+      if (grav.base) { lx = sim.W - lx; ly = sim.H - ly; }
+      sim.knock(lx, ly, s);
+    }
+    if (quick) buzz(8);
+    return quick;
   }
   stage.addEventListener('pointerup', stageRelease);
   stage.addEventListener('pointercancel', stageRelease);

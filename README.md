@@ -67,7 +67,10 @@ with a small sway. Take it by a bulb and it turns; flick it and it spins on by
 itself, slowing as its sand is flung outward, and settles upright or inverted.
 Each half turn swaps the time, as the Flip button does. Flicked hard again
 and again (five or six times in a row), the spinning sand presses so hard
-into the domes that the glass creaks, then cracks. Touch it while it
+into the domes that the glass creaks, then cracks. Knocking works too: a quick
+burst of taps or clicks on the glass lands harder and harder, and after a few
+seconds of it the glass creaks, then cracks where it is struck (the first tap
+of a burst still starts or pauses it; ordinary taps never mark it). Touch it while it
 moves and it stops under your finger, and stays where it stopped until the
 finger moves it on. The sand feels all of this at the true scale of the glass
 on the screen, so a gentle drag barely stirs it and a hard spin pins it to

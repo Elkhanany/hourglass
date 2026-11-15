@@ -323,6 +323,7 @@
     Pmax: 0.15,          // the most one blow can ever do
     gamTh: 4.6, gamC: 6, nB: 16, tauB: 0.5, capB: 0.02, bendBins: 3,   // the waist bends
     spinTh: 0.2, spinC: 0.8, spinRate: 0.6, domeBins: 4,              // a hard spin loads the domes (g at the dome)
+    knockTh: 0.85, knockA: 0.08, knockCap: 0.1,                       // a knock on the glass (tap or click)
     rMax: 0.30,          // 1/s: fastest sub-critical growth (bounded crack velocity)
     tauP: 0.6,           // s: an unabsorbed blow fades
     tauHeal: 8,          // s: micro-damage arrests while no crack is visible
@@ -672,7 +673,41 @@
   Sim.prototype.isActive = function () {
     return this.np > 0 || this.quiet < 24 || this.flipping ||
       this._motionStep || this.slug[0].air || this.slug[1].air ||
-      this._leakLive || this.steps - this._leakStep < MOT.leakLinger;
+      this._leakLive || this.steps - this._leakStep < MOT.leakLinger || this._pendP;
+  };
+
+  /**
+   * A knock on the glass: a tap or a click near (x, y) (lattice cells), `s`
+   * how hard (about 0.55 for an ordinary tap, up to ~1.3 for a quick, hard
+   * burst). The blow lands on the nearest wall and obeys the same fatigue
+   * limit as the sand's blows, so ordinary taps never mark the glass; a
+   * burst of hard knocks creaks, then cracks it where it is struck.
+   * Returns the segment struck, or −1.
+   */
+  Sim.prototype.knock = function (x, y, s) {
+    if (this.reduced || !(s > 0)) return -1;
+    var W = this.W, H = this.H, seg = -1, yi = Math.round(y), k, sg, yy;
+    if (yi < 1) yi = 1; else if (yi > H - 2) yi = H - 2;
+    for (k = 0; k < 8 && seg < 0; k++) {               // the nearest row with glass on both sides
+      for (sg = -1; sg <= 1 && seg < 0; sg += 2) {
+        yy = yi + sg * k;
+        if (yy < 1 || yy > H - 2 || this.rowMin[yy] > this.rowMax[yy]) continue;
+        seg = this.segOf[yy * W + (x < this.geo.cx ? this.rowMin[yy] - 1 : this.rowMax[yy] + 1)];
+      }
+    }
+    if (seg < 0) return -1;
+    var sc = this.segCrack[seg];
+    if (sc >= 0 && this.cracks[sc].sealed) return seg;             // mended gold holds
+    var raw = Math.pow(s * this.segKt[seg] / this.segS[seg], MOT.nB) - Math.pow(MOT.knockTh, MOT.nB);
+    if (raw <= 0) return seg;
+    var d = MOT.knockA * raw;
+    if (d > MOT.knockCap) d = MOT.knockCap;
+    this.segHit[seg] += d;
+    d += this.segP[seg];
+    this.segP[seg] = d > MOT.Pmax ? MOT.Pmax : d;
+    this._pendP = true;
+    this.quiet = 0;
+    return seg;
   };
 
   /**

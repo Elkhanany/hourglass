@@ -10,7 +10,7 @@
  *     time swaps), pour, Zen, the end and its quiet hold, the wake lock
  *     (app-regression's flow on the real modules); turning the phone over
  *     (deviceorientation beta → −90°) for 300 ms swaps once, a 120 ms glitch
- *     does not; the service worker caches 'hourglass-v1.5.0' with motion.js.
+ *     does not; the service worker caches its current VERSION with motion.js.
  *
  *   node tools/test/e2e-calm.test.js [--root <dir>] [--port <n>] [--only e1|e11]
  */
