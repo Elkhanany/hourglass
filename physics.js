@@ -134,6 +134,28 @@
     var x0 = v[0], y0 = v[1];
     v[0] = -v[2]; v[1] = -v[3]; v[2] = -x0; v[3] = -y0;
   }
+  /**
+   * One bulb's bed: in the air or not, its speed U (cells/s) and height Z
+   * (cells) off its seat, the whole cells of that (kZ), and which end it
+   * rests on (seat +1: its +y end, −1: the far end). U and Z start as
+   * fractions so the engine stores them as doubles from the outset: a
+   * flight never changes the object's shape, which would cost the JIT a
+   * deoptimisation in the middle of a shake.
+   */
+  function Slug() {
+    this.air = false;
+    this.U = 0.5;
+    this.Z = 0.5;
+    this.kZ = 0;
+    this.seat = 1;
+    this.U = 0;
+    this.Z = 0;
+  }
+  /** The lattice direction (index into DX/DY) nearest the vector (x, y). */
+  function dir8(x, y) {
+    var k = Math.round(Math.atan2(x, y) / (Math.PI / 4));
+    return ((k % 8) + 8) % 8;
+  }
 
   function Sim(opts) {
     opts = opts || {};
@@ -253,6 +275,10 @@
     muW: 0.40,           // sand on glass, while pressed sideways
     // spray, hops and airborne grains
     sprayV: 150, pSpray: 0.35, hopT: 0.45, hopMax: 4, softCap: 4096, vMax: 1400,
+    pSprayQ1: 0.15, hopMaxQ1: 2,      // the lighter quality level (the governor's 1)
+    jitX: 0.011, jitY: 0.004,         // a falling grain's aerodynamic jitter, per step (as today)
+    retryV: 25,          // cells/s: a grain with nowhere to settle rises against the field and tries again
+    Dcap: 8,             // a crack is full grown long before its stretch holds this much damage
     // the glass: stress corrosion with a fatigue limit, Weibull flaws
     nSeg: WALL_BINS,     // wall segments per bulb and side (bins of u; read-only)
     weibull: 20,         // Weibull modulus of the flaw strengths (median 1)
@@ -371,16 +397,14 @@
     this.sweepAcc = new Float32Array(2); // fractional CA sweeps carried over
 
     // The bed in flight: one slug per bulb; columns ride it until they meet glass.
-    this.slug = [
-      { air: false, U: 0, Z: 0, kZ: 0, seat: 1 },
-      { air: false, U: 0, Z: 0, kZ: 0, seat: 1 }
-    ];
+    this.slug = [new Slug(), new Slug()];
     this.nAir = [0, 0];
     this.colLo = [new Int16Array(W), new Int16Array(W)];   // each column's span in each bulb
     this.colHi = [new Int16Array(W), new Int16Array(W)];
     this.cdOff = [new Int16Array(W), new Int16Array(W)];   // cells moved off the seat
     this.cair = [new Uint8Array(W), new Uint8Array(W)];    // riding the slug
     this.cpin = [new Uint8Array(W), new Uint8Array(W)];    // pressed to the far glass
+    this._bx0 = W; this._bx1 = -1;       // the columns either bulb has (the same for both)
     for (b = 0; b < 2; b++) {
       var y0 = b ? gate + 1 : 1, y1 = b ? H - 2 : gate - 1;
       for (x = 0; x < W; x++) {
@@ -389,8 +413,20 @@
           if (this.rowMin[y] <= x && x <= this.rowMax[y]) { if (y < lo) lo = y; hi = y; }
         }
         this.colLo[b][x] = lo; this.colHi[b][x] = hi;
+        if (hi >= lo) {
+          if (x < this._bx0) this._bx0 = x;
+          if (x > this._bx1) this._bx1 = x;
+        }
       }
     }
+    this._botY = gate;                   // the last row inside the lower bulb
+    for (y = gate + 1; y < H; y++) if (this.rowMin[y] <= this.rowMax[y]) this._botY = y;
+    this._dLo = H; this._dHi = -1;       // rows a flying bed has changed this step
+    this._n = 0; this._moved = 0;        // what the last column shift found and moved
+    this._landAt = new Float64Array(2);  // step of each bulb's last landing
+    this._thumpN = new Float32Array(2);  // grains landed this frame, per bulb (the thump's pan)
+    this._slamN = 0;                     // ... and slammed into the far end
+    this._cenAt = -1e9;                  // step the centroids were last measured
 
     this._motionStep = false;            // the last step took the motion path
     this._iz = 0; this._izAt = -1;       // cached moment of inertia (inertiaZ)
@@ -450,6 +486,7 @@
     this.dMax = 0;                       // worst damage on an uncracked segment
     this.warnSeg = -1;                   // ... and where it is
     this.warnLatch = new Uint8Array(4);  // creak levels already sounded
+    this._pendP = false;                 // some segment still has a blow to absorb (segP)
     this.nOpen = 0;                      // unsealed cracks with a breach
     this._crackId = 0;
     this._holeBuf = new Uint8Array(N);   // holeMap's storage: a breach never allocates
@@ -542,6 +579,8 @@
       this.bf[2 * b + 1] = this.bfSlow[2 * b + 1] = G * gy;
     }
     this.cen.fill(0); this.agit.fill(0); this.sweepAcc.fill(0);
+    this._landAt[0] = this._landAt[1] = -1e9;
+    this._cenAt = -1e9;
     this._motionStep = false;
     this._izAt = -1;
     this._clearDamage();
@@ -556,6 +595,7 @@
     this.cracks.length = 0;
     this.segCrack.fill(-1);
     this.segD.fill(0); this.segP.fill(0);
+    this._pendP = false;
     if (this.holeMap !== null) { this._holeBuf.fill(0); this.holeMap = null; }
     this.nOpen = 0; this.dMax = 0; this.warnSeg = -1;
     this.warnLatch.fill(0);
@@ -575,6 +615,7 @@
     f.slam[0] = f.slam[1] = 0;
     f.leaked = 0; f.leakX = 0; f.sprayed = 0; f.hops = 0;
     f.dmgN = 0;
+    this._thumpN[0] = this._thumpN[1] = 0; this._slamN = 0;
     this.nev = 0;
   };
 
@@ -699,6 +740,11 @@
     for (var b = 0; b < 2; b++) {
       var S = this.slug[b];
       if (!S.air && S.seat === 1 && this.nAir[b] === 0) continue;
+      if (S.air) {
+        // a bed left hanging in mid-air falls back under the automaton
+        this.rowAct.fill(2);
+        this._landAt[b] = this.steps;
+      }
       S.air = false; S.U = 0; S.Z = 0; S.kZ = 0; S.seat = 1;
       this.nAir[b] = 0;
       this.cair[b].fill(0); this.cpin[b].fill(0); this.cdOff[b].fill(0);
@@ -709,6 +755,21 @@
    *  One fixed physics step (1/120 s)
    * ---------------------------------------------------------------- */
   Sim.prototype.step = function () {
+    // While the glass is moved, turned or shaken, or its sand is still hot
+    // or in the air, the step takes the motion path. Otherwise it is exactly
+    // the step the hourglass has always taken, so a glass at rest behaves,
+    // grain for grain, as it did before any of this existed.
+    var lim = MOT.idleA * this.G, ax = this.mAx, ay = this.mAy, w = this.mW, al = this.mAl;
+    var a = this.agit, sl = this.slug;
+    if (ax * ax + ay * ay >= lim * lim || w >= MOT.idleW || w <= -MOT.idleW ||
+        al >= MOT.idleAl || al <= -MOT.idleAl || this.mGz >= MOT.idleGz ||
+        a[0] >= MOT.idleT || a[1] >= MOT.idleT ||
+        sl[0].air || sl[1].air || sl[0].seat < 0 || sl[1].seat < 0) {
+      this._stepMotion();
+      return;
+    }
+    this._motionStep = false;
+
     var ang = this.angle + this.tilt;
     var gx = Math.sin(ang), gy = Math.cos(ang);
     this.gx = gx; this.gy = gy;
@@ -726,7 +787,12 @@
       var need = this.nTop - this.targetTop;
       if (need > 0) {
         var rows = this.deepRelease ? (this.gateY - this.topY) : 3 + Math.min(need >> 3, 36);
-        lag = need - this._release(need, rows);
+        // Inserted for motion: for a moment after the glass was shaken the
+        // app caps the release (relCap > 0), so the backlog the shaking left
+        // drains as a thicker thread, never as a clump. 0 changes nothing.
+        var give = need;
+        if (this.relCap > 0 && need > this.relCap) give = Math.ceil(this.relCap);
+        lag = need - this._release(give, rows);
       }
     }
     this.lag = lag;
@@ -749,11 +815,652 @@
 
     // 4. A breached glass leaks, even at rest, and micro-damage slowly arrests.
     if (this.nOpen > 0) this._leak();
-    if (this.dMax > 1e-4) this._relaxDamage();
+    if (this.dMax > 1e-4 || this._pendP) this._damageStep(false);
+    if (a[0] !== 0 || a[1] !== 0) this._cool();
 
     if (this.frame.moved === before && this.np === 0) this.quiet++;
     else this.quiet = 0;
     this.steps++;
+  };
+
+  /** The last warmth left in the sand fades on the idle path (it is below idleT already). */
+  Sim.prototype._cool = function () {
+    var a = this.agit, k = Math.exp(-DT / MOT.tauT);
+    a[0] = a[0] * k < 1e-6 ? 0 : a[0] * k;
+    a[1] = a[1] * k < 1e-6 ? 0 : a[1] * k;
+  };
+
+  /* ---------------------------------------------------------------- *
+   *  The motion path: one step of a glass that is being moved, turned or
+   *  shaken. Every inertial effect enters at the strength it would have
+   *  on a real glass of the size this one appears on screen: the felt
+   *  field per bulb, a bouncing bed, granular temperature, the gated neck,
+   *  airborne grains under centrifugal, Euler and Coriolis forces, and the
+   *  load on the glass.
+   * ---------------------------------------------------------------- */
+  Sim.prototype._stepMotion = function () {
+    var G = this.G, f = this.frame, gate = this.gateY;
+    var bf = this.bf, bs = this.bfSlow, cen = this.cen, agit = this.agit, slug = this.slug;
+    var entry = !this._motionStep, b, T, n;
+    this._motionStep = true;
+
+    // 1. The heading. The clock, the valve's upright test, tiltSwap and the
+    //    shading read only this quasi-static ĝ, so a shake never pauses the
+    //    clock or turns the glass over.
+    var ang = this.angle + this.tilt;
+    var gx = Math.sin(ang), gy = Math.cos(ang);
+    this.gx = gx; this.gy = gy;
+
+    // 2. Where each bed is: the rotational terms act at its centroid.
+    if (entry || this.steps - this._cenAt >= MOT.cenEvery) this._centroids();
+
+    // 3. The field each bed feels, its slow mean, and how hot the sand runs.
+    //    f_b = G·ĝ + A + λ·[ω²·r_b + α·(r_y, −r_x)]: gravity, the felt
+    //    acceleration of the glass, centrifugal and Euler at the bed. Heat
+    //    comes from what changes (|f − f̄|), not from a steady lean, and from
+    //    shaking out of the screen's plane.
+    var lam = this.mLam, w = this.mW, w2 = lam * w * w, la = lam * this.mAl;
+    var Fx = G * gx + this.mAx, Fy = G * gy + this.mAy;     // the neck (r = 0) feels just this
+    var kS = 1 - Math.exp(-DT / MOT.tauSlow), kT = 1 - Math.exp(-DT / MOT.tauT);
+    var gzD = MOT.gzK * this.mGz;
+    for (b = 0; b < 2; b++) {
+      var rx = cen[2 * b], ry = cen[2 * b + 1];
+      var fx = Fx + w2 * rx + la * ry, fy = Fy + w2 * ry - la * rx;
+      bf[2 * b] = fx; bf[2 * b + 1] = fy;
+      if (entry) {                                    // no fake kick on the way in
+        bs[2 * b] = fx; bs[2 * b + 1] = fy;
+      } else {
+        bs[2 * b] += (fx - bs[2 * b]) * kS;
+        bs[2 * b + 1] += (fy - bs[2 * b + 1]) * kS;
+      }
+      var ex = fx - bs[2 * b], ey = fy - bs[2 * b + 1];
+      var D = Math.sqrt(ex * ex + ey * ey) / G + gzD;
+      if (D > 3) D = 3;
+      T = agit[b] + (D - agit[b]) * kT;
+      agit[b] = T > 3 ? 3 : T;
+    }
+
+    // 4. The neck valve releases what the clock owes, but only while the
+    //    upper bed sits on the neck and the field presses sand into it
+    //    (Beverloo flow needs g > 0), so the stream stutters with the hand.
+    //    While motion is recent a backlog drains as a thicker thread, never
+    //    as a clump (relCap grains per step).
+    var lag = 0, starved = 0;
+    if (this.gateOpen && !this.flipping && gy > 0.7) {
+      var need = this.nTop - this.targetTop;
+      if (need > 0) {
+        if (!slug[0].air && slug[0].seat > 0 && Fy > MOT.neckPress * G) {
+          var rows = this.deepRelease ? (gate - this.topY) : 3 + Math.min(need >> 3, 36);
+          var give = need;
+          if (this.relCap > 0) {
+            n = Math.ceil(this.relCap);
+            if (n < give) give = n;
+          }
+          var out = this._release(give, rows);
+          lag = need - out;
+          starved = give - out;                       // the neck itself ran short
+        } else lag = need;
+      }
+    }
+    this.lag = lag;
+
+    // 5. A bed the field pulls off its seat flies as one body. Not while the
+    //    glass is turned by hand or button, or with Reduce Motion on.
+    if (this.flipping || this.reduced) this._landSlugs();
+    else { this._flight(0); this._flight(1); }
+
+    // 6. Packed and sliding sand, bulb by bulb along its own field. Free
+    //    fall goes as 1/√g, so the sweeps go as √|f|; hot sand runs faster.
+    var before = f.moved;
+    var base = (this.flipping || gy < 0.7) ? 2 : 1, qual = this.quality;
+    var maxS = qual >= 2 ? MOT.maxSweeps : (qual === 1 ? (MOT.maxSweeps < 2 ? MOT.maxSweeps : 2) : 1);
+    var spin = w > 0.3 || w < -0.3;
+    for (b = 0; b < 2; b++) {
+      if (slug[b].air) continue;                      // in flight the bed is weightless in its own frame
+      var bx = bf[2 * b], by = bf[2 * b + 1], mag = Math.sqrt(bx * bx + by * by);
+      if (mag < MOT.weightless * G) continue;         // the sand floats with the glass
+      T = agit[b];
+      var acc = this.sweepAcc[b] + base * Math.sqrt(mag / G) * (1 + MOT.sweepT * (T < 2 ? T : 2));
+      n = Math.floor(acc);
+      this.sweepAcc[b] = acc - n;
+      if (n > maxS) n = maxS;
+      // The upper bulb keeps the neck fed, as on the idle path: extra sweeps
+      // when the neck ran short. (Sand the valve held back, because the bed
+      // was in the air or relCap, is not a starved neck: sweeping cannot help.)
+      if (b === 0 && !this.flipping && gy >= 0.7) n += this.topSweeps + (starved > 10 ? 1 : 0) + (starved > 60 ? 2 : 0);
+      if (n > 0) this._caBulb(b, bx / mag, by / mag, n, T > 0.05 || spin || this.steps - this._landAt[b] < 8, T);
+    }
+
+    // 7. A hot surface boils: grains hop off it.
+    if (!this.reduced && qual >= 1) {
+      for (b = 0; b < 2; b++) if (agit[b] > MOT.hopT && !slug[b].air) this._hops(b);
+    }
+
+    // 8. Grains in the air, in the full field.
+    if (this.np) this._particlesM();
+
+    // 9. A breached glass leaks; shaking breaks the arches that jam it.
+    if (this.nOpen > 0) this._leak();
+
+    // 10. The load on the glass, its damage, cracks and the creaks before them.
+    this._damageStep(true);
+
+    // 11. A bed in flight is sand in motion.
+    if (f.moved === before && this.np === 0 && !slug[0].air && !slug[1].air) this.quiet++;
+    else this.quiet = 0;
+    this.steps++;
+  };
+
+  /**
+   * Each bed's centroid (cells from the glass centre), from every second row
+   * and column. An empty bulb keeps a point where its sand would gather.
+   */
+  Sim.prototype._centroids = function () {
+    var W = this.W, cell = this.cell, rowMin = this.rowMin, rowMax = this.rowMax;
+    var g = this.geo, gate = this.gateY, cen = this.cen;
+    for (var b = 0; b < 2; b++) {
+      var y = b ? gate + 1 : this.topY, y1 = b ? this._botY : gate - 1;
+      var sx = 0, sy = 0, n = 0;
+      for (y += y & 1; y <= y1; y += 2) {
+        var x0 = rowMin[y], x1 = rowMax[y], base = y * W, k = 0;
+        for (var x = x0 + (x0 & 1); x <= x1; x += 2) {
+          if (cell[base + x] >= REST) { sx += x; k++; }
+        }
+        if (k) { sy += y * k; n += k; }
+      }
+      if (n) {
+        cen[2 * b] = sx / n + 0.5 - g.cx;
+        cen[2 * b + 1] = sy / n + 0.5 - g.cy;
+      } else {
+        cen[2 * b] = 0;
+        cen[2 * b + 1] = (b ? 0.80 : -0.40) * g.HB;
+      }
+    }
+    this._cenAt = this.steps;
+  };
+
+  /**
+   * n sweeps of bulb b's automaton along (ux, uy). Shaken sand loses its
+   * friction (vibration fluidises a bed), so the stick-slip odds are lerped
+   * toward free flow with the temperature T for these sweeps only.
+   */
+  Sim.prototype._caBulb = function (b, ux, uy, n, full, T) {
+    var yLo = b ? this.gateY + 1 : 1, yHi = b ? this.H - 1 : this.gateY;
+    var c0 = this.pCreep, s0 = this.pSlide, w0 = this.pWake, d0 = this.pDiag;
+    var s = 1.2 * (T - MOT.fricS0) / MOT.fricS1;
+    if (s > 0) {
+      if (s > 1) s = 1;
+      this.pCreep = c0 + (MOT.pCreepMax - c0) * s;
+      this.pSlide = s0 + (MOT.pSlideMax - s0) * s;
+      this.pWake = w0 + (MOT.pWakeMax - w0) * s;
+      this.pDiag = d0 + (MOT.pDiagMax - d0) * s;
+    }
+    while (n-- > 0) this._ca(ux, uy, yLo, yHi, full);
+    this.pCreep = c0; this.pSlide = s0; this.pWake = w0; this.pDiag = d0;
+  };
+
+  /* ---------------------------------------------------------------- *
+   *  The bouncing bed (Mehta and Luck: a completely inelastic bed). The
+   *  bed lifts when the field pulls it off its seat harder than the side
+   *  walls hold it, and flies as one body (U, Z per bulb). Each column
+   *  follows Z exactly until its leading grain meets glass, where it stops
+   *  (a slam), so the bed deforms against a curved dome but never shreds.
+   *  It lands, and its momentum becomes an impact, when Z returns to the
+   *  seat.
+   * ---------------------------------------------------------------- */
+  Sim.prototype._flight = function (b) {
+    var W = this.W, G = this.G, cell = this.cell, S = this.slug[b];
+    var lo = this.colLo[b], hi = this.colHi[b], air = this.cair[b], off = this.cdOff[b], pin = this.cpin[b];
+    var fx = this.bf[2 * b], pull = -this.bf[2 * b + 1] * S.seat;    // + pulls away from the seat
+    var x0 = this._bx0, x1 = this._bx1, x, y, d;
+    if (!S.air) {
+      if (pull <= MOT.liftTh * G + MOT.muW * (fx < 0 ? -fx : fx)) return;
+      // lift-off: every column holding sand rides along, whatever its shape
+      var na = 0;
+      for (x = x0; x <= x1; x++) {
+        off[x] = 0; pin[x] = 0; air[x] = 0;
+        for (y = lo[x]; y <= hi[x]; y++) {
+          if (cell[y * W + x] >= REST) { air[x] = 1; na++; break; }
+        }
+      }
+      if (!na) return;
+      S.air = true; S.U = 0; S.Z = 0; S.kZ = 0;
+    }
+    S.U += pull * DT;
+    S.Z += S.U * DT;
+    var kZ = S.Z > 0 ? Math.floor(S.Z) : 0;
+    var away = -S.seat, v = S.U < 0 ? -S.U : S.U, nAir = 0, nRide = 0;
+    this._dLo = this.H; this._dHi = -1;
+    for (x = x0; x <= x1; x++) {
+      if (!air[x]) continue;
+      d = kZ - off[x];
+      if (pin[x] && d >= 0) { nAir++; continue; }      // still pressed to the far glass
+      if (d > 0) {                                     // outward with the bed
+        this._shiftCol(b, x, away * d);
+        if (this._moved) off[x] = kZ;                  // the body rides with Z; strays compact behind it
+        else {                                         // packed against the far glass: a slam
+          pin[x] = 1;
+          this._landing(b, x, away > 0 ? hi[x] + 1 : lo[x] - 1, this._n, v, away);
+        }
+      } else if (d < 0) {                              // back toward the seat
+        this._shiftCol(b, x, away * d);
+        off[x] = kZ;
+        pin[x] = 0;
+        if (!this._moved) {                            // packed on its seat: this column has landed
+          this._landing(b, x, away > 0 ? lo[x] - 1 : hi[x] + 1, this._n, v, -away);
+          air[x] = 0;
+          continue;
+        }
+      }
+      nAir++;
+      if (!pin[x]) nRide++;
+    }
+    if (S.Z <= 0 && S.U <= 0) {
+      // back on the seat: whatever still flies lands at once (inelastic)
+      for (x = x0; x <= x1; x++) {
+        if (!air[x]) continue;
+        this._shiftCol(b, x, -away * 2);
+        this._landing(b, x, away > 0 ? lo[x] - 1 : hi[x] + 1, this._n, v, -away);
+        air[x] = 0; pin[x] = 0;
+      }
+      S.air = false; S.U = 0; S.Z = 0; nAir = 0;
+    } else if (nAir > 0 && nRide === 0 && S.U > 0) {
+      // the whole bed is against the far glass: it rests there now
+      for (x = x0; x <= x1; x++) { air[x] = 0; pin[x] = 0; off[x] = 0; }
+      S.air = false; S.U = 0; S.Z = 0; S.seat = -S.seat; nAir = 0;
+    } else if (nAir === 0) {
+      S.air = false; S.U = 0; S.Z = 0;
+    }
+    S.kZ = kZ;
+    this.nAir[b] = nAir;
+    if (this._dHi >= this._dLo) {                      // wake what the bed left and where it went
+      var a = this.rowAct, y0 = this._dLo - 3, y1 = this._dHi + 3;
+      if (y0 < 0) y0 = 0;
+      if (y1 >= this.H) y1 = this.H - 1;
+      for (; y0 <= y1; y0++) a[y0] = 2;
+    }
+  };
+
+  /**
+   * Move every grain of column x of bulb b by k cells along y without any
+   * grain overtaking another (an order-preserving compaction against the
+   * glass). Moved grains are written REST: a flying bed is packed sand, and
+   * must not light up as sliding grains do. Sets _n (grains in the column)
+   * and _moved (grains that moved), and widens the step's changed rows.
+   */
+  Sim.prototype._shiftCol = function (b, x, k) {
+    var W = this.W, cell = this.cell, seed = this.seed;
+    var L = this.colLo[b][x], Hh = this.colHi[b][x];
+    var y, i, j, t, n = 0, moved = 0, limit, dLo = this._dLo, dHi = this._dHi;
+    if (k > 0) {
+      limit = Hh;
+      for (y = Hh; y >= L; y--) {
+        i = y * W + x;
+        if (cell[i] < REST) continue;
+        n++;
+        t = y + k;
+        if (t > limit) t = limit;
+        if (t > y) {
+          j = t * W + x;
+          cell[j] = REST; seed[j] = seed[i]; cell[i] = EMPTY;
+          limit = t - 1; moved++;
+          if (y < dLo) dLo = y;
+          if (t > dHi) dHi = t;
+        } else limit = y - 1;
+      }
+    } else if (k < 0) {
+      limit = L;
+      for (y = L; y <= Hh; y++) {
+        i = y * W + x;
+        if (cell[i] < REST) continue;
+        n++;
+        t = y + k;
+        if (t < limit) t = limit;
+        if (t < y) {
+          j = t * W + x;
+          cell[j] = REST; seed[j] = seed[i]; cell[i] = EMPTY;
+          limit = t + 1; moved++;
+          if (t < dLo) dLo = t;
+          if (y > dHi) dHi = y;
+        } else limit = y + 1;
+      }
+    }
+    this._n = n; this._moved = moved;
+    this._dLo = dLo; this._dHi = dHi;
+  };
+
+  /**
+   * Column x of bulb b (n grains) stopped against glass at speed v (cells/s),
+   * moving along dir (±1 in y); endY is the row of the glass it struck.
+   * This is where a shaken glass is heard and loaded: the thump (or the
+   * clack of a slam into the far end), the heat the blow leaves in the sand,
+   * a little spray off the surface, and the stress in the glass.
+   */
+  Sim.prototype._landing = function (b, x, endY, n, v, dir) {
+    if (!n) return;
+    var G = this.G, W = this.W, g = this.geo, f = this.frame, cell = this.cell;
+    var nb = b ? this.total - this.nTop : this.nTop;
+    if (nb < n) nb = n;
+    var e2 = 0.5 * n * v * v;                          // the column's kinetic energy (grain = unit mass)
+    var pan = (x + 0.5 - g.cx) / g.R, E = e2 / (G * g.HB * nb), m;
+    if (pan < -1) pan = -1; else if (pan > 1) pan = 1;
+    if (dir === this.slug[b].seat) {                   // landed on its seat: a thump
+      m = this._thumpN[b];
+      f.thump[2 * b + 1] = (f.thump[2 * b + 1] * m + pan * n) / (m + n);
+      f.thump[2 * b] += E;
+      this._thumpN[b] = m + n;
+    } else {                                           // slammed into the far end: a clack
+      m = this._slamN;
+      f.slam[1] = (f.slam[1] * m + pan * n) / (m + n);
+      f.slam[0] += E;
+      this._slamN = m + n;
+    }
+    // the blow's energy, shared over the bulb's grains, heats the sand
+    var T = this.agit[b] + e2 / (nb * G * 3);
+    this.agit[b] = T > 3 ? 3 : T;
+    this._landAt[b] = this.steps;
+    if (v > 60 && (x & 7) === 0 && this.nev < EV_CAP) {
+      var e = this.nev++, vs = v / Math.sqrt(G) / 20;
+      this.evX[e] = pan;
+      this.evV[e] = vs > 1 ? 1 : vs;
+      this.evK[e] = 1 | (b ? 0 : 2);
+    }
+    // The free surface, the grain farthest from the end that took the blow,
+    // stirs; above sprayV a few leave it as spray.
+    var lo = this.colLo[b][x], hi = this.colHi[b][x], i = -1, y;
+    if (dir > 0) { for (y = lo; y <= hi; y++) if (cell[y * W + x] >= REST) { i = y * W + x; break; } }
+    else { for (y = hi; y >= lo; y--) if (cell[y * W + x] >= REST) { i = y * W + x; break; } }
+    if (i >= 0) {
+      var ps = this.reduced ? 0 : (this.quality >= 2 ? MOT.pSpray : (this.quality === 1 ? MOT.pSprayQ1 : 0));
+      if (v > MOT.sprayV && ps > 0 && this.np < MOT.softCap && this.np < this.PCAP &&
+          cell[i - dir * W] === EMPTY && this._rand() < ps) {
+        var p = this.np++, e3 = 0.2 + 0.4 * this._rand();
+        this.px[p] = x + 0.5;
+        this.py[p] = y + 0.5 - dir * 0.6;
+        this.pvx[p] = (this._rand() - 0.5) * 0.9 * v * e3;
+        this.pvy[p] = -dir * v * e3;
+        this.pseed[p] = this.seed[i];
+        this.pinfo[p] = K_SPLASH;
+        cell[i] = EMPTY;
+        f.sprayed++;
+      } else if (cell[i] === REST) cell[i] = MOVE;
+      this._touchRow(y);
+    }
+    if (this.damageArmed && !this.reduced && endY >= 0 && endY < this.H) {
+      var s = this.segOf[endY * W + x];
+      if (s >= 0) this._load(s, v, n);
+    }
+  };
+
+  /**
+   * The stress pulse a column of n grains landing at v sends into wall
+   * segment s: sub-critical crack growth with a fatigue limit. Stress goes
+   * as v (water hammer), its duration as the column's height. Below the
+   * fatigue limit (x ≤ xTh) a crack does not grow at all, which is why
+   * firm shaking never cracks the glass however long it lasts.
+   */
+  Sim.prototype._load = function (s, v, n) {
+    var k = this.segCrack[s];
+    if (k >= 0 && this.cracks[k].sealed) return;      // a gold seam takes no more
+    var x = this.segKt[s] * v / (Math.sqrt(this.G) * this.segS[s] * MOT.vc);
+    if (x <= MOT.xTh) return;
+    var h = n / MOT.hRef;
+    if (h > 2) h = 2;
+    var d = MOT.A * h * (Math.pow(x, MOT.n) - Math.pow(MOT.xTh, MOT.n));
+    if (d > MOT.capCol) d = MOT.capCol;
+    d += this.segP[s];
+    this.segP[s] = d > MOT.Pmax ? MOT.Pmax : d;
+    this._pendP = true;
+  };
+
+  /**
+   * An agitated surface boils: grains hop off it. Each try takes the free
+   * surface grain of a random column (or row, when the field lies across
+   * the glass), facing away from the field, and launches it if the cell
+   * beyond is free. The spray, the streaks, the mica flashes and the ticks
+   * of these grains come for free from the particle code.
+   */
+  Sim.prototype._hops = function (b) {
+    if (this.np >= MOT.softCap || this.np >= this.PCAP) return;
+    var T = this.agit[b], cap = this.quality >= 2 ? MOT.hopMax : MOT.hopMaxQ1;
+    var n = Math.floor((T - MOT.hopT) * 6 + this._rand());
+    if (n > cap) n = cap;
+    if (n <= 0) return;
+    var fx = this.bf[2 * b], fy = this.bf[2 * b + 1], fm = Math.sqrt(fx * fx + fy * fy);
+    if (fm < MOT.weightless * this.G) return;         // a floating glass has no "up"
+    var ux = -fx / fm, uy = -fy / fm;                 // up, away from the field
+    var k = dir8(ux, uy), W = this.W, cell = this.cell, step = DX[k] + DY[k] * W;
+    var lo = this.colLo[b], hi = this.colHi[b], x0 = this._bx0, x1 = this._bx1;
+    var yA = b ? this.gateY + 1 : this.topY, yB = b ? this._botY : this.gateY - 1;
+    var Tc = T < 2 ? T : 2, i, j, x, y, p;
+    for (var t = 0; t < n && this.np < MOT.softCap && this.np < this.PCAP; t++) {
+      i = -1;
+      if (uy * uy >= ux * ux) {
+        x = x0 + ((this._rand() * (x1 - x0 + 1)) | 0);
+        if (lo[x] > hi[x]) continue;
+        if (uy < 0) { for (y = lo[x]; y <= hi[x]; y++) if (cell[y * W + x] >= REST) { i = y * W + x; break; } }
+        else { for (y = hi[x]; y >= lo[x]; y--) if (cell[y * W + x] >= REST) { i = y * W + x; break; } }
+      } else {
+        y = yA + ((this._rand() * (yB - yA + 1)) | 0);
+        var r0 = this.rowMin[y], r1 = this.rowMax[y];
+        if (r0 > r1) continue;
+        if (ux < 0) { for (x = r0; x <= r1; x++) if (cell[y * W + x] >= REST) { i = y * W + x; break; } }
+        else { for (x = r1; x >= r0; x--) if (cell[y * W + x] >= REST) { i = y * W + x; break; } }
+      }
+      if (i < 0) continue;
+      j = i + step;
+      if (cell[j] !== EMPTY) continue;
+      var sp = 40 + 160 * Tc * (0.3 + 0.7 * this._rand());
+      var lat = (this._rand() + this._rand() + this._rand() - 1.5) * 120 * T;   // ≈ N(0, 60·T)
+      p = this.np++;
+      this.px[p] = (j % W) + 0.5;
+      this.py[p] = ((j / W) | 0) + 0.5;
+      this.pvx[p] = ux * sp + uy * lat;
+      this.pvy[p] = uy * sp - ux * lat;
+      this.pseed[p] = this.seed[i];
+      this.pinfo[p] = K_SPLASH | 1;
+      cell[i] = EMPTY;
+      this._touchRow((i / W) | 0);
+      this.frame.hops++;
+    }
+  };
+
+  /**
+   * Grains in the air on the motion path: a restructured copy of
+   * _particles. Each feels the full field where it is, including the
+   * Coriolis force, which turns it without changing its speed; a grain
+   * that flies into a breach leaves the glass; and a grain is never handed
+   * back to the lattice in the other bulb.
+   */
+  Sim.prototype._particlesM = function () {
+    var W = this.W, cell = this.cell, g = this.geo, bf = this.bf;
+    var px = this.px, py = this.py, pvx = this.pvx, pvy = this.pvy, pinfo = this.pinfo;
+    var G = this.G, cx = g.cx, cy = g.cy, gateY = this.gateY, f = this.frame;
+    var lam = this.mLam, w = this.mW, w2 = lam * w * w, la = lam * this.mAl;
+    var Ax = this.mAx, Ay = this.mAy, Fx = G * this.gx + Ax, Fy = G * this.gy + Ay;
+    // Coriolis, −2Ω×v = 2ω(v_y, −v_x), at √λ (sim speeds are slow-motion
+    // real speeds), applied as an exact-norm Cayley rotation by c = √λ·ω·Δt:
+    // explicit Euler would gain about 2 % of speed per step at 4π rad/s.
+    var c = Math.sqrt(lam) * w * DT, cn = 1 / (1 + c * c), cA = (1 - c * c) * cn, cB = 2 * c * cn;
+    var aLim = 0.02 * G;
+    var calm = Ax * Ax + Ay * Ay < aLim * aLim && w < 0.2 && w > -0.2;
+    var focus = calm && !this.flipping && this.gy > 0.9 ? this.focus : 0;
+    var jx = MOT.jitX, jy = MOT.jitY, vMax = MOT.vMax, rV = MOT.retryV;
+    var s = this.rng | 0;
+    var vRef = Math.sqrt(2 * G * g.HB);
+    var pRollStop = this.pRollStop;
+    // each bulb's rolling frame: the lattice direction nearest its field
+    var k0 = dir8(bf[0], bf[1]), k1 = dir8(bf[2], bf[3]);
+    var a0 = DX[k0] + DY[k0] * W, l0 = DX[(k0 + 7) & 7] + DY[(k0 + 7) & 7] * W, r0 = DX[(k0 + 1) & 7] + DY[(k0 + 1) & 7] * W;
+    var sl0 = DX[(k0 + 6) & 7] + DY[(k0 + 6) & 7] * W, sr0 = DX[(k0 + 2) & 7] + DY[(k0 + 2) & 7] * W;
+    var a1 = DX[k1] + DY[k1] * W, l1 = DX[(k1 + 7) & 7] + DY[(k1 + 7) & 7] * W, r1b = DX[(k1 + 1) & 7] + DY[(k1 + 1) & 7] * W;
+    var sl1 = DX[(k1 + 6) & 7] + DY[(k1 + 6) & 7] * W, sr1 = DX[(k1 + 2) & 7] + DY[(k1 + 2) & 7] * W;
+    var m0 = Math.sqrt(bf[0] * bf[0] + bf[1] * bf[1]), m1 = Math.sqrt(bf[2] * bf[2] + bf[3] * bf[3]);
+    var u0x = m0 > 0 ? bf[0] / m0 : this.gx, u0y = m0 > 0 ? bf[1] / m0 : this.gy;
+    var u1x = m1 > 0 ? bf[2] / m1 : this.gx, u1y = m1 > 0 ? bf[3] / m1 : this.gy;
+
+    for (var p = this.np - 1; p >= 0; p--) {
+      var x = px[p], y = py[p];
+      var rx = x - cx, ry = y - cy;
+      var ax = Fx + w2 * rx + la * ry, ay = Fy + w2 * ry - la * rx;
+      var vx = pvx[p] + ax * DT, vy = pvy[p] + ay * DT, t;
+      if (c !== 0) { t = cA * vx + cB * vy; vy = cA * vy - cB * vx; vx = t; }
+      var info = pinfo[p];
+
+      s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+      if (focus && (info & K_MASK) === K_STREAM) {
+        // a calm, upright stream necks down as it accelerates (as today)
+        vx += (-(x - cx) * focus * 3.2 - vx * 1.6) * DT;
+      }
+      vx += ((s & 1023) - 511.5) * jx;
+      vy += (((s >>> 10) & 1023) - 511.5) * jy;
+      t = vx * vx + vy * vy;
+      if (t > vMax * vMax) { t = vMax / Math.sqrt(t); vx *= t; vy *= t; }
+
+      var ddx = vx * DT, ddy = vy * DT;
+      var adx = ddx < 0 ? -ddx : ddx, ady = ddy < 0 ? -ddy : ddy;
+      var steps = Math.ceil(adx > ady ? adx : ady);
+      if (steps < 1) steps = 1;
+      var lx = x, ly = y, hit = -1, k, tx, ty, ci;
+      for (k = 1; k <= steps; k++) {
+        tx = x + ddx * k / steps; ty = y + ddy * k / steps;
+        ci = (ty | 0) * W + (tx | 0);
+        if (cell[ci] !== EMPTY) { hit = ci; break; }
+        lx = tx; ly = ty;
+      }
+      if (hit < 0) {
+        px[p] = lx; py[p] = ly; pvx[p] = vx; pvy[p] = vy;
+        continue;
+      }
+
+      // ---- impact -------------------------------------------------------
+      var sp = Math.sqrt(vx * vx + vy * vy);
+      var onGlass = cell[hit] === WALL;
+      if (onGlass && this.holeMap !== null && this.holeMap[hit] !== 0) {
+        this._escapeParticle(p, hit, vx, vy);         // out through the breach
+        continue;
+      }
+      var top = ly < gateY;
+      var bounces = info & 3;
+      if (sp > 45 && bounces === 0) {
+        if (top) f.impTop++;
+        else if (onGlass) f.impGlass++;
+        else f.impSand++;
+        if (this.nev < EV_CAP) {
+          var e = this.nev++;
+          this.evX[e] = (lx - cx) / g.R;
+          this.evV[e] = sp / vRef > 1 ? 1 : sp / vRef;
+          this.evK[e] = (onGlass ? 0 : 1) | (top ? 2 : 0);
+        }
+      }
+
+      s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+      var q1 = (s & 1023) / 1023, q2 = ((s >>> 10) & 1023) / 1023;
+      var settle = false;
+      // "down" here is the field this grain feels
+      var am = Math.sqrt(ax * ax + ay * ay), ugx, ugy;
+      if (am > 1e-6) { ugx = ax / am; ugy = ay / am; } else { ugx = this.gx; ugy = this.gy; }
+      var ub = top ? u0x : u1x, vb = top ? u0y : u1y;
+
+      if (onGlass) {
+        // restitution off the curved glass (and off the closed neck, like glass)
+        var nx = this.nrmX[hit] / 127, ny = this.nrmY[hit] / 127;
+        if (nx === 0 && ny === 0 && sp > 0) { nx = -vx / sp; ny = -vy / sp; }
+        var vn = vx * nx + vy * ny;
+        if (vn < 0) {
+          var rest = 0.16 + q1 * 0.2;
+          vx -= (1 + rest) * vn * nx; vy -= (1 + rest) * vn * ny;
+          vx *= 0.8; vy *= 0.8;
+          vx += (q2 - 0.5) * sp * 0.18;
+        }
+        bounces++;
+        if (bounces > 3 || sp < 70) settle = true;
+      } else if (bounces < 2 && sp > 190 && q1 < 0.55) {
+        // kinetic splash: a short hop off the sand before settling
+        var hop = sp * (0.06 + q2 * 0.15);
+        if (hop > 235) hop = 235;
+        s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+        var lat = ((s & 1023) / 511.5 - 1) * hop * 1.15;
+        vx = -ugx * hop + ugy * lat;
+        vy = -ugy * hop - ugx * lat;
+        bounces++;
+        info = (info & 3) | K_SPLASH;
+        if (cell[hit] === REST) { cell[hit] = MOVE; this._touchRow((hit / W) | 0); }
+      } else {
+        // Landed on sand: keep tumbling down a slope steeper than sand can
+        // hold, in this bulb's own frame; otherwise come to rest.
+        var oM, oL, oR, oSL, oSR;
+        if (top) { oM = a0; oL = l0; oR = r0; oSL = sl0; oSR = sr0; }
+        else { oM = a1; oL = l1; oR = r1b; oSL = sl1; oSR = sr1; }
+        var li = (ly | 0) * W + (lx | 0);
+        if (cell[li] !== EMPTY) {
+          li = this._freeNear(li, oM, true);
+          if (li >= 0) { lx = (li % W) + 0.5; ly = ((li / W) | 0) + 0.5; }
+        }
+        if (li < 0) {
+          vx = -ub * rV; vy = -vb * rV;               // buried: rise and look again
+        } else {
+          var rollL = cell[li + oSL] === EMPTY &&
+            (cell[li + oL] === EMPTY || (cell[li + oSL + oL] === EMPTY && cell[li + oSL + oL + oL] === EMPTY &&
+                                         cell[li + oSL + oL + oL + oL] === EMPTY));
+          var rollR = cell[li + oSR] === EMPTY &&
+            (cell[li + oR] === EMPTY || (cell[li + oSR + oR] === EMPTY && cell[li + oSR + oR + oR] === EMPTY &&
+                                         cell[li + oSR + oR + oR + oR] === EMPTY));
+          if ((rollL || rollR) && ((s >>> 20) & 255) >= pRollStop) {
+            var side = ugy * vx - ugx * vy;
+            var dir = (rollL && rollR) ? (side < 0 ? -1 : (side > 0 ? 1 : (q1 < 0.5 ? -1 : 1)))
+                                       : (rollL ? -1 : 1);
+            var run = 70 + q1 * 95, lift = 22 + q2 * 46;
+            vx = ugy * run * dir - ugx * lift;
+            vy = -ugx * run * dir - ugy * lift;
+            if (bounces < 1) bounces = 1;
+          } else {
+            settle = true;
+          }
+        }
+      }
+
+      if (settle) {
+        if (this._depositM(lx, ly, this.pseed[p], top ? k0 : k1, top)) {
+          var last = --this.np;
+          if (p !== last) {
+            px[p] = px[last]; py[p] = py[last]; pvx[p] = pvx[last]; pvy[p] = pvy[last];
+            this.pseed[p] = this.pseed[last]; pinfo[p] = pinfo[last];
+          }
+          continue;
+        }
+        vx = -ub * rV; vy = -vb * rV;                 // nowhere to settle: rise and try again
+      }
+      px[p] = lx; py[p] = ly; pvx[p] = vx; pvy[p] = vy;
+      pinfo[p] = (info & K_MASK) | (bounces > 3 ? 3 : bounces);
+    }
+    this.rng = s || 0x9E3779B9;
+  };
+
+  /**
+   * _deposit for the motion path: hand a grain back to the lattice as a
+   * moving grain, along lattice direction k, never into the other bulb (a
+   * grain that lands in one bulb must not reappear in the other: the clock
+   * trusts nTop). False when there is no room; the grain then tries again.
+   */
+  Sim.prototype._depositM = function (x, y, sd, k, top) {
+    var W = this.W, cell = this.cell;
+    var i = (y | 0) * W + (x | 0);
+    var m = DX[k] + DY[k] * W;
+    if (cell[i] !== EMPTY) {
+      i = this._freeNear(i, m, true);
+      if (i < 0) return false;
+    }
+    if ((i < this.gateY * W) !== top) return false;
+    cell[i] = MOVE; this.seed[i] = sd;
+    this._touchRow((i / W) | 0);
+    // the impact shakes the grains it lands on
+    var l = DX[(k + 7) & 7] + DY[(k + 7) & 7] * W;
+    var r = DX[(k + 1) & 7] + DY[(k + 1) & 7] * W;
+    if (cell[i + m] === REST) cell[i + m] = MOVE;
+    if (cell[i + l] === REST) cell[i + l] = MOVE;
+    if (cell[i + r] === REST) cell[i + r] = MOVE;
+    return true;
   };
 
   /* ---------------------------------------------------------------- *
@@ -1255,6 +1962,7 @@
     flipBulbPair(this.bf); flipBulbPair(this.bfSlow); flipBulbPair(this.cen);
     t = this.agit[0]; this.agit[0] = this.agit[1]; this.agit[1] = t;
     t = this.sweepAcc[0]; this.sweepAcc[0] = this.sweepAcc[1]; this.sweepAcc[1] = t;
+    t = this._landAt[0]; this._landAt[0] = this._landAt[1]; this._landAt[1] = t;
     // the slugs trade states, not objects (a reader may keep sim.slug[0]);
     // both beds were just put down, so both sit on their seats
     var s0 = this.slug[0], s1 = this.slug[1];
@@ -1402,13 +2110,84 @@
     }
   };
 
-  /** Micro-damage in glass that has not cracked arrests and fades (τ tauHeal). */
-  Sim.prototype._relaxDamage = function () {
-    var segD = this.segD, sc = this.segCrack, k = 1 - DT / MOT.tauHeal;
-    for (var s = 0; s < WALL_SEGS; s++) {
-      if (sc[s] < 0 && segD[s] > 0 && segD[s] < 1) segD[s] *= k;
+  /**
+   * One step of the glass. A hard lateral shake bends the waist like a beam
+   * held by the caps (motion path, armed only). Pending load becomes damage
+   * no faster than rMax (a crack runs at a bounded speed, so one blow can
+   * never do what sustained cycling does) and an unabsorbed blow fades.
+   * Micro-damage in glass that has not cracked arrests and fades (τ tauHeal);
+   * a stretch that reaches 1 cracks, up to maxCracks per glass; a crack
+   * grows with further damage, breaks through and widens. Then the creaks.
+   */
+  Sim.prototype._damageStep = function (motion) {
+    var segD = this.segD, segP = this.segP, sc = this.segCrack, s, p, d;
+    if (motion && this.damageArmed && !this.reduced) {
+      var gp = (this.mAx < 0 ? -this.mAx : this.mAx) / this.G;
+      if (gp > MOT.gamTh) {
+        var r = (Math.pow(gp / MOT.gamC, MOT.nB) - Math.pow(MOT.gamTh / MOT.gamC, MOT.nB)) * DT / MOT.tauB;
+        if (r > MOT.capB) r = MOT.capB;
+        for (var q = 0; q < 4; q++) {
+          for (var u = 0; u < MOT.bendBins; u++) {
+            s = q * WALL_BINS + u;
+            if (sc[s] >= 0 && this.cracks[sc[s]].sealed) continue;
+            d = r * Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
+            if (d > MOT.capB) d = MOT.capB;
+            p = segP[s] + d;
+            segP[s] = p > MOT.Pmax ? MOT.Pmax : p;
+            this._pendP = true;
+          }
+        }
+      }
+    }
+    if (this._pendP) {
+      var cap = MOT.rMax * DT, kP = Math.exp(-DT / MOT.tauP), pend = false;
+      for (s = 0; s < WALL_SEGS; s++) {
+        p = segP[s];
+        if (p <= 0) continue;
+        var take = p < cap ? p : cap;
+        d = segD[s] + take;
+        segD[s] = d > MOT.Dcap ? MOT.Dcap : d;
+        p = (p - take) * kP;
+        if (p < 1e-7) p = 0; else pend = true;
+        segP[s] = p;
+      }
+      this._pendP = pend;
+    }
+    var heal = 1 - DT / MOT.tauHeal, full = this.cracks.length >= MOT.maxCracks;
+    for (s = 0; s < WALL_SEGS; s++) {
+      d = segD[s];
+      if (d <= 0) continue;
+      if (sc[s] >= 0) { this._grow(sc[s]); continue; }
+      if (d < 1) { segD[s] = d * heal; continue; }
+      if (full) { segD[s] = 0.999; continue; }        // the glass has its three
+      this._initCrack(s, -1);
+      full = this.cracks.length >= MOT.maxCracks;
     }
     this._scanDamage(true);
+  };
+
+  /**
+   * Crack k takes the damage its segment gained since it last grew. K grows
+   * as √a, so a longer crack runs faster and grows in audible jumps (GROW
+   * each time floor(L/growStep) rises). Past Lhole it breaks through; past
+   * Lhole·(1 + widen·w) its breach widens by a cell.
+   */
+  Sim.prototype._grow = function (k) {
+    var cr = this.cracks[k], D = this.segD[cr.seg];
+    if (cr.sealed || D <= cr.D0) return;
+    var L0 = cr.L, L = L0 + (D - cr.D0) * MOT.growK * (1 + L0 / MOT.growL);
+    if (L > MOT.Lmax) L = MOT.Lmax;
+    cr.D0 = D;
+    if (L === L0) return;
+    cr.L = L;
+    if (((L / 2) | 0) !== ((L0 / 2) | 0)) this.crackRev++;    // the drawing changes every 2 cells
+    var st = MOT.growStep;
+    if (((L / st) | 0) > ((L0 / st) | 0)) this._pushDmg(Sim.DMG.GROW, k, (L / st) | 0, this._panX(cr.x));
+    if (cr.nh === 0) {
+      if (L > MOT.Lhole) this._openHole(cr, true);
+    } else if (cr.nh < MOT.wMax && L > MOT.Lhole * (1 + MOT.widen * cr.w)) {
+      this._widenHole(cr, true);
+    }
   };
 
   /**
