@@ -212,6 +212,7 @@
     if (app.classList.contains('zen') && !document.hidden && !back && performance.now() - lastFrame < 250) {
       var bowl = settings.chime && !settings.muted && settings.volume > 0 && audio.isRunning();
       endHoldUntil = performance.now() + (bowl ? END_HOLD : END_HOLD_QUIET);
+      zenForced = false;             // the hold keeps them dim; the end releases the moon, as before
     } else wake();
   }
 
@@ -616,7 +617,7 @@
   function updateZen(now) {
     var hold = false;
     if (endHoldUntil) {
-      if (T.state !== 'done') endHoldUntil = 0;      // turned over (real gravity): it runs again, like any start
+      if (T.state !== 'done' || flip.active) endHoldUntil = 0;   // turned over: it runs again, like any start
       else if (now < endHoldUntil) hold = true;
       else rise();
     }
@@ -631,6 +632,7 @@
   }
   /** Dim the controls right away; where the browser allows, hide its chrome too. */
   function zenNow() {
+    zoom.style.transition = '';                       // even within the launch's first moments: settle slowly
     zenForced = true;
     app.classList.add('zen');
     applyZoom();
@@ -1247,7 +1249,9 @@
   requestAnimationFrame(function (t) {
     lastFrame = t; T.lastTick = Date.now(); requestAnimationFrame(frame);
     requestAnimationFrame(function () {               // the first frame is drawn: fade up from dark
-      veil.classList.add('lift'); veil.classList.remove('boot');
+      veil.style.opacity = getComputedStyle(veil).opacity;   // (on a slow first visit the CSS failsafe
+      veil.classList.remove('boot'); void veil.offsetWidth;  //  may already be lifting it: go on from there)
+      veil.classList.add('lift'); veil.style.opacity = '';
       setTimeout(function () { zoom.style.transition = ''; veil.classList.remove('lift'); }, 1500);
     });
   });

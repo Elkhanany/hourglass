@@ -21,9 +21,11 @@ Live (once GitHub Pages is enabled): `https://elkhanany.github.io/hourglass/`
 
 After four seconds of running without a touch the controls fade slowly, over
 about three seconds, to 12 % (or disappear entirely with *Full Zen*) as the
-glass grows to fill the screen; while they are dimmed the tenths rest. The
-first tap only brings them back. The moon icon dims them at once and, where
-the browser allows it, goes full screen.
+glass grows to fill the screen; while they are dimmed the tenths rest. While
+they are still visibly fading they answer a tap as usual; once dim, the first
+tap only brings them back. The moon icon starts the same fade at once and,
+where the browser allows it, goes full screen. With *Reduce Motion* turned on
+in the system settings, all of this happens at once instead.
 
 When the sand runs out while the controls are dimmed, the glass stays still
 through the last grains and the bowl, then the controls return slowly. A
@@ -39,7 +41,8 @@ five, three quarters for 45.
   caps and posts so only the glass remains.
 - **Acoustic character** (six voicings) and volume; **Ambience** (a brook or
   rain behind the sand, with its own level); **Completion bowl**.
-- **Keep screen awake** while the sand is flowing (Screen Wake Lock API).
+- **Keep screen awake** while the sand is flowing, and for 12 s after it runs
+  out (Screen Wake Lock API).
 - **Real gravity**: the sand follows how the device is held. Lean it and the
   piles slump, lay it on its side and the flow (and the clock) stop, turn it
   over and the other bulb becomes the top.
@@ -152,8 +155,10 @@ recedes under the bowl.
 - *Rain*: a dense patter of fine filtered clicks, a few heavier drops and a
   distant hiss.
 
-Both are synthesised into seamless loops in short idle slices: the saved one
-while the page settles after loading, another the first time it is chosen.
+Both are synthesised into seamless loops in short steps, one per slice of
+main-thread time (each a few to a few tens of milliseconds, so the sand keeps
+falling smoothly): the saved one while the page settles after loading, another
+the first time it is chosen.
 
 Levels and spectra were set by offline rendering and measurement (about
 −25 dBFS RMS with grain peaks near −9 dBFS at the default volume; the brook

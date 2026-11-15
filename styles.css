@@ -598,4 +598,6 @@ input[type="range"]::-moz-range-thumb {
 }
 @media (prefers-reduced-motion: reduce) {
   .hud, .sheet, #scrim, #toast, .pill, .act, .card { transition-duration: 0.01s !important; }
+  #zoom, #t-frac { transition-duration: 0.01s !important; }   /* the glass does not grow or shrink either */
+  #app.zen .hud > * { pointer-events: none; }                 /* dim at once, so a tap only wakes */
 }

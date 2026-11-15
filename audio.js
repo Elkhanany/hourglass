@@ -307,12 +307,12 @@
    * The proportions come from six field recordings of small streams,
    * measured band by band: spectrum, how bursty and how tonal each band is,
    * how it flickers and swells, how alike the two ears are. Pitches barely
-   * glide (real bubbles rise by a few percent, not by octaves) and no event
-   * is louder than three times the median, so nothing stands out enough to
-   * be noticed coming round again.
+   * glide (real bubbles rise by a few percent, not by octaves) and the
+   * random part of each bubble's loudness is capped at three times its
+   * median, so nothing stands out enough to be noticed coming round again.
    *
    * Both ears hear the same bubbles: each channel is rendered from the same
-   * seed, every event panned and the far ear delayed by up to 0.35 ms. The
+   * seed, every event panned and the far ear delayed by up to 0.3 ms. The
    * current is part shared, part independent, for a wide but whole image.
    * ------------------------------------------------------------------- */
 
@@ -335,7 +335,7 @@
    * leak into the slow swell.
    */
   function ctrlCurve(r, n, fc, cr, hp) {
-    var m = Math.ceil(cr / fc * 2), raw = new Float32Array(n + m), out = new Float32Array(n), i;
+    var m = Math.min(n, Math.ceil(cr / fc * 2)), raw = new Float32Array(n + m), out = new Float32Array(n), i;
     var k = 1 - Math.exp(-TAU * fc / cr), a = 0, b = 0, warm = Math.ceil(cr / Math.min(fc, hp || fc) * 4);
     var kh = hp ? 1 - Math.exp(-TAU * hp / cr) : 0, c = 0, e = 0;
     for (i = -warm; i < n + m; i++) {
@@ -358,7 +358,7 @@
     cr: 200,                                  // control rate of the curves, Hz
     swell: 0.06,                              // slow swell of the whole flow (log-amplitude σ, ≈ ±0.5 dB)
     itd: 0.35e-3,                             // the far ear hears a hard-panned bubble this much later
-    cap: 3,                                   // no bubble louder than 3× the median
+    cap: 3,                                   // a bubble's random loudness: at most 3× its median
     // the current: noise band-passed and flickering (σ of a log-normal gain
     // band-passed to fhp…fc Hz); `rho` of the noise and `rhoEnv` of the flicker
     // are shared between the ears; `gain` is its RMS beside the bubbles' amplitudes
@@ -445,19 +445,34 @@
     }
   }
 
-  /** One channel of the brook's flow: the current, fizz and babble. */
+  /**
+   * Work in steps: returns a function that runs the next step and returns
+   * itself, until the last step returns the result. One step per idle slice.
+   */
+  function steps(list) {
+    var k = 0;
+    return function next() {
+      var r = list[k++]();
+      return k < list.length ? next : r;
+    };
+  }
+
+  /** One channel of the brook's flow: the current, its body, fizz and babble. */
   function rawBrookFlow(sr, seconds, ch, seed) {
-    var n = Math.floor(sr * seconds), nc = Math.round(seconds * WATER.cr), i;
+    var n = Math.floor(sr * seconds), nc = Math.round(seconds * WATER.cr);
     var rE = mulberry32(seed * 7919 + 13);                      // shared by both ears
     var rC = mulberry32(seed * 104729 + 31 + ch * 977);         // this ear's own
-    var swell = ctrlCurve(rE, nc, 0.5, WATER.cr);
-    var bed = waterBed(sr, n, nc, WATER.bed, swell, mulberry32(seed * 31 + 101), rC);
-    var body = waterBed(sr, n, nc, WATER.body, swell, mulberry32(seed * 31 + 202), rC);
-    var out = new Float32Array(n);
-    for (i = 0; i < n; i++) out[i] = WATER.bed.gain * bed[i] + WATER.body.gain * body[i];
-    waterBubbles(out, sr, seconds, nc, WATER.fizz, swell, rE, ch);
-    waterBubbles(out, sr, seconds, nc, WATER.babble, swell, rE, ch);
-    return level(out, WATER.rmsFlow);
+    var swell = ctrlCurve(rE, nc, 0.5, WATER.cr), out = new Float32Array(n);
+    function current(B, salt) {
+      var x = waterBed(sr, n, nc, B, swell, mulberry32(seed * 31 + salt), rC);
+      for (var i = 0; i < n; i++) out[i] += B.gain * x[i];
+    }
+    return steps([
+      function () { current(WATER.bed, 101); },
+      function () { current(WATER.body, 202); },
+      function () { waterBubbles(out, sr, seconds, nc, WATER.fizz, swell, rE, ch); },
+      function () { waterBubbles(out, sr, seconds, nc, WATER.babble, swell, rE, ch); return level(out, WATER.rmsFlow); }
+    ]);
   }
 
   /**
@@ -492,18 +507,24 @@
 
   /** Soft rain: a dense patter of fine drops, a few heavy ones, a distant hiss. */
   function rawRain(sr, seconds) {
-    var fine = [], heavy = [], i;
+    var fine = [], heavy = [], out, i;
     for (i = 0; i < 18; i++) fine.push(synthDrop(sr, 1800 + rnd() * 3400, 1.2 + rnd(), 0.0003 + rnd() * 0.0004));
     for (i = 0; i < 10; i++) heavy.push(synthDrop(sr, 700 + rnd() * 1000, 1.6 + rnd() * 1.4, 0.0015 + rnd() * 0.0025));
-    var out = level(rawWash(sr, seconds, 900, 5500), 0.022);
-    var a = rawBed(sr, seconds, fine, 520), b = rawBed(sr, seconds, heavy, 14);
-    for (i = 0; i < out.length; i++) out[i] += a[i] * 0.42 + b[i] * 0.85;
-    return level(out, 0.075);
+    return steps([
+      function () { out = level(rawWash(sr, seconds, 900, 5500), 0.022); },
+      function () { var a = rawBed(sr, seconds, fine, 520); for (i = 0; i < out.length; i++) out[i] += a[i] * 0.42; },
+      function () {
+        var b = rawBed(sr, seconds, heavy, 14);
+        for (i = 0; i < out.length; i++) out[i] += b[i] * 0.85;
+        return level(out, 0.075);
+      }
+    ]);
   }
 
   /*
    * Each ambience is one or more seamless loops, played together. `make(sr,
    * seconds, ch, seed)` renders one channel; both channels get the same seed.
+   * It may return a function instead: the rest of the work, a step per call.
    */
   var AMBIENCES = {
     none: { name: 'None' },
@@ -895,22 +916,27 @@
   HourglassAudio.prototype._ambGain = function () {
     return Math.pow(this.ambLevel, 1.5) * 1.1;
   };
+  /** Run one channel of a layer to the end, at once. */
+  function makeNow(L, ch, seed) {
+    var r = L.make(L.sr, L.seconds, ch, seed);
+    while (typeof r === 'function') r = r();
+    return r;
+  }
   /** Synthesise an ambience right now (blocking; for tests). Returns [L, R] per layer. */
   HourglassAudio.prototype._makeAmbience = function (id, seed) {
-    var d = AMBIENCES[id];
-    if (!d || !d.layers) return null;
+    var d = AMBIENCES[id], raw = this._ambRaw[id];
+    if (!d || !d.layers || this._ambBuf[id]) return null;           // already wrapped for playing
     seed = seed || 1;
-    if (!this._ambRaw[id]) {
-      this._ambRaw[id] = d.layers.map(function (L) {
-        return [L.make(L.sr, L.seconds, 0, seed), L.make(L.sr, L.seconds, 1, seed)];
-      });
+    if (!raw || raw.seed !== seed) {
+      raw = this._ambRaw[id] = d.layers.map(function (L) { return [makeNow(L, 0, seed), makeNow(L, 1, seed)]; });
+      raw.seed = seed;
     }
-    return this._ambRaw[id];
+    return raw;
   };
   /**
-   * Synthesise an ambience one channel of one layer per slice, so the page
-   * stays responsive, then call `done`. However often it is asked for, each
-   * ambience is synthesised once.
+   * Synthesise an ambience a step at a time, one short slice each, so the
+   * page stays responsive, then call `done`. However often it is asked for,
+   * each ambience is synthesised once.
    */
   HourglassAudio.prototype._synthAmbience = function (id, done) {
     var self = this, d = AMBIENCES[id];
@@ -921,9 +947,14 @@
     job = this._ambJobs[id] = { seed: 1 + ((rnd() * 2147483646) | 0), k: 0, out: [], done: done ? [done] : [] };
     function next() {
       var li = job.k >> 1, ch = job.k & 1, L = d.layers[li];
-      if (!ch) job.out[li] = [];
-      job.out[li][ch] = L.make(L.sr, L.seconds, ch, job.seed);          // both ears: one seed
-      if (++job.k < d.layers.length * 2) { setTimeout(next, 30); return; }
+      var r = job.step ? job.step() : L.make(L.sr, L.seconds, ch, job.seed);   // both ears: one seed
+      job.step = typeof r === 'function' ? r : null;
+      if (!job.step) {                                  // this channel is done
+        if (!ch) job.out[li] = [];
+        job.out[li][ch] = r;
+        job.k++;
+      }
+      if (job.k < d.layers.length * 2) { setTimeout(next, 30); return; }
       self._ambRaw[id] = job.out;
       delete self._ambJobs[id];
       for (var i = 0; i < job.done.length; i++) job.done[i]();
