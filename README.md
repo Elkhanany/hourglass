@@ -11,21 +11,25 @@ Live (once GitHub Pages is enabled): `https://elkhanany.github.io/hourglass/`
 | Action | Touch | Keyboard |
 | --- | --- | --- |
 | Start / pause | Tap the glass, or the round button | `Space` |
-| Turn the glass | Drag it round with a finger, or **Flip** | `F` |
+| Move the glass | Drag it by its waist | |
+| Turn the glass | Drag a bulb round; flick it to spin; touch it to stop. Or **Flip** | `F` |
+| Mend a crack | Hold a finger still on the glass | |
 | Add sand (extends the timer) | Tap or hold **Sand** | focus + hold `Space` |
 | Reset | **Reset** | `R` |
 | Duration | Pills `1 3 5 10 15 25 45` min, **Custom**, or tap the time (10 s to 99:59) | |
 | Dim the controls now | Moon icon | |
 | Mute | Speaker icon | `M` |
-| Material, frame, sound, gravity, screen | **Tune** | |
+| Material, frame, sound, motion, screen | **Tune** | |
 
 After four seconds of running without a touch the controls fade slowly, over
 about three seconds, to 12 % (or disappear entirely with *Full Zen*) as the
 glass grows to fill the screen; while they are dimmed the tenths rest. While
 they are still visibly fading they answer a tap as usual; once dim, the first
-tap only brings them back. The moon icon starts the same fade at once and,
-where the browser allows it, goes full screen. With *Reduce Motion* turned on
-in the system settings, all of this happens at once instead.
+tap only brings them back. Playing with the glass (moving, turning, spinning,
+catching or mending it) keeps them dim; only a tap brings them back. The moon
+icon starts the same fade at once and, where the browser allows it, goes full
+screen. With *Reduce Motion* turned on in the system settings, all of this
+happens at once instead.
 
 When the sand runs out while the controls are dimmed, the glass stays still
 through the last grains and the bowl, then the controls return slowly. A
@@ -43,13 +47,38 @@ five, three quarters for 45.
   rain behind the sand, with its own level); **Completion bowl**.
 - **Keep screen awake** while the sand is flowing, and for 12 s after it runs
   out (Screen Wake Lock API).
-- **Real gravity**: the sand follows how the device is held. Lean it and the
-  piles slump, lay it on its side and the flow (and the clock) stop, turn it
-  over and the other bulb becomes the top.
+- **Real motion**: the sand feels what the phone feels. Lean it and the piles
+  slump, lay it on its side and the flow (and the clock) stop, turn it over
+  and the other bulb becomes the top. Walk and the falling thread sways;
+  shake it and the sand lifts and lands; twist it and the sand sloshes; spin
+  it flat on a table and the sand is pushed to both ends. Shaken very hard,
+  for several seconds, the glass can crack (it creaks first).
 - **Full Zen**, **Haptics**.
 
 The glass also remembers where it was: close or reload the page and a running
-timer carries on from the wall clock, a paused one comes back as it was left.
+timer carries on from the wall clock, a paused one comes back as it was left,
+cracks and gold seams included.
+
+### Playing with the glass
+
+The glass is an object you can hold. Take it by its waist and it follows the
+finger on a soft tether, lifting off its shadow; let go and it springs home
+with a small sway. Take it by a bulb and it turns; flick it and it spins on by
+itself, slowing as its sand is flung outward, and settles upright or inverted.
+Each half turn swaps the time, as the Flip button does. Touch it while it
+moves and it stops under your finger, and stays where it stopped until the
+finger moves it on. The sand feels all of this at the true scale of the glass
+on the screen, so a gentle drag barely stirs it and a hard spin pins it to
+both ends.
+
+With Real motion on, very vigorous shaking (big, fast swings kept up for about
+five seconds) can crack the glass. Four faint creaks and glints come first.
+Then a fine silver hairline appears; keep going and a chip opens, and sand
+trickles out onto the desk below. Hold a finger still on a cracked glass and
+gold flows into the crack and seals it (kintsugi), without stopping the
+timer. Reset, or a new duration, gives a fresh glass. Drops, knocks, walking
+and anything done with a finger can never crack it, and with *Reduce Motion*
+on it cannot crack at all.
 
 ## How it works
 
@@ -109,6 +138,165 @@ Grain counts depend on the duration: on phones from about 10,000 (one minute)
 to 21,000 (45 minutes), up to 24,000 after adding sand; roughly 45 % more on
 larger screens.
 
+### Motion
+
+- **The felt field, at true size.** The sand feels gravity plus whatever the
+  glass is doing: the phone's own acceleration and the glass being dragged
+  on screen, turned into the glass's frame, and, while it turns, the
+  centrifugal, Euler and Coriolis forces. Every effect enters at the strength
+  it would have on a real glass of the size this one appears on screen (1 CSS
+  px is about 0.16 mm on an iPhone), so the thresholds are real ones: the bed
+  lifts off at 1 g, and sand pins to the far ends once ω²r passes g. Each bulb
+  feels the field at the centre of its own sand; a grain in the air feels it
+  where it is.
+- **At rest, nothing changed.** While nothing moves the glass and its sand is
+  cool and settled, each physics step is exactly the step the hourglass always
+  took, grain for grain (checked against the version before motion over
+  20,000 steps).
+- **The bed flies as one body.** Shaken harder than gravity, a packed bed does
+  not dissolve into loose grains: it lifts off its seat as one body, flies,
+  and lands with a thump (a completely inelastic bouncing bed, after Mehta and
+  Luck). A column that meets the far glass stops there with a clack, so the
+  bed deforms against the dome but never shreds. Flight heights match a
+  one-dimensional bouncing-bed model within about 1 %. Landings raise a little
+  spray that patters on the glass.
+- **Shaken sand runs.** Each bulb has a granular temperature, driven by how
+  much its field changes (a steady lean does not count) and by every landing.
+  Hot sand loses its friction and flows faster, so a shaken heap flattens
+  toward its dynamic slope and freezes flat when the shaking stops. The
+  hottest surfaces throw off a few hopping grains.
+- **The neck under shaking.** The neck only lets sand through while the upper
+  bed sits on it and the field presses sand into it, so the stream stutters
+  with each blow of the hand, and a sideways shake bends the thread. Grains in
+  flight bounce off the closed neck like glass. The valve stays the only way
+  between the bulbs, so both bulbs' counts stay exact.
+
+### Glass and fracture
+
+- **Every glass has its own flaws.** The glass keeps its own record of damage,
+  separate from the sand. Its inner wall is divided into 160 short stretches
+  (two bulbs, two sides, forty bands from the waist to the far end), and each
+  new glass draws its own flaw strengths: a Weibull spread (modulus 20) that
+  makes most of it about equally strong and a few places weaker. The flaws
+  come from a seed of their own, so a cracked glass comes back as the same
+  glass after a reload, and drawing them never disturbs the sand.
+- **Stress corrosion with a fatigue limit.** Each column of sand that slams
+  into the glass sends a pulse whose stress grows with its impact speed. Below
+  a fatigue limit, about 78 % of the glass's strength, a crack does not grow
+  at all, which is why firm or even vigorous shaking never cracks it however
+  long it lasts. Above it, damage grows as the 16th power of the stress, as
+  stress corrosion does in soda-lime glass. A very hard sideways shake also
+  bends the waist like a beam. So a crack starts where the load and the
+  weakness meet: the lower dome under vertical shaking, the funnel shoulder
+  under slams, the waist under lateral shaking.
+- **Warnings first.** A crack can only run so fast, so damage builds at a
+  bounded rate and a single blow does at most 15 % of a crack; damage also
+  fades while no crack has formed. Four faint creaks, each with a pinpoint
+  glint at the stressed spot, come at 35, 60, 80 and 92 % of the way, the
+  first at least two seconds before any crack.
+- **What cracks it.** In the calibration runs only big, fast swings kept up
+  for about five seconds cracked the glass (for example swinging the phone
+  ±8 cm four times a second). Drops, knocks, walking, running, twisting and
+  finger play never come close. Only real phone motion can arm the damage
+  (see Sensors), and with Reduce Motion the glass cannot crack.
+- **Crack, chip, leak.** A crack grows as damage goes on, faster the longer it
+  gets. Past 26 cells it breaks through and a chip opens, and the chip can
+  widen to three cells. A glass holds at most three cracks, never within a
+  few rows of the neck, so the two bulbs are never joined. The holes stay
+  glass in the lattice (a separate hole map carries the leak), so counting,
+  drawing and resetting never see them. The leak is 2-D Beverloo flow with
+  jamming, like a small hole in a bin of sand: one grain wide it arches over
+  and holds at rest, two wide it trickles about one to three grains a second,
+  three wide up to about ten, and shaking breaks the arches. A hole facing
+  down leaks freely, one facing up hardly at all, and a grain in flight that
+  meets a hole leaves with its own speed. Turning the glass over carries
+  every crack and hole with it, so a leak keeps coming from the same place.
+- **Kintsugi.** Mending closes every open breach at once (the leak stops
+  within a step) and draws the cracks in gold; the mended seam is half as
+  strong again. Reset, or a new duration, gives a new glass. The damage is
+  saved with the running session in a few hundred bytes.
+
+### Cracks and spilled sand on screen
+
+- **A hairline that catches the light.** A crack is drawn on the glass's front
+  layer, after the glass and before the caps: the caps cover its ends under
+  the collars, it turns with the glass, and it survives a change of material,
+  frame or layout. It grows across the front of the glass along the curved
+  surface and is then projected into the picture, so a crack round the
+  shoulder by the waist reads as an arc, one on the dome spreads as a star of
+  three to five arms, and one in between runs toward the widest part and
+  wanders. Each arm draws from its own random seed, so a growing crack only
+  ever lengthens and never rearranges itself, and after a flip the same crack
+  is simply mirrored back onto the same place. It is a fine silver hairline
+  over a soft shadow; every short stretch of it is as bright as it faces the
+  room's key light, and the room stays put, so the crack sparkles as the
+  glass turns. A breach is a small dark chip where the glass's bright edge is
+  broken, with a bright inner rim. No shards, no red.
+- **Small moments.** Each creak glints at the stressed spot, a new crack
+  flashes once, and a breach brightens its rim for a moment; with Reduce
+  Motion there are no flashes. While a finger mends it, gold runs out from
+  where the crack began, along every arm at the same pace, and a mended crack
+  stays gold, with a light core and a soft glow.
+- **Cheap to draw.** The layer is redrawn only when something has changed,
+  never more than 30 times a second while the glass turns, and a glass holds
+  at most 512 crack segments. A whole glass costs nothing.
+- **Spilled sand.** Grains that escape fall in the room, not with the glass:
+  their layer sits outside the moving, turning glass, so the sand stays on the
+  desk when the glass is lifted or spun, and it grows and shrinks with the Zen
+  view like the shadow. They fall under the same slow-motion gravity as the
+  sand inside and gather into a small dune on the desk line, made of 2 px
+  columns that give way at the angle of repose (33°), measured against the
+  real direction of gravity. Lean the phone and the dune creeps downhill and
+  pours off the low end of the desk; turn it over and the sand falls away;
+  shake it hard and a few grains hop. It is drawn grain by grain in the sand's
+  own colours, lit on top and darker below; only the columns that changed are
+  redrawn, and its canvas exists only after the first grain has escaped.
+  Reset sweeps it away, and it is not kept across reloads.
+
+### Timer under motion
+
+The wall clock stays the master. Moving, shaking, catching and mending never
+stop the clock; only a turn (by hand, by a spin or by the Flip button) and
+laying the phone on its side do. A shaken neck falls behind, so while shaking
+is recent a backlog drains as a slightly thicker thread instead of a clump,
+and the page's sleep catch-up never teleports sand. Once the glass is calm
+again, the rest of the run is re-timed so the sand that is there lasts
+exactly the time that is left: the last grain still leaves at `00:00.0`. Sand
+leaking from the upper bulb thins the stream (the neck lets through less), and
+where it leaks faster than the stream can make up, as in a long glass, the
+rest of the run is re-timed the same way; sand leaking from the lower bulb
+never touches the time.
+
+### Sensors: `motion.js`
+
+With Real motion on, the app reads two sensor events: `devicemotion` (the
+phone's acceleration and rotation rate, about 60 times a second on an iPhone)
+and `deviceorientation` (how the phone is held). `motion.js` turns them into
+what the sand would feel: the phone's acceleration with its sign turned round
+(−a/g) in the plane of the page; the part out of that plane, which only stirs
+the sand; how fast the phone turns in its own plane (from the heading); and
+how fast it spins lying flat on a table (from the size of the rotation rate,
+which needs no axis order).
+
+Browsers disagree about these sensors: WebKit reports both acceleration
+vectors negated, and a few browsers report them in g rather than m/s². So
+nothing is taken on trust. While the phone is held still, the accelerometer
+is compared with `deviceorientation`, which every engine reports the same
+way; the units and the sign are learnt in about a third of a second, and the
+sign is remembered for the next visit.
+
+A small dead zone (0.06 g) keeps a resting hand from stirring the sand.
+Readings are taken one reading behind, so each 120 Hz physics step gets its
+own value. If they stop arriving everything fades to zero; they are ignored
+while the page is hidden, and after the page has been away, motion fades
+back in over about a second.
+
+Nothing breaks the glass by accident: it can only be damaged once a hard
+shake keeps its acceleration, averaged over a quarter of a second, above
+1.5 g for 0.6 s, which everyday motion never does. On iOS one permission
+covers motion and orientation together: both requests go out at once, inside
+the tap on the switch.
+
 ### `audio.js` — procedural sound
 
 Web Audio API only.
@@ -122,6 +310,23 @@ Web Audio API only.
    textures for dense flow.
 4. **Foley**: pour rush, flip thud and stereo sweep, and a singing-bowl bloom at
    the end (optional).
+5. **The glass in the hand**: shaking is heard as it happens in the physics.
+   Each time a bed lifts and lands there is a soft low thump with a little
+   grain in it, and the vessel answers; sand slamming the far end clacks,
+   glassier; while the sand is agitated the grain textures rise into a soft
+   shaker shimmer, and the sliding rush moves between the ears with the
+   slosh. A finger stopping a spinning glass makes a soft felt stop. Before a
+   crack the glass creaks: up to four tiny high ticks, like a cooling glass.
+   The crack itself is a bright snap, the whole vessel ringing, a faint knock
+   and a few settling ticks, about 15 dB under the completion bowl; a growing
+   crack clicks like ice settling, and a chip opening tinks and rattles.
+   Afterwards the vessel's resonances ring 3 % lower and die away sooner, as
+   a cracked glass does; mended with gold they are nearly whole again. Grains
+   escaping through a chip patter at the leak's rate, finer and higher,
+   panned to the chip, and grains landing on the desk are very quiet and dry.
+   While a finger holds a cracked glass still, the glass hums under it, and a
+   small bell an octave above the bowl marks the mend. Each of these sounds
+   plays only for something physical and limits its own rate.
 
 Output passes through a generated 0.35 s room impulse response, a compressor and
 a soft clipper.
@@ -160,20 +365,27 @@ main-thread time (each a few to a few tens of milliseconds, so the sand keeps
 falling smoothly): the saved one while the page settles after loading, another
 the first time it is chosen.
 
-Levels and spectra were set by offline rendering and measurement (about
-−25 dBFS RMS with grain peaks near −9 dBFS at the default volume; the brook
-and rain sit near −26 and −28 dBFS at their default level). The three newer
-characters and the ambiences have not been tuned by ear (the brook was matched
-to measurements, not by listening), so treat the tables at the top of
-`audio.js` (`CHARACTERS`, the `MODES_*` sets, `WATER`, `AMBIENCES`) as a
-starting point.
+Levels and spectra were set by offline rendering and measurement through the
+real output chain (about −25 dBFS RMS with grain peaks near −9 dBFS at the
+default volume; the brook and rain sit near −26 and −28 dBFS at their default
+level). The three newer characters and the ambiences have not been tuned by
+ear (the brook was matched to measurements, not by listening), and the sounds
+of the glass in the hand were levelled with the default character only, so
+treat the tables at the top of `audio.js` (`CHARACTERS`, the `MODES_*` sets,
+`WATER`, `AMBIENCES`, `LEVEL`) as a starting point.
 
 ### `app.js`, `index.html`, `styles.css`
 
 Timer state, controls, Zen HUD, settings and the running session (stored in
-`localStorage`), motion permission, screen wake lock, and service-worker
-registration. The clock uses `Date.now()` so it keeps counting while a phone
-sleeps.
+`localStorage`, with the glass's damage), the glass as a body (springs for the
+finger, home and the detent, a coasting spin that conserves angular momentum
+as the sand moves, and a catch that stops the glass where the finger meets
+it), the felt field composed for every physics step, re-timing, the Real
+motion permission, screen wake lock, a frame-time governor that lightens the
+physics on slow phones, and service-worker registration. The clock uses
+`Date.now()` so it keeps counting while a phone sleeps. A hidden
+`?debug=motion` overlay shows the sensors and the sand's state, and `&rec=N`
+records N seconds of raw sensor events to a file, for tuning on a device.
 
 ### `sw.js`, `manifest.json`
 
@@ -205,6 +417,54 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000/`.
 
+## Tests
+
+Development-only tests live in `tools/test` and are not part of the app (the
+service worker does not cache them). They need Node 22 and a global
+Playwright with Chromium; the repository has no `package.json`.
+
+```bash
+node tools/test/sim-identity.test.js           # the simulation, in Node
+node tools/test/app-gestures.test.js           # the app, in an iPhone 12 Chromium
+node tools/test/e2e-timer.test.js              # integration scenarios E4 and E5
+```
+
+- `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
+  the version before motion (f446085, read from git) and checks that, with
+  nothing moving, every grain lands exactly as before. The others cover
+  cracks, leaks, mending and saving (`p0`), conservation, sanity, flight,
+  fracture, leak, flip, persistence, determinism, the valve, the clock and
+  performance.
+- `render-*`: the crack paths, their redraw and the spilled sand's physics in
+  Node; cracks, their glint, kintsugi and the spill in the real app; and,
+  with no cracks, the picture against f446085, pixel for pixel.
+- `motion-*` and `audio-*`: the sensor pipeline (against a model of a phone
+  being shaken, in each browser's sign convention) and its permission, and
+  the sound engine's calls and levels.
+- `app-*`: the app's own acceptance tests (permission, gestures, motion,
+  re-timing, session, the existing flow), with stand-ins for any module that
+  is missing.
+- `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
+  motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
+  permission (E12) and performance (E13).
+
+Each prints one line per check and exits non-zero on a failure. The browser
+tests serve the app themselves: `app-*` and `e2e-*` take `--port <n>` (default
+8804) and `--root <dir>` to test another checkout, the `render-*`, `audio-*`
+and `motion-permission` tests take the port as their first argument, and all
+of them read `PORT`. Shared helpers live in `tools/test/lib`: the app's clock,
+the hand and phone motion profiles with a device-event synthesiser for both
+accelerometer sign conventions, and a zero-dependency static server
+(`node tools/test/lib/static-server.js <port> [root]`).
+
+Without a GPU, Chromium shades the WebGL glass in software and every frame of
+a turn takes most of a second, so the app and integration tests use the
+app's own 2-D glass unless given `--webgl`. For the same reason the frame-time
+budgets are best judged on a device: there the canvases are handed to the
+GPU to composite, while here the main thread copies them in software and
+another thread composites them. `e2e-perf` with `--trace` notes how each
+stretch was spent, telling the app's own work from that.
+
 ## Icons
 
 `icons/` holds the SVG source and the PNG sizes the manifest and iOS need.
@@ -216,13 +476,17 @@ template; it is not part of the installed app.
 - iOS Safari only starts audio from a user gesture. The app creates and resumes
   the audio context on the first touch, and resumes it again after an
   interruption (call, lock screen, tab switch).
-- Real gravity needs motion permission on iOS 13+; the switch asks for it.
+- Real motion needs motion permission on iOS 13+; the switch asks for it, once
+  for both sensors. If the browser asks again after a reload, the switch stays
+  on and the next tap on the screen asks (where the site was already allowed,
+  that answer comes back without a prompt).
 - Keep screen awake needs the Screen Wake Lock API: Safari 16.4+ on iOS, and
   iOS 18.4+ when installed to the home screen.
 - A web app cannot hide the iPhone status bar or silence notifications. On
   Android the installed app runs full screen; in desktop and Android browsers
   the moon icon enters full screen.
-- Haptics use `navigator.vibrate`, which iOS does not provide.
+- Haptics use `navigator.vibrate`, which iOS does not provide (iOS has no web
+  haptics).
 - The completion sound can only play in a hidden tab if the browser keeps the
   page's audio running; on a locked phone it generally will not.
 
