@@ -893,6 +893,7 @@
     sim.relCap = motionRecent ?T.rate * DT * (3 + 20 * Math.max(0, 1 - (T.rem - T.tailMs) / 5000)) : 0;
     // only sustained, very hard real shaking can crack the glass
     sim.damageArmed = grav.on && motion.armed && !reduceMotion;
+    sim.spinArmed = !reduceMotion && (rot === 'free' || rot === 'held' || rot === 'detent');   // spun by hand
     sim.reduced = reduceMotion;
     // the rotational terms at the glass's true size on screen
     lamNow = renderer.scale * zoomK() * kfNow * MM_PER_PX * 1e-3 * sim.G / 9.81;
@@ -1327,33 +1328,41 @@
   function buzz(pattern) {
     if (!settings.haptics) return;
     if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) {} return; }
-    iosTick();
+    // iOS taps only from inside the end of a touch or a click; a tap wanted
+    // while the finger was down (a catch, a half turn) plays as it lifts.
+    if (performance.now() < gestureUntil) iosTick(); else tickWanted = performance.now();
   }
+  var gestureUntil = 0, tickWanted = 0;
+  ['touchend', 'pointerup', 'click'].forEach(function (t) {
+    window.addEventListener(t, function () {
+      var now = performance.now();
+      gestureUntil = now + 60;
+      if (tickWanted && now - tickWanted < 1500) { tickWanted = 0; iosTick(); }
+    }, { capture: true, passive: true });
+  });
   /*
    * iPhones have no vibration API, but since iOS 18 a switch control taps the
    * Taptic Engine whenever it flips. A hidden one, flipped from inside a
    * touch, gives a light, real tap: on the catch, the flick, each half turn.
    * (It cannot fire from timers or sensors, so shaking stays silent here.)
    */
-  var hapticLabel = null, hapticAt = 0;
+  var hapticAt = 0;
   function iosTick() {
     var now = performance.now();
     if (now - hapticAt < 35) return;
     hapticAt = now;
     try {
-      if (!hapticLabel) {
-        var input = document.createElement('input');
-        input.type = 'checkbox'; input.setAttribute('switch', ''); input.id = 'haptic-switch'; input.tabIndex = -1;
-        hapticLabel = document.createElement('label');
-        hapticLabel.htmlFor = 'haptic-switch';
-        hapticLabel.setAttribute('aria-hidden', 'true');
-        hapticLabel.style.cssText = 'position:fixed;left:-99px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none';
-        hapticLabel.appendChild(input);
-        document.body.appendChild(hapticLabel);
-      }
-      hapticLabel.click();
+      var label = document.createElement('label'), input = document.createElement('input');
+      label.setAttribute('aria-hidden', 'true');
+      label.style.display = 'none';
+      input.type = 'checkbox'; input.setAttribute('switch', '');
+      label.appendChild(input);
+      document.head.appendChild(label);
+      label.click();                     // the switch flips: iOS 18+ taps the Taptic Engine
+      document.head.removeChild(label);
     } catch (e) {}
   }
+
   var toastTimer = 0;
   function toast(msg, ms) {
     toastEl.textContent = msg;
