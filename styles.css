@@ -28,8 +28,10 @@
   --sar: env(safe-area-inset-right, 0px);
 
   --ease: cubic-bezier(0.22, 0.8, 0.24, 1);
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter",
-          "Segoe UI Variable", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+/* A soft system serif: New York on Apple devices, Noto Serif on Android,
+     Palatino / Cambria on Windows. Nothing is downloaded. */
+  --font: ui-serif, "New York", "Iowan Old Style", "Palatino Linotype", Palatino,
+          "Book Antiqua", "Noto Serif", Cambria, "Times New Roman", serif;
 }
 [data-theme="volcanic"] {
   --accent: #d9b061;
@@ -110,6 +112,8 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   transform-origin: 50% 50%;
   will-change: transform;
 }
+#assembly { transition: opacity 0.65s var(--ease); }
+#assembly.fade { opacity: 0; transition-duration: 0.36s; }
 #assembly canvas {
   position: absolute; left: 0; top: 0;
   display: block;
@@ -119,10 +123,15 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 #c-sand {
   /* each simulated grain is a 2×2 lit bead, scaled smoothly to the display */
   image-rendering: auto;
-  transition: opacity 0.16s linear;
+  transition: opacity 0.42s var(--ease);
 }
-#app.swap #c-sand { opacity: 0; }
-#c-light { transition: opacity 0.12s linear; }
+#c-bloom {
+  /* light scattered around the brightest grains, added over the sand */
+  mix-blend-mode: screen;
+  transition: opacity 0.42s var(--ease);
+}
+#app.swap #c-sand, #app.swap #c-bloom { opacity: 0; }
+#c-light { transition: opacity 0.3s linear; }
 #shadow {
   position: absolute; pointer-events: none;
   background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0.28) 45%, transparent 72%);
@@ -141,7 +150,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 #app.zen .hud { opacity: 0.12; }
 #app.zen.zen-full .hud { opacity: 0; }
 #app.zen .hud > * { pointer-events: none; }
-#app:not(.zen) .hud { transition-duration: 0.28s; }
+#app:not(.zen) .hud { transition-duration: 0.5s; }
 
 /* ---- top ---------------------------------------------------------- */
 #hud-top {
@@ -160,7 +169,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   background: var(--raise);
   box-shadow: inset 0 0 0 1px var(--hair);
   color: var(--ink-2);
-  font-size: 12px; letter-spacing: 0.09em; text-transform: uppercase; font-weight: 550;
+  font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 500;
   transition: background 0.2s, color 0.2s, transform 0.12s;
 }
 .chip:active { transform: scale(0.96); background: var(--raise-2); }
@@ -169,6 +178,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   background: radial-gradient(circle at 34% 30%, #fff8, transparent 46%), var(--accent);
   box-shadow: 0 0 10px rgba(var(--glow), 0.5);
 }
+.top-actions { display: flex; align-items: center; gap: 2px; }
 .icon-btn {
   width: 40px; height: 40px; border-radius: 50%;
   display: inline-grid; place-items: center;
@@ -187,10 +197,12 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 #btn-mute[aria-pressed="true"] { color: var(--ink-3); }
 
 #readout {
+  display: inline-block;
+  cursor: pointer;
   margin-top: 2px;
-  font-family: "SF Pro Display", var(--font);
-  font-weight: 200;
-  font-size: clamp(46px, 14.5vw, 82px);
+  font-family: var(--font);
+  font-weight: 400;
+  font-size: clamp(44px, 13.6vw, 78px);
   line-height: 1.02;
   letter-spacing: 0.015em;
   font-variant-numeric: tabular-nums lining-nums;
@@ -199,13 +211,14 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   text-shadow: 0 0 34px rgba(var(--glow), 0.20);
 }
 #t-frac {
-  font-size: 0.42em; font-weight: 300;
+  font-size: 0.42em; font-weight: 400;
+  display: inline-block; min-width: 1.15em; text-align: left;   /* tenths never nudge the minutes */
   color: var(--ink-3);
   margin-left: 0.04em;
 }
 #status {
   margin-top: 5px;
-  font-size: 11px; font-weight: 550;
+  font-size: 11.5px; font-weight: 500;
   letter-spacing: 0.2em; text-transform: uppercase;
   color: var(--ink-3);
   min-height: 14px;
@@ -232,12 +245,15 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
     0 18px 50px rgba(0, 0, 0, 0.55);
 }
 
+#duration-row { display: flex; align-items: flex-start; gap: 6px; }
+#duration-row .pill-custom { flex: none; margin-top: 2px; padding: 0 13px 0 11px; font-size: 14px; }
 #durations {
+  flex: 1 1 auto; min-width: 0;
   display: flex; gap: 6px;
   overflow-x: auto; overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
-  margin: 0 -4px;
+  margin: 0 0 0 -4px;
   padding: 2px 14px 9px;
   scroll-padding: 0 14px;
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
@@ -254,17 +270,17 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   background: var(--raise);
   box-shadow: inset 0 0 0 1px var(--hair);
   color: var(--ink-2);
-  font-size: 15px; font-weight: 500;
+  font-size: 15.5px; font-weight: 400;
   font-variant-numeric: tabular-nums;
   transition: background 0.22s var(--ease), color 0.22s, transform 0.12s, box-shadow 0.22s;
 }
 .pill i { font-style: normal; font-size: 11px; opacity: 0.6; margin-left: 1px; }
 .pill .ic { width: 16px; height: 16px; stroke-width: 1.7; }
 .pill:active { transform: scale(0.94); }
-.pill[aria-checked="true"] {
+.pill[aria-checked="true"], .pill[aria-pressed="true"] {
   background: var(--accent);
   color: var(--accent-ink);
-  font-weight: 650;
+  font-weight: 600;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -6px 10px rgba(0, 0, 0, 0.10);
 }
 .pill[aria-checked="true"] i { opacity: 0.75; }
@@ -279,7 +295,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   height: 58px; border-radius: 18px;
   display: grid; justify-items: center; align-content: center; gap: 4px;
   color: var(--ink-2);
-  font-size: 10.5px; font-weight: 550; letter-spacing: 0.1em; text-transform: uppercase;
+  font-size: 11px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase;
   transition: background 0.2s, color 0.2s, transform 0.12s var(--ease);
 }
 .act .ic { width: 23px; height: 23px; }
@@ -311,7 +327,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 #scrim {
   position: absolute; inset: 0; z-index: 8;
   background: rgba(4, 5, 6, 0.5);
-  opacity: 0; transition: opacity 0.3s var(--ease);
+  opacity: 0; transition: opacity 0.5s var(--ease);
 }
 #scrim.open { opacity: 1; }
 .sheet {
@@ -326,15 +342,15 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   backdrop-filter: blur(34px) saturate(170%);
   box-shadow: inset 0 0 0 1px var(--hair), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 -24px 70px rgba(0, 0, 0, 0.6);
   transform: translateY(104%);
-  transition: transform 0.42s var(--ease);
+  transition: transform 0.55s var(--ease);
 }
 .sheet.open { transform: none; }
 .grab { width: 38px; height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.18); margin: 2px auto 6px; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; }
-.sheet h2 { margin: 0 0 0 4px; font-size: 19px; font-weight: 600; letter-spacing: 0.01em; }
+.sheet h2 { margin: 0 0 0 4px; font-size: 21px; font-weight: 500; letter-spacing: 0.01em; }
 .sheet h3 {
   margin: 18px 4px 9px;
-  font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
+  font-size: 11.5px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--ink-3);
 }
 .sheet-body { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
@@ -350,8 +366,8 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   transition: background 0.2s, box-shadow 0.25s, transform 0.12s;
 }
 .card:active { transform: scale(0.97); }
-.card b { font-size: 13px; font-weight: 600; margin-top: 7px; }
-.card small { font-size: 11px; color: var(--ink-3); }
+.card b { font-size: 13.5px; font-weight: 500; margin-top: 7px; }
+.card small { font-size: 11.5px; color: var(--ink-3); }
 .card[aria-checked="true"] {
   background: var(--raise-2);
   box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 26px rgba(var(--glow), 0.14);
@@ -387,7 +403,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 }
 .segmented button {
   min-height: 44px; padding: 6px 4px; border-radius: 13px;
-  font-size: 12.5px; font-weight: 550; line-height: 1.15;
+  font-size: 13px; font-weight: 500; line-height: 1.15;
   color: var(--ink-2);
   transition: background 0.22s var(--ease), color 0.22s;
 }
@@ -429,9 +445,11 @@ input[type="range"]::-moz-range-thumb {
   min-height: 58px; padding: 9px 14px;
 }
 .row + .row { box-shadow: inset 0 1px 0 var(--hair); }
+.rows.rows-single { margin-top: 8px; }
+.rows.rows-single .row { min-height: 52px; }
 .row span { display: grid; gap: 2px; }
-.row b { font-size: 14.5px; font-weight: 550; }
-.row small { font-size: 12px; color: var(--ink-3); line-height: 1.25; }
+.row b { font-size: 15.5px; font-weight: 500; }
+.row small { font-size: 12.5px; color: var(--ink-3); line-height: 1.3; }
 .switch {
   -webkit-appearance: none; appearance: none; flex: none; margin: 0;
   width: 50px; height: 30px; border-radius: 30px;
@@ -447,7 +465,7 @@ input[type="range"]::-moz-range-thumb {
 }
 .switch:checked { background: var(--accent); }
 .switch:checked::after { transform: translateX(20px); }
-.colophon { margin: 16px 6px 2px; font-size: 12px; line-height: 1.45; color: var(--ink-3); text-align: center; }
+.colophon { margin: 16px 6px 2px; font-size: 12.5px; font-style: italic; line-height: 1.45; color: var(--ink-3); text-align: center; }
 
 /* ---- custom duration dial ---------------------------------------- */
 .dial {
@@ -456,8 +474,8 @@ input[type="range"]::-moz-range-thumb {
   margin: 8px 0 16px;
 }
 .dial-col { display: grid; justify-items: center; gap: 2px; z-index: 1; }
-.dial-sep { font-size: 34px; font-weight: 200; color: var(--ink-3); padding-bottom: 20px; }
-.unit { font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-3); }
+.dial-sep { font-size: 34px; font-weight: 400; color: var(--ink-3); padding-bottom: 20px; }
+.unit { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-3); }
 .step { width: 64px; height: 34px; border-radius: 12px; display: grid; place-items: center; color: var(--ink-3); transition: background 0.2s, color 0.2s, transform 0.12s; }
 .step:active { transform: scale(0.93); background: var(--raise); color: var(--ink); }
 .wheel {
@@ -476,7 +494,7 @@ input[type="range"]::-moz-range-thumb {
   height: var(--item); line-height: var(--item);
   scroll-snap-align: center;
   text-align: center;
-  font-size: 34px; font-weight: 250;
+  font-size: 34px; font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
@@ -491,12 +509,21 @@ input[type="range"]::-moz-range-thumb {
 .cta {
   width: 100%; height: 54px; border-radius: 18px;
   background: var(--accent); color: var(--accent-ink);
-  font-size: 16px; font-weight: 650; letter-spacing: 0.01em;
+  font-size: 17px; font-weight: 600; letter-spacing: 0.01em;
   font-variant-numeric: tabular-nums;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -8px 16px rgba(0, 0, 0, 0.10);
   transition: transform 0.12s var(--ease), filter 0.2s;
 }
 .cta:active { transform: scale(0.98); filter: brightness(0.94); }
+
+/* ---- veil: the picture dips to dark and returns when the screen turns */
+#veil {
+  position: absolute; inset: 0; z-index: 20;
+  background: var(--bg);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.9s var(--ease);
+}
+#veil.on { opacity: 1; transition: none; }
 
 /* ---- toast -------------------------------------------------------- */
 #toast {
@@ -508,7 +535,7 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(30, 31, 35, 0.9);
   -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
   box-shadow: inset 0 0 0 1px var(--hair), 0 10px 30px rgba(0, 0, 0, 0.5);
-  font-size: 13px; color: var(--ink); text-align: center;
+  font-size: 13.5px; color: var(--ink); text-align: center;
   opacity: 0; pointer-events: none;
   transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
 }
@@ -526,7 +553,7 @@ input[type="range"]::-moz-range-thumb {
   #status { display: none; }
 }
 @media (max-width: 350px) {
-  .act { font-size: 9.5px; letter-spacing: 0.06em; }
+  .act { font-size: 10px; letter-spacing: 0.06em; }
   .segmented button { font-size: 11.5px; }
 }
 /* landscape phones: readout to the left, controls stay reachable */

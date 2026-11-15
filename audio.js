@@ -557,6 +557,7 @@
    *    slides    surface-slide moves / s (avalanche & tumble activity)
    *    pouring   true while fresh sand is being added
    *    flipping  true while the vessel is turning
+   *    spin      how fast it is turning (rad/s)
    *    angle     current flip angle (rad)
    *    sim       the Sim (for this frame's impact events), or null
    *  }
@@ -636,11 +637,12 @@
     var rush = sl <= 24000 ? 0 : Math.min(1, Math.pow((sl - 24000) / 160000, 0.55));
     var panTo = 0;
     if (st.flipping) {
-      // the turn itself: swell and filter-sweep with the rotation, travelling
-      // across the stereo field as the sand crosses the glass
-      var turn = Math.sin(st.angle || 0);
-      rush = Math.max(rush, 0.22 + 0.62 * turn);
-      panTo = -Math.cos(st.angle || 0) * 0.7;
+      // the turn itself: the faster the hand, the louder the slide; it
+      // brightens as the glass passes level and leans toward the raised bulb
+      var turn = Math.abs(Math.sin(st.angle || 0));
+      var spin = Math.min(1, (st.spin || 0) / 3);
+      rush = Math.max(rush, Math.pow(spin, 0.8) * (0.3 + 0.55 * turn));
+      panTo = Math.sin(st.angle || 0) * 0.65;
     }
     this._set('rush', this.rEnv.gain, rush * 0.5, rush > (this._last.rush || 0) ? 0.06 : 0.22);
     if (rush > 0.01) {
@@ -718,6 +720,23 @@
     ng.gain.setTargetAtTime(0, when + 0.008, 0.028);
     n.connect(f); f.connect(ng); ng.connect(this.gFoley);
     n.start(when, rnd() * 2); n.stop(when + 0.35);
+  };
+
+  /** A fingertip on the glass: soft pad, a hint of nail, the vessel answers. */
+  HourglassAudio.prototype.tap = function () {
+    if (!this.ready || this.ctx.state !== 'running') return;
+    var ctx = this.ctx, t = ctx.currentTime + 0.004;
+    var n = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain(), ring = ctx.createGain();
+    n.buffer = this.brown;
+    f.type = 'bandpass'; f.frequency.value = 540; f.Q.value = 0.9;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.34, t + 0.003);
+    g.gain.setTargetAtTime(0, t + 0.006, 0.016);
+    ring.gain.value = 2.2;
+    n.connect(f); f.connect(g); g.connect(this.gFoley);
+    g.connect(ring); ring.connect(this.modalIn);         // sets the glass ringing for an instant
+    n.start(t, rnd() * 2); n.stop(t + 0.25);
+    this._tick(t + 0.001, true, 0.5, 0);
   };
 
   HourglassAudio.prototype.flipStart = function () {
