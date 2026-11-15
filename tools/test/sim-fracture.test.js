@@ -12,7 +12,9 @@
  *   lateralVV    crack in [4.5, 8] s
  *
  * Every crack is preceded by at least three creaks (WARN) with rising
- * levels; every hole sits at least gateGuard rows from the gate; and with
+ * levels; cracks come one at a time (a crack relieves the rest of the glass,
+ * so no two start within 2.5 s); every hole sits at least gateGuard rows
+ * from the gate; and with
  * damage disarmed, or with Reduce Motion, no profile ever damages the
  * glass at all. The census holds throughout.
  *
@@ -32,8 +34,10 @@ function job(j) {
   var o = { armed: j.armed !== false, reduced: !!j.reduced };
   if (j.crack) o.stopAfterBreach = 4.5;
   var r = H.drive(run, j.name, o);
+  var CRACK_EV = H.P.Sim.DMG.CRACK, cracksAt = [];
+  r.events.forEach(function (e) { if (e[1] === CRACK_EV) cracksAt.push(e[0]); });
   return {
-    crackT: r.crackT, breachT: r.breachT, dMax: r.dMax, site: H.segName(r.dMaxSeg), segDmax: r.segDmax,
+    crackT: r.crackT, breachT: r.breachT, dMax: r.dMax, site: H.segName(r.dMaxSeg), segDmax: r.segDmax, cracksAt: cracksAt,
     warns: r.warnsBeforeCrack, levels: r.warnLevelsBeforeCrack, holesNearGate: r.holesNearGate,
     census: r.censusErr, conserve: r.conserveErr, over: r.overRelease, cracks: r.cracksNow, lost: r.lost
   };
@@ -75,6 +79,7 @@ if (H.isWorker) {
         (bad ? '; ' + bad + ' runs failed (crack, dMax ≥ 0.4, census or valve)' : ''));
     });
     // crack windows
+    var gapMin = Infinity, multi = 0, nCracks = 0, crowded = [];
     Object.keys(CRACK).forEach(function (name) {
       var w = CRACK[name], times = [], breaches = [], bad = [], n = 0;
       jobs.forEach(function (j, i) {
@@ -82,6 +87,14 @@ if (H.isWorker) {
         var r = res[i], tag = 'seed ' + j.seed + ' ' + H.fillName(H.FILLS[j.fill]);
         n++;
         times.push(r.crackT);
+        // one crack at a time: each relieves the rest of the glass for 2.5 s
+        nCracks += r.cracksAt.length;
+        if (r.cracksAt.length > 1) multi++;
+        for (var c = 1; c < r.cracksAt.length; c++) {
+          var gap = r.cracksAt[c] - r.cracksAt[c - 1];
+          if (gap < gapMin) gapMin = gap;
+          if (gap < 2.5 - 1e-6) crowded.push(name + ' ' + tag + ': cracks at ' + r.cracksAt.join(', ') + ' s');
+        }
         if (r.crackT < w[0] || r.crackT > w[1]) bad.push(tag + ': crack at ' + r.crackT.toFixed(2) + ' s');
         if (w[2] > 0) {
           breaches.push(r.breachT - r.crackT);
@@ -98,6 +111,9 @@ if (H.isWorker) {
         (breaches.length ? ', breach ' + Math.min.apply(null, breaches).toFixed(2) + '–' + Math.max.apply(null, breaches).toFixed(2) + ' s later' : '') +
         ', ≥ 3 rising creaks first' + (bad.length ? '; ' + bad.slice(0, 4).join('; ') : ''));
     });
+    report(crowded.length === 0 && multi > 0, 'one crack at a time: at most one CRACK per 2.5 s in every cracking run; ' + nCracks +
+      ' cracks, ' + multi + ' runs with more than one, closest pair ' + (gapMin < Infinity ? gapMin.toFixed(2) + ' s apart' : '-') +
+      (crowded.length ? '; ' + crowded.slice(0, 3).join('; ') : ''));
     // disarmed / reduced
     ['disarmed', 'reduced'].forEach(function (kind) {
       var bad = [];

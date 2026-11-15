@@ -12,6 +12,8 @@
  * app uses (the felt acceleration of the phone, dead-zoned, clamped and
  * scaled to cells/s², straight into sim.setMotion), with the clock, the
  * valve settings and relCap as app.js sets them, and records every event.
+ * Turner turns the glass as app.js does: the Flip button, a flick and a
+ * free spin, with the rotation rate and α the sand feels from them.
  *
  * pool() runs jobs in parallel child processes for the long suites.
  */
@@ -211,6 +213,120 @@ function drive(run, name, opts) {
   return rec;
 }
 
+/*
+ * The glass turned the way app.js turns it, one physics step at a time: the
+ * Flip button's unhurried half turn (2.6 s, cubic ease in and out), and a
+ * flick into a free spin (a quick hand ramp, then coasting with drag, dry
+ * friction and the skater effect from sim.inertiaZ(), and the detent that
+ * sets it down on an end). As in stepBody and composeField, the rotation
+ * rate comes from the steps themselves, α is smoothed over 40 ms and
+ * clamped, every pass through ±π is a completeFlip (swapEnds), and the sim
+ * is told sim.flipping while the glass turns.
+ *
+ *   var tn = new H.Turner(sim, 0.08);
+ *   tn.flip();                          // or tn.flick(16, 0.25)
+ *   while (tn.busy()) { tn.step(); sim.step(); }
+ *
+ * tn.swaps counts half turns; tn.swapped is true on a step that had one.
+ */
+var BODY = { tau: 1.6, mu: 1.5, wFree: 2.2, wMax: 16, dw: 7, dz: 0.9 };   // app.js BODY
+var ALPHA_K = 1 - Math.exp(-DT / 0.04);
+
+function Turner(sim, lam) {
+  this.sim = sim;
+  this.lam = lam === undefined ? LAM : lam;
+  this.mode = 'none';              // none | script | ramp | free | detent
+  this.w = 0; this.wPrev = 0; this.alLP = 0;
+  this.prog = 0; this.dur = 2600;
+  this.t = 0; this.rampW = 0; this.rampT = 0;
+  this.I0 = 0; this.td = 0;
+  this.swaps = 0; this.swapped = false;
+}
+Turner.prototype._begin = function (mode) {
+  this.mode = mode;
+  this.sim.flipping = true;
+  this.sim.wakeAll();
+};
+/** The Flip button. */
+Turner.prototype.flip = function () { this._begin('script'); this.prog = 0; this.w = 0; };
+/** A flick: the hand takes the glass from rest to w rad/s in `secs`, then lets go. */
+Turner.prototype.flick = function (w, secs) {
+  this._begin('ramp'); this.t = 0; this.rampW = w; this.rampT = secs || 0.25;
+};
+Turner.prototype.busy = function () { return this.mode !== 'none'; };
+/** app.js inertia(): the glass's own moment of inertia plus its sand's. */
+Turner.prototype.inertia = function () {
+  var r = 0.55 * this.sim.geo.HB;
+  return 0.6 * this.sim.capacity * r * r + this.sim.inertiaZ();
+};
+Turner.prototype._swap = function () {
+  this.sim.completeFlip();
+  this.sim.flipping = true;
+  this.swaps++; this.swapped = true;
+};
+Turner.prototype._end = function () {
+  var sim = this.sim;
+  sim.flipping = false; sim.angle = 0;
+  sim.wakeAll();
+  this.mode = 'none'; this.w = 0;
+};
+/** One body step (stepBody's turn), then the field for the coming sim step (composeField). */
+Turner.prototype.step = function (ax, ay, gz) {
+  var sim = this.sim, th = sim.angle, prev = th, w = this.w, a, m = this.mode;
+  this.swapped = false;
+  if (m === 'script') {
+    this.prog += DT * 1000 / this.dur;
+    if (this.prog >= 1) { this._swap(); this._end(); }
+    else {
+      var p = this.prog, e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+      th = Math.PI * e;
+      w = (th - prev) / DT;
+    }
+  } else if (m === 'ramp') {
+    this.t += DT;
+    w = this.rampW * Math.min(1, this.t / this.rampT);
+    th += w * DT;
+    if (this.t >= this.rampT) { this.mode = 'free'; this.I0 = this.inertia(); }
+  } else if (m === 'free') {
+    w += (-w / BODY.tau - (w > 0 ? BODY.mu : -BODY.mu)) * DT;
+    if (w > BODY.wMax) w = BODY.wMax; else if (w < -BODY.wMax) w = -BODY.wMax;
+    var I = this.inertia();
+    if (this.I0 > 0 && I > 0) w *= this.I0 / I;
+    this.I0 = I;
+    th += w * DT;
+  } else if (m === 'detent') {
+    a = BODY.dw * BODY.dw * (this.td - th) - 2 * BODY.dz * BODY.dw * w;
+    w += a * DT;
+    th += w * DT;
+  }
+  if (this.mode === 'ramp' || this.mode === 'free') {
+    if (th > Math.PI) { this._swap(); th -= Math.PI; }
+    else if (th < -Math.PI) { this._swap(); th += Math.PI; }
+  }
+  if (this.mode !== 'none') {
+    sim.angle = th; this.w = w;
+    if (this.mode === 'free' && w < BODY.wFree && w > -BODY.wFree) {
+      // app.js enterDetent(): the end the exact coasting distance leads to
+      var aw = w < 0 ? -w : w, mt = BODY.mu * BODY.tau;
+      var d = BODY.tau * aw - mt * BODY.tau * Math.log(1 + aw / mt);
+      var k = Math.round((th + (w < 0 ? -d : d)) / Math.PI);
+      this.td = (k > 1 ? 1 : (k < -1 ? -1 : k)) * Math.PI;
+      this.mode = 'detent';
+    } else if (this.mode === 'detent') {
+      var dd = th - this.td;
+      if (dd < 0.002 && dd > -0.002 && w < 0.05 && w > -0.05) {
+        if (this.td > 1 || this.td < -1) this._swap();
+        this._end();
+      }
+    }
+  }
+  var wv = this.w;
+  this.alLP += ((wv - this.wPrev) / DT - this.alLP) * ALPHA_K;
+  this.wPrev = wv;
+  var al = this.alLP > 300 ? 300 : (this.alLP < -300 ? -300 : this.alLP);
+  sim.setMotion(ax || 0, ay || 0, wv, al, this.lam, gz || 0);
+};
+
 /** Percentile p (0…1) of a numeric array (sorted copy). */
 function pct(a, p) {
   if (!a.length) return 0;
@@ -281,6 +397,7 @@ module.exports = {
   glassAt: glassAt,
   felt: felt,
   drive: drive,
+  Turner: Turner,
   pct: pct,
   mean: mean,
   segName: segName,
