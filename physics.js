@@ -92,6 +92,49 @@
    *  Simulation
    * ==================================================================== */
 
+  // Damage is kept per stretch of glass: 2 bulbs × 2 sides × WALL_BINS bins
+  // of u (0 at the neck, 1 at the far end of the bulb).
+  var WALL_BINS = 40;
+  var WALL_SEGS = 4 * WALL_BINS;
+  var ESC_RING = 256;            // escaped grains kept until the app drains them
+  var DMG_RING = 8;              // damage events kept per frame
+
+  /** A number, or 0 for NaN and ±Infinity. */
+  function finiteOr0(v) {
+    v = +v;
+    return v - v === 0 ? v : 0;
+  }
+  /** A whole number that can index the lattice. */
+  function isIndex(v) {
+    return typeof v === 'number' && v >= 0 && v <= 4294967295 && v === Math.floor(v);
+  }
+  /** Scramble a 32-bit seed (murmur3 finaliser) so nearby seeds share nothing. */
+  function glassHash(h) {
+    h |= 0;
+    h ^= h >>> 16; h = Math.imul(h, 0x85EBCA6B);
+    h ^= h >>> 13; h = Math.imul(h, 0xC2B2AE35);
+    h ^= h >>> 16;
+    return h;
+  }
+  /**
+   * Turning the glass end over end maps a wall segment of block
+   * q = bulb·2 + side (0 left, 1 right) to block 3 − q, at the same u.
+   */
+  function flipSegIndex(s) {
+    return (3 - ((s / WALL_BINS) | 0)) * WALL_BINS + (s % WALL_BINS);
+  }
+  function flipSegArray(a) {
+    for (var s = 0; s < 2 * WALL_BINS; s++) {
+      var t = flipSegIndex(s), v = a[s];
+      a[s] = a[t]; a[t] = v;
+    }
+  }
+  /** A per-bulb pair of vectors [x0, y0, x1, y1] after the same flip. */
+  function flipBulbPair(v) {
+    var x0 = v[0], y0 = v[1];
+    v[0] = -v[2]; v[1] = -v[3]; v[2] = -x0; v[3] = -y0;
+  }
+
   function Sim(opts) {
     opts = opts || {};
     var g = this.geo = makeGeometry(opts.scale || 1);
@@ -125,7 +168,17 @@
     this.evK = new Uint8Array(EV_CAP);     // bit0: sand(1)/glass(0), bit1: upper bulb
     this.nev = 0;
     this.frame = {
-      released: 0, impGlass: 0, impSand: 0, impTop: 0, moved: 0, slides: 0
+      released: 0, impGlass: 0, impSand: 0, impTop: 0, moved: 0, slides: 0,
+      // what motion and damage did this frame, for the sound and the picture
+      thump: new Float32Array(4),        // bed landings [E0, x0, E1, x1]
+      slam: new Float32Array(2),         // beds slammed into the far end [E, x]
+      leaked: 0, leakX: 0,               // grains that left the glass; where (−1 … +1)
+      sprayed: 0, hops: 0,
+      dmgN: 0,                           // damage events (Sim.DMG) this frame
+      dmgType: new Uint8Array(DMG_RING),
+      dmgK: new Int8Array(DMG_RING),     // crack index, −1 for WARN
+      dmgLevel: new Uint8Array(DMG_RING),
+      dmgX: new Float32Array(DMG_RING)   // −1 … +1 across the glass
     };
 
     // tunables -----------------------------------------------------------
@@ -163,11 +216,75 @@
     this.rng = (opts.seed | 0) || 0x2F6E2B1;
 
     this._buildVessel();
+    this._initMotion();
     this.reset(opts.grains || this.defaultGrains);
   }
 
   Sim.STEP_HZ = STEP_HZ;
   Sim.DT = DT;
+
+  /**
+   * Motion and glass tunables. Every inertial effect enters at the g-ratio it
+   * would have on a real glass of the size it appears on screen, so most of
+   * these thresholds are real ones: the bed lifts at 1 g, sand pins to the
+   * far end once ω²r passes g. Change values in place; the object is shared.
+   */
+  var MOT = Sim.MOTION = {
+    // the felt field, its slow mean, and how hot (agitated) the sand runs
+    tauSlow: 0.35,       // s: slow mean of each bulb's field
+    tauT: 0.25,          // s: granular temperature follows its drive
+    gzK: 1.0,            // heat per g of out-of-plane shaking
+    maxSweeps: 3,        // CA sweeps per bulb per step (2 at quality 1, 1 at 0)
+    sweepT: 0.75,        // extra sweeps per unit of temperature (up to T = 2)
+    weightless: 0.15,    // × G: below this the sand floats with the glass
+    neckPress: 0.25,     // × G: the neck flows only while pressed this hard
+    cenEvery: 8,         // steps between refreshes of the bed centroids
+    // the idle path (bit-identical to the sim before motion) holds while all hold
+    idleA: 0.01,         // × G
+    idleW: 0.15,         // rad/s
+    idleAl: 2,           // rad/s²
+    idleGz: 0.02,        // g
+    idleT: 0.02,
+    // shaken sand loses its friction (lerped between fricS0 and fricS1 of T)
+    fricS0: 0.15, fricS1: 0.85,
+    pCreepMax: 236, pSlideMax: 250, pWakeMax: 230, pDiagMax: 240,
+    // the bed flies as one body (a completely inelastic bouncing bed)
+    liftTh: 0.04,        // × G: lift-off margin, so a bed at 1 g does not chatter
+    muW: 0.40,           // sand on glass, while pressed sideways
+    // spray, hops and airborne grains
+    sprayV: 150, pSpray: 0.35, hopT: 0.45, hopMax: 4, softCap: 4096, vMax: 1400,
+    // the glass: stress corrosion with a fatigue limit, Weibull flaws
+    nSeg: WALL_BINS,     // wall segments per bulb and side (bins of u; read-only)
+    weibull: 20,         // Weibull modulus of the flaw strengths (median 1)
+    n: 16,               // stress-corrosion exponent of soda-lime glass
+    vc: 20,              // landing speed v/√(G·cell) of the reference stress
+    xTh: 0.78,           // fatigue limit K_th/K_IC: below it a crack never grows
+    A: 0.40,             // damage per reference column landing
+    hRef: 40,            // grains in a reference column (h = min(2, n/hRef))
+    capCol: 0.5,         // the most one column landing can supply
+    Pmax: 0.15,          // the most one blow can ever do
+    gamTh: 4.6, gamC: 6, nB: 16, tauB: 0.5, capB: 0.02, bendBins: 3,   // the waist bends
+    rMax: 0.30,          // 1/s: fastest sub-critical growth (bounded crack velocity)
+    tauP: 0.6,           // s: an unabsorbed blow fades
+    tauHeal: 8,          // s: micro-damage arrests while no crack is visible
+    warn: [0.35, 0.60, 0.80, 0.92],   // creak levels 1–4, crossing upward
+    warnRearm: 0.15,     // a level re-arms this far below its threshold
+    maxCracks: 3,        // per glass
+    gateGuard: 4,        // cracks and holes stay at least this many rows from the gate
+    L0: 4, growK: 22, growL: 30, growStep: 6, Lmax: 140,   // crack length, cells
+    Lhole: 26, widen: 0.8, wMax: 3,   // breached at L > 26, wider at 26·(1 + 0.8·w)
+    sealS: 1.5,          // a mended seam is half as strong again
+    // the leak: 2-D Beverloo flow with jamming
+    leakP0: 0.35, leakPmax: 1.35,     // pressure through the breach
+    Q0: 3.0, leakJam: 1.2,            // grains/s at rest: Q0·max(0, w − 1.2)^1.5
+    leakT: 12,           // grains/s per cell of breach while shaken (T = 1)
+    leakCap: 3,          // credit cap, grains
+    escV: 40, escVr: 30, escTan: 10,  // escape speed: 40 + 30·U out, N(0, 10) along, cells/s
+    leakLinger: 120      // steps a leak keeps the sim awake
+  };
+
+  /** Damage events, as sim.frame.dmgType. */
+  Sim.DMG = { WARN: 1, CRACK: 2, GROW: 3, BREACH: 4, WIDEN: 5, SEAL: 6 };
 
   /* ---------------------------------------------------------------- *
    *  Vessel rasterisation
@@ -229,6 +346,133 @@
   };
 
   /* ---------------------------------------------------------------- *
+   *  Motion and damage state. Everything is allocated here, once, so a
+   *  step never allocates (garbage-collector pauses cost whole frames).
+   * ---------------------------------------------------------------- */
+  Sim.prototype._initMotion = function () {
+    var g = this.geo, W = this.W, H = this.H, N = W * H, cell = this.cell;
+    var gate = this.gateY, x, y, i, b, k, s;
+
+    // Inputs from the app (setMotion), vessel frame, + = clockwise on screen.
+    this.mAx = 0; this.mAy = 0;          // felt acceleration without gravity, cells/s²
+    this.mW = 0; this.mAl = 0;           // rotation rate (rad/s) and its change (rad/s²)
+    this.mLam = 0;                       // true-size scale of the rotational terms
+    this.mGz = 0;                        // out-of-plane shaking, g
+    this.damageArmed = false;            // only sustained real phone motion arms damage
+    this.relCap = 0;                     // most grains the neck may release per step (0: no cap)
+    this.reduced = false;                // Reduce Motion: gentler physics, a glass that cannot crack
+    this.quality = 2;                    // 2 full, 1 lighter, 0 lightest (set by the app)
+
+    // Each bulb's bed: the field it feels, its slow mean, centroid and heat.
+    this.bf = new Float32Array(4);       // [f0x, f0y, f1x, f1y], cells/s²
+    this.bfSlow = new Float32Array(4);
+    this.cen = new Float32Array(4);      // bed centroids, cells from the glass centre
+    this.agit = new Float32Array(2);     // granular temperature T_b
+    this.sweepAcc = new Float32Array(2); // fractional CA sweeps carried over
+
+    // The bed in flight: one slug per bulb; columns ride it until they meet glass.
+    this.slug = [
+      { air: false, U: 0, Z: 0, kZ: 0, seat: 1 },
+      { air: false, U: 0, Z: 0, kZ: 0, seat: 1 }
+    ];
+    this.nAir = [0, 0];
+    this.colLo = [new Int16Array(W), new Int16Array(W)];   // each column's span in each bulb
+    this.colHi = [new Int16Array(W), new Int16Array(W)];
+    this.cdOff = [new Int16Array(W), new Int16Array(W)];   // cells moved off the seat
+    this.cair = [new Uint8Array(W), new Uint8Array(W)];    // riding the slug
+    this.cpin = [new Uint8Array(W), new Uint8Array(W)];    // pressed to the far glass
+    for (b = 0; b < 2; b++) {
+      var y0 = b ? gate + 1 : 1, y1 = b ? H - 2 : gate - 1;
+      for (x = 0; x < W; x++) {
+        var lo = 32767, hi = -1;
+        for (y = y0; y <= y1; y++) {
+          if (this.rowMin[y] <= x && x <= this.rowMax[y]) { if (y < lo) lo = y; hi = y; }
+        }
+        this.colLo[b][x] = lo; this.colHi[b][x] = hi;
+      }
+    }
+
+    this._motionStep = false;            // the last step took the motion path
+    this._iz = 0; this._izAt = -1;       // cached moment of inertia (inertiaZ)
+    this.neckGuards = 0;                 // _freeNear answers refused across the neck (diagnostic)
+
+    // Escaped grains, for the spill outside the glass. The app drains the
+    // ring every frame and sets escN = 0.
+    this.escN = 0;
+    this.escX = new Float32Array(ESC_RING);    // lattice cells
+    this.escY = new Float32Array(ESC_RING);
+    this.escVX = new Float32Array(ESC_RING);   // cells/s, vessel frame
+    this.escVY = new Float32Array(ESC_RING);
+    this.escS = new Uint8Array(ESC_RING);      // colour seed
+    this.lost = 0;                       // grains that left the glass since reset
+    this.leakedTop = 0; this.leakedBottom = 0;
+    this._leakStep = -1e9;               // step of the last escape
+    this._leakLive = false;              // a breach is still passing sand
+
+    // The glass. Every wall cell that touches the inside belongs to a
+    // segment: (bulb·2 + side)·WALL_BINS + bin of u. The gate row is split
+    // by side, and the centre column goes right in the upper bulb and left
+    // in the lower one, so the map is point-symmetric just as the vessel is:
+    // cell N − 1 − i lies in block 3 − q of cell i's block q, and a flip
+    // leaves the map itself unchanged. (The one cell in the middle of the
+    // gate maps onto itself; no crack ever starts within gateGuard rows.)
+    var segOf = this.segOf = new Int16Array(N);
+    segOf.fill(-1);
+    for (y = 1; y < H - 1; y++) {
+      var dy = y + 0.5 - g.cy, bin = ((dy < 0 ? -dy : dy) / g.HB * WALL_BINS) | 0;
+      if (bin > WALL_BINS - 1) bin = WALL_BINS - 1;
+      for (x = 1; x < W - 1; x++) {
+        i = y * W + x;
+        if (cell[i] !== WALL) continue;
+        var touch = false;
+        for (k = 0; k < 8 && !touch; k++) if (cell[i + DX[k] + DY[k] * W] !== WALL) touch = true;
+        if (!touch) continue;
+        var xc = x + 0.5 - g.cx;
+        b = y < gate ? 0 : (y > gate ? 1 : (xc <= 0 ? 0 : 1));
+        var right = xc > 0 ? 1 : (xc < 0 ? 0 : (b === 0 ? 1 : 0));
+        segOf[i] = (b * 2 + right) * WALL_BINS + bin;
+      }
+    }
+    this.segD = new Float32Array(WALL_SEGS);   // damage; a crack starts at 1
+    this.segP = new Float32Array(WALL_SEGS);   // pending load, absorbed at a bounded rate
+    this.segS = new Float32Array(WALL_SEGS);   // strength of this glass's flaws
+    this.segKt = new Float32Array(WALL_SEGS);  // stress concentration of the shape
+    this.segCrack = new Int8Array(WALL_SEGS);  // index of the segment's crack, −1 none
+    for (s = 0; s < WALL_SEGS; s++) {
+      // Stress gathers at the blown shoulder by the waist and at the dome under the cap.
+      var u = ((s % WALL_BINS) + 0.5) / WALL_BINS, a = (u - 0.05) / 0.06, c = (1 - u) / 0.08;
+      this.segKt[s] = 1 + 0.10 * Math.exp(-a * a) + 0.05 * Math.exp(-c * c);
+    }
+    this.glassSeed = 0;                  // the flaws are drawn from this (see _drawFlaws)
+    this.glassFlip = 0;                  // odd number of flips since they were drawn
+    this.cracks = [];
+    this.crackRev = 0;                   // changes whenever a crack appears, grows or moves
+    this.dMax = 0;                       // worst damage on an uncracked segment
+    this.warnSeg = -1;                   // ... and where it is
+    this.warnLatch = new Uint8Array(4);  // creak levels already sounded
+    this.nOpen = 0;                      // unsealed cracks with a breach
+    this._crackId = 0;
+    this._holeBuf = new Uint8Array(N);   // holeMap's storage: a breach never allocates
+    this.holeMap = null;                 // Uint8Array(N) from the first breach until reset
+  };
+
+  /**
+   * This glass's flaws: one Weibull strength per segment (modulus 20, median
+   * 1), from a private xorshift seeded by glassSeed, so the same glass can be
+   * rebuilt from its seed and the sand's own random stream is never touched.
+   */
+  Sim.prototype._drawFlaws = function () {
+    var S = this.segS, s = glassHash(this.glassSeed) || 0x6D2B79F5, m = 1 / MOT.weibull;
+    for (var k = 0; k < WALL_SEGS; k++) {
+      s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+      var U = (s >>> 0) / 4294967296;
+      if (U < 1e-9) U = 1e-9;
+      S[k] = Math.pow(-Math.log(U) / Math.LN2, m);
+    }
+    if (this.glassFlip) flipSegArray(S);
+  };
+
+  /* ---------------------------------------------------------------- *
    *  Random helpers (xorshift32)
    * ---------------------------------------------------------------- */
   Sim.prototype._rand = function () {
@@ -279,6 +523,45 @@
     this.flipping = false;
     this.quiet = 0;
     this.nev = 0;
+    this._newGlass();
+  };
+
+  /**
+   * A new glass: the beds at rest and cool, no damage, nothing spilled, and
+   * a fresh set of flaws. glassSeed is read from the random stream, never
+   * advanced, so the sand itself comes out exactly as it always did.
+   */
+  Sim.prototype._newGlass = function () {
+    var G = this.G, gx = Math.sin(this.tilt), gy = Math.cos(this.tilt);
+    for (var b = 0; b < 2; b++) {
+      var S = this.slug[b];
+      S.air = false; S.U = 0; S.Z = 0; S.kZ = 0; S.seat = 1;
+      this.nAir[b] = 0;
+      this.cair[b].fill(0); this.cpin[b].fill(0); this.cdOff[b].fill(0);
+      this.bf[2 * b] = this.bfSlow[2 * b] = G * gx;
+      this.bf[2 * b + 1] = this.bfSlow[2 * b + 1] = G * gy;
+    }
+    this.cen.fill(0); this.agit.fill(0); this.sweepAcc.fill(0);
+    this._motionStep = false;
+    this._izAt = -1;
+    this._clearDamage();
+    this.glassSeed = this.rng >>> 0;
+    this.glassFlip = 0;
+    this._drawFlaws();
+  };
+
+  /** No cracks, holes, damage or spilled sand (the flaws are left as they are). */
+  Sim.prototype._clearDamage = function () {
+    if (this.cracks.length) this.crackRev++;       // so the picture drops them
+    this.cracks.length = 0;
+    this.segCrack.fill(-1);
+    this.segD.fill(0); this.segP.fill(0);
+    if (this.holeMap !== null) { this._holeBuf.fill(0); this.holeMap = null; }
+    this.nOpen = 0; this.dMax = 0; this.warnSeg = -1;
+    this.warnLatch.fill(0);
+    this.lost = 0; this.leakedTop = 0; this.leakedBottom = 0;
+    this.escN = 0;
+    this._leakStep = -1e9; this._leakLive = false;
   };
 
   /* ---------------------------------------------------------------- *
@@ -288,6 +571,10 @@
     var f = this.frame;
     f.released = 0; f.impGlass = 0; f.impSand = 0; f.impTop = 0;
     f.moved = 0; f.slides = 0;
+    f.thump[0] = f.thump[1] = f.thump[2] = f.thump[3] = 0;
+    f.slam[0] = f.slam[1] = 0;
+    f.leaked = 0; f.leakX = 0; f.sprayed = 0; f.hops = 0;
+    f.dmgN = 0;
     this.nev = 0;
   };
 
@@ -295,9 +582,15 @@
     get: function () { return this.total - this.nTop; }
   });
 
-  /** True while anything is still in motion (used to idle the render loop). */
+  /**
+   * True while anything is still in motion (used to idle the render loop):
+   * grains in the air, recent avalanches, a turn, a step on the motion path,
+   * a bed in flight, or a breach still passing sand.
+   */
   Sim.prototype.isActive = function () {
-    return this.np > 0 || this.quiet < 24 || this.flipping;
+    return this.np > 0 || this.quiet < 24 || this.flipping ||
+      this._motionStep || this.slug[0].air || this.slug[1].air ||
+      this._leakLive || this.steps - this._leakStep < MOT.leakLinger;
   };
 
   /**
@@ -317,12 +610,113 @@
   };
 
   /* ---------------------------------------------------------------- *
+   *  Motion: what the glass feels, and what the sand is doing
+   * ---------------------------------------------------------------- */
+
+  /**
+   * The felt field for the coming steps, in the vessel frame (cells and
+   * seconds, + = clockwise on screen): ax, ay the felt linear acceleration
+   * without gravity (cells/s²); w the rotation rate (rad/s) and al its rate
+   * of change (rad/s², smoothed and clamped by the caller); lam the true-size
+   * scale of the rotational terms (0 turns them off); gz how hard the glass
+   * is shaken out of the screen plane (g, agitation only). The values hold
+   * until the next call; NaN reads as 0.
+   */
+  Sim.prototype.setMotion = function (ax, ay, w, al, lam, gz) {
+    this.mAx = finiteOr0(ax); this.mAy = finiteOr0(ay);
+    this.mW = finiteOr0(w); this.mAl = finiteOr0(al);
+    lam = finiteOr0(lam); this.mLam = lam > 0 ? lam : 0;
+    gz = finiteOr0(gz); this.mGz = gz < 0 ? -gz : gz;
+  };
+
+  /** True when the last step took the motion path. */
+  Sim.prototype.motionActive = function () {
+    return this._motionStep;
+  };
+
+  /** How shaken the sand is: the hotter bulb's granular temperature (0 … 3). */
+  Sim.prototype.agitation = function () {
+    var a = this.agit;
+    return a[0] > a[1] ? a[0] : a[1];
+  };
+
+  /** True while either bed is in flight. */
+  Sim.prototype.airborne = function () {
+    return this.slug[0].air || this.slug[1].air;
+  };
+
+  /**
+   * The sand's moment of inertia about the centre of the glass, Σ|r|² in
+   * cells² (one grain = unit mass), for the skater effect of a free spin.
+   * Packed sand is sampled on every second row and column (×4); grains in
+   * the air count one by one. Cached: recomputed after cenEvery steps on the
+   * motion path and after 60 on the idle path.
+   */
+  Sim.prototype.inertiaZ = function () {
+    var every = this._motionStep ? MOT.cenEvery : 60;
+    if (this._izAt >= 0 && this.steps - this._izAt < every) return this._iz;
+    var W = this.W, H = this.H, cell = this.cell, rowMin = this.rowMin, rowMax = this.rowMax;
+    var cx = this.geo.cx, cy = this.geo.cy, sum = 0, x, y;
+    for (y = this.topY + (this.topY & 1); y < H; y += 2) {
+      var x0 = rowMin[y], x1 = rowMax[y];
+      if (x0 > x1) continue;
+      var dy = y + 0.5 - cy, base = y * W, sx = 0, n = 0;
+      for (x = x0 + (x0 & 1); x <= x1; x += 2) {
+        if (cell[base + x] >= REST) { var dx = x + 0.5 - cx; sx += dx * dx; n++; }
+      }
+      sum += sx + n * dy * dy;
+    }
+    sum *= 4;
+    for (var p = 0; p < this.np; p++) {
+      var rx = this.px[p] - cx, ry = this.py[p] - cy;
+      sum += rx * rx + ry * ry;
+    }
+    this._iz = sum;
+    this._izAt = this.steps;
+    return sum;
+  };
+
+  /**
+   * Where wall segment `seg` is: bulb (0 above the neck in the lattice as it
+   * stands, 1 below), side (−1 left, +1 right) and u at the middle of its bin
+   * (0 neck … 1 far end). Fills `out` when given; null for no segment.
+   */
+  Sim.prototype.segInfo = function (seg, out) {
+    if (!isIndex(seg) || seg >= WALL_SEGS) return null;
+    out = out || {};
+    out.bulb = seg >= 2 * WALL_BINS ? 1 : 0;
+    out.side = ((seg / WALL_BINS) | 0) & 1 ? 1 : -1;
+    out.u = ((seg % WALL_BINS) + 0.5) / WALL_BINS;
+    return out;
+  };
+
+  /**
+   * Put both beds down: whatever was in flight stays where it is in the
+   * lattice and settles under the CA from here (before flips and bulk moves,
+   * which must never find a bed in the air).
+   */
+  Sim.prototype._landSlugs = function () {
+    for (var b = 0; b < 2; b++) {
+      var S = this.slug[b];
+      if (!S.air && S.seat === 1 && this.nAir[b] === 0) continue;
+      S.air = false; S.U = 0; S.Z = 0; S.kZ = 0; S.seat = 1;
+      this.nAir[b] = 0;
+      this.cair[b].fill(0); this.cpin[b].fill(0); this.cdOff[b].fill(0);
+    }
+  };
+
+  /* ---------------------------------------------------------------- *
    *  One fixed physics step (1/120 s)
    * ---------------------------------------------------------------- */
   Sim.prototype.step = function () {
     var ang = this.angle + this.tilt;
     var gx = Math.sin(ang), gy = Math.cos(ang);
     this.gx = gx; this.gy = gy;
+    // At rest both beds feel plain gravity; the motion path adds what the
+    // hand and the phone do to the glass.
+    var bf = this.bf;
+    bf[0] = bf[2] = this.G * gx;
+    bf[1] = bf[3] = this.G * gy;
 
     // 1. Neck valve: let through exactly as many grains as the clock owes.
     //    If the neck is momentarily starved, reach a little higher up the
@@ -352,6 +746,10 @@
 
     // 3. Free-falling grains.
     if (this.np) this._particles(gx, gy);
+
+    // 4. A breached glass leaks, even at rest, and micro-damage slowly arrests.
+    if (this.nOpen > 0) this._leak();
+    if (this.dMax > 1e-4) this._relaxDamage();
 
     if (this.frame.moved === before && this.np === 0) this.quiet++;
     else this.quiet = 0;
@@ -435,7 +833,7 @@
   /* ---------------------------------------------------------------- *
    *  Cellular automaton: static / sliding grains under any gravity
    * ---------------------------------------------------------------- */
-  Sim.prototype._ca = function (gx, gy, yLo, yHi) {
+  Sim.prototype._ca = function (gx, gy, yLo, yHi, forceFull) {
     var W = this.W;
     var cell = this.cell, seed = this.seed, stamp = this.stamp;
     var rowMin = this.rowMin, rowMax = this.rowMax;
@@ -475,7 +873,9 @@
     // Sleeping rows are skipped while the vessel is upright and gravity sits
     // on the lattice; a full sweep every 64 steps is the safety net.
     var act = this.rowAct;
-    var full = this.flipping || gy < 0.7 || dith !== 0 || kA !== 0 || (this.steps & 63) === 0;
+    // Inserted for motion: forceFull sweeps every row, asleep or not (shaken
+    // sand moves everywhere at once, without asking the sleep map).
+    var full = forceFull === true || this.flipping || gy < 0.7 || dith !== 0 || kA !== 0 || (this.steps & 63) === 0;
     var Hm = this.H - 1;
 
     for (; y !== yEnd; y += yStep) {
@@ -641,6 +1041,13 @@
       // ---- impact -------------------------------------------------------
       var sp = Math.sqrt(vx * vx + vy * vy);
       var onGlass = cell[hit] === WALL;
+      // Inserted for damage: a grain that flies into a breach leaves the
+      // glass. holeMap stays null until the first breach, so an intact glass
+      // never comes this way.
+      if (onGlass && this.holeMap !== null && this.holeMap[hit] !== 0) {
+        this._escapeParticle(p, hit, vx, vy);
+        continue;
+      }
       var top = ly < gateY;
       var bounces = info & 3;
       if (sp > 45 && bounces === 0) {
@@ -764,18 +1171,31 @@
   /**
    * Nearest free cell to `i`: first straight up through the sand (against
    * gravity, lattice offset `m`), then in widening rings. -1 if none.
+   * `deep` (the motion path) climbs further through a tall shaken bed and
+   * searches wider rings.
    */
-  Sim.prototype._freeNear = function (i, m) {
+  Sim.prototype._freeNear = function (i, m, deep) {
     var cell = this.cell, W = this.W, j = i, n = 0, N = cell.length;
-    while (cell[j] >= REST && n < 14) { j -= m; n++; }
-    if (cell[j] === EMPTY) return j;
-    for (var r = 1; r <= 8; r++) {
+    // Inserted for motion: deeper limits on request, and never an answer on
+    // the other side of the closed neck. A grain that lands in one bulb must
+    // not reappear in the other: that would break nTop, which the clock trusts.
+    var climb = deep ? 96 : 14, rings = deep ? 12 : 8;
+    var gate = this.gateY * W, top = i < gate;
+    while (cell[j] >= REST && n < climb) { j -= m; n++; }
+    if (cell[j] === EMPTY) {
+      if ((j < gate) === top) return j;
+      this.neckGuards++;
+    }
+    for (var r = 1; r <= rings; r++) {
       for (var dy = -r; dy <= r; dy++) {
         var row = i + dy * W;
         if (row < W || row >= N - W) continue;
         var st = (dy === -r || dy === r) ? 1 : 2 * r;
         for (var dx = -r; dx <= r; dx += st) {
-          if (cell[row + dx] === EMPTY) return row + dx;
+          if (cell[row + dx] === EMPTY) {
+            if ((row + dx < gate) === top) return row + dx;
+            this.neckGuards++;
+          }
         }
       }
     }
@@ -806,6 +1226,7 @@
    *  so reversing the arrays *is* the rotation.
    * ---------------------------------------------------------------- */
   Sim.prototype.completeFlip = function () {
+    this._landSlugs();
     this.cell.reverse();
     this.seed.reverse();
     var W = this.W, H = this.H;
@@ -819,6 +1240,50 @@
     this.angle = 0;
     this.flipping = false;
     this.wakeAll();
+    this._flipState();
+  };
+
+  /**
+   * The rest of a flip: everything that belongs to the glass turns with it.
+   * Bulb 0 becomes bulb 1, left becomes right, every cell i becomes N − 1 − i
+   * and every vector changes sign, so a crack, its breach and its leak stay
+   * on the same place of the glass.
+   */
+  Sim.prototype._flipState = function () {
+    var W = this.W, H = this.H, N = W * H, k, h, t;
+    // per-bulb vectors and states
+    flipBulbPair(this.bf); flipBulbPair(this.bfSlow); flipBulbPair(this.cen);
+    t = this.agit[0]; this.agit[0] = this.agit[1]; this.agit[1] = t;
+    t = this.sweepAcc[0]; this.sweepAcc[0] = this.sweepAcc[1]; this.sweepAcc[1] = t;
+    // the slugs trade states, not objects (a reader may keep sim.slug[0]);
+    // both beds were just put down, so both sit on their seats
+    var s0 = this.slug[0], s1 = this.slug[1];
+    t = s0.air; s0.air = s1.air; s1.air = t;
+    t = s0.U; s0.U = s1.U; s1.U = t;
+    t = s0.Z; s0.Z = s1.Z; s1.Z = t;
+    t = s0.kZ; s0.kZ = s1.kZ; s1.kZ = t;
+    s0.seat = 1; s1.seat = 1;
+    // the glass: damage, flaws, cracks and their breaches
+    flipSegArray(this.segD); flipSegArray(this.segP);
+    flipSegArray(this.segS); flipSegArray(this.segKt);
+    flipSegArray(this.segCrack);
+    if (this.warnSeg >= 0) this.warnSeg = flipSegIndex(this.warnSeg);
+    this.glassFlip ^= 1;
+    if (this.holeMap !== null) this.holeMap.reverse();
+    for (k = 0; k < this.cracks.length; k++) {
+      var cr = this.cracks[k];
+      cr.seg = flipSegIndex(cr.seg);
+      cr.bulb = 1 - cr.bulb; cr.side = -cr.side;
+      cr.x = W - 1 - cr.x; cr.y = H - 1 - cr.y;
+      for (h = 0; h < cr.nh; h++) cr.holes[h] = N - 1 - cr.holes[h];
+      for (h = 0; h < cr.nm; h++) cr.mouth[h] = N - 1 - cr.mouth[h];
+    }
+    if (this.cracks.length) this.crackRev++;
+    // grains already out of the glass but not yet handed to the app
+    for (k = 0; k < this.escN; k++) {
+      this.escX[k] = W - this.escX[k]; this.escY[k] = H - this.escY[k];
+      this.escVX[k] = -this.escVX[k]; this.escVY[k] = -this.escVY[k];
+    }
   };
 
   /**
@@ -826,6 +1291,7 @@
    * bulb, so a bulk move can never bury a grain in flight.
    */
   Sim.prototype._landAll = function () {
+    this._landSlugs();
     var W = this.W, cell = this.cell, gate = this.gateY, keep = 0;
     for (var p = 0; p < this.np; p++) {
       var x = this.px[p] | 0, y = this.py[p] | 0, i = y * W + x, j = i;
@@ -850,7 +1316,9 @@
    *  grains through the neck in bulk (no per-grain flight) and relax.
    * ---------------------------------------------------------------- */
   Sim.prototype.fastForward = function (n) {
+    this._landSlugs();
     this._landAll();
+    this._izAt = -1;
     var W = this.W, cell = this.cell, seed = this.seed;
     var gy0 = this.gateY, below = (gy0 + 1) * W, moved = 0, guard = 0;
     var span = this.gateX1 - this.gateX0 + 1;
@@ -878,6 +1346,479 @@
     this.nTop -= moved;
     this.wakeAll();
     return moved;
+  };
+
+  /* ---------------------------------------------------------------- *
+   *  The glass: damage, cracks, breaches and leaks
+   *
+   *  Damage is kept per wall segment. A crack is a record on one segment.
+   *  Once it breaks through, its holes are wall cells flagged in holeMap:
+   *  they stay WALL, so census, reset and the drawing never see them. Its
+   *  mouth is the inside cells that touch the holes. Grains leave through
+   *  the mouth (_leak) or fly out through a hole (_particles).
+   * ---------------------------------------------------------------- */
+
+  /** Queue a damage event for this frame: Sim.DMG type, crack index (−1 none), level, pan. */
+  Sim.prototype._pushDmg = function (type, k, level, x) {
+    var f = this.frame, e = f.dmgN;
+    if (e >= DMG_RING) return;
+    f.dmgType[e] = type; f.dmgK[e] = k; f.dmgLevel[e] = level; f.dmgX[e] = x;
+    f.dmgN = e + 1;
+  };
+
+  /** Stereo position of lattice column x: −1 at the left wall … +1 at the right. */
+  Sim.prototype._panX = function (x) {
+    var g = this.geo, p = (x + 0.5 - g.cx) / g.R;
+    return p < -1 ? -1 : (p > 1 ? 1 : p);
+  };
+
+  /** Stereo position of wall segment s. */
+  Sim.prototype._panSeg = function (s) {
+    if (s < 0) return 0;
+    var r = profile(((s % WALL_BINS) + 0.5) / WALL_BINS, this.geo) / this.geo.R;
+    return ((s / WALL_BINS) | 0) & 1 ? r : -r;
+  };
+
+  /**
+   * dMax and warnSeg: the worst damage on a segment that has no crack yet,
+   * and where it is. Crossing each creak level upward sounds it once (WARN,
+   * when `emit`); the level re-arms when the damage falls well below it.
+   */
+  Sim.prototype._scanDamage = function (emit) {
+    var segD = this.segD, sc = this.segCrack, best = 0, at = -1, s, L;
+    for (s = 0; s < WALL_SEGS; s++) {
+      if (sc[s] < 0 && segD[s] > best) { best = segD[s]; at = s; }
+    }
+    this.dMax = best;
+    this.warnSeg = at;
+    var th = MOT.warn, latch = this.warnLatch;
+    for (L = 0; L < 4; L++) {
+      if (!latch[L]) {
+        if (best >= th[L]) {
+          latch[L] = 1;
+          if (emit) this._pushDmg(Sim.DMG.WARN, -1, L + 1, this._panSeg(at));
+        }
+      } else if (best < th[L] - MOT.warnRearm) latch[L] = 0;
+    }
+  };
+
+  /** Micro-damage in glass that has not cracked arrests and fades (τ tauHeal). */
+  Sim.prototype._relaxDamage = function () {
+    var segD = this.segD, sc = this.segCrack, k = 1 - DT / MOT.tauHeal;
+    for (var s = 0; s < WALL_SEGS; s++) {
+      if (sc[s] < 0 && segD[s] > 0 && segD[s] < 1) segD[s] *= k;
+    }
+    this._scanDamage(true);
+  };
+
+  /**
+   * Where a crack in segment s starts: the wall cell beside the inside, on
+   * the row nearest the middle of the segment, and never within gateGuard
+   * rows of the gate (the waist itself never opens, so the bulbs are never
+   * joined). A segment at the waist starts on the shoulder just outside.
+   */
+  Sim.prototype._crackSite = function (s) {
+    var W = this.W, H = this.H, g = this.geo, gate = this.gateY, guard = MOT.gateGuard;
+    var lower = s >= 2 * WALL_BINS, right = ((s / WALL_BINS) | 0) & 1, bin = s % WALL_BINS;
+    var uMid = (bin + 0.5) / WALL_BINS, best = -1, bestD = 2;
+    var y0 = lower ? gate + guard : 1, y1 = lower ? H - 2 : gate - guard;
+    for (var y = y0; y <= y1; y++) {
+      if (this.rowMin[y] > this.rowMax[y]) continue;
+      var dy = y + 0.5 - g.cy, u = (dy < 0 ? -dy : dy) / g.HB, b = (u * WALL_BINS) | 0;
+      if (b > WALL_BINS - 1) b = WALL_BINS - 1;
+      if (b !== bin) continue;
+      var d = u > uMid ? u - uMid : uMid - u;
+      if (d < bestD) { bestD = d; best = y; }
+    }
+    if (best < 0) best = lower ? gate + guard : gate - guard;
+    return best * W + (right ? this.rowMax[best] + 1 : this.rowMin[best] - 1);
+  };
+
+  /** A wall cell that touches the inside, in segment block `block`, clear of the gate. */
+  Sim.prototype._wallSite = function (i, block) {
+    if (this.cell[i] !== WALL || this.segOf[i] < 0) return false;
+    if (((this.segOf[i] / WALL_BINS) | 0) !== block) return false;
+    var dy = ((i / this.W) | 0) - this.gateY;
+    return block >= 2 ? dy >= MOT.gateGuard : dy <= -MOT.gateGuard;
+  };
+
+  /** A crack record on segment s, starting at wall cell i (no events). */
+  Sim.prototype._makeCrack = function (s, i, seed) {
+    var W = this.W, g = this.geo, x = i % W, y = (i / W) | 0, dy = y + 0.5 - g.cy;
+    var u = (dy < 0 ? -dy : dy) / g.HB;
+    var cr = {
+      id: this._crackId++,
+      seg: s,
+      bulb: s >= 2 * WALL_BINS ? 1 : 0,  // 0 above the neck in the lattice as it stands
+      side: ((s / WALL_BINS) | 0) & 1 ? 1 : -1,
+      u: u > 0.999 ? 0.999 : u,          // 0 neck … 1 far end
+      x: x, y: y,                        // origin: the wall cell it starts from
+      seed: seed >>> 0,                  // shapes the drawing of its path
+      L: MOT.L0,                         // length, cells
+      w: 0,                              // breach width, cells (0 … 3)
+      sealed: false,
+      holes: new Int32Array(MOT.wMax), nh: 0,
+      mouth: new Int32Array(8 * MOT.wMax), nm: 0,
+      born: this.steps,
+      D0: this.segD[s],                  // the damage when it last grew
+      credit: 0,                         // grains the leak owes
+      mi: 0                              // mouth cell the leak tries first
+    };
+    this.segCrack[s] = this.cracks.length;
+    this.cracks.push(cr);
+    return cr;
+  };
+
+  /** A crack starts in segment s, at wall cell `at` (−1: the usual site). Emits CRACK. */
+  Sim.prototype._initCrack = function (s, at) {
+    var cr = this._makeCrack(s, at >= 0 ? at : this._crackSite(s), this._rand() * 4294967296);
+    this.crackRev++;
+    this._pushDmg(Sim.DMG.CRACK, this.cracks.length - 1, 0, this._panX(cr.x));
+    this._scanDamage(false);
+    return cr;
+  };
+
+  /** The crack breaks through: its origin wall cell becomes a hole. */
+  Sim.prototype._openHole = function (cr, emit) {
+    if (cr.nh > 0) return false;
+    this._addHole(cr, cr.y * this.W + cr.x);
+    if (emit) this._pushDmg(Sim.DMG.BREACH, this.cracks.indexOf(cr), cr.w, this._panX(cr.x));
+    return true;
+  };
+
+  /** The breach widens by one more wall cell. */
+  Sim.prototype._widenHole = function (cr, emit) {
+    if (cr.nh === 0 || cr.nh >= MOT.wMax) return false;
+    var j = this._nextHoleCell(cr);
+    if (j < 0) return false;
+    this._addHole(cr, j);
+    if (emit) this._pushDmg(Sim.DMG.WIDEN, this.cracks.indexOf(cr), cr.w, this._panX(cr.x));
+    return true;
+  };
+
+  Sim.prototype._addHole = function (cr, i) {
+    cr.holes[cr.nh++] = i;
+    cr.w = cr.nh;
+    if (this.holeMap === null) this.holeMap = this._holeBuf;
+    if (!cr.sealed) this.holeMap[i] = 1;
+    this._buildMouth(cr);
+    this._countOpen();
+    this.crackRev++;
+  };
+
+  /**
+   * The next wall cell to give way: a neighbour of the breach on the same
+   * segment (else on the same side of the same bulb), clear of the gate, and
+   * the one most open to the inside, so the breach runs along the glass.
+   */
+  Sim.prototype._nextHoleCell = function (cr) {
+    var W = this.W, block = (cr.seg / WALL_BINS) | 0, best = -1, bestN = 0;
+    for (var pass = 0; pass < 2 && best < 0; pass++) {
+      for (var h = 0; h < cr.nh; h++) {
+        for (var k = 0; k < 8; k++) {
+          var j = cr.holes[h] + DX[k] + DY[k] * W;
+          if (!this._wallSite(j, block)) continue;
+          if (pass === 0 && this.segOf[j] !== cr.seg) continue;
+          if (this._isHole(j)) continue;
+          var n = this._insideAround(j);
+          if (n > bestN) { bestN = n; best = j; }
+        }
+      }
+    }
+    return best;
+  };
+
+  /** True if wall cell j is already a hole of some crack. */
+  Sim.prototype._isHole = function (j) {
+    for (var k = 0; k < this.cracks.length; k++) {
+      var cr = this.cracks[k];
+      for (var h = 0; h < cr.nh; h++) if (cr.holes[h] === j) return true;
+    }
+    return false;
+  };
+
+  /** How many of cell i's eight neighbours lie inside the glass. */
+  Sim.prototype._insideAround = function (i) {
+    var W = this.W, n = 0;
+    for (var k = 0; k < 8; k++) {
+      var j = i + DX[k] + DY[k] * W, x = j % W, y = (j / W) | 0;
+      if (x >= this.rowMin[y] && x <= this.rowMax[y]) n++;
+    }
+    return n;
+  };
+
+  /** The mouth: inside cells of the crack's own bulb that touch its holes. */
+  Sim.prototype._buildMouth = function (cr) {
+    var W = this.W, gate = this.gateY, m = cr.mouth, nm = 0, q;
+    for (var h = 0; h < cr.nh; h++) {
+      for (var k = 0; k < 8; k++) {
+        var j = cr.holes[h] + DX[k] + DY[k] * W, x = j % W, y = (j / W) | 0;
+        if (x < this.rowMin[y] || x > this.rowMax[y]) continue;     // not inside
+        if ((y < gate) !== (cr.bulb === 0)) continue;               // the other bulb
+        for (q = 0; q < nm; q++) if (m[q] === j) break;
+        if (q === nm && nm < m.length) m[nm++] = j;
+      }
+    }
+    cr.nm = cr.sealed ? 0 : nm;
+  };
+
+  Sim.prototype._countOpen = function () {
+    var n = 0;
+    for (var k = 0; k < this.cracks.length; k++) {
+      if (!this.cracks[k].sealed && this.cracks[k].nh > 0) n++;
+    }
+    this.nOpen = n;
+    if (!n) this._leakLive = false;
+  };
+
+  /**
+   * Grains at the mouth of an open breach leave the glass. The pressure
+   * through the hole follows how the bulb's field leans on it: fully when it
+   * points out of the hole, a little when the sand runs past it, not at all
+   * when the hole faces up and away from the sand. The rate is 2-D Beverloo
+   * flow with jamming: a breach one grain wide arches over and jams at rest,
+   * a wider one trickles, and shaking breaks the arches.
+   */
+  Sim.prototype._leak = function () {
+    var cracks = this.cracks, cell = this.cell, bf = this.bf, G = this.G, live = false;
+    for (var k = 0; k < cracks.length; k++) {
+      var cr = cracks[k];
+      if (cr.sealed || cr.nh === 0 || cr.nm === 0) continue;
+      var b = cr.bulb, fx = bf[2 * b], fy = bf[2 * b + 1], fm = Math.sqrt(fx * fx + fy * fy);
+      var P = 0;
+      if (fm > 0) {
+        // f̂·n̂_out, where the stored normal points into the glass
+        var o = cr.holes[0];
+        P = MOT.leakP0 - (fx * this.nrmX[o] + fy * this.nrmY[o]) / (127 * fm);
+        if (P < 0) P = 0; else if (P > MOT.leakPmax) P = MOT.leakPmax;
+        var r = Math.sqrt(fm / G);
+        P *= r < 2 ? r : 2;
+      }
+      var T = this.agit[b], wj = cr.w - MOT.leakJam;
+      var Q = P * ((wj > 0 ? MOT.Q0 * Math.pow(wj, 1.5) : 0) + MOT.leakT * cr.w * (T < 1 ? T : 1));
+      var c = cr.credit + Q * DT;
+      if (c > MOT.leakCap) c = MOT.leakCap;
+      // one grain per mouth cell per step, while the credit lasts
+      var nm = cr.nm, q = cr.mi < nm ? cr.mi : 0, sand = false;
+      for (var n = 0; n < nm; n++) {
+        var i = cr.mouth[q];
+        if (cell[i] >= REST) {
+          sand = true;
+          if (c >= 1) { this._escapeAt(i, cr); c -= 1; }
+        }
+        if (++q === nm) q = 0;
+      }
+      cr.mi = cr.mi + 1 < nm ? cr.mi + 1 : 0;
+      cr.credit = c;
+      if (sand && Q > 0) live = true;
+    }
+    this._leakLive = live;
+  };
+
+  /** The grain in mouth cell i leaves through the nearest hole of crack cr. */
+  Sim.prototype._escapeAt = function (i, cr) {
+    var W = this.W, sd = this.seed[i], ix = i % W, iy = (i / W) | 0;
+    this.cell[i] = EMPTY;
+    this._touchRow(iy);
+    this._lose(i < this.gateY * W);
+    var o = cr.holes[0], best = 1e9;
+    for (var h = 0; h < cr.nh; h++) {
+      var j = cr.holes[h], dx = (j % W) - ix, dy = ((j / W) | 0) - iy, d = dx * dx + dy * dy;
+      if (d < best) { best = d; o = j; }
+    }
+    var nx = -this.nrmX[o] / 127, ny = -this.nrmY[o] / 127;
+    // out through the hole at a walking pace, scattered a little along the wall
+    // (drawn whether or not the ring has room, so the sand never depends on the app)
+    var sp = MOT.escV + MOT.escVr * this._rand();
+    var tg = (this._rand() + this._rand() - 1) * 2.449 * MOT.escTan;     // ≈ N(0, escTan)
+    this._record((o % W) + 0.5 + nx, ((o / W) | 0) + 0.5 + ny,
+                 nx * sp - ny * tg, ny * sp + nx * tg, sd);
+  };
+
+  /** Particle p flew into hole cell `hit` at (vx, vy): it leaves the glass as it is. */
+  Sim.prototype._escapeParticle = function (p, hit, vx, vy) {
+    var W = this.W, last;
+    this._lose(this.py[p] < this.gateY);
+    var nx = -this.nrmX[hit] / 127, ny = -this.nrmY[hit] / 127;
+    this._record((hit % W) + 0.5 + nx, ((hit / W) | 0) + 0.5 + ny, vx, vy, this.pseed[p]);
+    last = --this.np;
+    if (p !== last) {
+      this.px[p] = this.px[last]; this.py[p] = this.py[last];
+      this.pvx[p] = this.pvx[last]; this.pvy[p] = this.pvy[last];
+      this.pseed[p] = this.pseed[last]; this.pinfo[p] = this.pinfo[last];
+    }
+  };
+
+  /** A grain has left the glass, from above the neck when `top`. */
+  Sim.prototype._lose = function (top) {
+    this.total--;
+    this.lost++;
+    if (top) { this.nTop--; this.leakedTop++; } else this.leakedBottom++;
+    this.frame.leaked++;
+    this._leakStep = this.steps;
+  };
+
+  /** Hand an escaped grain to the app: lattice cells, cells/s, vessel frame. */
+  Sim.prototype._record = function (x, y, vx, vy, sd) {
+    var g = this.geo, p = (x - g.cx) / g.R;
+    this.frame.leakX = p < -1 ? -1 : (p > 1 ? 1 : p);
+    if (this.escN >= ESC_RING) return;     // full until drained (still counted in lost)
+    var e = this.escN++;
+    this.escX[e] = x; this.escY[e] = y;
+    this.escVX[e] = vx; this.escVY[e] = vy;
+    this.escS[e] = sd;
+  };
+
+  /**
+   * Crack the glass at wall segment `seg`, for tests and debugging: a crack
+   * at least L cells long, breached w cells wide (0 … 3). Emits CRACK when
+   * it starts and BREACH when it breaks through. Returns the crack record, or
+   * null when the segment is invalid or the glass already has its three.
+   */
+  Sim.prototype.forceCrack = function (seg, L, w) {
+    if (!isIndex(seg) || seg >= WALL_SEGS) return null;
+    var k = this.segCrack[seg], cr;
+    if (k >= 0) cr = this.cracks[k];
+    else {
+      if (this.cracks.length >= MOT.maxCracks) return null;
+      if (this.segD[seg] < 1) this.segD[seg] = 1;
+      cr = this._initCrack(seg, -1);
+    }
+    if (cr.sealed) return cr;                       // mended seams do not reopen
+    L = +L;
+    if (L > cr.L) cr.L = L < MOT.Lmax ? L : MOT.Lmax;
+    w = w | 0;
+    if (w > MOT.wMax) w = MOT.wMax;
+    if (w > 0) this._openHole(cr, true);
+    while (cr.nh < w) if (!this._widenHole(cr, false)) break;
+    this.crackRev++;
+    return cr;
+  };
+
+  /**
+   * Kintsugi: gold flows into every open crack. Its breach closes at once,
+   * so leaking stops within a step; the mended stretch starts again from no
+   * damage and is half as strong again as it was. The timer is untouched.
+   * Emits SEAL for each crack and returns how many were sealed.
+   */
+  Sim.prototype.sealCracks = function () {
+    var n = 0;
+    for (var k = 0; k < this.cracks.length; k++) {
+      var cr = this.cracks[k];
+      if (cr.sealed) continue;
+      cr.sealed = true;
+      for (var h = 0; h < cr.nh; h++) this.holeMap[cr.holes[h]] = 0;
+      cr.nm = 0; cr.credit = 0;
+      this.segD[cr.seg] = 0; this.segP[cr.seg] = 0;
+      this.segS[cr.seg] *= MOT.sealS;
+      this._pushDmg(Sim.DMG.SEAL, k, 0, this._panX(cr.x));
+      n++;
+    }
+    if (n) {
+      this._countOpen();
+      this.crackRev++;
+      this._scanDamage(false);
+    }
+    return n;
+  };
+
+  /**
+   * The glass's damage for the session, or null while it is pristine:
+   * {v: 1, seed, W, f?, d?, c: [[seg, x, y, seed, L, w, sealed, holes…]],
+   * lost, lt, lb}. Cells are lattice indices as the glass stands now; f
+   * marks an odd number of flips since its flaws were drawn, and d (damage
+   * to 3 dp) is left out while every segment is below 0.01.
+   */
+  Sim.prototype.serializeDamage = function () {
+    var segD = this.segD, big = false, s, k, h;
+    for (s = 0; s < WALL_SEGS; s++) if (segD[s] >= 0.01) { big = true; break; }
+    if (!big && !this.cracks.length && !this.lost) return null;
+    var o = { v: 1, seed: this.glassSeed >>> 0, W: this.W };
+    if (this.glassFlip) o.f = 1;
+    if (big) {
+      var d = new Array(WALL_SEGS);
+      for (s = 0; s < WALL_SEGS; s++) d[s] = Math.round(segD[s] * 1000) / 1000;
+      o.d = d;
+    }
+    var c = [];
+    for (k = 0; k < this.cracks.length; k++) {
+      var cr = this.cracks[k];
+      var e = [cr.seg, cr.x, cr.y, cr.seed >>> 0, Math.round(cr.L * 10) / 10, cr.w, cr.sealed ? 1 : 0];
+      for (h = 0; h < cr.nh; h++) e.push(cr.holes[h]);
+      c.push(e);
+    }
+    o.c = c;
+    o.lost = this.lost; o.lt = this.leakedTop; o.lb = this.leakedBottom;
+    return o;
+  };
+
+  /**
+   * Rebuild what serializeDamage() saved, on a glass just reset to the saved
+   * total: its flaws, damage, cracks, breaches and mouths. Anything malformed
+   * or from another glass is refused whole, before anything is touched (so a
+   * glass just reset stays pristine), and returns false. Emits no events.
+   */
+  Sim.prototype.restoreDamage = function (o) {
+    if (!o || typeof o !== 'object' || o.v !== 1) return false;
+    var W = this.W, H = this.H, N = W * H, d = o.d, c = o.c, s, k, h, q, e;
+    if ((o.W !== undefined && o.W !== W) || !isIndex(o.seed)) return false;
+    if (d !== undefined) {
+      if (!Array.isArray(d) || d.length !== WALL_SEGS) return false;
+      for (s = 0; s < WALL_SEGS; s++) {
+        if (!(typeof d[s] === 'number' && d[s] >= 0 && d[s] < 1000)) return false;
+      }
+    }
+    if (c === undefined) c = [];
+    if (!Array.isArray(c) || c.length > MOT.maxCracks) return false;
+    for (k = 0; k < c.length; k++) {
+      e = c[k];
+      if (!Array.isArray(e) || e.length < 7) return false;
+      var seg = e[0], x = e[1], y = e[2], w = e[5];
+      if (!isIndex(seg) || seg >= WALL_SEGS || !isIndex(x) || x >= W || !isIndex(y) || y >= H) return false;
+      for (q = 0; q < k; q++) if (c[q][0] === seg) return false;      // one crack per segment
+      var block = (seg / WALL_BINS) | 0, i0 = y * W + x;
+      if (!this._wallSite(i0, block)) return false;
+      if (!isIndex(e[3]) || !(typeof e[4] === 'number' && e[4] >= 0 && e[4] <= MOT.Lmax)) return false;
+      if (!isIndex(w) || w > MOT.wMax || e.length !== 7 + w) return false;
+      if (e[6] !== 0 && e[6] !== 1 && e[6] !== true && e[6] !== false) return false;
+      if (w > 0 && e[7] !== i0) return false;                         // a breach opens at the origin
+      for (h = 7; h < e.length; h++) {
+        if (!isIndex(e[h]) || e[h] >= N || !this._wallSite(e[h], block)) return false;
+        for (q = 7; q < h; q++) if (e[q] === e[h]) return false;
+        for (q = 0; q < k; q++) if (c[q].indexOf(e[h], 7) >= 0) return false;
+      }
+    }
+
+    this._clearDamage();
+    this.glassSeed = o.seed;
+    this.glassFlip = o.f ? 1 : 0;
+    this._drawFlaws();
+    if (d) for (s = 0; s < WALL_SEGS; s++) this.segD[s] = d[s];
+    for (k = 0; k < c.length; k++) {
+      e = c[k];
+      var cr = this._makeCrack(e[0], e[2] * W + e[1], e[3]);
+      cr.L = e[4];
+      cr.sealed = !!e[6];
+      for (h = 7; h < e.length; h++) cr.holes[cr.nh++] = e[h];
+      cr.w = cr.nh;
+      if (cr.nh) {
+        if (this.holeMap === null) this.holeMap = this._holeBuf;
+        if (!cr.sealed) for (h = 0; h < cr.nh; h++) this.holeMap[cr.holes[h]] = 1;
+      }
+      this._buildMouth(cr);
+      if (cr.sealed) this.segS[cr.seg] *= MOT.sealS;
+    }
+    // a stretch with no crack never holds a whole unit of damage
+    for (s = 0; s < WALL_SEGS; s++) {
+      if (this.segCrack[s] < 0 && this.segD[s] > 0.999) this.segD[s] = 0.999;
+    }
+    this.lost = isIndex(o.lost) ? o.lost : 0;
+    this.leakedTop = isIndex(o.lt) ? o.lt : 0;
+    this.leakedBottom = isIndex(o.lb) ? o.lb : 0;
+    this._countOpen();
+    this.crackRev++;
+    this._scanDamage(false);         // creak levels already passed stay quiet
+    return true;
   };
 
   /* ---------------------------------------------------------------- *
