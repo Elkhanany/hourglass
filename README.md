@@ -11,15 +11,32 @@ Live (once GitHub Pages is enabled): `https://elkhanany.github.io/hourglass/`
 | Action | Touch | Keyboard |
 | --- | --- | --- |
 | Start / pause | Tap the glass, or the round button | `Space` |
-| Flip (elapsed and remaining swap) | **Flip** | `F` |
+| Turn the glass | Drag it round with a finger, or **Flip** | `F` |
 | Add sand (extends the timer) | Tap or hold **Sand** | focus + hold `Space` |
 | Reset | **Reset** | `R` |
+| Duration | Pills `1 3 5 10 15 25 45` min, **Custom**, or tap the time (10 s to 99:59) | |
+| Dim the controls now | Moon icon | |
 | Mute | Speaker icon | `M` |
-| Duration | Pills `1 3 5 10 15 25 45` min, or the `mm:ss` dial (10 s to 99:59) | |
-| Material, sound, tilt, Zen | **Tune** | |
+| Material, frame, sound, gravity, screen | **Tune** | |
 
 After four seconds of running without a touch the controls fade to 12 %
 (or disappear entirely with *Full Zen*). The first tap only brings them back.
+The moon icon dims them at once and, where the browser allows it, goes
+full screen.
+
+**Tune** holds the rest:
+
+- **Material**: Sahara Quartz, Volcanic Black, Moonstone; **Frame** hides the
+  caps and posts so only the glass remains.
+- **Acoustic character** and volume; **Completion bowl**.
+- **Keep screen awake** while the sand is flowing (Screen Wake Lock API).
+- **Real gravity**: the sand follows how the device is held. Lean it and the
+  piles slump, lay it on its side and the flow (and the clock) stop, turn it
+  over and the other bulb becomes the top.
+- **Full Zen**, **Haptics**.
+
+The glass also remembers where it was: close or reload the page and a running
+timer carries on from the wall clock, a paused one comes back as it was left.
 
 ## How it works
 
@@ -44,16 +61,18 @@ After four seconds of running without a touch the controls fade to 12 %
   the neck on the frame the readout reaches `00:00.0`. The final grains thin
   out into single drops. If the tab was hidden, the backlog is moved in bulk
   when it returns.
-- **Flip and tilt.** Gravity is a vector. During a flip it rotates continuously
-  in the vessel's frame, so the sand tumbles along the glass; at 180° the
-  lattice is re-indexed (the vessel is exactly point-symmetric) and the
-  simulation is upright again. Device tilt adds up to ±16°.
+- **Turning and gravity.** Gravity is a vector. While the glass turns (by the
+  button, by hand, or because the device itself is turned) it rotates
+  continuously in the vessel's frame, so the sand tumbles along the glass.
+  Past 180° the lattice is re-indexed (the vessel is exactly point-symmetric)
+  and elapsed and remaining time swap.
 - **Sleep map.** Only rows near something that changed are swept, so a settled
   pile costs almost nothing during long timers.
 - **Rendering.** Each grain is a lit 2×2 bead with a persistent colour seed,
-  depth-based ambient occlusion and mica glints, written straight into an
-  `ImageData` buffer. The glass, caps and lighting are pre-rendered canvas
-  layers composited by the browser.
+  depth-based ambient occlusion, a rim-lit surface, glossy facets and mica
+  glints, written straight into an `ImageData` buffer. A half-resolution bloom
+  layer adds the light scattered around the brightest grains. The glass, caps
+  and lighting are pre-rendered canvas layers composited by the browser.
 
 Grain counts: about 17,400 on phones and 25,300 on larger screens, up to
 23,000 / 33,400 after adding sand.
@@ -83,8 +102,10 @@ not been tuned by ear on real devices, so treat the mix constants at the top of
 
 ### `app.js`, `index.html`, `styles.css`
 
-Timer state, controls, Zen HUD, settings (stored in `localStorage`), tilt
-permission, screen wake lock, and service-worker registration.
+Timer state, controls, Zen HUD, settings and the running session (stored in
+`localStorage`), motion permission, screen wake lock, and service-worker
+registration. The clock uses `Date.now()` so it keeps counting while a phone
+sleeps.
 
 ### `sw.js`, `manifest.json`
 
@@ -127,7 +148,12 @@ template; it is not part of the installed app.
 - iOS Safari only starts audio from a user gesture. The app creates and resumes
   the audio context on the first touch, and resumes it again after an
   interruption (call, lock screen, tab switch).
-- Tilt needs motion permission on iOS 13+; the toggle asks for it.
+- Real gravity needs motion permission on iOS 13+; the switch asks for it.
+- Keep screen awake needs the Screen Wake Lock API: Safari 16.4+ on iOS, and
+  iOS 18.4+ when installed to the home screen.
+- A web app cannot hide the iPhone status bar or silence notifications. On
+  Android the installed app runs full screen; in desktop and Android browsers
+  the moon icon enters full screen.
 - Haptics use `navigator.vibrate`, which iOS does not provide.
 - The completion sound can only play in a hidden tab if the browser keeps the
   page's audio running; on a locked phone it generally will not.

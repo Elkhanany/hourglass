@@ -872,6 +872,13 @@
         mica: { p: 0.05, h: 46, s: 0.40, l: 0.90 }       // mica glints
       },
       glint: [255, 247, 224],
+      // how the sand takes the light: surface rim (levels), share of glossy
+      // grains and their extra sparkle, highlight tint, soft bloom
+      light: {
+        rim: [3, 1], aoMax: 8, gloss: 0.12, glossBoost: 4, hl: 0.9, tint: [255, 255, 255],
+        bloom: 0.5, bloomColor: [255, 214, 150],
+        emit: { mica: 0.10, gloss: 0.02, rim: 0.05, haze: 0.006 }, backlight: 0.04
+      },
       glass: { tint: [255, 233, 204], smoke: 0.10 },
       cap: { kind: 'wood', hi: [112, 70, 42], mid: [70, 41, 23], lo: [30, 17, 9] },
       glow: [255, 176, 92]
@@ -886,10 +893,18 @@
         alt: { p: 0.12, h: 262, s: 0.30, l: 0.37 },      // iridescent basalt
         mica: { p: 0.07, h: 44, s: 0.82, l: 0.62 }       // gold flecks
       },
-      glint: [255, 222, 140],
+      glint: [255, 226, 150],
+      // black sand only reads if it is *lit*: a strong rim on the surface,
+      // many glassy facets that catch the key light, and a soft bloom
+      light: {
+        rim: [10, 5], aoMax: 5, gloss: 0.24, glossBoost: 12, hl: 1.15, tint: [238, 234, 240],
+        bloom: 0.85, bloomColor: [255, 224, 176],
+        emit: { mica: 0.34, gloss: 0.04, rim: 0.18, haze: 0.010 }, backlight: 0.09
+      },
       glass: { tint: [214, 206, 196], smoke: 0.30 },
-      cap: { kind: 'brass', hi: [236, 208, 132], mid: [176, 142, 70], lo: [84, 64, 24] },
-      glow: [214, 164, 78]
+      // satin, slightly aged brass: present, never glaring
+      cap: { kind: 'brass', hi: [196, 170, 108], mid: [136, 110, 58], lo: [58, 44, 18] },
+      glow: [204, 160, 84]
     },
     moonstone: {
       id: 'moonstone',
@@ -902,6 +917,11 @@
         mica: { p: 0.06, h: 200, s: 0.20, l: 0.98 }
       },
       glint: [255, 255, 255],
+      light: {
+        rim: [3, 1], aoMax: 8, gloss: 0.14, glossBoost: 4, hl: 0.9, tint: [255, 255, 255],
+        bloom: 0.5, bloomColor: [214, 230, 255],
+        emit: { mica: 0.10, gloss: 0.02, rim: 0.05, haze: 0.006 }, backlight: 0.045
+      },
       glass: { tint: [214, 232, 255], smoke: 0.07 },
       cap: { kind: 'silver', hi: [236, 240, 245], mid: [160, 166, 176], lo: [72, 77, 86] },
       glow: [168, 196, 235]
@@ -938,13 +958,14 @@
    *  Renderer
    * ==================================================================== */
 
-  var LEVELS = 32;      // shading levels per grain colour
+  var LEVELS = 48;      // light levels per grain colour (upper third = highlights)
+  var AO_BIAS = 12;
   var SUB = 2;          // each grain is drawn as a lit 2×2 bead
 
   /**
    * @param sim   Sim
-   * @param els   { back, sand, front, light } canvases
-   *              back / sand / front rotate with the vessel,
+   * @param els   { back, sand, bloom, front, light } canvases
+   *              back / sand / bloom / front rotate with the vessel,
    *              light (speculars, caustics) stays fixed in the room.
    */
   function Renderer(sim, els) {
@@ -972,6 +993,21 @@
     this.glintColor = 0xFFFFFFFF;
     this.baseLevel = new Uint8Array(W * H);
     this.aoTab = new Uint8Array(256);
+    this.hiBoost = new Uint8Array(256);     // per-seed sparkle of the lit facet
+    this.emit = new Float32Array(256);      // per-seed contribution to the bloom
+    // Bloom: light scattered around the brightest grains, accumulated at
+    // half resolution, blurred, and composited additively over the sand.
+    this.bw = (W + 1) >> 1; this.bh = (H + 1) >> 1;
+    this.bloomA = new Float32Array(this.bw * this.bh);
+    this.bloomB = new Float32Array(this.bw * this.bh);
+    this.bctx = null;
+    if (els.bloom) {
+      els.bloom.width = this.bw; els.bloom.height = this.bh;
+      this.bctx = els.bloom.getContext('2d');
+      this.bimg = this.bctx.createImageData(this.bw, this.bh);
+      this.bbuf = new Uint32Array(this.bimg.data.buffer);
+    }
+    this.frame = true;    // caps + posts around the glass
     this.frameNo = 0;
     this.theme = THEMES.sahara;
     this.scale = 1;       // CSS px per cell
@@ -979,6 +1015,16 @@
     this._buildLightMap();
     this._buildLUT();
   }
+
+  /** Assembly box in cells: the framed instrument, or the bare glass. */
+  Renderer.prototype._box = function () {
+    var g = this.sim.geo;
+    if (this.frame) return { w: g.AW, h: g.AH };
+    return { w: Math.max(this.sim.W, 2 * g.R + 16 * g.q), h: Math.max(this.sim.H, 2 * g.HB + 12 * g.q) };
+  };
+  Renderer.prototype.setFrame = function (on) {
+    this.frame = !!on;
+  };
 
   /** Cylinder shading baked per cell + ambient-occlusion ramp by depth. */
   Renderer.prototype._buildLightMap = function () {
@@ -994,18 +1040,12 @@
         this.baseLevel[y * W + x] = Math.max(12, Math.min(24, Math.round(lv)));
       }
     }
-    // depth 1 = exposed surface grain (lit), deeper = occluded
-    for (var d = 0; d < 256; d++) {
-      var ao;
-      if (d <= 1) ao = -3; else if (d === 2) ao = -1;
-      else ao = Math.min(8, Math.round((d - 2) * 0.55));
-      this.aoTab[d] = ao + 3;        // stored with +3 bias (0 … 11)
-    }
   };
 
-  /** Per-grain colour table: 256 persistent seeds × 32 light levels. */
+  /** Per-grain colour table: 256 persistent seeds × 48 light levels. */
   Renderer.prototype._buildLUT = function () {
-    var th = this.theme, sd = th.sand, lut = this.lut;
+    var th = this.theme, sd = th.sand, lut = this.lut, li = th.light;
+    var tint = li.tint, em = li.emit;
     var darkN = Math.round(sd.dark.p * 256);
     var micaN = Math.round(sd.mica.p * 256);
     var altN = Math.round(sd.alt.p * 256);
@@ -1025,19 +1065,31 @@
                    sd.l + (u2 - 0.5) * 2 * sd.dl);
       }
       this.isMica[s] = mica;
+      var glossy = !mica && hash01(s * 41 + 7) < li.gloss;
+      this.hiBoost[s] = 3 + (glossy ? li.glossBoost : 0);
+      this.emit[s] = em.haze + (mica ? em.mica : (glossy ? em.gloss : 0));
       for (var lv = 0; lv < LEVELS; lv++) {
-        var m = 0.34 + lv * 0.031;                     // 0.34 … 1.30
+        var m = 0.34 + lv * 0.031;                     // 0.34 … 1.80
         var r = base[0] * m, g = base[1] * m, b = base[2] * m;
-        if (m > 1) {                                   // push highlights to white
-          var w = (m - 1) * 0.9;
-          r += (255 - r) * w; g += (255 - g) * w; b += (255 - b) * w;
+        if (r > 255) r = 255; if (g > 255) g = 255; if (b > 255) b = 255;
+        if (m > 1) {                                   // highlights roll off toward the light's own colour
+          var w = (m - 1) * li.hl;
+          if (w > 0.94) w = 0.94;
+          r += (tint[0] - r) * w; g += (tint[1] - g) * w; b += (tint[2] - b) * w;
         }
-        r = r > 255 ? 255 : r | 0; g = g > 255 ? 255 : g | 0; b = b > 255 ? 255 : b | 0;
-        lut[(lv << 8) | s] = (255 << 24) | (b << 16) | (g << 8) | r;
+        lut[(lv << 8) | s] = (255 << 24) | ((b | 0) << 16) | ((g | 0) << 8) | (r | 0);
       }
     }
-    var gl = th.glint;
+    // depth 1 = exposed surface grain (rim-lit), deeper = occluded
+    for (var d = 0; d < 256; d++) {
+      var ao;
+      if (d <= 1) ao = -li.rim[0]; else if (d === 2) ao = -li.rim[1];
+      else ao = Math.min(li.aoMax, Math.round((d - 2) * 0.55));
+      this.aoTab[d] = ao + AO_BIAS;
+    }
+    var gl = th.glint, bc = li.bloomColor;
     this.glintColor = ((255 << 24) | (gl[2] << 16) | (gl[1] << 8) | gl[0]) >>> 0;
+    this.bloomRGB = ((bc[2] << 16) | (bc[1] << 8) | bc[0]) >>> 0;
   };
 
   Renderer.prototype.setTheme = function (id) {
@@ -1051,10 +1103,10 @@
    * Returns { width, height, scale } in CSS px.
    */
   Renderer.prototype.layout = function (boxW, boxH, dpr) {
-    var g = this.sim.geo, els = this.els;
-    var s = Math.min(boxW / g.AW, boxH / g.AH);
+    var els = this.els, box = this._box();
+    var s = Math.min(boxW / box.w, boxH / box.h);
     if (!(s > 0)) s = 1;
-    var cssW = Math.round(g.AW * s), cssH = Math.round(g.AH * s);
+    var cssW = Math.round(box.w * s), cssH = Math.round(box.h * s);
     dpr = Math.max(1, Math.min(dpr || 1, 3));
     // keep the static layers within a sane memory budget
     while (cssW * dpr * cssH * dpr > 4.2e6 && dpr > 1) dpr -= 0.25;
@@ -1065,11 +1117,14 @@
       c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr);
       c.style.width = cssW + 'px'; c.style.height = cssH + 'px';
     }
-    var sc = els.sand;
-    sc.style.width = (this.sim.W * s) + 'px';
-    sc.style.height = (this.sim.H * s) + 'px';
-    sc.style.left = ((g.AW - this.sim.W) / 2 * s) + 'px';
-    sc.style.top = ((g.AH - this.sim.H) / 2 * s) + 'px';
+    var grid = [els.sand, els.bloom];
+    for (i = 0; i < grid.length; i++) {
+      if (!grid[i]) continue;
+      grid[i].style.width = (this.sim.W * s) + 'px';
+      grid[i].style.height = (this.sim.H * s) + 'px';
+      grid[i].style.left = ((box.w - this.sim.W) / 2 * s) + 'px';
+      grid[i].style.top = ((box.h - this.sim.H) / 2 * s) + 'px';
+    }
     this.cssW = cssW; this.cssH = cssH;
     this.drawStatic();
     return { width: cssW, height: cssH, scale: s };
@@ -1083,14 +1138,18 @@
     var cell = sim.cell, seed = sim.seed, buf = this.buf, lut = this.lut;
     var base = this.baseLevel, ao = this.aoTab, depth = this.depth;
     var isMica = this.isMica, glint = this.glintColor;
-    var hiOff = this.hiOff, loOff = this.loOff;
+    var hiOff = this.hiOff, loOff = this.loOff, hiBoost = this.hiBoost;
     var rowMin = sim.rowMin, rowMax = sim.rowMax, gateY = sim.gateY;
     var fr = ++this.frameNo;
     var up = sim.gy < 0;                 // vessel currently upside-down?
-    var y, x, i, c, s, d, lv, bi, x0, x1, hi, lo, mid, h;
+    var y, x, i, c, s, d, lv, bi, x0, x1, hi, lo, mid, h, hl;
+    // bloom is soft and slow: refresh it every third frame
+    var glow = this.bctx && fr % 3 === 0 ? this.bloomA : null;
+    var emit = this.emit, bw = this.bw, rimE = this.theme.light.emit.rim, gi;
 
     buf.fill(0);
     depth.fill(0);
+    if (glow) glow.fill(0);
 
     var yS = up ? H - 1 : 0, yE = up ? -1 : H, yD = up ? -1 : 1;
     for (y = yS; y !== yE; y += yD) {
@@ -1104,17 +1163,24 @@
         if (c < REST) { depth[x] = 0; continue; }
         d = depth[x]; if (d < 255) depth[x] = ++d;
         s = seed[i];
-        lv = base[i] - ao[d] + 3;
+        lv = base[i] - ao[d] + AO_BIAS;
         if (c === MOVE) lv++;
+        if (glow) {
+          gi = (y >> 1) * bw + (x >> 1);
+          glow[gi] += d === 1 ? emit[s] + rimE : emit[s];
+        }
         if (isMica[s]) {
           // mica flashes when it tumbles and twinkles slowly at the surface
           h = Math.imul(i ^ (c === MOVE ? fr : fr >> 4), 0x9E3779B1) >>> 0;
           if (c === MOVE ? (h >>> 30) === 0 : (d < 3 && (h >>> 27) === 0)) {
             buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = glint;
+            if (glow) glow[gi] += 0.7;
             continue;
           }
         }
-        hi = lut[((lv + 3) << 8) | s];
+        hl = lv + hiBoost[s];
+        if (hl > 47) hl = 47;
+        hi = lut[(hl << 8) | s];
         mid = lut[(lv << 8) | s];
         lo = lut[((lv - 3) << 8) | s];
         buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = mid;
@@ -1153,9 +1219,33 @@
       bi = iy * BW + ix;
       buf[bi] = buf[bi + 1] = col;
       buf[bi + BW] = buf[bi + BW + 1] = col;
+      if (glow) glow[(py[p] >> 1) * bw + (px[p] >> 1)] += 0.3;
     }
 
     this.sctx.putImageData(this.img, 0, 0);
+    if (glow) this._bloomOut();
+  };
+
+  /** Blur the accumulated light and hand it to the compositor. */
+  Renderer.prototype._bloomOut = function () {
+    var bw = this.bw, bh = this.bh, a = this.bloomA, b = this.bloomB;
+    var x, y, i, pass;
+    for (pass = 0; pass < 1; pass++) {                 // separable [1 2 1]; the upscale softens the rest
+      for (y = 1; y < bh - 1; y++) {
+        i = y * bw + 1;
+        for (x = 1; x < bw - 1; x++, i++) b[i] = (a[i - 1] + a[i] + a[i] + a[i + 1]) * 0.25;
+      }
+      for (y = 1; y < bh - 1; y++) {
+        i = y * bw + 1;
+        for (x = 1; x < bw - 1; x++, i++) a[i] = (b[i - bw] + b[i] + b[i] + b[i + bw]) * 0.25;
+      }
+    }
+    var out = this.bbuf, rgb = this.bloomRGB, k = this.theme.light.bloom * 255, v, n = bw * bh;
+    for (i = 0; i < n; i++) {
+      v = a[i] * k;
+      out[i] = v < 1 ? 0 : (((v > 200 ? 200 : v | 0) << 24) | rgb) >>> 0;
+    }
+    this.bctx.putImageData(this.bimg, 0, 0);
   };
 
   /* ---------------------------------------------------------------- *
@@ -1234,7 +1324,7 @@
 
     // Two slender turned posts. Draw one, rotate 180° for the other so the
     // layer is exactly point-symmetric (it rotates with the vessel).
-    for (var side = 0; side < 2; side++) {
+    for (var side = 0; side < 2 && this.frame; side++) {
       ctx.save();
       if (side) ctx.rotate(Math.PI);
       var px = -g.postX, half = 1.7 * q, yT = -(g.HB + 4 * q), yB = g.HB + 4 * q;
@@ -1277,6 +1367,20 @@
     ctx.lineWidth = 16 * q; ctx.stroke();
     ctx.strokeStyle = rgba(tint, 0.045);
     ctx.lineWidth = 7 * q; ctx.stroke();
+    // a breath of light held inside each bulb, so dark sand has something to
+    // stand against (identical in both bulbs: the layer turns with the glass)
+    var bl = th.light.backlight;
+    if (bl > 0) {
+      for (var b = -1; b <= 1; b += 2) {
+        var cyB = b * g.HB * g.equator * 0.92;
+        var gr = ctx.createRadialGradient(0, cyB, 0, 0, cyB, g.R * 1.15);
+        gr.addColorStop(0, rgba(th.glow, bl));
+        gr.addColorStop(0.55, rgba(th.glow, bl * 0.45));
+        gr.addColorStop(1, rgba(th.glow, 0));
+        ctx.fillStyle = gr;
+        ctx.fillRect(-g.R - 2, cyB - g.R * 1.2, g.R * 2 + 4, g.R * 2.4);
+      }
+    }
     ctx.restore();
   };
 
@@ -1312,7 +1416,7 @@
     ctx.strokeStyle = rgba(tint, 0.20); ctx.lineWidth = 0.5 * q; ctx.stroke(inner);
 
     // End caps (collar + slab). Draw the top one, rotate for the bottom.
-    for (var side = 0; side < 2; side++) {
+    for (var side = 0; side < 2 && this.frame; side++) {
       ctx.save();
       if (side) ctx.rotate(Math.PI);
       var yC = -(g.HB + 3 * q);                        // collar top
@@ -1466,6 +1570,8 @@
     ctx.restore();
     ctx.globalCompositeOperation = 'source-over';
 
+    if (!this.frame) return;
+
     // caps: key light rakes the top edges, the base catches the caustic
     var sw = g.capHalf, yC = g.HB + 3 * q, slab = g.slabH;
     for (var t = -1; t <= 1; t += 2) {
@@ -1476,13 +1582,13 @@
       var band = ctx.createLinearGradient(-sw, 0, sw, 0);
       band.addColorStop(0, 'rgba(255,255,255,0)');
       band.addColorStop(0.22, 'rgba(255,255,255,0.03)');
-      band.addColorStop(0.32, 'rgba(255,255,255,' + (th.cap.kind === 'wood' ? 0.10 : 0.30) + ')');
+      band.addColorStop(0.32, 'rgba(255,255,255,' + (th.cap.kind === 'wood' ? 0.10 : 0.17) + ')');
       band.addColorStop(0.44, 'rgba(255,255,255,0.03)');
       band.addColorStop(1, 'rgba(0,0,0,0.22)');
       ctx.fillStyle = band;
       ctx.fillRect(-sw, sy, sw * 2, slab);
       var edge = ctx.createLinearGradient(0, sy, 0, sy + slab);
-      edge.addColorStop(0, 'rgba(255,255,255,' + (th.cap.kind === 'wood' ? 0.20 : 0.42) + ')');
+      edge.addColorStop(0, 'rgba(255,255,255,' + (th.cap.kind === 'wood' ? 0.20 : 0.26) + ')');
       edge.addColorStop(0.14, 'rgba(255,255,255,0)');
       edge.addColorStop(0.7, 'rgba(0,0,0,0)');
       edge.addColorStop(1, 'rgba(0,0,0,0.38)');

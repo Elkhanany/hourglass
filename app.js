@@ -25,7 +25,7 @@
   var btnMute = $('btn-mute'), btnTheme = $('btn-theme'), themeName = $('theme-name');
   var durations = $('durations'), pillCustom = $('pill-custom'), customLabel = $('custom-label');
   var scrim = $('scrim'), sheetSettings = $('sheet-settings'), sheetCustom = $('sheet-custom');
-  var toastEl = $('toast');
+  var toastEl = $('toast'), veil = $('veil'), btnZen = $('btn-zen');
 
   /* ======================================================================
    *  Settings (persisted)
@@ -34,6 +34,7 @@
   var settings = {
     theme: 'sahara', character: 'asmr', volume: 0.8, muted: false,
     chime: true, tilt: false, zenFull: false, haptics: true,
+    keepAwake: true, frame: true,
     durationMs: 5 * 60000
   };
   try {
@@ -62,8 +63,9 @@
   var roomy = Math.min(window.innerWidth, window.innerHeight) >= 700;
   var sim = new P.Sim({ scale: roomy ? 1.3 : 1.08, seed: (Date.now() & 0x7fffffff) | 1 });
   var renderer = new P.Renderer(sim, {
-    back: $('c-back'), sand: $('c-sand'), front: $('c-front'), light: lightCanvas
+    back: $('c-back'), sand: $('c-sand'), bloom: $('c-bloom'), front: $('c-front'), light: lightCanvas
   });
+  renderer.setFrame(settings.frame);
   var audio = new window.HourglassAudio();
   audio.volume = settings.volume;
   audio.muted = settings.muted;
@@ -93,7 +95,7 @@
     rate: 0,                         // grains per second in the bulk phase
     tailMs: 1000,
     tailGrains: 30,
-    lastTick: performance.now()
+    lastTick: Date.now()
   };
 
   function calibrate() {
@@ -117,11 +119,16 @@
     return T.tailMs * Math.pow(top / T.tailGrains, 1 / TAIL_P);
   }
 
-  /** Advance the wall clock. Called from rAF and from a background timer. */
-  function tickClock(now) {
-    var d = now - T.lastTick;
+  /**
+   * Advance the wall clock. Called from rAF and from a background timer.
+   * Uses Date.now(): unlike performance.now() it keeps counting while the
+   * phone sleeps, so the glass is right when you come back to it.
+   */
+  function tickClock() {
+    var now = Date.now(), d = now - T.lastTick;
     T.lastTick = now;
-    if (d <= 0 || T.state !== 'running' || flip.active) return;
+    // on its side (real gravity) the neck cannot flow, so time stands still too
+    if (d <= 0 || T.state !== 'running' || flip.active || (grav.on && sim.gy < 0.7)) return;
     T.rem -= d;
     if (T.rem <= 0) { T.rem = 0; finish(); }
   }
@@ -141,6 +148,8 @@
   var dirty = true, acc = 0, lastFrame = performance.now();
   var resetting = false;
   var S = { flow: 0, imp: 0, slides: 0 };       // smoothed physics → audio
+  // real gravity: where the device says down is, and whether the glass is held the other way up
+  var grav = { on: false, target: 0, base: 0, seen: false };
   var L = { width: 0, height: 0 };              // current layout (CSS px)
 
   function setState(s) {
@@ -148,14 +157,17 @@
     app.dataset.state = s;
     statusEl.textContent = flip.active ? STATUS.turning : STATUS[s];
     btnPlay.setAttribute('aria-label', s === 'running' ? 'Pause' : (s === 'done' ? 'Flip and start again' : 'Start'));
-    if (s === 'running') { T.lastTick = performance.now(); lastInput = T.lastTick; requestWakeLock(); }
-    else releaseWakeLock();
+    if (s === 'running') { T.lastTick = Date.now(); lastInput = performance.now(); }
+    syncWakeLock();
+    saveSession();
     sim.quiet = 0;
     dirty = true;
   }
 
+  var pendingStart = false;
   function start() {
-    if (resetting || flip.active) return;
+    if (resetting) { pendingStart = true; return; }     // mid cross-fade: start as soon as it lands
+    if (flip.active) return;
     if (T.state === 'done' || T.rem <= 0) {
       if (sim.nTop === 0) { startFlip(true); return; }
       T.rem = remAt(sim.nTop);
@@ -182,18 +194,23 @@
   function reset(keepRunning) {
     if (resetting) return;
     resetting = true;
+    pendingStart = false;
     audio.hush();
     app.classList.add('swap');       // cross-fade the sand
     setTimeout(function () {
-      if (flip.active) { flip.active = false; applyFlip(0); }
+      if (flip.active) { flip.active = false; flip.dragging = false; }
+      grav.base = 0;
+      applyFlip(0);
       sim.reset(sim.defaultGrains);
+      sim.tilt = 0;
       calibrate();
       T.rem = T.durationMs;
       S.flow = S.imp = S.slides = 0;
       resetting = false;
-      setState(keepRunning ? 'running' : 'idle');
+      setState(keepRunning || pendingStart ? 'running' : 'idle');
+      pendingStart = false;
       app.classList.remove('swap');
-    }, 180);
+    }, 460);
   }
 
   function setDuration(ms) {
@@ -206,59 +223,114 @@
   }
 
   /* ======================================================================
-   *  Flip — the vessel turns 180° and gravity turns with it
+   *  Turning the glass — by the Flip button, or by hand
+   *
+   *  Gravity turns with the vessel the whole way round, so the sand follows
+   *  whatever the hand does. Past 180° the glass is simply the other way up:
+   *  the lattice is re-indexed and elapsed ⇄ remaining swap.
    * ==================================================================== */
-  var flip = { active: false, t0: 0, dur: 1550, was: 'idle', remFrom: 0, remTo: 0, shown: 0, auto: false };
+  var flip = {
+    active: false, dragging: false, was: 'idle', auto: false, swapped: false,
+    from: 0, to: 0, t0: 0, dur: 0, easeOut: false,
+    grabAngle: 0, spin: 0, shown: 0
+  };
 
-  function startFlip(autoRun) {
-    if (flip.active || resetting) return;
+  function beginTurn(autoRun) {
     flip.active = true;
-    flip.t0 = performance.now();
     flip.was = T.state;
     flip.auto = !!autoRun;
-    flip.remFrom = T.rem;
-    // elapsed ⇄ remaining: what was below will be above
-    flip.remTo = remAt(sim.total - sim.nTop);
+    flip.swapped = false;
+    flip.spin = 0;
     flip.shown = T.rem;
     sim.flipping = true;
-    sim.quiet = 0;
+    sim.wakeAll();
     statusEl.textContent = STATUS.turning;
     audio.flipStart();
     buzz(14);
   }
 
-  function stepFlip(now) {
-    var p = (now - flip.t0) / flip.dur;
-    if (p >= 1) {
-      sim.completeFlip();
-      flip.active = false;
-      applyFlip(0);
-      T.rem = flip.remTo;
-      T.lastTick = now;
-      audio.flipEnd();
-      buzz(22);
-      var next;
-      if (T.rem <= 0) next = 'done';
-      else if (flip.auto || flip.was === 'running' || flip.was === 'done') next = 'running';
-      else next = 'paused';
-      setState(next);
-      return;
+  /** The Flip button: one smooth half turn. */
+  function startFlip(autoRun) {
+    if (flip.active || resetting) return;
+    beginTurn(autoRun);
+    flip.dragging = false;
+    flip.from = 0; flip.to = Math.PI;
+    flip.t0 = performance.now(); flip.dur = 2600; flip.easeOut = false;   // unhurried
+  }
+
+  /** Let go: settle on whichever end is nearer (or where it was flung). */
+  function releaseTurn() {
+    if (!flip.dragging) return;
+    flip.dragging = false;
+    var a = sim.angle, w = flip.spin, to;
+    if (w > 2.2) to = a > 0 ? Math.PI : 0;
+    else if (w < -2.2) to = a < 0 ? -Math.PI : 0;
+    else to = Math.abs(a) > Math.PI / 2 ? (a > 0 ? Math.PI : -Math.PI) : 0;
+    flip.from = a; flip.to = to;
+    flip.t0 = performance.now();
+    flip.dur = Math.max(420, Math.min(1500, Math.abs(to - a) / Math.PI * 1900));
+    flip.easeOut = true;
+  }
+
+  /** The vessel has passed 180°: re-index the lattice, swap the clock. */
+  function swapEnds() {
+    var there = remAt(sim.total - sim.nTop);
+    sim.completeFlip();
+    sim.flipping = true;               // still turning
+    T.rem = there;
+    flip.swapped = !flip.swapped;
+  }
+
+  function endTurn() {
+    flip.active = false; flip.dragging = false; flip.spin = 0;
+    sim.flipping = false;
+    sim.angle = 0;
+    sim.wakeAll();
+    applyFlip(0);
+    audio.flipEnd();
+    buzz(22);
+    setState(flip.swapped ? stateAfterSwap(flip.was, flip.auto) : flip.was);
+  }
+  /** Turning a glass over starts it, unless you had paused it. */
+  function stateAfterSwap(was, auto) {
+    if (T.rem <= 0) return 'done';
+    return (auto || was === 'running' || was === 'done') ? 'running' : 'paused';
+  }
+
+  function stepFlip(now, dtMs) {
+    var prev = sim.angle, a;
+    if (flip.dragging) {
+      a = prev + (flip.grabAngle - prev) * 0.2;         // follow the finger with some weight
+      if (a > Math.PI) { swapEnds(); a -= Math.PI; prev -= Math.PI; flip.grabAngle -= Math.PI; }
+      else if (a < -Math.PI) { swapEnds(); a += Math.PI; prev += Math.PI; flip.grabAngle += Math.PI; }
+    } else {
+      var p = (now - flip.t0) / flip.dur;
+      if (p >= 1) {
+        if (flip.to !== 0) swapEnds();
+        endTurn();
+        return;
+      }
+      var e = flip.easeOut ? 1 - Math.pow(1 - p, 3)
+                           : (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+      a = flip.from + (flip.to - flip.from) * e;
     }
-    var e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;   // easeInOutCubic
-    sim.angle = Math.PI * e;
-    flip.shown = flip.remFrom + (flip.remTo - flip.remFrom) * e;
-    applyFlip(sim.angle);
+    sim.angle = a;
+    flip.spin += ((a - prev) / Math.max(dtMs, 1) * 1000 - flip.spin) * 0.35;   // rad/s
+    var f = Math.min(1, Math.abs(a) / Math.PI);
+    f = f * f * (3 - 2 * f);
+    flip.shown = T.rem + (remAt(sim.total - sim.nTop) - T.rem) * f;
+    applyFlip(a);
   }
 
   function applyFlip(theta) {
+    var total = theta + grav.base;
+    rotor.style.transform = total ? 'rotate(' + total.toFixed(4) + 'rad)' : '';
     if (!theta) {
-      rotor.style.transform = '';
       assembly.style.transform = '';
       lightCanvas.style.opacity = '';
       shadow.style.opacity = '';
       return;
     }
-    rotor.style.transform = 'rotate(' + theta.toFixed(4) + 'rad)';
     // pull back just enough that the turning vessel never clips the screen
     var c = Math.abs(Math.cos(theta)), s = Math.abs(Math.sin(theta));
     var bw = c * L.width + s * L.height, bh = s * L.width + c * L.height;
@@ -298,22 +370,33 @@
   }
 
   /* ======================================================================
-   *  Tilt (optional, subtle)
+   *  Real gravity (optional)
+   *
+   *  The sand feels the pull the phone feels. Lean it and the piles slump;
+   *  lay it on its side and the flow stops; turn it over and the other bulb
+   *  becomes the top — the phone *is* the hourglass.
    * ==================================================================== */
-  var MAX_TILT = 16 * RAD, tiltTarget = 0;
+  function wrapPi(a) {
+    while (a > Math.PI) a -= 2 * Math.PI;
+    while (a <= -Math.PI) a += 2 * Math.PI;
+    return a;
+  }
 
   function onOrient(e) {
     if (e.beta == null || e.gamma == null) return;
-    var o = (screen.orientation && typeof screen.orientation.angle === 'number')
-      ? screen.orientation.angle : (window.orientation || 0);
-    if (o) { tiltTarget = 0; return; }                    // portrait only
-    var b = e.beta * RAD, g = e.gamma * RAD;
-    // gravity projected onto the screen plane (x → right, y → down)
+    grav.seen = true;
+    var b = e.beta * RAD, g = e.gamma * RAD, t;
+    // gravity projected onto the screen plane of the device
+    // (x → its right edge, y → its bottom edge)
     var gx = Math.cos(b) * Math.sin(g), gy = Math.sin(b);
-    var m = Math.sqrt(gx * gx + gy * gy);
-    if (m < 0.25 || gy <= 0) { tiltTarget = 0; return; }  // lying flat / inverted
-    var phi = Math.atan2(gx, gy) * 0.7 * Math.min(1, (m - 0.25) / 0.25);
-    tiltTarget = Math.max(-MAX_TILT, Math.min(MAX_TILT, phi));
+    // …seen from the page, which the system may have rotated
+    var o = typeof window.orientation === 'number' ? window.orientation
+          : (screen.orientation ? screen.orientation.angle : 0);
+    if (o === 90) { t = gx; gx = gy; gy = -t; }
+    else if (o === -90 || o === 270) { t = gx; gx = -gy; gy = t; }
+    else if (o === 180) { gx = -gx; gy = -gy; }
+    if (gx * gx + gy * gy < 0.05) return;        // lying flat: no pull in the plane, keep the last heading
+    grav.target = Math.atan2(gx, gy);
   }
 
   function setTilt(on, fromUser) {
@@ -321,22 +404,53 @@
     var opt = $('opt-tilt');
     function off(msg) {
       window.removeEventListener('deviceorientation', onOrient);
-      tiltTarget = 0; settings.tilt = false; opt.checked = false; save();
+      grav.on = false; grav.target = 0;
+      settings.tilt = false; opt.checked = false; save();
       if (msg) toast(msg);
     }
     if (!on) { off(); return; }
-    if (!D) { off(fromUser ? 'Tilt is not available on this device' : ''); return; }
+    if (!D) { off(fromUser ? 'Motion is not available on this device' : ''); return; }
     function go() {
+      grav.seen = false;
       window.addEventListener('deviceorientation', onOrient);
+      grav.on = true;
       settings.tilt = true; opt.checked = true; save();
+      // some devices grant access but never report a reading
+      setTimeout(function () { if (grav.on && !grav.seen) off(fromUser ? 'No motion data from this device' : ''); }, 2500);
     }
     if (typeof D.requestPermission === 'function') {
-      // iOS 13+: must be asked from inside a user gesture
+      // iOS 13+: must be asked from inside a tap
       if (!fromUser) { opt.checked = false; return; }
       D.requestPermission().then(function (r) {
-        if (r === 'granted') go(); else off('Motion access was declined');
+        if (r === 'granted') go(); else off('Motion access was declined. Allow it in Settings to use this.');
       }).catch(function () { off('Motion access is unavailable'); });
     } else go();
+  }
+
+  /** Held the other way up: the lower bulb is the top now. */
+  function tiltSwap() {
+    var was = T.state, there = remAt(sim.total - sim.nTop);
+    sim.completeFlip();
+    grav.base = grav.base ? 0 : Math.PI;
+    sim.tilt = wrapPi(sim.tilt + Math.PI);
+    T.rem = there;
+    applyFlip(0);
+    buzz(18);
+    setState(stateAfterSwap(was, false));
+  }
+
+  function stepGravity() {
+    var want = grav.on ? grav.target : 0;
+    if (want > -0.045 && want < 0.045) want = 0;          // standing straight: let the sand sleep
+    var d = wrapPi(want + grav.base - sim.tilt);
+    if (d > 0.0008 || d < -0.0008) {
+      sim.tilt = wrapPi(sim.tilt + d * 0.07);              // gravity eases over, never snaps
+      sim.wakeAll();
+    } else if (d !== 0) {
+      sim.tilt = wrapPi(want + grav.base);
+      sim.wakeAll();
+    }
+    if (!flip.active && !resetting && (sim.tilt > 1.75 || sim.tilt < -1.75)) tiltSwap();
   }
 
   /* ======================================================================
@@ -348,13 +462,11 @@
     lastFrame = now;
     if (dtMs <= 0) return;
 
-    tickClock(now);
-    if (flip.active) stepFlip(now);
+    tickClock();
+    if (flip.active) stepFlip(now, dtMs);
     handlePour(now, dtMs);
 
-    var dTilt = tiltTarget - sim.tilt;
-    if (dTilt > 0.0006 || dTilt < -0.0006) { sim.tilt += dTilt * 0.12; sim.wakeAll(); }
-    else if (!tiltTarget && sim.tilt) { sim.tilt = 0; sim.wakeAll(); }
+    stepGravity();
 
     var running = T.state === 'running' && !flip.active;
     var draining = T.state === 'done' && sim.nTop > 0 && !flip.active;
@@ -395,6 +507,7 @@
     }
 
     feedAudio(dtMs / 1000, active, running);
+    if (now - lastSave > 5000) { lastSave = now; if (T.state === 'running') saveSession(); }
     showTime(flip.active ? flip.shown : T.rem);
     updateZen(now);
   }
@@ -418,6 +531,7 @@
       slides: S.slides,
       pouring: pour.active,
       flipping: flip.active,
+      spin: Math.abs(flip.spin),
       angle: sim.angle,
       sim: active ? sim : null
     });
@@ -442,14 +556,30 @@
   /* ======================================================================
    *  Zen HUD
    * ==================================================================== */
+  var zenForced = false;
   function wake() {
     lastInput = performance.now();
+    zenForced = false;
     if (app.classList.contains('zen')) app.classList.remove('zen');
   }
   function updateZen(now) {
-    var zen = T.state === 'running' && !sheetOpen && !pour.held && !flip.active &&
-              now - lastInput > 4000;
+    var zen = zenForced || (T.state === 'running' && !sheetOpen && !pour.held && !flip.active &&
+              now - lastInput > 4000);
     if (zen !== app.classList.contains('zen')) app.classList.toggle('zen', zen);
+  }
+  /** Dim the controls right away; where the browser allows, hide its chrome too. */
+  function zenNow() {
+    zenForced = true;
+    app.classList.add('zen');
+    var el = document.documentElement;
+    var req = el.requestFullscreen || el.webkitRequestFullscreen;
+    var inFs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (req && !inFs) {
+      try {
+        var p = req.call(el, { navigationUI: 'hide' });
+        if (p && p.catch) p.catch(function () {});
+      } catch (e) {}
+    }
   }
 
   /* ======================================================================
@@ -471,14 +601,14 @@
       right = hudBottom.getBoundingClientRect().left;
       if (right - left < 120) { left = 0; right = vw; }
     } else {
-      top = hudTop.getBoundingClientRect().bottom + 6;
-      bottom = hudBottom.querySelector('.panel').getBoundingClientRect().top - 12;
+      top = hudTop.getBoundingClientRect().bottom + (settings.frame ? 6 : 14);
+      bottom = hudBottom.querySelector('.panel').getBoundingClientRect().top - (settings.frame ? 12 : 18);
     }
     var g = sim.geo;
     var availW = Math.max(60, right - left - 20);
     var availH = Math.max(120, bottom - top);
     // never let a grain grow past ~2 CSS px: it stops reading as sand
-    availH = Math.min(availH, g.AH * 2.05);
+    availH = Math.min(availH, renderer._box().h * 2.05);
     var r = renderer.layout(availW, availH, window.devicePixelRatio || 1);
     L.width = r.width; L.height = r.height;
     var x = left + (right - left - r.width) / 2;
@@ -510,19 +640,83 @@
     toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 2200);
   }
 
-  var wakeLock = null;
-  function requestWakeLock() {
-    if (!navigator.wakeLock || wakeLock || document.hidden) return;
-    navigator.wakeLock.request('screen').then(function (wl) {
-      wakeLock = wl;
-      wl.addEventListener('release', function () { if (wakeLock === wl) wakeLock = null; });
-      if (T.state !== 'running') releaseWakeLock();
-    }).catch(function () {});
+  /* ---- keep the screen awake while the sand is flowing --------------- */
+  var wakeLock = null, wakePending = false, wakeState = 'idle';   // idle | active | failed | unsupported
+  var awakeNote = $('awake-note');
+  function wantAwake() {
+    return settings.keepAwake && T.state === 'running' && !document.hidden;
   }
-  function releaseWakeLock() {
-    if (!wakeLock) return;
-    var wl = wakeLock; wakeLock = null;
-    try { wl.release().catch(function () {}); } catch (e) {}
+  function showAwake() {
+    awakeNote.textContent =
+      wakeState === 'unsupported' ? 'Not supported by this browser' :
+      !settings.keepAwake ? 'Off: the screen may dim and lock' :
+      wakeState === 'active' ? 'On now' :
+      wakeState === 'failed' ? 'Not available right now' :
+      'While the sand is flowing';
+  }
+  function syncWakeLock() {
+    if (!('wakeLock' in navigator)) { wakeState = 'unsupported'; showAwake(); return; }
+    if (wantAwake()) {
+      if (wakeLock || wakePending) return;
+      wakePending = true;
+      navigator.wakeLock.request('screen').then(function (wl) {
+        wakePending = false;
+        wakeLock = wl; wakeState = 'active';
+        wl.addEventListener('release', function () {
+          if (wakeLock === wl) wakeLock = null;
+          if (wakeState === 'active') wakeState = 'idle';
+          showAwake();
+          // the system let go (tab hidden, power saving): take it back when allowed
+          setTimeout(syncWakeLock, 500);
+        });
+        showAwake();
+        if (!wantAwake()) syncWakeLock();
+      }).catch(function () { wakePending = false; wakeState = 'failed'; showAwake(); });
+    } else {
+      if (wakeLock) {
+        var wl = wakeLock; wakeLock = null;
+        try { wl.release().catch(function () {}); } catch (e) {}
+      }
+      if (wakeState !== 'unsupported') wakeState = 'idle';
+      showAwake();
+    }
+  }
+
+  /* ---- the glass remembers where it was ------------------------------ */
+  // A real hourglass keeps running when you look away. If the page is
+  // closed or reloaded, the timer is restored from the wall clock.
+  var SKEY = 'hourglass.session.v1', lastSave = 0;
+  function saveSession() {
+    try {
+      if (T.state === 'idle') { localStorage.removeItem(SKEY); return; }
+      localStorage.setItem(SKEY, JSON.stringify({
+        v: 1, at: Date.now(), state: T.state, rem: T.rem, durationMs: T.durationMs,
+        scale: sim.geo.q, total: sim.total, top: sim.nTop,
+        mpg: T.mpg, tailMs: T.tailMs, tailGrains: T.tailGrains
+      }));
+    } catch (e) {}
+  }
+  function restoreSession() {
+    var s;
+    try { s = JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch (e) { return false; }
+    if (!s || s.v !== 1 || qt) return false;
+    var away = Date.now() - s.at;
+    if (!(away >= 0) || away > 6 * 3600000) return false;
+    if (s.durationMs !== T.durationMs || s.scale !== sim.geo.q) return false;   // a different glass
+    if (!(s.total > 0) || s.total > sim.maxTotal || !(s.mpg > 0) || !(s.tailMs > 0)) return false;
+    var rem = +s.rem || 0, state = s.state;
+    if (state === 'running') { rem -= away; if (rem <= 0) { rem = 0; state = 'done'; } }
+    if (state !== 'running' && state !== 'paused' && state !== 'done') return false;
+    if (state === 'done' && away > 3600000) return false;                       // long finished: start fresh
+    sim.reset(s.total);
+    T.mpg = s.mpg; T.tailMs = s.tailMs; T.tailGrains = s.tailGrains; T.rate = 1000 / T.mpg;
+    T.rem = rem;
+    var top = state === 'done' ? 0
+            : (state === 'paused' ? Math.min(sim.nTop, s.top | 0) : Math.ceil(topAt(rem)));
+    if (sim.nTop > top) sim.fastForward(sim.nTop - top);
+    for (var i = 0; i < 240 && sim.isActive(); i++) { sim.beginFrame(); sim.step(); }   // settle
+    T.state = state;
+    return true;
   }
 
   /* ======================================================================
@@ -531,7 +725,10 @@
 
   // Every gesture: unlock audio (iOS) and wake the HUD.
   var wokeFromZen = false;
-  function onGesture() { audio.unlock(); }
+  function onGesture() {
+    audio.unlock();
+    if (wakeState === 'failed') syncWakeLock();       // some browsers want a gesture
+  }
   ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mousedown', 'click', 'keydown'].forEach(function (t) {
     window.addEventListener(t, onGesture, { capture: true, passive: true });
   });
@@ -540,24 +737,63 @@
     wake();
   }, { capture: true, passive: true });
 
-  // Tap the glass: pause / resume. (A tap that only woke the HUD does nothing else.)
-  var down = null;
+  // The glass itself: tap it to pause / resume, or take hold and turn it.
+  // (A tap that only woke the HUD does nothing else.)
+  var grab = null;
   stage.addEventListener('pointerdown', function (e) {
-    if (e.button) return;
-    down = { x: e.clientX, y: e.clientY, t: performance.now(), zen: wokeFromZen };
-  });
-  stage.addEventListener('pointerup', function (e) {
-    var d = down; down = null;
-    if (!d || d.zen || sheetOpen) return;
-    var dx = e.clientX - d.x, dy = e.clientY - d.y;
-    if (dx * dx + dy * dy > 196 || performance.now() - d.t > 700) return;
+    if (e.button || grab) return;
     var r = assembly.getBoundingClientRect();
     var padX = r.width * 0.04, padY = r.height * 0.01;
-    if (e.clientX < r.left + padX || e.clientX > r.right - padX ||
-        e.clientY < r.top + padY || e.clientY > r.bottom - padY) return;
-    toggle();
+    grab = {
+      id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), zen: wokeFromZen,
+      inside: !(e.clientX < r.left + padX || e.clientX > r.right - padX ||
+                e.clientY < r.top + padY || e.clientY > r.bottom - padY),
+      cx: r.left + r.width / 2, cy: r.top + r.height / 2, h: r.height,
+      turning: false, arc: false, last: 0, lastX: 0
+    };
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
   });
-  stage.addEventListener('pointercancel', function () { down = null; });
+  stage.addEventListener('pointermove', function (e) {
+    var g = grab;
+    if (!g || e.pointerId !== g.id) return;
+    if (!g.turning) {
+      var dx = e.clientX - g.x, dy = e.clientY - g.y;
+      if (dx * dx + dy * dy < 256 || !g.inside || sheetOpen || resetting || flip.active) return;
+      beginTurn(false);
+      flip.dragging = true;
+      flip.grabAngle = 0;
+      g.turning = true;
+      // far enough from the middle to swing it round; otherwise a sideways push
+      var rx = g.x - g.cx, ry = g.y - g.cy;
+      g.arc = Math.sqrt(rx * rx + ry * ry) > g.h * 0.15;
+      g.last = Math.atan2(e.clientY - g.cy, e.clientX - g.cx);
+      g.lastX = e.clientX;
+      return;
+    }
+    if (!flip.dragging) return;
+    if (g.arc) {
+      var ang = Math.atan2(e.clientY - g.cy, e.clientX - g.cx), d = ang - g.last;
+      if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI;
+      flip.grabAngle += d;
+      g.last = ang;
+    } else {
+      flip.grabAngle += (e.clientX - g.lastX) / Math.max(120, L.width) * Math.PI * 0.9;
+      g.lastX = e.clientX;
+    }
+  });
+  function stageRelease(e) {
+    var g = grab;
+    if (!g || e.pointerId !== g.id) return;
+    grab = null;
+    if (g.turning) { releaseTurn(); return; }
+    if (e.type !== 'pointerup' || g.zen || sheetOpen || !g.inside || flip.active) return;
+    var dx = e.clientX - g.x, dy = e.clientY - g.y;
+    if (dx * dx + dy * dy > 196 || performance.now() - g.t > 700) return;
+    audio.tap();                       // fingertip on glass
+    toggle();
+  }
+  stage.addEventListener('pointerup', stageRelease);
+  stage.addEventListener('pointercancel', stageRelease);
 
   btnPlay.addEventListener('click', toggle);
   btnFlip.addEventListener('click', function () { startFlip(false); });
@@ -573,7 +809,10 @@
     try { btnSand.setPointerCapture(e.pointerId); } catch (err) {}
     buzz(8);
   }
-  function pourEnd() { pour.held = false; btnSand.classList.remove('held'); }
+  function pourEnd() {
+    if (pour.held) saveSession();
+    pour.held = false; btnSand.classList.remove('held');
+  }
   btnSand.addEventListener('pointerdown', pourStart);
   btnSand.addEventListener('pointerup', pourEnd);
   btnSand.addEventListener('pointercancel', pourEnd);
@@ -592,13 +831,26 @@
     btnMute.setAttribute('aria-label', m ? 'Unmute sound' : 'Mute sound');
   }
   btnMute.addEventListener('click', function () { setMuted(!settings.muted); buzz(8); });
+  btnZen.addEventListener('click', function () { buzz(8); zenNow(); });
 
   var THEME_ORDER = ['sahara', 'volcanic', 'moonstone'];
-  function setTheme(id) {
+  /** Change something about the instrument behind a slow cross-fade. */
+  var softTimer = 0;
+  function softSwap(fn) {
+    clearTimeout(softTimer);
+    assembly.classList.add('fade');
+    softTimer = setTimeout(function () {
+      fn();
+      dirty = true;
+      requestAnimationFrame(function () { assembly.classList.remove('fade'); });
+    }, 380);
+  }
+  function setTheme(id, soft) {
     settings.theme = id; save();
     document.documentElement.dataset.theme = id;
     themeName.textContent = P.THEMES[id].short;
-    renderer.setTheme(id);
+    if (soft) softSwap(function () { renderer.setTheme(id); });
+    else renderer.setTheme(id);
     dirty = true;
     var cards = document.querySelectorAll('#themes .card');
     for (var i = 0; i < cards.length; i++) {
@@ -606,7 +858,7 @@
     }
   }
   btnTheme.addEventListener('click', function () {
-    setTheme(THEME_ORDER[(THEME_ORDER.indexOf(settings.theme) + 1) % THEME_ORDER.length]);
+    setTheme(THEME_ORDER[(THEME_ORDER.indexOf(settings.theme) + 1) % THEME_ORDER.length], true);
     buzz(8);
   });
 
@@ -618,16 +870,18 @@
       pills[i].setAttribute('aria-checked', on ? 'true' : 'false');
       if (on) hit = true;
     }
-    pillCustom.setAttribute('aria-checked', hit ? 'false' : 'true');
-    customLabel.textContent = hit ? 'mm:ss' : fmt(T.durationMs)[0];
+    pillCustom.setAttribute('aria-pressed', hit ? 'false' : 'true');
+    customLabel.textContent = hit ? 'Custom' : fmt(T.durationMs)[0];
   }
   durations.addEventListener('click', function (e) {
     var pill = e.target.closest('.pill');
     if (!pill) return;
     buzz(8);
-    if (pill === pillCustom) { openCustom(); return; }
     setDuration(+pill.dataset.min * 60000);
   });
+  // any length you like: the Custom button, or simply tap the time
+  pillCustom.addEventListener('click', function () { buzz(8); openCustom(pillCustom); });
+  $('readout').addEventListener('click', function () { buzz(8); openCustom(null); });
 
   /* ---- sheets ------------------------------------------------------- */
   function openSheet(el, opener) {
@@ -646,7 +900,7 @@
     sheetOpen = null;
     el.classList.remove('open'); scrim.classList.remove('open');
     var done = function () { el.hidden = true; if (!sheetOpen) scrim.hidden = true; };
-    if (instant) done(); else setTimeout(done, 430);
+    if (instant) done(); else setTimeout(done, 560);
     if (sheetOpener && !instant) { try { sheetOpener.focus({ preventScroll: true }); } catch (e) {} }
     lastInput = performance.now();
   }
@@ -662,7 +916,7 @@
   /* ---- settings controls -------------------------------------------- */
   $('themes').addEventListener('click', function (e) {
     var c = e.target.closest('.card');
-    if (c) { setTheme(c.dataset.themeId); buzz(8); }
+    if (c) { setTheme(c.dataset.themeId, true); buzz(8); }
   });
   function setCharacter(id) {
     settings.character = id; save();
@@ -691,7 +945,19 @@
     audio.setChimeEnabled(settings.chime);
     if (settings.chime) audio.chime(0);                // audition it
   });
-  $('opt-tilt').addEventListener('change', function (e) { setTilt(e.target.checked, true); });
+  $('opt-awake').addEventListener('change', function (e) {
+    settings.keepAwake = e.target.checked; save();
+    syncWakeLock();
+  });
+  $('opt-frame').addEventListener('change', function (e) {
+    settings.frame = e.target.checked; save();
+    softSwap(function () {
+      renderer.setFrame(settings.frame);
+      layout();                                        // the bare glass can sit larger
+    });
+  });
+  // 'click', not 'change': iOS only shows its motion prompt from a direct tap
+  $('opt-tilt').addEventListener('click', function (e) { setTilt(e.target.checked, true); });
   $('opt-zen').addEventListener('change', function (e) {
     settings.zenFull = e.target.checked; save();
     app.classList.toggle('zen-full', settings.zenFull);
@@ -764,8 +1030,8 @@
     setWheel(w, v, true);
     buzz(6);
   });
-  function openCustom() {
-    openSheet(sheetCustom, pillCustom);
+  function openCustom(opener) {
+    openSheet(sheetCustom, opener);
     var total = Math.round(T.durationMs / 1000);
     setWheel(wheelMin, Math.min(99, Math.floor(total / 60)), false);
     setWheel(wheelSec, total % 60, false);
@@ -812,26 +1078,42 @@
     }
   }
   document.addEventListener('visibilitychange', function () {
-    var now = performance.now();
-    tickClock(now);
+    tickClock();
     if (document.hidden) {
       backgroundHold();
       pourEnd();
+      if (grab && grab.turning) { grab = null; releaseTurn(); }
+      saveSession();
     } else {
-      lastFrame = now; acc = 0; dirty = true;
-      if (T.state === 'running') requestWakeLock();
+      lastFrame = performance.now(); acc = 0; dirty = true;
     }
+    syncWakeLock();
   });
+  window.addEventListener('pagehide', saveSession);
   // rAF sleeps in a hidden tab; the clock (and the completion bowl) must not.
   setInterval(function () {
     if (!document.hidden) return;
-    tickClock(performance.now());
+    tickClock();
     backgroundHold();
   }, 400);
 
-  window.addEventListener('resize', queueLayout);
-  window.addEventListener('orientationchange', function () { setTimeout(queueLayout, 120); });
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', queueLayout);
+  // When the screen turns, let the picture dip to dark and return slowly
+  // instead of snapping into the new layout.
+  var wasLandscape = window.innerWidth > window.innerHeight;
+  function onResize() {
+    var land = window.innerWidth > window.innerHeight;
+    if (land !== wasLandscape) {
+      wasLandscape = land;
+      veil.classList.add('on');
+      layout();
+      setTimeout(function () { layout(); veil.classList.remove('on'); }, 260);
+    } else {
+      queueLayout();
+    }
+  }
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', function () { setTimeout(onResize, 120); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
   window.addEventListener('load', queueLayout);
 
   /* ======================================================================
@@ -839,8 +1121,11 @@
    * ==================================================================== */
   calibrate();
   T.rem = T.durationMs;
+  var restored = restoreSession();                     // pick up where the glass was left
   app.classList.toggle('zen-full', settings.zenFull);
   $('opt-chime').checked = settings.chime;
+  $('opt-awake').checked = settings.keepAwake;
+  $('opt-frame').checked = settings.frame;
   $('opt-zen').checked = settings.zenFull;
   $('opt-haptics').checked = settings.haptics;
   showVolume();
@@ -849,10 +1134,10 @@
   syncPills();
   layout();
   setTheme(settings.theme);
-  setState('idle');
+  setState(restored ? T.state : 'idle');
   if (settings.tilt) setTilt(true, false);
   showTime(T.rem);
-  requestAnimationFrame(function (t) { lastFrame = t; T.lastTick = t; requestAnimationFrame(frame); });
+  requestAnimationFrame(function (t) { lastFrame = t; T.lastTick = Date.now(); requestAnimationFrame(frame); });
 
   // Synthesise the sound beds while idle so the first touch is instant.
   if (window.requestIdleCallback) window.requestIdleCallback(function () { audio.prepare(); }, { timeout: 2500 });
@@ -870,6 +1155,7 @@
     sim: sim, renderer: renderer, audio: audio, timer: T, flip: flip, stats: S,
     start: start, pause: pause, toggle: toggle, reset: reset,
     flipNow: startFlip, setDuration: setDuration, setTheme: setTheme,
-    topAt: topAt, remAt: remAt
+    topAt: topAt, remAt: remAt,
+    wakeState: function () { return wakeState; }, grav: grav
   };
 })();

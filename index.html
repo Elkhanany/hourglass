@@ -31,6 +31,7 @@
       <div id="rotor">
         <canvas id="c-back" aria-hidden="true"></canvas>
         <canvas id="c-sand" aria-hidden="true"></canvas>
+        <canvas id="c-bloom" aria-hidden="true"></canvas>
         <canvas id="c-front" aria-hidden="true"></canvas>
       </div>
       <canvas id="c-light" aria-hidden="true"></canvas>
@@ -43,12 +44,17 @@
       <button id="btn-theme" class="chip" type="button" aria-label="Change material">
         <span class="swatch" aria-hidden="true"></span><span id="theme-name">Sahara Quartz</span>
       </button>
+      <div class="top-actions">
+      <button id="btn-zen" class="icon-btn" type="button" aria-label="Dim the controls now">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.2 14.6A7.8 7.8 0 0 1 9.4 4.8a7.8 7.8 0 1 0 9.8 9.8z"/></svg>
+      </button>
       <button id="btn-mute" class="icon-btn" type="button" aria-label="Mute sound" aria-pressed="false">
         <svg class="ic ic-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z"/><path class="wave" d="M15.2 9.2a4 4 0 0 1 0 5.6M17.6 6.8a7.4 7.4 0 0 1 0 10.4"/></svg>
         <svg class="ic ic-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z"/><path class="wave" d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></svg>
       </button>
+      </div>
     </div>
-    <div id="readout" role="timer" aria-live="off" aria-label="Time remaining">
+    <div id="readout" role="timer" aria-live="off" aria-label="Time remaining. Tap to set a custom duration.">
       <span id="t-main">05:00</span><span id="t-frac">.0</span>
     </div>
     <div id="status" aria-live="polite">Tap the glass to begin</div>
@@ -57,17 +63,19 @@
   <!-- bottom HUD: floating control bar -->
   <footer id="hud-bottom" class="hud">
     <div class="panel">
-      <div id="durations" role="radiogroup" aria-label="Duration">
-        <button class="pill" type="button" role="radio" aria-checked="false" data-min="1">1<i>m</i></button>
-        <button class="pill" type="button" role="radio" aria-checked="false" data-min="3">3<i>m</i></button>
-        <button class="pill" type="button" role="radio" aria-checked="true" data-min="5">5<i>m</i></button>
-        <button class="pill" type="button" role="radio" aria-checked="false" data-min="10">10<i>m</i></button>
-        <button class="pill" type="button" role="radio" aria-checked="false" data-min="15">15<i>m</i></button>
-        <button class="pill" type="button" role="radio" aria-checked="false" data-min="25">25<i>m</i></button>
-        <button class="pill" type="button" role="radio" aria-checked="false" data-min="45">45<i>m</i></button>
-        <button class="pill pill-custom" id="pill-custom" type="button" role="radio" aria-checked="false" aria-label="Custom duration">
+      <div id="duration-row">
+        <div id="durations" role="radiogroup" aria-label="Duration">
+          <button class="pill" type="button" role="radio" aria-checked="false" data-min="1">1<i>m</i></button>
+          <button class="pill" type="button" role="radio" aria-checked="false" data-min="3">3<i>m</i></button>
+          <button class="pill" type="button" role="radio" aria-checked="true" data-min="5">5<i>m</i></button>
+          <button class="pill" type="button" role="radio" aria-checked="false" data-min="10">10<i>m</i></button>
+          <button class="pill" type="button" role="radio" aria-checked="false" data-min="15">15<i>m</i></button>
+          <button class="pill" type="button" role="radio" aria-checked="false" data-min="25">25<i>m</i></button>
+          <button class="pill" type="button" role="radio" aria-checked="false" data-min="45">45<i>m</i></button>
+        </div>
+        <button class="pill pill-custom" id="pill-custom" type="button" aria-pressed="false" aria-haspopup="dialog" aria-label="Custom duration">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="7.2"/><path d="M12 9v4.2l2.6 1.6M9.5 3.2h5"/></svg>
-          <span id="custom-label">mm:ss</span>
+          <span id="custom-label">Custom</span>
         </button>
       </div>
 
@@ -125,6 +133,13 @@
         </button>
       </div>
 
+      <div class="rows rows-single">
+        <label class="row" for="opt-frame">
+          <span><b>Frame</b><small>Caps and posts around the glass</small></span>
+          <input id="opt-frame" class="switch" type="checkbox" role="switch" checked>
+        </label>
+      </div>
+
       <h3>Acoustic character</h3>
       <div id="characters" class="segmented" role="radiogroup" aria-label="Acoustic character">
         <button type="button" role="radio" aria-checked="true" data-character="asmr">Close-Miked ASMR</button>
@@ -143,8 +158,12 @@
           <span><b>Completion bowl</b><small>A soft singing-bowl bloom when the last grain falls</small></span>
           <input id="opt-chime" class="switch" type="checkbox" role="switch" checked>
         </label>
+        <label class="row" for="opt-awake">
+          <span><b>Keep screen awake</b><small id="awake-note">While the sand is flowing</small></span>
+          <input id="opt-awake" class="switch" type="checkbox" role="switch" checked>
+        </label>
         <label class="row" for="opt-tilt">
-          <span><b>Tilt gravity</b><small>Sand leans gently with your device</small></span>
+          <span><b>Real gravity</b><small>Sand follows how you hold the phone. Turn it over to flip.</small></span>
           <input id="opt-tilt" class="switch" type="checkbox" role="switch">
         </label>
         <label class="row" for="opt-zen">
@@ -192,6 +211,7 @@
   </section>
 
   <div id="toast" role="status" aria-live="polite"></div>
+  <div id="veil" aria-hidden="true"></div>
 </div>
 
 <noscript><p style="position:fixed;inset:0;display:grid;place-items:center;color:#d8d2c8;font:16px system-ui">Hourglass needs JavaScript to simulate its sand.</p></noscript>
