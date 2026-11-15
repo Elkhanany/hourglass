@@ -9,11 +9,16 @@
  *     within 1.5 s after it.
  * E5  A 60 s glass breached in the upper funnel (forceCrack at u ≈ 0.15,
  *     w = 3) at 10 s and shaken ('normal') from 10 to 14 s: sand leaks from
- *     the top, the rate is re-timed at least once, and the end is still on
- *     time (the last grain within 30 ms of 00:00.0, or, if the top ran dry
- *     first, 'done' exactly once at 00:00.0 within 30 ms).
+ *     the top. A 1 min glass's neck flows far faster than the leak, so the
+ *     valve absorbs it: the sand above stays within the re-timing threshold
+ *     of the clock throughout, it is re-timed exactly where that is needed
+ *     (here: never), the last grain leaves within 30 ms of 00:00.0, and
+ *     'done' comes once, at start + 60 s.
+ * E5b A 45 min glass (~8 grains/s) with the same breach and shake: the leak
+ *     outruns the flow, so once calm (and only then) the rest of the run is
+ *     re-timed, after which the sand above matches the clock again.
  *
- *   node tools/test/e2e-timer.test.js [--root <dir>] [--port <n>] [--only e4|e4b|e5]
+ *   node tools/test/e2e-timer.test.js [--root <dir>] [--port <n>] [--only e4|e4b|e5|e5b]
  */
 'use strict';
 var H = require('./stubs/harness.js');
@@ -40,18 +45,33 @@ async function startGlass(t, durMs) {
   await t.eval(function () { window.__drive({ profile: 'calm', conv: 'ios' }); });
   await sleep(1500);
   return t.eval(function () {
-    var H = window.Hourglass, w = window.__clk = { mpg: [], dones: 0, startAt: 0, devMax: 0, rate: H.timer.rate };
+    var H = window.Hourglass, w = window.__clk = {
+      mpg: [], dones: 0, startAt: 0, rate: H.timer.rate, shakeEnd: 0,
+      devMax: 0, devCalm: 0, devCalmAt: 0, overCalm: 0, thr: Math.max(3, 0.5 * H.timer.rate), dev: 0
+    };
     __mon.reset();
     H.start();
     w.startAt = Date.now();
     var last = H.timer.mpg, lastState = H.timer.state;
     (function f() {
-      if (H.timer.mpg !== last) { w.mpg.push({ t: (Date.now() - w.startAt) / 1000, from: last, to: H.timer.mpg }); last = H.timer.mpg; }
+      // (this runs after the app's frame, so a re-timing due this frame has already happened)
+      if (H.timer.mpg !== last) {
+        w.mpg.push({ t: (Date.now() - w.startAt) / 1000, from: last, to: H.timer.mpg, devBefore: w.dev });
+        last = H.timer.mpg;
+      }
       if (H.timer.state !== lastState) { if (H.timer.state === 'done') w.dones++; lastState = H.timer.state; }
-      // how far the sand above the neck strays from what the clock expects (the re-timing threshold is max(3, rate / 2))
+      // How far the sand above the neck strays from what the clock expects.
+      // Once calm, anything past the re-timing threshold, max(3, rate / 2),
+      // must be re-timed away at once (at most every 0.5 s).
+      w.dev = 0;
       if (H.timer.state === 'running' && H.timer.rem > H.timer.tailMs + 2000) {
-        var dev = Math.abs(H.sim.nTop - H.topAt(H.timer.rem));
+        var dev = Math.abs(H.sim.nTop - H.topAt(H.timer.rem)), thr = Math.max(3, 0.5 * H.timer.rate);
+        w.dev = dev;
         if (dev > w.devMax) w.devMax = dev;
+        if (!H.debug.motionRecent) {
+          if (dev > w.devCalm) { w.devCalm = dev; w.devCalmAt = (Date.now() - w.startAt) / 1000; }
+          if (dev > thr) w.overCalm++;
+        }
       }
       requestAnimationFrame(f);
     })();
@@ -61,7 +81,10 @@ async function startGlass(t, durMs) {
 function shake(t, profile, durS) {
   return t.eval(function (a) {
     window.__drive({ profile: a.p, conv: 'ios', durS: a.d });
-    setTimeout(function () { window.__drive({ profile: 'calm', conv: 'ios' }); }, a.d * 1000 + 50);
+    setTimeout(function () {
+      window.__drive({ profile: 'calm', conv: 'ios' });
+      if (window.__clk) window.__clk.shakeEnd = (Date.now() - window.__clk.startAt) / 1000;
+    }, a.d * 1000 + 50);
   }, { p: profile, d: durS });
 }
 function waitEnd(t) {
@@ -126,17 +149,27 @@ async function e5(s, env) {
   await waitEnd(t);
   await sleep(500);
   var r = await result(t);
+  var c = r.clk;
   s.check('E5: an upper-funnel breach (u ≈ 0.15, w = 3)', cr && cr.bulb === 0 && cr.w === 3 && Math.abs(cr.u - 0.15) < 0.05, JSON.stringify(cr));
   s.check('E5: sand leaked from the top', r.leakedTop > 0, 'leakedTop ' + r.leakedTop + ' of ' + r.lost + ' lost');
-  s.check('E5: re-timed at least once', r.clk.mpg.length >= 1, r.clk.mpg.length + ' retimes ' + fmtMpg(r.clk.mpg.slice(0, 4)) +
-          '; |nTop − topAt(rem)| peaked at ' + r.clk.devMax.toFixed(0) + ' grains against a threshold of ' +
-          Math.max(3, 0.5 * r.clk.rate).toFixed(0) + ' (the neck flows ' + r.clk.rate.toFixed(0) + ' grains/s)');
-  var d = r.empty - r.done, early = r.empty > 0 && r.empty < r.done - 30;
-  var onTime = Math.abs(r.done - start - 60000) <= 30 && r.clk.dones === 1;
-  s.check('E5: the end is exact (last grain within 30 ms of 00:00.0, or the top ran dry first and done fired once at 00:00.0)',
-          early ? onTime : (Math.abs(d) <= 30 && onTime),
-          'nTop = 0 at ' + d + ' ms from done; done at start + ' + (r.done - start) + ' ms, ' + r.clk.dones + ' time(s)');
-  var bad = r.ff.filter(function (c) { return c.motionRecent; });
+  // A 1 min glass's neck flows ~175 grains/s, so the valve simply lets
+  // through less while the breach leaks (tens a second shaken, a few at
+  // rest): the sand above never strays far from the clock, and there is
+  // nothing to re-time. (E5b is the glass where the leak does outrun the
+  // flow, and must be re-timed.)
+  s.check('E5: the sand above the neck stays with the clock (|nTop − topAt(rem)| ≤ max(3, rate/2), shaken or calm)', c.devMax <= c.thr,
+          'peak ' + c.devMax.toFixed(1) + ' grains (calm ' + c.devCalm.toFixed(1) + ') against ' + c.thr.toFixed(1) +
+          '; the neck flows ' + c.rate.toFixed(0) + ' grains/s');
+  var needed = c.devCalm > c.thr;
+  s.check('E5: re-timed exactly where needed (once calm past the threshold, else never)',
+          needed ? c.mpg.length >= 1 && c.overCalm <= 60 : c.mpg.length === 0,
+          (needed ? 'needed' : 'not needed') + ': ' + c.mpg.length + ' retimes ' + fmtMpg(c.mpg.slice(0, 4)) +
+          ', ' + c.overCalm + ' calm frames over the threshold');
+  var d = r.empty - r.done;
+  s.check('E5: the last grain leaves within 30 ms of 00:00.0', r.empty > 0 && r.done > 0 && Math.abs(d) <= 30, 'nTop = 0 at ' + d + ' ms from done');
+  s.check('E5: 00:00.0 on the wall clock, once', Math.abs(r.done - start - 60000) <= 30 && c.dones === 1,
+          'done at start + ' + (r.done - start) + ' ms, ' + c.dones + ' time(s)');
+  var bad = r.ff.filter(function (q) { return q.motionRecent; });
   s.check('E5: no fastForward while motion was recent', bad.length === 0, r.ff.length + ' calls, ' + bad.length + ' while recent');
   await H.invariants(s, t, 'E5');
   await t.close();
@@ -160,8 +193,16 @@ async function e5b(s, env) {
     var H = window.Hourglass;
     return { clk: window.__clk, leakedTop: H.sim.leakedTop, dev: H.sim.nTop - H.topAt(H.timer.rem), rate: H.timer.rate };
   });
-  s.check('E5b (45 min glass): an upper leak faster than the flow is re-timed once calm', r.leakedTop > 0 && r.clk.mpg.length >= 1,
-          'leakedTop ' + r.leakedTop + ', ' + r.clk.mpg.length + ' retimes ' + fmtMpg(r.clk.mpg.slice(0, 3)) + ', flow ' + r.rate.toFixed(1) + ' grains/s');
+  var c = r.clk;
+  s.check('E5b (45 min glass): an upper leak faster than the flow is re-timed once calm', r.leakedTop > 0 && c.mpg.length >= 1,
+          'leakedTop ' + r.leakedTop + ', ' + c.mpg.length + ' retimes ' + fmtMpg(c.mpg.slice(0, 3)) + ', flow ' + r.rate.toFixed(1) + ' grains/s');
+  // only once calm (never while shaken: that lag is the stutter of the neck), and each one needed
+  // (devBefore is a frame old, so it may sit a little under the threshold the re-timing saw)
+  var early = c.mpg.filter(function (q) { return !(q.t >= c.shakeEnd + 0.75); });
+  var idle = c.mpg.filter(function (q) { return !(q.devBefore > 0.8 * Math.max(3, 500 / q.from)); });
+  s.check('E5b: every re-timing came once calm, and only past the threshold', c.shakeEnd > 0 && early.length === 0 && idle.length === 0,
+          'shaking ended at ' + c.shakeEnd.toFixed(2) + ' s; first retime at ' + (c.mpg.length ? c.mpg[0].t.toFixed(2) : '–') + ' s; ' +
+          early.length + ' too early, ' + idle.length + ' without need');
   s.check('E5b: afterwards the sand above matches the clock', Math.abs(r.dev) <= Math.max(3, 0.5 * r.rate) + 1,
           'nTop − topAt(rem) = ' + r.dev.toFixed(1) + ' grains');
   await H.invariants(s, t, 'E5b');
