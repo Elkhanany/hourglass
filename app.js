@@ -1,8 +1,10 @@
 /*!
  * Hourglass — app.js
  * ---------------------------------------------------------------------------
- * Conducts the physics, renderer and audio engine; owns the wall-clock timer,
- * the controls, the Zen HUD, settings, tilt, wake-lock and PWA registration.
+ * Conducts the physics, renderer, audio engine and motion sensors; owns the
+ * wall-clock timer, the glass as a body you can move, turn and spin, the
+ * controls, the Zen HUD, settings, real motion, wake-lock and PWA
+ * registration.
  * License: GPL-3.0.
  * ---------------------------------------------------------------------------
  */
@@ -11,13 +13,13 @@
 
   var P = window.HourglassPhysics;
   var $ = function (id) { return document.getElementById(id); };
-  var RAD = Math.PI / 180;
 
   /* ======================================================================
    *  Elements
    * ==================================================================== */
   var app = $('app'), stage = $('stage'), assembly = $('assembly');
   var rotor = $('rotor'), shadow = $('shadow'), lightCanvas = $('c-light'), zoom = $('zoom');
+  var spillCanvas = $('c-spill');
   var hudTop = $('hud-top'), hudBottom = $('hud-bottom');
   var tMain = $('t-main'), tFrac = $('t-frac'), statusEl = $('status');
   var btnPlay = $('btn-play'), btnFlip = $('btn-flip'), btnSand = $('btn-sand');
@@ -25,7 +27,7 @@
   var btnMute = $('btn-mute'), btnTheme = $('btn-theme'), themeName = $('theme-name');
   var durations = $('durations'), pillCustom = $('pill-custom'), customLabel = $('custom-label');
   var scrim = $('scrim'), sheetSettings = $('sheet-settings'), sheetCustom = $('sheet-custom');
-  var toastEl = $('toast'), veil = $('veil'), btnZen = $('btn-zen');
+  var toastEl = $('toast'), veil = $('veil'), btnZen = $('btn-zen'), optTilt = $('opt-tilt');
 
   /* ======================================================================
    *  Settings (persisted)
@@ -36,7 +38,9 @@
     chime: true, tilt: false, zenFull: false, haptics: true,
     keepAwake: true, frame: true,
     ambience: 'none', ambienceLevel: 0.5,
-    durationMs: 5 * 60000
+    durationMs: 5 * 60000,
+    motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
+    hintMend: false                  // the one-time "hold it still to mend" note was shown
   };
   try {
     var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -49,6 +53,7 @@
     }
   } catch (e) { /* private mode: run with defaults */ }
   if (!P.THEMES[settings.theme]) settings.theme = 'sahara';
+  if (settings.motionSign !== 1 && settings.motionSign !== -1) settings.motionSign = 0;
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts
   var qt = /[?&]t=(\d{1,5})(?:&|$)/.exec(location.search);
   if (qt) settings.durationMs = +qt[1] * 1000;
@@ -68,6 +73,8 @@
     glBack: $('c-glass-back'), glFront: $('c-glass-front')
   });
   renderer.setFrame(settings.frame);
+  // sand that got out of the glass, on the desk below it
+  var spill = new P.Spill(spillCanvas, renderer);
   var audio = new window.HourglassAudio();
   audio.volume = settings.volume;
   audio.muted = settings.muted;
@@ -77,8 +84,13 @@
   if (!window.HourglassAudio.AMBIENCES[settings.ambience]) settings.ambience = 'none';
   audio.ambience = settings.ambience;
   audio.ambLevel = settings.ambienceLevel;
+  // The phone's own motion: what it feels, how it turns, where down is.
+  // Its sign convention differs between engines; once learned it is kept.
+  var motion = new window.HourglassMotion({ sign: settings.motionSign });
+  motion.onsign = function (s) { settings.motionSign = s; save(); };
 
   var STEP_MS = 1000 / P.STEP_HZ;
+  var DT = 1 / P.STEP_HZ;
   var MAX_STEPS = 6;                 // per frame → real-time down to 20 fps
 
   /* ======================================================================
@@ -99,6 +111,7 @@
     durationMs: settings.durationMs,
     rem: settings.durationMs,
     mpg: 1,                          // ms per grain in the bulk phase
+    mpg0: 1,                         // ... as calibrated for this glass (re-timing stays within ×4)
     rate: 0,                         // grains per second in the bulk phase
     tailMs: 1000,
     tailGrains: 30,
@@ -121,6 +134,7 @@
     var rate = N / (d / 1000);
     T.tailGrains = Math.max(3, Math.min(30, Math.floor(rate * T.tailMs / 1000 / TAIL_P)));
     T.mpg = (d - T.tailMs) / (N - T.tailGrains);
+    T.mpg0 = T.mpg;
     T.rate = 1000 / T.mpg;
   }
   /** Grains that should remain above the neck with `rem` ms left. */
@@ -145,10 +159,36 @@
     var now = Date.now(), d = now - T.lastTick;
     T.lastTick = now;
     if (d > 1500) back = true;                 // frames and timers stopped: we were asleep
-    // on its side (real gravity) the neck cannot flow, so time stands still too
+    // on its side (real motion) the neck cannot flow, so time stands still too
     if (d <= 0 || T.state !== 'running' || flip.active || (grav.on && sim.gy < 0.7)) return;
     T.rem -= d;
     if (T.rem <= 0) { T.rem = 0; finish(); }
+  }
+
+  /**
+   * Re-timing. Shaking stops the neck now and then (sand cannot flow out of
+   * a bed in the air), and a breach in the upper bulb lets sand out the
+   * wrong way, so the sand above the neck can drift from what the clock
+   * expects. Once the glass is calm again, the rest of the run is re-timed
+   * so the sand that is there lasts exactly the time that is left: no gulp,
+   * the stream just runs a little faster or slower, and the last grain still
+   * leaves at 00:00.0. At most twice a second, and only within ×4 of the
+   * rate this glass was calibrated for.
+   */
+  var lastMotionAt = -1e9, lastRetime = -1e9, motionRecentNow = false;
+  function maybeRetime(now, forced) {
+    if (now - lastMotionAt < 750 || flip.active || body.mode !== 'rest') return false;
+    if (T.state !== 'running') return false;
+    if (!forced && now - lastRetime < 500) return false;
+    if (T.rem <= T.tailMs + 2000 || sim.nTop <= T.tailGrains + 2) return false;
+    if (Math.abs(sim.nTop - topAt(T.rem)) <= Math.max(3, 0.5 * T.rate)) return false;
+    var mpg = (T.rem - T.tailMs) / (sim.nTop - T.tailGrains);
+    if (!(mpg > T.mpg0 / 4 && mpg < 4 * T.mpg0)) return false;
+    T.mpg = mpg;
+    T.rate = 1000 / mpg;
+    lastRetime = now;
+    saveSession();
+    return true;
   }
 
   /* ======================================================================
@@ -166,16 +206,25 @@
   var dirty = true, acc = 0, lastFrame = performance.now();
   var resetting = false;
   var S = { flow: 0, imp: 0, slides: 0 };       // smoothed physics → audio
-  // real gravity: where the device says down is, and whether the glass is held the other way up
+  // real motion: where the device says down is, and whether the glass is held the other way up
   var grav = { on: false, target: 0, base: 0, seen: false };
-  var L = { width: 0, height: 0 };              // current layout (CSS px)
+  var R0 = { width: 0, height: 0, scale: 1 };   // the instrument's layout box (zoom-local CSS px)
 
-  function setState(s) {
+  /**
+   * `quiet`: the glass was turned by hand or by the phone, not started from
+   * the controls, so the controls are not given their four seconds again
+   * (playing with the glass never brings them back).
+   */
+  function setState(s, quiet) {
+    var was = T.state;
     T.state = s;
     app.dataset.state = s;
     statusEl.textContent = flip.active ? STATUS.turning : STATUS[s];
     btnPlay.setAttribute('aria-label', s === 'running' ? 'Pause' : (s === 'done' ? 'Flip and start again' : 'Start'));
-    if (s === 'running') { T.lastTick = Date.now(); lastInput = performance.now(); }
+    if (s === 'running') {
+      if (was !== 'running') T.lastTick = Date.now();   // (a glass that was running keeps its time)
+      if (!quiet) lastInput = performance.now();
+    }
     syncWakeLock();
     saveSession();
     sim.quiet = 0;
@@ -217,21 +266,31 @@
   }
 
   /* ---- reset / duration -------------------------------------------- */
+  // A new glass: Reset and a new duration also sweep away cracks, gold and
+  // spilled sand, inside the same cross-fade.
   function reset(keepRunning) {
     if (resetting) return;
     resetting = true;
     pendingStart = false;
     audio.hush();
-    app.classList.add('swap');       // cross-fade the sand
+    app.classList.add('swap');       // cross-fade the sand (and any that spilled)
     setTimeout(function () {
+      var was = crackState();
       if (flip.active) { flip.active = false; flip.dragging = false; }
+      if (grab) grab.kind = 'none';  // a finger still down no longer holds the glass
+      bodyHome();
       grav.base = 0;
-      applyFlip(0);
+      endMend(true);
+      spill.clear();
       sim.reset(grainsFor(T.durationMs));
       sim.tilt = 0;
       calibrate();
       T.rem = T.durationMs;
       S.flow = S.imp = S.slides = 0;
+      leakRate = 0;
+      audio.setCracked('intact');
+      if (was !== 'intact') audio.newGlass();
+      applyBody(0);
       resetting = false;
       setState(keepRunning || pendingStart ? 'running' : 'idle');
       pendingStart = false;
@@ -257,45 +316,48 @@
    * ==================================================================== */
   var flip = {
     active: false, dragging: false, was: 'idle', auto: false, swapped: false,
-    from: 0, to: 0, t0: 0, dur: 0, easeOut: false,
-    grabAngle: 0, spin: 0, shown: 0
+    from: 0, to: 0, prog: 0, dur: 0, easeOut: false,
+    grabAngle: 0, spin: 0, shown: 0,
+    mode: 'rest'                     // the body's mode: 'script' for the Flip button's turn
   };
 
-  function beginTurn(autoRun) {
+  function beginTurn(autoRun, byHand) {
     flip.active = true;
     flip.was = T.state;
     flip.auto = !!autoRun;
     flip.swapped = false;
-    flip.spin = 0;
     flip.shown = T.rem;
     sim.flipping = true;
     sim.wakeAll();
     statusEl.textContent = STATUS.turning;
     audio.flipStart();
-    buzz(14);
+    if (!byHand) buzz(14);           // a hand has already felt the glass engage
   }
 
-  /** The Flip button: one smooth half turn. */
+  /** The Flip button: one smooth half turn (not while a hand has the glass or it is still turning). */
   function startFlip(autoRun) {
-    if (flip.active || resetting) return;
-    beginTurn(autoRun);
-    flip.dragging = false;
-    flip.from = 0; flip.to = Math.PI;
-    flip.t0 = performance.now(); flip.dur = 2600; flip.easeOut = false;   // unhurried
+    if (flip.active || resetting || held || rot !== 'none') return;
+    beginTurn(autoRun, false);
+    flip.from = 0; flip.to = Math.PI; flip.prog = 0;
+    flip.dur = 2600; flip.easeOut = false;   // unhurried
+    rot = 'script';
+    body.w = 0;
+    syncMode();
   }
 
-  /** Let go: settle on whichever end is nearer (or where it was flung). */
+  /**
+   * With Reduce Motion a turned glass never spins on: let go, and it settles
+   * on whichever end is nearer (or where it was flung), as it always did.
+   */
   function releaseTurn() {
-    if (!flip.dragging) return;
-    flip.dragging = false;
-    var a = sim.angle, w = flip.spin, to;
+    var a = sim.angle, w = body.w, to;
     if (w > 2.2) to = a > 0 ? Math.PI : 0;
     else if (w < -2.2) to = a < 0 ? -Math.PI : 0;
     else to = Math.abs(a) > Math.PI / 2 ? (a > 0 ? Math.PI : -Math.PI) : 0;
-    flip.from = a; flip.to = to;
-    flip.t0 = performance.now();
+    flip.from = a; flip.to = to; flip.prog = 0;
     flip.dur = Math.max(420, Math.min(1500, Math.abs(to - a) / Math.PI * 1900));
     flip.easeOut = true;
+    rot = 'ease';
   }
 
   /** The vessel has passed 180°: re-index the lattice, swap the clock. */
@@ -308,14 +370,18 @@
   }
 
   function endTurn() {
+    var byHand = rot !== 'script';
     flip.active = false; flip.dragging = false; flip.spin = 0;
     sim.flipping = false;
     sim.angle = 0;
+    rot = 'none';
+    body.w = 0; body.theta = 0;
+    syncMode();
     sim.wakeAll();
-    applyFlip(0);
+    applyBody(0);
     audio.flipEnd();
     buzz(22);
-    setState(flip.swapped ? stateAfterSwap(flip.was, flip.auto) : flip.was);
+    setState(flip.swapped ? stateAfterSwap(flip.was, flip.auto) : flip.was, byHand);
   }
   /** Turning a glass over starts it, unless you had paused it. */
   function stateAfterSwap(was, auto) {
@@ -323,49 +389,234 @@
     return (auto || was === 'running' || was === 'done') ? 'running' : 'paused';
   }
 
-  function stepFlip(now, dtMs) {
-    var prev = sim.angle, a;
-    if (flip.dragging) {
-      a = prev + (flip.grabAngle - prev) * (1 - Math.exp(-Math.min(dtMs, 100) / 75));   // follow the finger with some weight
-      if (a > Math.PI) { swapEnds(); a -= Math.PI; prev -= Math.PI; flip.grabAngle -= Math.PI; }
-      else if (a < -Math.PI) { swapEnds(); a += Math.PI; prev += Math.PI; flip.grabAngle += Math.PI; }
-    } else {
-      var p = (now - flip.t0) / flip.dur;
-      if (p >= 1) {
-        if (flip.to !== 0) swapEnds();
-        endTurn();
-        return;
-      }
-      var e = flip.easeOut ? 1 - Math.pow(1 - p, 3)
-                           : (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
-      a = flip.from + (flip.to - flip.from) * e;
-    }
-    sim.angle = a;
-    flip.spin += ((a - prev) / Math.max(dtMs, 1) * 1000 - flip.spin) * 0.35;   // rad/s
-    var f = Math.min(1, Math.abs(a) / Math.PI);
-    f = f * f * (3 - 2 * f);
-    flip.shown = T.rem + (remAt(sim.total - sim.nTop) - T.rem) * f;
-    applyFlip(a);
+  /* ======================================================================
+   *  The glass as a body
+   *
+   *  The glass is a real object of the size it appears. Taken by its waist
+   *  it follows the finger on a soft tether and springs home when let go;
+   *  taken by a bulb it turns; flicked, it spins on by itself, slowing as
+   *  its sand is flung outward, and settles upright or inverted. Touch it
+   *  while it moves and it stops under the finger. The sand feels all of
+   *  it: the glass's true on-screen acceleration and turning enter the field
+   *  the simulation steps in (composeField), so a drag sloshes the sand and
+   *  a hard spin pins it to the ends.
+   *
+   *  One step of this model runs before every physics step (1/120 s).
+   *  Offsets are page px from home; angles rad, + = clockwise on screen.
+   * ==================================================================== */
+  var MM_PER_PX = 0.16;              // an iPhone CSS px is ≈ 0.166 mm
+  var KPX = MM_PER_PX * 1e-3 / 9.81; // g per px/s² of the glass's on-screen acceleration
+  var K_DRAG = 1.0;                  // the one tuning knob for drags (1–3), set by feel on the device
+  var BODY = {
+    fw: 30, fz: 0.85,                // the finger holding it by the waist (rad/s, damping ratio)
+    hw: 7, hz: 0.6,                  // home: 9 % overshoot, settled to 2 % in 0.84 s
+    tw: 26, tz: 0.85,                // the finger turning it by a bulb: lags it by ≈ 65 ms
+    tau: 1.6, mu: 1.5,               // a free spin coasts: viscous time (s) and dry friction (rad/s²)
+    wFree: 2.2,                      // rad/s: let go faster than this and it spins on
+    wMax: 16,                        // rad/s: never faster
+    dw: 7, dz: 0.9,                  // the detent that sets it down on an end
+    turnAt: 0.07,                    // rad (4°): a smaller nudge is not a turn
+    zone: 0.15,                      // grabs this near the centre (× its height) move it; farther out turn it
+    reach: 0.22,                     // the tether's reach, × the shorter side of the screen
+    reachReduced: 40                 // px, with Reduce Motion
+  };
+  var body = {
+    mode: 'rest',                    // rest | held-move | held-turn | free | detent | script | home
+    px: 0, py: 0,                    // offset from home, page px
+    vx: 0, vy: 0,                    // px/s
+    ax: 0, ay: 0,                    // px/s², this step: what the sand feels
+    theta: 0,                        // = sim.angle
+    w: 0,                            // on-screen rotation rate, rad/s (no jumps at the swaps)
+    tx: 0, ty: 0,                    // where the finger pulls it
+    td: 0                            // the end the detent sets it down on
+  };
+  var rot = 'none';                  // none | held | free | detent | ease | script
+  var held = false;                  // a finger holds it by the waist
+  var inertia0 = 0;                  // the spinning glass's moment of inertia a step ago
+  var passBuzzAt = -1e9;
+
+  /** body.mode (and flip.mode) from what the hand and the turn are doing. */
+  function syncMode() {
+    var m;
+    if (rot === 'held') m = 'held-turn';
+    else if (rot === 'free') m = 'free';
+    else if (rot === 'detent' || rot === 'ease') m = 'detent';
+    else if (rot === 'script') m = 'script';
+    else if (held) m = 'held-move';
+    else if (body.px || body.py || body.vx || body.vy) m = 'home';
+    else m = 'rest';
+    body.mode = m;
+    flip.mode = m;
+    flip.dragging = rot === 'held';
   }
 
-  function applyFlip(theta) {
-    var total = theta + grav.base;
-    rotor.style.transform = total ? 'rotate(' + total.toFixed(4) + 'rad)' : '';
-    if (!theta) {
-      assembly.style.transform = '';
-      lightCanvas.style.opacity = '';
-      shadow.style.opacity = '';
-      return;
+  /** Back home at once (Reset): no offset, no turn, nothing moving. */
+  function bodyHome() {
+    held = false; rot = 'none';
+    body.px = body.py = body.vx = body.vy = body.ax = body.ay = 0;
+    body.tx = body.ty = 0;
+    body.w = 0; body.theta = 0;
+    sim.angle = 0;
+    syncMode();
+  }
+
+  /** How far a spin at w rad/s coasts before friction stops it (rad, signed): the exact distance. */
+  function coastDistance(w) {
+    var a = w < 0 ? -w : w, mt = BODY.mu * BODY.tau;
+    var d = BODY.tau * a - mt * BODY.tau * Math.log(1 + a / mt);
+    return w < 0 ? -d : d;
+  }
+
+  /** The glass's moment of inertia about its centre: its own, plus its sand's (cells², grain masses). */
+  function inertia() {
+    var r = 0.55 * sim.geo.HB;
+    return 0.6 * sim.capacity * r * r + sim.inertiaZ();
+  }
+
+  /** Slow enough to settle: latch the end it is heading for (never more than half a turn away). */
+  function enterDetent() {
+    var k = Math.round((sim.angle + coastDistance(body.w)) / Math.PI);
+    if (k > 1) k = 1; else if (k < -1) k = -1;
+    body.td = k * Math.PI;
+    rot = 'detent';
+  }
+
+  /** A soft tick each time a free spin passes the swap, at most eight a second. */
+  function passBuzz() {
+    if (rot !== 'free') return;
+    var now = performance.now();
+    if (now - passBuzzAt < 125) return;
+    passBuzzAt = now;
+    buzz(4);
+  }
+
+  /** One step of the glass as a body: where it is, how it is turned. */
+  function stepBody(dt) {
+    var ax = 0, ay = 0, k, c;
+    if (held) {
+      k = BODY.fw; c = 2 * (reduceMotion ? 1 : BODY.fz) * k;
+      ax = k * k * (body.tx - body.px) - c * body.vx;
+      ay = k * k * (body.ty - body.py) - c * body.vy;
+    } else if (body.px || body.py || body.vx || body.vy) {
+      k = BODY.hw; c = 2 * (reduceMotion ? 1 : BODY.hz) * k;
+      ax = -k * k * body.px - c * body.vx;
+      ay = -k * k * body.py - c * body.vy;
     }
-    // pull back just enough that the turning vessel never clips the screen
-    var c = Math.abs(Math.cos(theta)), s = Math.abs(Math.sin(theta));
-    var bw = c * L.width + s * L.height, bh = s * L.width + c * L.height;
-    var kf = Math.min(1, window.innerWidth * 0.97 / bw, window.innerHeight * 0.97 / bh);
-    assembly.style.transform = kf < 1 ? 'scale(' + kf.toFixed(4) + ')' : '';
-    // room lighting does not turn with the glass: fade it through the move
-    var o = Math.max(0, 1 - s * 5).toFixed(3);
-    lightCanvas.style.opacity = o;
-    shadow.style.opacity = o;
+    body.vx += ax * dt; body.vy += ay * dt;
+    body.px += body.vx * dt; body.py += body.vy * dt;
+    body.ax = ax; body.ay = ay;
+    if (!held && body.px * body.px + body.py * body.py < 0.25 &&
+        body.vx * body.vx + body.vy * body.vy < 25) {
+      body.px = body.py = body.vx = body.vy = 0;          // home, to within half a pixel
+    }
+    if (rot !== 'none') turnStep(dt);
+    syncMode();
+  }
+
+  function turnStep(dt) {
+    var th = sim.angle, prev = th, w = body.w, a, wm = BODY.wMax;
+    if (rot === 'script' || rot === 'ease') {
+      // The Flip button's unhurried half turn (and, with Reduce Motion, letting go).
+      // Its rate comes from the steps themselves, so the sand feels it turn.
+      flip.prog += dt * 1000 / flip.dur;
+      if (flip.prog >= 1) {
+        if (flip.to !== 0) swapEnds();
+        if (flip.active) endTurn();
+        else { sim.angle = 0; body.theta = 0; body.w = 0; rot = 'none'; }
+        return;
+      }
+      var p = flip.prog;
+      var e = flip.easeOut ? 1 - Math.pow(1 - p, 3)
+                           : (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+      th = flip.from + (flip.to - flip.from) * e;
+      w = (th - prev) / dt;
+    } else if (rot === 'held') {
+      // follows the finger with some weight
+      a = BODY.tw * BODY.tw * (flip.grabAngle - th) - 2 * BODY.tz * BODY.tw * w;
+      w += a * dt;
+      if (w > wm) w = wm; else if (w < -wm) w = -wm;
+      th += w * dt;
+    } else if (rot === 'free') {
+      // coasting: drag, plus a little dry friction ...
+      w += (-w / BODY.tau - (w > 0 ? BODY.mu : -BODY.mu)) * dt;
+      if (w > wm) w = wm; else if (w < -wm) w = -wm;
+      // ... and the skater effect: as the sand is flung outward the glass slows
+      var I = inertia();
+      if (inertia0 > 0 && I > 0) w *= inertia0 / I;
+      inertia0 = I;
+      th += w * dt;
+    } else {
+      // the detent sets it down on the end it was heading for
+      a = BODY.dw * BODY.dw * (body.td - th) - 2 * BODY.dz * BODY.dw * w;
+      w += a * dt;
+      th += w * dt;
+    }
+    if (!flip.active && (th > BODY.turnAt || th < -BODY.turnAt)) beginTurn(false, true);
+    // past half a turn the glass is simply the other way up
+    if (rot === 'held' || rot === 'free') {
+      if (th > Math.PI) { swapEnds(); th -= Math.PI; flip.grabAngle -= Math.PI; passBuzz(); }
+      else if (th < -Math.PI) { swapEnds(); th += Math.PI; flip.grabAngle += Math.PI; passBuzz(); }
+    }
+    sim.angle = th; body.theta = th; body.w = w; flip.spin = w;
+    if (rot === 'free') {
+      if (w < BODY.wFree && w > -BODY.wFree) enterDetent();
+    } else if (rot === 'detent') {
+      var d = th - body.td;
+      if (d < 0.002 && d > -0.002 && w < 0.05 && w > -0.05) {
+        if (body.td > 1 || body.td < -1) swapEnds();
+        if (flip.active) endTurn();
+        else { sim.angle = 0; body.theta = 0; body.w = 0; rot = 'none'; }
+      }
+    }
+  }
+
+  /** True while the glass is still moving on its own: a touch now catches it. */
+  function bodyMoving() {
+    if (rot === 'free' || rot === 'detent' || rot === 'ease' || body.w > 0.5 || body.w < -0.5) return true;
+    return !held && (body.px * body.px + body.py * body.py > 1 || body.vx * body.vx + body.vy * body.vy > 25);
+  }
+  /** True while the body needs stepping. */
+  function bodyBusy() {
+    return rot !== 'none' || held || body.px !== 0 || body.py !== 0 || body.vx !== 0 || body.vy !== 0;
+  }
+
+  /* ---- what the sand feels ------------------------------------------ */
+  // Every inertial effect enters at the strength it would have on a real
+  // glass of the size this one appears on screen: the phone's own motion,
+  // the glass's on-screen acceleration, and its turning (centrifugal and
+  // Euler × λ, Coriolis × √λ inside the sim).
+  var mo = { x: 0, y: 0, z: 0, w: 0, wf: 0, rms: 0, armed: false, live: false };
+  var moP = { x: 0, y: 0, z: 0, w: 0, wf: 0, rms: 0, armed: false, live: false };
+  var ALPHA_K = 1 - Math.exp(-DT / 0.04);      // the turn's rate of change, smoothed over 40 ms
+  var alLP = 0, wPrev = 0, lamNow = 0, kfNow = 1, feltX = 0, feltY = 0;
+
+  /** The felt field for the next physics step at time tS (ms, performance.now()), into the sim. */
+  function composeField(tS) {
+    var rho = sim.angle + grav.base, c = Math.cos(rho), s = Math.sin(rho);
+    var mx = 0, my = 0, mz = 0, mw = 0;
+    if (grav.on && motion.seenMotion) {
+      motion.sample(tS, mo);
+      mx = mo.x; my = mo.y; mz = mo.z;
+      var tw = mo.w, wf = mo.wf;
+      if (reduceMotion) {
+        // gentler: half as strong, and never enough to lift the bed or crack the glass
+        mx *= 0.5; my *= 0.5;
+        var m = Math.sqrt(mx * mx + my * my);
+        if (m > 0.8) { mx *= 0.8 / m; my *= 0.8 / m; }
+        mz *= 0.5;
+        if (tw > 6) tw = 6; else if (tw < -6) tw = -6;
+        if (wf > 6) wf = 6;
+      }
+      mw = tw + wf;
+    }
+    // the glass accelerating one way pushes its sand the other (g, page frame)
+    var fx = mx - K_DRAG * KPX * body.ax, fy = my - K_DRAG * KPX * body.ay;
+    var G = sim.G;
+    var w = body.w + mw;
+    alLP += ((w - wPrev) / DT - alLP) * ALPHA_K;
+    wPrev = w;
+    var al = alLP > 300 ? 300 : (alLP < -300 ? -300 : alLP);
+    sim.setMotion(G * (fx * c + fy * s), G * (-fx * s + fy * c), w, al, lamNow, mz);
   }
 
   /* ======================================================================
@@ -396,11 +647,12 @@
   }
 
   /* ======================================================================
-   *  Real gravity (optional)
+   *  Real motion (optional)
    *
-   *  The sand feels the pull the phone feels. Lean it and the piles slump;
-   *  lay it on its side and the flow stops; turn it over and the other bulb
-   *  becomes the top — the phone *is* the hourglass.
+   *  The sand feels what the phone feels. Lean it and the piles slump; lay
+   *  it on its side and the flow stops; turn it over and the other bulb
+   *  becomes the top; walk and the thread sways; shake it and the beds lift
+   *  and land; twist it and the sand sloshes. One permission covers it all.
    * ==================================================================== */
   function wrapPi(a) {
     while (a > Math.PI) a -= 2 * Math.PI;
@@ -408,49 +660,83 @@
     return a;
   }
 
-  function onOrient(e) {
-    if (e.beta == null || e.gamma == null) return;
-    grav.seen = true;
-    var b = e.beta * RAD, g = e.gamma * RAD, t;
-    // gravity projected onto the screen plane of the device
-    // (x → its right edge, y → its bottom edge)
-    var gx = Math.cos(b) * Math.sin(g), gy = Math.sin(b);
-    // …seen from the page, which the system may have rotated
-    var o = typeof window.orientation === 'number' ? window.orientation
-          : (screen.orientation ? screen.orientation.angle : 0);
-    if (o === 90) { t = gx; gx = gy; gy = -t; }
-    else if (o === -90 || o === 270) { t = gx; gx = -gy; gy = t; }
-    else if (o === 180) { gx = -gx; gy = -gy; }
-    if (gx * gx + gy * gy < 0.05) return;        // lying flat: no pull in the plane, keep the last heading
-    grav.target = Math.atan2(gx, gy);
+  var motionWatch = 0, rearmTimer = 0, rearm = null, askSeq = 0;
+  var REARM_EVENTS = ['pointerup', 'touchend', 'keydown'];
+
+  function motionOff(msg) {
+    askSeq++;                                     // an answer still on its way no longer counts
+    clearTimeout(motionWatch); clearTimeout(rearmTimer); disarmRequest();
+    motion.stop();
+    grav.on = false; grav.target = 0; grav.seen = false;
+    settings.tilt = false; optTilt.checked = false; save();
+    if (msg) toast(msg);
+  }
+  function motionGo() {
+    motion.start();
+    grav.on = true;
+    settings.tilt = true; optTilt.checked = true; save();
+  }
+  /** Some devices grant access but never report a reading. */
+  function watchMotion(loud) {
+    clearTimeout(motionWatch);
+    motionWatch = setTimeout(function () {
+      if (grav.on && !motion.seenOrient) motionOff(loud ? 'No motion data from this device' : '');
+    }, 2500);
+  }
+  /** Ask for motion access. Must run inside a tap: the request goes out before anything else. */
+  function askMotion() {
+    var req, my = ++askSeq;
+    try { req = motion.request(); } catch (e) { motionOff('Motion access is unavailable'); return; }
+    req.then(function (r) {
+      if (my !== askSeq) return;                 // switched off (or asked again) meanwhile
+      if (r === 'granted') { motionGo(); watchMotion(true); }
+      else if (r === 'denied') motionOff('Motion access was declined. Allow it in Settings to use this.');
+      else motionOff('Motion is not available on this device');
+    }, function () {
+      if (my === askSeq) motionOff('Motion access is unavailable');
+    });
+  }
+  /**
+   * Real motion was left on, but this browser asks again after a reload and
+   * a prompt needs a tap: ask on the next one (pointerup and touchend count
+   * as a tap on a touch screen; pointerdown does not). If the site was
+   * already allowed, the answer comes back without a prompt.
+   */
+  function armRequest() {
+    if (rearm) return;
+    rearm = function () {
+      disarmRequest();
+      if (grav.on && !motion.seenOrient && !motion.seenMotion) askMotion();
+    };
+    for (var i = 0; i < REARM_EVENTS.length; i++) window.addEventListener(REARM_EVENTS[i], rearm, true);
+  }
+  function disarmRequest() {
+    if (!rearm) return;
+    for (var i = 0; i < REARM_EVENTS.length; i++) window.removeEventListener(REARM_EVENTS[i], rearm, true);
+    rearm = null;
   }
 
-  function setTilt(on, fromUser) {
-    var D = window.DeviceOrientationEvent;
-    var opt = $('opt-tilt');
-    function off(msg) {
-      window.removeEventListener('deviceorientation', onOrient);
-      grav.on = false; grav.target = 0;
-      settings.tilt = false; opt.checked = false; save();
-      if (msg) toast(msg);
+  /** The Real motion switch. fromUser: inside the switch's click, where a prompt may be shown. */
+  function setMotion(on, fromUser) {
+    askSeq++;
+    clearTimeout(motionWatch); clearTimeout(rearmTimer); disarmRequest();
+    if (!on) { motionOff(''); return; }
+    if (!window.DeviceMotionEvent && !window.DeviceOrientationEvent) {
+      motionOff(fromUser ? 'Motion is not available on this device' : '');
+      return;
     }
-    if (!on) { off(); return; }
-    if (!D) { off(fromUser ? 'Motion is not available on this device' : ''); return; }
-    function go() {
-      grav.seen = false;
-      window.addEventListener('deviceorientation', onOrient);
-      grav.on = true;
-      settings.tilt = true; opt.checked = true; save();
-      // some devices grant access but never report a reading
-      setTimeout(function () { if (grav.on && !grav.seen) off(fromUser ? 'No motion data from this device' : ''); }, 2500);
+    if (fromUser) {
+      if (motion.needsPermission) { optTilt.checked = true; askMotion(); }
+      else { motionGo(); watchMotion(true); }
+      return;
     }
-    if (typeof D.requestPermission === 'function') {
-      // iOS 13+: must be asked from inside a tap
-      if (!fromUser) { opt.checked = false; return; }
-      D.requestPermission().then(function (r) {
-        if (r === 'granted') go(); else off('Motion access was declined. Allow it in Settings to use this.');
-      }).catch(function () { off('Motion access is unavailable'); });
-    } else go();
+    // At start-up with the switch left on: listen without asking (and keep the switch on).
+    motionGo();
+    if (motion.needsPermission) {
+      rearmTimer = setTimeout(function () {
+        if (grav.on && !motion.seenOrient && !motion.seenMotion) armRequest();
+      }, 1000);
+    } else watchMotion(false);
   }
 
   /** Held the other way up: the lower bulb is the top now. */
@@ -460,39 +746,83 @@
     grav.base = grav.base ? 0 : Math.PI;
     sim.tilt = wrapPi(sim.tilt + Math.PI);
     T.rem = there;
-    applyFlip(0);
+    applyBody(0);
     buzz(18);
-    setState(stateAfterSwap(was, false));
+    setState(stateAfterSwap(was, false), true);       // the phone turned over: not a touch
   }
 
-  function stepGravity(dtMs) {
+  var tiltOver = 0;
+  function stepGravity(dtMs, now) {
     var want = grav.on ? grav.target : 0;
     if (want > -0.045 && want < 0.045) want = 0;          // standing straight: let the sand sleep
+    // follows the sensor briskly while it reports, eases over otherwise; never snaps
+    var tau = grav.on && motion.seenOrient ? 100 : 240;
     var d = wrapPi(want + grav.base - sim.tilt);
     if (d > 0.0008 || d < -0.0008) {
-      sim.tilt = wrapPi(sim.tilt + d * (1 - Math.exp(-dtMs / 240)));   // gravity eases over, never snaps
+      sim.tilt = wrapPi(sim.tilt + d * (1 - Math.exp(-dtMs / tau)));
       sim.wakeAll();
     } else if (d !== 0) {
       sim.tilt = wrapPi(want + grav.base);
       sim.wakeAll();
     }
-    if (!flip.active && !resetting && (sim.tilt > 1.75 || sim.tilt < -1.75)) tiltSwap();
+    // Turned over, and held so for a moment (a shake or a glitch is not a turn):
+    // the other bulb becomes the top.
+    var over = !flip.active && !resetting && !held && rot !== 'held' &&
+               (sim.tilt > 1.75 || sim.tilt < -1.75);
+    if (!over) tiltOver = 0;
+    else if (!tiltOver) tiltOver = now;
+    else if (now - tiltOver >= 200) { tiltOver = 0; tiltSwap(); }
   }
 
   /* ======================================================================
    *  Frame loop
    * ==================================================================== */
+  var PERF_N = 600;
+  var perf = {
+    frameMs: new Float32Array(PERF_N),      // JS work per frame
+    simMs: new Float32Array(PERF_N),        // ... of which physics steps
+    drawMs: new Float32Array(PERF_N),       // ... of which drawSand
+    intervalMs: new Float32Array(PERF_N),   // time between frames
+    i: 0,                                    // next slot
+    quality: 2, emaSim: 0
+  };
+  var gov = { hi: 0, top: 0, low: 0 };
+
+  /**
+   * Keep the frame within budget on slower phones: when the physics alone
+   * takes too long for a second, lighten it (fewer sweeps, less spray);
+   * when it has been cheap for three seconds, give one level back.
+   */
+  function governor(simMs, dtMs) {
+    if (dtMs > 100) dtMs = 100;
+    perf.emaSim += (simMs - perf.emaSim) * (1 - Math.exp(-dtMs / 300));
+    var e = perf.emaSim, q = sim.quality;
+    gov.hi = e > 4.5 ? gov.hi + dtMs : 0;
+    gov.top = e > 6 ? gov.top + dtMs : 0;
+    gov.low = e < 3 ? gov.low + dtMs : 0;
+    if (gov.top >= 1000 && q > 0) q = 0;
+    else if (gov.hi >= 1000 && q > 1) q = 1;
+    else if (gov.low >= 3000 && q < 2) { q++; gov.low = 0; }
+    sim.quality = q;
+    perf.quality = q;
+  }
+
   function frame(now) {
     requestAnimationFrame(frame);
+    var t0 = performance.now();
     var dtMs = now - lastFrame;
     lastFrame = now;
     if (dtMs <= 0) return;
 
     tickClock();
-    if (flip.active) stepFlip(now, dtMs);
+    if (grav.on) {
+      var hd = motion.heading;
+      if (hd === hd && hd !== Infinity && hd !== -Infinity) grav.target = hd;   // finite: known
+      grav.seen = motion.seenOrient;
+    }
     handlePour(now, dtMs);
-
-    stepGravity(Math.min(dtMs, 100));
+    stepGravity(Math.min(dtMs, 100), now);
+    updateMend(now);
 
     var running = T.state === 'running' && !flip.active;
     var draining = T.state === 'done' && sim.nTop > 0 && !flip.active;
@@ -522,33 +852,257 @@
     sim.deepRelease = draining || (running && T.rem <= 0);
     sim.targetTop = target;
     sim.topSweeps = running ? Math.min(6, Math.floor(T.rate / 260)) : 0;
+    // Shaken, the neck stutters and falls behind. While that is recent, a
+    // backlog drains as a slightly thicker thread, never as a clump.
+    var motionRecent = motionRecentNow = now - lastMotionAt < 2000;
+    sim.relCap =motionRecent ? T.rate * DT * (3 + 20 * Math.max(0, 1 - (T.rem - T.tailMs) / 5000)) : 0;
+    // only sustained, very hard real shaking can crack the glass
+    sim.damageArmed = grav.on && motion.armed && !reduceMotion;
+    sim.reduced = reduceMotion;
+    // the rotational terms at the glass's true size on screen
+    lamNow = renderer.scale * zoomK() * kfNow * MM_PER_PX * 1e-3 * sim.G / 9.81;
 
-    var active = running || draining || flip.active || pour.active || dirty || sim.isActive();
+    var felt = false;
+    feltX = feltY = 0;
+    if (grav.on && motion.seenMotion) {
+      motion.sample(now, moP);
+      feltX = moP.x; feltY = moP.y;
+      felt = moP.x !== 0 || moP.y !== 0 || moP.z !== 0 || moP.w !== 0 || moP.wf !== 0;
+    }
+
+    var active = running || draining || flip.active || pour.active || dirty || sim.isActive() ||
+                 bodyBusy() || spill.active || renderer.animating || felt;
+    var simMs = 0, drawMs = 0;
     if (active) {
+      drainDamage(now);                         // events from outside a frame (a forced crack, a mend)
       sim.beginFrame();
-      if (sim.gateOpen) {
+      dmgSeen = 0;
+      if (sim.gateOpen && (back || !motionRecent)) {
         // the tab was asleep and the clock ran on: catch up without flight
+        // (never while the glass was just shaken: that lag is re-timed instead)
         var owed = sim.nTop - target;
         var cap = back ? Math.max(12, T.rate * 0.4) : Math.max(400, T.rate * 1.2);
         if (owed > cap) sim.fastForward(owed - Math.min(30, Math.ceil(cap * 0.5)));
       }
       acc += Math.min(dtMs, 100);
-      var n = 0;
-      while (acc >= STEP_MS && n < MAX_STEPS) { sim.step(); acc -= STEP_MS; n++; }
+      var n = 0, tS = now - acc, s0 = performance.now();
+      while (acc >= STEP_MS && n < MAX_STEPS) {
+        tS += STEP_MS;
+        stepBody(DT);
+        composeField(tS);
+        sim.step();
+        if (sim.motionActive()) lastMotionAt = now;
+        acc -= STEP_MS; n++;
+      }
       if (n === MAX_STEPS) acc = 0;
+      var s1 = performance.now();
+      simMs = s1 - s0;
       renderer.drawSand();
+      drawMs = performance.now() - s1;
       dirty = false;
     }
 
     back = false;
+    drainDamage(now);
+    drainEscapes();
+    var landed = stepSpill(dtMs);
+    applyBody(dtMs);
+    if (flip.active) {
+      var f = Math.min(1, Math.abs(sim.angle) / Math.PI);
+      f = f * f * (3 - 2 * f);
+      flip.shown = T.rem + (remAt(sim.total - sim.nTop) - T.rem) * f;
+    }
     renderer.drawGlass(sim.angle + sim.tilt);            // reflections follow the room, not the glass
-    feedAudio(dtMs / 1000, active, running);
+    renderer.syncDamage(sim.angle + sim.tilt, now);      // cracks glint as the glass turns
+    feedAudio(dtMs / 1000, active, running, landed);
+    maybeRetime(now, false);
+    governor(simMs, dtMs);
     if (now - lastSave > 5000) { lastSave = now; if (T.state === 'running') saveSession(); }
     showTime(flip.active ? flip.shown : T.rem);
     updateZen(now);
+    if (dbg) updateDebug(now, dtMs);
+
+    var pi = perf.i;
+    perf.frameMs[pi] = performance.now() - t0;
+    perf.simMs[pi] = simMs;
+    perf.drawMs[pi] = drawMs;
+    perf.intervalMs[pi] = dtMs;
+    perf.i = pi + 1 < PERF_N ? pi + 1 : 0;
   }
 
-  function feedAudio(dt, active, running) {
+  /* ---- the body on screen -------------------------------------------- */
+  var shownRot = '', shownAsm = '', shownLight = '', shownShadow = '', zkNow = 1, kfHold = 1;
+  function zoomK() { return zkNow; }
+  /** The smallest the glass ever needs to be to turn within the screen (at its diagonal). */
+  function kfMinimum(lw, lh) {
+    var dg = Math.sqrt(lw * lw + lh * lh);
+    return Math.min(1, window.innerWidth * 0.97 / dg, window.innerHeight * 0.97 / dg);
+  }
+  /** Place, turn and scale the glass on screen, once a frame. */
+  function applyBody(dtMs) {
+    zkNow = app.classList.contains('zen') ? 1 : Z.k0;
+    var th = sim.angle, w = body.w < 0 ? -body.w : body.w, total = th + grav.base;
+    var r = total ? 'rotate(' + total.toFixed(4) + 'rad)' : '';
+    if (r !== shownRot) { rotor.style.transform = r; shownRot = r; }
+    // pull back just enough that the turning vessel never clips the screen;
+    // spinning fast, it holds its smallest size so it does not pump at 2ω
+    var lw = R0.width * zkNow, lh = R0.height * zkNow, kf = 1;
+    if (th) {
+      var c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
+      var bw = c * lw + s * lh, bh = s * lw + c * lh;
+      kf = Math.min(1, window.innerWidth * 0.97 / bw, window.innerHeight * 0.97 / bh);
+    }
+    if (w > 3) kfHold = kfMinimum(lw, lh);
+    else if (kfHold < 1) {
+      kfHold += (1 - kfHold) * (1 - Math.exp(-dtMs / 250));
+      if (kfHold > 0.9999) kfHold = 1;
+    }
+    kfNow = kf < kfHold ? kf : kfHold;
+    var zx = body.px / zkNow, zy = body.py / zkNow;
+    var a = (zx || zy ? 'translate(' + zx.toFixed(2) + 'px,' + zy.toFixed(2) + 'px)' : '') +
+            (kfNow < 1 ? (zx || zy ? ' ' : '') + 'scale(' + kfNow.toFixed(4) + ')' : '');
+    if (a !== shownAsm) { assembly.style.transform = a; shownAsm = a; }
+    // room lighting does not turn with the glass: fade it through the move,
+    // and the glass lifts off its shadow as it is drawn away from home
+    var o = Math.max(0, 1 - Math.abs(Math.sin(th)) * 5) * (w > 3 ? 0 : 1);
+    var lo = th || w > 3 ? o.toFixed(3) : '';
+    if (lo !== shownLight) { lightCanvas.style.opacity = lo; shownLight = lo; }
+    var pr = Math.sqrt(body.px * body.px + body.py * body.py);
+    var so = th || w > 3 || pr ? (o * Math.max(0, 1 - pr / 60)).toFixed(3) : '';
+    if (so !== shownShadow) { shadow.style.opacity = so; shownShadow = so; }
+  }
+
+  /* ---- the glass breaks, leaks and mends ----------------------------- */
+  var DMG = P.Sim.DMG;
+  var dmgSeen = 0;
+  /** 'cracked' (an open crack), 'mended' (only gold seams) or 'intact'. */
+  function crackState() {
+    var c = sim.cracks, st = 'intact';
+    for (var i = 0; i < c.length; i++) {
+      if (!c[i].sealed) return 'cracked';
+      st = 'mended';
+    }
+    return st;
+  }
+  function hasOpenCrack() { return crackState() === 'cracked'; }
+
+  /**
+   * What happened to the glass since the last look: creaks before a crack,
+   * the crack itself, its growth, a breach, a seal. Each is heard, drawn and
+   * (for the big ones) felt and saved. Events live in sim.frame until the
+   * next beginFrame, so this runs before that as well as after the steps.
+   */
+  function drainDamage(now) {
+    var f = sim.frame, n = f.dmgN, keep = false, sealed = false;
+    for (var e = dmgSeen; e < n; e++) {
+      var type = f.dmgType[e], k = f.dmgK[e], lv = f.dmgLevel[e], x = f.dmgX[e];
+      renderer.damageEvent(type, k, lv, now);
+      if (type === DMG.WARN) audio.creak(lv, x);
+      else if (type === DMG.CRACK) {
+        audio.crack(x);
+        audio.setCracked('cracked');
+        buzz([8, 40, 18]);
+        if (!settings.hintMend) {
+          settings.hintMend = true; save();
+          toast('The glass cracked · hold it still to mend', 4200);
+        }
+        keep = true;
+      } else if (type === DMG.GROW) audio.crackGrow(x);
+      else if (type === DMG.BREACH || type === DMG.WIDEN) {
+        audio.chip(x);
+        if (type === DMG.BREACH) buzz(20);
+        keep = true;
+      } else if (type === DMG.SEAL) {
+        if (!sealed) { audio.mended(); buzz([10, 60, 10]); }
+        sealed = true;
+        audio.setCracked('mended');
+        keep = true;
+      }
+    }
+    dmgSeen = n;
+    if (keep) saveSession();
+  }
+
+  /**
+   * Grains that left the glass fall into the room: from the breach, at the
+   * glass's place, turn and speed on screen, onto the desk below it.
+   */
+  function drainEscapes() {
+    var n = sim.escN;
+    if (!n) return;
+    var g = sim.geo, s = renderer.scale * kfNow, rho = sim.angle + grav.base;
+    var c = Math.cos(rho), sn = Math.sin(rho), zk = zoomK(), w = body.w;
+    var ox = 0.85 * R0.width + body.px / zk, oy = 0.5 * R0.height + body.py / zk;
+    var bvx = body.vx / zk, bvy = body.vy / zk;
+    for (var k = 0; k < n; k++) {
+      var x0 = (sim.escX[k] - g.cx) * s, y0 = (sim.escY[k] - g.cy) * s;
+      var qx = x0 * c - y0 * sn, qy = x0 * sn + y0 * c;
+      var vx0 = sim.escVX[k] * s, vy0 = sim.escVY[k] * s;
+      var vx = vx0 * c - vy0 * sn + bvx - w * qy;
+      var vy = vx0 * sn + vy0 * c + bvy + w * qx;
+      spill.add(ox + qx, oy + qy, vx, vy, sim.escS[k]);
+    }
+    sim.escN = 0;
+  }
+
+  /** The spilled sand: falls in the room's gravity, hops when the phone is shaken. */
+  function stepSpill(dtMs) {
+    if (!spill.count && !spill.active) return 0;
+    var gx = 0, gy = 1;
+    if (grav.on) {
+      var psi = wrapPi(sim.tilt - grav.base);
+      gx = Math.sin(psi); gy = Math.cos(psi);
+    }
+    spill.step(Math.min(dtMs, 50) / 1000, gx, gy, sim.G * renderer.scale, feltX, feltY);
+    spill.draw();
+    return spill.landed;
+  }
+
+  /* ---- kintsugi -------------------------------------------------------- */
+  // Hold a finger still on a cracked glass: after a moment gold flows along
+  // every open crack from where it started, and seals it. Lift early and
+  // the gold recedes. The timer is never touched.
+  var MEND_WAIT = 250, MEND_RUN = 1200, MEND_BACK = 400;
+  var mend = { on: false, p: 0, p0: 0, t0: 0 };
+  function endMend(instant) {
+    if (mend.on) audio.mendHum(0);
+    mend.on = false;
+    if (instant || !(mend.p > 0)) { mend.p = 0; renderer.setMend(0); return; }
+    mend.p0 = mend.p; mend.t0 = performance.now();
+  }
+  function updateMend(now) {
+    var g = grab;
+    if (g && g.mendable && g.kind === 'press') {
+      var t = now - g.t;
+      if (t < MEND_WAIT) return;
+      if (!hasOpenCrack()) { g.mendable = false; endMend(false); return; }
+      var p = (t - MEND_WAIT) / MEND_RUN;
+      if (p >= 1) {
+        // sealed: the gold has run the whole way
+        renderer.setMend(1);
+        audio.mendHum(0);
+        mend.on = false; mend.p = 0;
+        g.mendable = false;
+        sim.sealCracks();
+        drainDamage(now);
+        renderer.setMend(0);
+        return;
+      }
+      mend.on = true; mend.p = p;
+      renderer.setMend(p);
+      audio.mendHum(p);
+    } else if (mend.on) {
+      endMend(false);
+    } else if (mend.p > 0) {
+      mend.p = Math.max(0, mend.p0 * (1 - (now - mend.t0) / MEND_BACK));
+      renderer.setMend(mend.p);
+    }
+  }
+
+  /* ---- sound ----------------------------------------------------------- */
+  var AU = {};                       // reused every frame: nothing new for the collector
+  var leakRate = 0, landBuzzAt = -1e9;
+  function feedAudio(dt, active, running, landed) {
     var f = sim.frame, kf = Math.min(1, dt * 7);
     var rel = active ? f.released / dt : 0;
     var imp = active ? (f.impSand + f.impGlass) / dt : 0;
@@ -556,23 +1110,40 @@
     S.flow += (rel - S.flow) * kf;
     S.imp += (imp - S.imp) * kf;
     S.slides += (sl - S.slides) * Math.min(1, dt * 10);
+    leakRate += ((active ? f.leaked / dt : 0) - leakRate) * (1 - Math.exp(-dt / 0.3));
     var bulk = running && sim.nTop > T.tailGrains;
-    audio.update({
-      dt: dt,
-      flow: bulk ? Math.max(S.flow, T.rate * 0.5) : S.flow,
-      impacts: S.imp,
-      tail: sim.nTop >= T.tailGrains ? 1 : Math.pow(sim.nTop / T.tailGrains, 1.2),
-      fill: sim.nBottom / sim.capacity,
-      bottom: sim.nBottom,
-      slides: S.slides,
-      pouring: pour.active,
-      running: running,
-      ambient: T.state === 'running',  // a running glass keeps its ambience while being turned
-      flipping: flip.active,
-      spin: Math.abs(flip.spin),
-      angle: sim.angle,
-      sim: active ? sim : null
-    });
+    // the slosh moves between the ears with the fuller bulb's field
+    var b = sim.nTop >= sim.nBottom ? 0 : 2, rho = sim.angle + grav.base;
+    var fxp = sim.bf[b] * Math.cos(rho) - sim.bf[b + 1] * Math.sin(rho);
+    var pan = -0.6 * fxp / sim.G;
+    if (pan > 0.65) pan = 0.65; else if (pan < -0.65) pan = -0.65;
+    AU.dt = dt;
+    AU.flow = bulk ? Math.max(S.flow, T.rate * 0.5) : S.flow;
+    AU.impacts = S.imp;
+    AU.tail = sim.nTop >= T.tailGrains ? 1 : Math.pow(sim.nTop / T.tailGrains, 1.2);
+    AU.fill = sim.nBottom / sim.capacity;
+    AU.bottom = sim.nBottom;
+    AU.slides = S.slides;
+    AU.pouring = pour.active;
+    AU.running = running;
+    AU.ambient = T.state === 'running';  // a running glass keeps its ambience while being turned
+    AU.flipping = flip.active;
+    AU.spin = Math.abs(body.w);
+    AU.angle = sim.angle;
+    AU.sim = active ? sim : null;
+    AU.thump = active ? f.thump : null;  // beds landing [E0, x0, E1, x1]
+    AU.slam = active ? f.slam : null;    // beds slammed into the far end [E, x]
+    AU.agit = sim.agitation();
+    AU.rushPan = pan;
+    AU.leak = leakRate;
+    AU.leakPan = f.leakX;
+    AU.spillPats = dt > 0 ? landed / dt : 0;
+    audio.update(AU);
+    // a hard landing is felt too (Android only), now and then
+    if (active && (f.thump[0] > 0.3 || f.thump[2] > 0.3)) {
+      var t = performance.now();
+      if (t - landBuzzAt >= 250) { landBuzzAt = t; buzz(10); }
+    }
   }
 
   /* ---- readout ------------------------------------------------------ */
@@ -621,8 +1192,10 @@
       else if (now < endHoldUntil) hold = true;
       else rise();
     }
-    var zen = hold || zenForced || (T.state === 'running' && !sheetOpen && !pour.held && !flip.active &&
-              now - lastInput > 4000);
+    // Playing with the glass never brings the controls back; only the Flip
+    // button's turn (which a tap on the button started) does.
+    var zen = hold || zenForced || (T.state === 'running' && !sheetOpen && !pour.held &&
+              !(flip.active && flip.mode === 'script') && now - lastInput > 4000);
     if (zen !== app.classList.contains('zen')) { app.classList.toggle('zen', zen); applyZoom(); }
     // settled: once fully dim, stop re-blurring the panel and stop taking taps on the controls
     var on = app.classList.contains('zen');          // read the class: the moon button sets it directly
@@ -694,9 +1267,18 @@
     var dx = (left + right) / 2 - (x + r.width / 2), dy = (top + bottom) / 2 - (y + r.height / 2);
     Z.k0 = k0;
     Z.normal = 'translate(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px) scale(' + k0.toFixed(4) + ')';
-    L.width = r.width * k0; L.height = r.height * k0;
+    R0.width = r.width; R0.height = r.height; R0.scale = r.scale;
+    // The desk the spilled sand lands on: the base slab's lower edge (or the
+    // glass's own tip without the frame). Its canvas lives in the zoom, not
+    // in the glass, so the dune stays on the desk however the glass moves.
+    var g = sim.geo, q = g.q, frameOn = renderer.frame;
+    var deskY = r.height / 2 + (g.HB + (frameOn ? 14 : 2) * q) * r.scale;
+    var half = ((frameOn ? g.capHalf : g.R) + 30 * q) * r.scale, mid = 0.85 * r.width;
+    spillCanvas.style.left = (-0.35 * r.width).toFixed(1) + 'px';
+    spillCanvas.style.top = '0px';
+    spill.layout(1.7 * r.width, r.height, window.devicePixelRatio || 1, deskY, mid - half, mid + half);
     applyZoom();
-    if (flip.active) applyFlip(sim.angle);
+    applyBody(0);
     dirty = true;
   }
   /** Dimmed controls give the glass the whole screen; it grows and settles back slowly. */
@@ -712,11 +1294,11 @@
     try { navigator.vibrate(pattern); } catch (e) {}
   }
   var toastTimer = 0;
-  function toast(msg) {
+  function toast(msg, ms) {
     toastEl.textContent = msg;
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 2200);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, ms || 2200);
   }
 
   /* ---- keep the screen awake while the sand is flowing --------------- */
@@ -764,16 +1346,21 @@
 
   /* ---- the glass remembers where it was ------------------------------ */
   // A real hourglass keeps running when you look away. If the page is
-  // closed or reloaded, the timer is restored from the wall clock.
+  // closed or reloaded, the timer is restored from the wall clock, and so
+  // is the glass itself: its cracks, gold seams and lost sand.
   var SKEY = 'hourglass.session.v1', lastSave = 0;
   function saveSession() {
     try {
       if (T.state === 'idle') { localStorage.removeItem(SKEY); return; }
-      localStorage.setItem(SKEY, JSON.stringify({
+      if (T.state === 'running') tickClock();          // the time as of now, not as of the last frame
+      var s = {
         v: 1, at: Date.now(), state: T.state, rem: T.rem, durationMs: T.durationMs,
         scale: sim.geo.q, total: sim.total, top: sim.nTop,
-        mpg: T.mpg, tailMs: T.tailMs, tailGrains: T.tailGrains
-      }));
+        mpg: T.mpg, mpg0: T.mpg0, tailMs: T.tailMs, tailGrains: T.tailGrains
+      };
+      var dmg = sim.serializeDamage();
+      if (dmg) s.damage = dmg;
+      localStorage.setItem(SKEY, JSON.stringify(s));
     } catch (e) {}
   }
   function restoreSession() {
@@ -786,10 +1373,13 @@
     if (!(s.total > 0) || s.total > sim.maxTotal || !(s.mpg > 0) || !(s.tailMs > 0)) return false;
     var rem = +s.rem || 0, state = s.state;
     if (state === 'running') { rem -= away; if (rem <= 0) { rem = 0; state = 'done'; } }
+    T.lastTick = Date.now();                           // the clock goes on from this moment
     if (state !== 'running' && state !== 'paused' && state !== 'done') return false;
     if (state === 'done' && away > 3600000) return false;                       // long finished: start fresh
     sim.reset(s.total);
+    sim.restoreDamage(s.damage);                         // an older session has none: the glass stays whole
     T.mpg = s.mpg; T.tailMs = s.tailMs; T.tailGrains = s.tailGrains; T.rate = 1000 / T.mpg;
+    T.mpg0 = s.mpg0 > 0 ? s.mpg0 : s.mpg;
     T.rem = rem;
     var top = state === 'done' ? 0
             : (state === 'paused' ? Math.min(sim.nTop, s.top | 0) : Math.ceil(topAt(rem)));
@@ -804,7 +1394,6 @@
    * ==================================================================== */
 
   // Every gesture: unlock audio (iOS) and wake the HUD.
-  var wokeFromZen = false;
   function onGesture() {
     audio.unlock();
     if (wakeState === 'failed') syncWakeLock();       // some browsers want a gesture
@@ -812,68 +1401,154 @@
   ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'mousedown', 'click', 'keydown'].forEach(function (t) {
     window.addEventListener(t, onGesture, { capture: true, passive: true });
   });
-  window.addEventListener('pointerdown', function () {
-    wokeFromZen = app.classList.contains('zen');
-    wake();
+
+  /** Inside the glass's own box (as today: 4 % in from its sides, 1 % from its ends). */
+  function onGlass(x, y) {
+    var r = assembly.getBoundingClientRect();
+    var padX = r.width * 0.04, padY = r.height * 0.01;
+    return !(x < r.left + padX || x > r.right - padX || y < r.top + padY || y > r.bottom - padY);
+  }
+  // A press on the glass while the controls are dimmed may be play (a drag,
+  // a catch, a mend): it brings them back only if it turns out to be a tap.
+  // Anywhere else, a press wakes them at once.
+  var pressZen = false, pressDefer = false;
+  window.addEventListener('pointerdown', function (e) {
+    pressZen = app.classList.contains('zen');
+    pressDefer = pressZen && stage.contains(e.target) && onGlass(e.clientX, e.clientY);
+    if (!pressDefer) wake();
   }, { capture: true, passive: true });
 
-  // The glass itself: tap it to pause / resume, or take hold and turn it.
-  // (A tap that only woke the HUD does nothing else.)
+  // The glass itself. Tap it to pause / resume. Take it by the waist and
+  // move it, by a bulb and turn it; flick it and it spins on; touch it
+  // while it moves and it stops; hold a finger still on a cracked glass to
+  // mend it. One finger: a second one is ignored.
   var grab = null;
   stage.addEventListener('pointerdown', function (e) {
     if (e.button || grab) return;
     var r = assembly.getBoundingClientRect();
     var padX = r.width * 0.04, padY = r.height * 0.01;
-    grab = {
-      id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), zen: wokeFromZen,
+    var g = grab = {
+      id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(),
+      zen: pressZen, defer: pressDefer,
       inside: !(e.clientX < r.left + padX || e.clientX > r.right - padX ||
                 e.clientY < r.top + padY || e.clientY > r.bottom - padY),
-      cx: r.left + r.width / 2, cy: r.top + r.height / 2, h: r.height,
-      turning: false, arc: false, last: 0, lastX: 0
+      cx: r.left + r.width / 2, cy: r.top + r.height / 2, h: r.height,   // where it is now, offset included
+      kind: 'press',               // press → move | turn; none: only ever a tap
+      far: 0,                      // farthest the finger has strayed (px²)
+      caught: false, mendable: false,
+      fx: 0, fy: 0, p0x: 0, p0y: 0, last: 0
     };
     try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    if (!g.inside || sheetOpen || resetting || (flip.active && flip.mode === 'script')) { g.kind = 'none'; return; }
+    if (bodyMoving()) catchBody(g, e.clientX, e.clientY);
+    else g.mendable = hasOpenCrack();
   });
   stage.addEventListener('pointermove', function (e) {
     var g = grab;
     if (!g || e.pointerId !== g.id) return;
-    if (!g.turning) {
-      var dx = e.clientX - g.x, dy = e.clientY - g.y;
-      if (dx * dx + dy * dy < 256 || !g.inside || sheetOpen || resetting || flip.active) return;
-      beginTurn(false);
-      flip.dragging = true;
-      flip.grabAngle = 0;
-      g.turning = true;
-      // far enough from the middle to swing it round; otherwise a sideways push
-      var rx = g.x - g.cx, ry = g.y - g.cy;
-      g.arc = Math.sqrt(rx * rx + ry * ry) > g.h * 0.15;
-      g.last = Math.atan2(e.clientY - g.cy, e.clientX - g.cx);
-      g.lastX = e.clientX;
-      return;
-    }
-    if (!flip.dragging) return;
-    if (g.arc) {
-      var ang = Math.atan2(e.clientY - g.cy, e.clientX - g.cx), d = ang - g.last;
-      if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI;
-      flip.grabAngle += d;
-      g.last = ang;
-    } else {
-      flip.grabAngle += (e.clientX - g.lastX) / Math.max(120, L.width) * Math.PI * 0.9;
-      g.lastX = e.clientX;
-    }
+    var dx = e.clientX - g.x, dy = e.clientY - g.y, d2 = dx * dx + dy * dy;
+    if (d2 > g.far) g.far = d2;
+    if (g.kind === 'move') { tether(g, e.clientX, e.clientY); return; }
+    if (g.kind === 'turn') { turnTo(g, e.clientX, e.clientY); return; }
+    if (g.kind !== 'press') return;
+    if (g.far > 100 && g.mendable) { g.mendable = false; endMend(false); }   // drifted: not a mend
+    if (g.far < 256) return;                       // 16 px before the glass moves at all
+    if (sheetOpen || resetting || (flip.active && flip.mode === 'script')) { g.kind = 'none'; return; }
+    // engaged: the glass picks up from where the finger is now, so it never jumps
+    g.mendable = false; endMend(false);
+    buzz(6);
+    var rx = g.x - g.cx, ry = g.y - g.cy;
+    if (Math.sqrt(rx * rx + ry * ry) > g.h * BODY.zone) holdTurn(g, e.clientX, e.clientY);
+    else holdMove(g, e.clientX, e.clientY);
   });
   function stageRelease(e) {
     var g = grab;
     if (!g || e.pointerId !== g.id) return;
     grab = null;
-    if (g.turning) { releaseTurn(); return; }
-    if (e.type !== 'pointerup' || g.zen || sheetOpen || !g.inside || flip.active) return;
-    var dx = e.clientX - g.x, dy = e.clientY - g.y;
-    if (dx * dx + dy * dy > 196 || performance.now() - g.t > 700) return;
+    letGo(g, e.type !== 'pointerup');
+    if (e.type !== 'pointerup') return;
+    // A tap: brief, still, and neither a catch nor (on a cracked glass) a mending hold.
+    var dur = performance.now() - g.t;
+    if (g.caught || (g.kind !== 'press' && g.kind !== 'none') || g.far > 196 || dur > 700) return;
+    if (dur > MEND_WAIT && hasOpenCrack()) return;
+    if (g.defer) { wake(); return; }               // dimmed: a tap only brings the controls back
+    if (g.zen || g.kind !== 'press' || sheetOpen || !g.inside || flip.active) return;
     audio.tap();                       // fingertip on glass
     toggle();
   }
   stage.addEventListener('pointerup', stageRelease);
   stage.addEventListener('pointercancel', stageRelease);
+
+  /** Take the glass by the waist: it follows the finger from where it is now. */
+  function holdMove(g, x, y) {
+    g.kind = 'move';
+    g.fx = x; g.fy = y;
+    g.p0x = body.px; g.p0y = body.py;
+    body.tx = body.px; body.ty = body.py;
+    held = true;
+    syncMode();
+  }
+  /** Take the glass by a bulb: it turns after the finger from the angle it is at now. */
+  function holdTurn(g, x, y) {
+    g.kind = 'turn';
+    g.last = Math.atan2(y - g.cy, x - g.cx);
+    flip.grabAngle = sim.angle;
+    rot = 'held';
+    syncMode();
+  }
+  /** The glass was moving: it stops under the finger, with a soft felt thud. */
+  function catchBody(g, x, y) {
+    var rx = x - g.cx, ry = y - g.cy;
+    var turning = rot === 'free' || rot === 'detent' || rot === 'ease' || body.w > 0.5 || body.w < -0.5;
+    g.caught = true;
+    if (turning || Math.sqrt(rx * rx + ry * ry) > g.h * BODY.zone) holdTurn(g, x, y);
+    else holdMove(g, x, y);
+    audio.catchThud();
+    buzz(10);
+  }
+  function tanh(v) {
+    var e = Math.exp(-2 * (v < 0 ? -v : v)), t = (1 - e) / (1 + e);
+    return v < 0 ? -t : t;
+  }
+  /** Where the finger pulls the glass: one to one near home, then a soft rubber band. */
+  function tether(g, x, y) {
+    var rx = g.p0x + x - g.fx, ry = g.p0y + y - g.fy, r = Math.sqrt(rx * rx + ry * ry);
+    var L = reduceMotion ? BODY.reachReduced : BODY.reach * Math.min(window.innerWidth, window.innerHeight);
+    var h = L / 2, k = 1;
+    if (r > h) k = (h + h * tanh((r - h) / h)) / r;
+    body.tx = rx * k; body.ty = ry * k;
+  }
+  /** The finger's angle about the glass, unwrapped, adds to where the glass is turned to. */
+  function turnTo(g, x, y) {
+    var ang = Math.atan2(y - g.cy, x - g.cx), d = ang - g.last;
+    if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI;
+    flip.grabAngle += d;
+    g.last = ang;
+  }
+  /**
+   * Let go. A moved glass springs home. A turned one spins on if it was
+   * flung (not with Reduce Motion, which keeps the old eased release), or
+   * settles on the end it was heading for. `cancel`: the gesture was cut
+   * short (the page hid, the screen turned), so it settles without a spin.
+   */
+  function letGo(g, cancel) {
+    if (g.kind === 'move') { held = false; syncMode(); }
+    else if (g.kind === 'turn' && rot === 'held') {
+      if (reduceMotion) releaseTurn();
+      else if (!cancel && (body.w > BODY.wFree || body.w < -BODY.wFree)) { rot = 'free'; inertia0 = inertia(); }
+      else enterDetent();
+      syncMode();
+    }
+    if (g.mendable || mend.on) { g.mendable = false; endMend(false); }
+  }
+  /** A gesture cut short (the page hid, the screen turned): let go of the glass. */
+  function cancelGesture() {
+    var g = grab;
+    if (!g) return;
+    grab = null;
+    try { stage.releasePointerCapture(g.id); } catch (err) {}
+    letGo(g, true);
+  }
 
   btnPlay.addEventListener('click', toggle);
   btnFlip.addEventListener('click', function () { startFlip(false); });
@@ -989,6 +1664,7 @@
   for (var ci = 0; ci < closers.length; ci++) closers[ci].addEventListener('click', function () { closeSheet(); });
   btnSettings.addEventListener('click', function () {
     $('grain-count').textContent = sim.total.toLocaleString();
+    $('spilled').textContent = sim.lost > 0 ? ' · ' + sim.lost.toLocaleString() + ' spilled' : '';
     openSheet(sheetSettings, btnSettings);
     buzz(8);
   });
@@ -1060,7 +1736,7 @@
     });
   });
   // 'click', not 'change': iOS only shows its motion prompt from a direct tap
-  $('opt-tilt').addEventListener('click', function (e) { setTilt(e.target.checked, true); });
+  optTilt.addEventListener('click', function (e) { setMotion(e.target.checked, true); });
   $('opt-zen').addEventListener('change', function (e) {
     settings.zenFull = e.target.checked; save();
     app.classList.toggle('zen-full', settings.zenFull);
@@ -1170,6 +1846,28 @@
   }, { passive: false });
 
   /* ======================================================================
+   *  Reduce Motion
+   *
+   *  The same glass, gentler: a drag glides home without a sway, a turn
+   *  never spins on, the phone's shaking is halved and capped below what
+   *  lifts the bed, nothing flashes, and the glass cannot crack.
+   * ==================================================================== */
+  var reduceMotion = false;
+  var rmq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  function setReduceMotion(on) {
+    reduceMotion = !!on;
+    sim.reduced = reduceMotion;
+    renderer.reduced = reduceMotion;
+    if (reduceMotion && rot === 'free') { enterDetent(); syncMode(); }
+  }
+  if (rmq) {
+    var onRm = function (e) { setReduceMotion(e.matches); };
+    if (rmq.addEventListener) rmq.addEventListener('change', onRm);
+    else if (rmq.addListener) rmq.addListener(onRm);
+  }
+  setReduceMotion(!!(rmq && rmq.matches));
+
+  /* ======================================================================
    *  Page lifecycle
    * ==================================================================== */
   function backgroundHold() {
@@ -1187,10 +1885,11 @@
       if (endHoldUntil) wake();        // away during the ending: the controls are up on return
       backgroundHold();
       pourEnd();
-      if (grab && grab.turning) { grab = null; releaseTurn(); }
+      cancelGesture();                 // a hand on the glass lets go
       saveSession();
     } else {
       lastFrame = performance.now(); acc = 0; dirty = true;
+      motion.reset();                  // stale sensor history is not felt on return
     }
     syncWakeLock();
   });
@@ -1217,9 +1916,86 @@
     }
   }
   window.addEventListener('resize', onResize);
-  window.addEventListener('orientationchange', function () { setTimeout(onResize, 120); });
+  window.addEventListener('orientationchange', function () { cancelGesture(); setTimeout(onResize, 120); });
   if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
   window.addEventListener('load', queueLayout);
+
+  /* ======================================================================
+   *  Hidden diagnostics: ?debug=motion
+   *
+   *  A faint overlay of what the sensors and the sand are doing, for tuning
+   *  on the device; &rec=N also records N seconds of raw sensor events and
+   *  offers them as a file. Nothing of this exists without the parameter.
+   * ==================================================================== */
+  var dbg = null;
+  if (/[?&]debug=motion(?:&|$)/.test(location.search)) {
+    dbg = { el: document.createElement('div'), at: 0, frames: 0, fps: 0, rec: null };
+    dbg.el.id = 'debug-motion';
+    dbg.el.setAttribute('aria-hidden', 'true');
+    dbg.el.style.cssText = 'position:fixed;left:6px;top:calc(env(safe-area-inset-top, 0px) + 4px);z-index:30;' +
+      'font:10px/1.35 ui-monospace,Menlo,Consolas,monospace;color:#fff;opacity:0.4;pointer-events:none;white-space:pre';
+    dbg.text = document.createElement('div');
+    dbg.el.appendChild(dbg.text);
+    app.appendChild(dbg.el);
+    var recM = /[?&]rec=(\d{1,3})(?:&|$)/.exec(location.search);
+    if (recM && +recM[1] > 0) startTrace(+recM[1]);
+  }
+  /** Record `secs` of raw devicemotion and deviceorientation, from the first sample. */
+  function startTrace(secs) {
+    var r = dbg.rec = { t0: -1, done: false, motion: [], orient: [] };
+    function stamp(e) {
+      var t = e.timeStamp;
+      if (r.t0 < 0) r.t0 = t;
+      if (t - r.t0 > secs * 1000) { finish(); return -1; }
+      return Math.round((t - r.t0) * 10) / 10;
+    }
+    function v3(o, a, b, c) { return o ? [o[a], o[b], o[c]] : [null, null, null]; }
+    function onM(e) {
+      if (r.done) return;
+      var t = stamp(e);
+      if (t < 0) return;
+      var a = v3(e.acceleration, 'x', 'y', 'z'), g = v3(e.accelerationIncludingGravity, 'x', 'y', 'z');
+      var q = v3(e.rotationRate, 'alpha', 'beta', 'gamma');
+      r.motion.push([t, a[0], a[1], a[2], g[0], g[1], g[2], q[0], q[1], q[2]]);
+    }
+    function onO(e) {
+      if (r.done) return;
+      var t = stamp(e);
+      if (t >= 0) r.orient.push([t, e.beta, e.gamma]);
+    }
+    function finish() {
+      if (r.done) return;
+      r.done = true;
+      window.removeEventListener('devicemotion', onM);
+      window.removeEventListener('deviceorientation', onO);
+      var blob = new Blob([JSON.stringify({ motion: r.motion, orient: r.orient })], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'hourglass-motion-' + secs + 's.json';
+      a.textContent = 'save the ' + secs + ' s trace (' + r.motion.length + ' + ' + r.orient.length + ' samples)';
+      a.style.cssText = 'pointer-events:auto;color:#fff;text-decoration:underline';
+      dbg.el.appendChild(a);
+    }
+    window.addEventListener('devicemotion', onM, { passive: true });
+    window.addEventListener('deviceorientation', onO, { passive: true });
+  }
+  function updateDebug(now, dtMs) {
+    dbg.frames++;
+    if (now - dbg.at < 250) return;
+    dbg.fps = dbg.frames * 1000 / (now - dbg.at || 1);
+    dbg.at = now; dbg.frames = 0;
+    var mag = Math.sqrt(feltX * feltX + feltY * feltY);
+    dbg.text.textContent =
+      'σ ' + (motion.sign > 0 ? '+1' : (motion.sign < 0 ? '−1' : '?')) +
+      '  live ' + (motion.live ? 1 : 0) +
+      '  |felt| ' + mag.toFixed(2) + ' g' +
+      '  rms ' + (+motion.rms || 0).toFixed(2) + (motion.armed ? ' armed' : '') + '\n' +
+      'T ' + sim.agit[0].toFixed(2) + ' / ' + sim.agit[1].toFixed(2) +
+      '  dMax ' + sim.dMax.toFixed(3) +
+      '  q ' + sim.quality +
+      '  ' + dbg.fps.toFixed(0) + ' fps';
+    if (dbg.rec && !dbg.rec.done && dbg.rec.t0 >= 0) dbg.text.textContent += '\nrecording…';
+  }
 
   /* ======================================================================
    *  Boot
@@ -1228,6 +2004,7 @@
   calibrate();
   T.rem = T.durationMs;
   var restored = restoreSession();                     // pick up where the glass was left
+  audio.setCracked(crackState());                      // a cracked glass rings dull from the start
   app.classList.toggle('zen-full', settings.zenFull);
   $('opt-chime').checked = settings.chime;
   $('opt-awake').checked = settings.keepAwake;
@@ -1244,10 +2021,11 @@
   void zoom.offsetWidth;
   setTheme(settings.theme);
   setState(restored ? T.state : 'idle');
-  if (settings.tilt) setTilt(true, false);
+  if (settings.tilt) setMotion(true, false);
   showTime(T.rem);
   requestAnimationFrame(function (t) {
-    lastFrame = t; T.lastTick = Date.now(); requestAnimationFrame(frame);
+    // (the clock keeps the time since setState above: a restored glass loses none of it)
+    lastFrame = t; requestAnimationFrame(frame);
     requestAnimationFrame(function () {               // the first frame is drawn: fade up from dark
       veil.style.opacity = getComputedStyle(veil).opacity;   // (on a slow first visit the CSS failsafe
       veil.classList.remove('boot'); void veil.offsetWidth;  //  may already be lifting it: go on from there)
@@ -1272,7 +2050,28 @@
     sim: sim, renderer: renderer, audio: audio, timer: T, flip: flip, stats: S,
     start: start, pause: pause, toggle: toggle, reset: reset,
     flipNow: startFlip, setDuration: setDuration, setTheme: setTheme,
-    topAt: topAt, remAt: remAt,
-    wakeState: function () { return wakeState; }, grav: grav
+    topAt: topAt, remAt: remAt, grainsFor: grainsFor,
+    wakeState: function () { return wakeState; }, grav: grav,
+    motion: motion, body: body, spill: spill, perf: perf,
+    retime: function () { return maybeRetime(performance.now(), true); },
+    debug: {
+      /** Crack the glass at wall segment `seg` (sim.forceCrack), and let the app hear and see it at once. */
+      forceCrack: function (seg, L, w) {
+        var cr = sim.forceCrack(seg, L, w);
+        drainDamage(performance.now());
+        dirty = true;
+        return cr;
+      }
+    }
   };
+  Object.defineProperty(window.Hourglass, 'reduceMotion', {
+    get: function () { return reduceMotion; }, enumerable: true
+  });
+  Object.defineProperty(window.Hourglass.debug, 'mpg0', {
+    get: function () { return T.mpg0; }, enumerable: true
+  });
+  // whether this frame counts the glass as just shaken (no catch-up teleports then)
+  Object.defineProperty(window.Hourglass.debug, 'motionRecent', {
+    get: function () { return motionRecentNow; }, enumerable: true
+  });
 })();
