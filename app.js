@@ -1325,8 +1325,34 @@
    *  Feedback helpers
    * ==================================================================== */
   function buzz(pattern) {
-    if (!settings.haptics || !navigator.vibrate) return;
-    try { navigator.vibrate(pattern); } catch (e) {}
+    if (!settings.haptics) return;
+    if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) {} return; }
+    iosTick();
+  }
+  /*
+   * iPhones have no vibration API, but since iOS 18 a switch control taps the
+   * Taptic Engine whenever it flips. A hidden one, flipped from inside a
+   * touch, gives a light, real tap: on the catch, the flick, each half turn.
+   * (It cannot fire from timers or sensors, so shaking stays silent here.)
+   */
+  var hapticLabel = null, hapticAt = 0;
+  function iosTick() {
+    var now = performance.now();
+    if (now - hapticAt < 35) return;
+    hapticAt = now;
+    try {
+      if (!hapticLabel) {
+        var input = document.createElement('input');
+        input.type = 'checkbox'; input.setAttribute('switch', ''); input.id = 'haptic-switch'; input.tabIndex = -1;
+        hapticLabel = document.createElement('label');
+        hapticLabel.htmlFor = 'haptic-switch';
+        hapticLabel.setAttribute('aria-hidden', 'true');
+        hapticLabel.style.cssText = 'position:fixed;left:-99px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none';
+        hapticLabel.appendChild(input);
+        document.body.appendChild(hapticLabel);
+      }
+      hapticLabel.click();
+    } catch (e) {}
   }
   var toastTimer = 0;
   function toast(msg, ms) {

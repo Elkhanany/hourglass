@@ -485,8 +485,10 @@ template; it is not part of the installed app.
 - A web app cannot hide the iPhone status bar or silence notifications. On
   Android the installed app runs full screen; in desktop and Android browsers
   the moon icon enters full screen.
-- Haptics use `navigator.vibrate`, which iOS does not provide (iOS has no web
-  haptics).
+- Haptics use `navigator.vibrate` on Android. iOS has no vibration API; on
+  iOS 18 and later a hidden switch control is flipped instead, which taps the
+  Taptic Engine lightly, but only from inside a touch (catching, flicking and
+  turning the glass), never from timers or shaking.
 - The completion sound can only play in a hidden tab if the browser keeps the
   page's audio running; on a locked phone it generally will not.
 

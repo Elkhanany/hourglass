@@ -902,6 +902,12 @@
     this.rPan = pan(0);
     loop(pink, 0.62).connect(this.rBP); this.rBP.connect(this.rEnv);
     this.rEnv.connect(this.rPan); this.rPan.connect(this.gFoley);
+    // air: the glass cutting the air as it turns or spins, before the sand moves
+    this.aBP = BQ('bandpass', 520, 0.9);
+    this.aEnv = G(0);
+    this.aPan = pan(0);
+    loop(pink, 0.47).connect(this.aBP); this.aBP.connect(this.aEnv);
+    this.aEnv.connect(this.aPan); this.aPan.connect(this.gFoley);
     var sR = G(0.45); this.rEnv.connect(sR); sR.connect(this.modalIn);
 
     // ---- Layer 5: outside the glass -------------------------------------
@@ -1268,6 +1274,15 @@
       panTo = st.rushPan < -0.65 ? -0.65 : (st.rushPan > 0.65 ? 0.65 : st.rushPan);
     }
     this._set('rush', this.rEnv.gain, rush * 0.5, rush > (this._last.rush || 0) ? 0.06 : 0.22);
+
+    // ---- air: a soft whoosh the moment the glass turns, two swells a turn ---
+    var wv = st.spin || 0, air = wv < 0.35 ? 0 : Math.min(1, Math.pow((wv - 0.35) / 12, 0.75));
+    var ang = st.angle || 0, sweep = 0.5 + 0.5 * Math.abs(Math.sin(ang));   // each bulb sweeping by
+    this._set('air', this.aEnv.gain, air * sweep * 0.16, 0.035);
+    if (air > 0.01) {
+      this._set('airf', this.aBP.frequency, 360 + 1100 * air, 0.08);
+      if (this.aPan.pan) this._set('airp', this.aPan.pan, Math.sin(ang) * 0.4, 0.05);
+    }
     if (rush > 0.01) {
       this._set('rbp', this.rBP.frequency, 1100 + 2300 * rush, 0.12);
       if (this.rPan.pan) this._set('rpan', this.rPan.pan, panTo, 0.12);
@@ -1299,6 +1314,7 @@
     this._set('pat', this.patEnv.gain, 0, 0.12);
     this._set('tnk', this.tinkEnv.gain, 0, 0.1);
     this._set('rush', this.rEnv.gain, 0, 0.2);
+    if (this.aEnv) this._set('air', this.aEnv.gain, 0, 0.2);
     this.pEnv.gain.setTargetAtTime(0, t, 0.1);
     this._last.pour = 0;
     this._quietHand();
