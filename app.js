@@ -418,7 +418,10 @@
     turnAt: 0.07,                    // rad (4°): a smaller nudge is not a turn
     zone: 0.15,                      // grabs this near the centre (× its height) move it; farther out turn it
     reach: 0.22,                     // the tether's reach, × the shorter side of the screen
-    reachReduced: 40                 // px, with Reduce Motion
+    reachReduced: 40,                // px, with Reduce Motion
+    catchTau: 0.01,                  // s: a finger stops a moving glass this quickly, where it is
+    stopW: 0.02, stopV: 2,           // rad/s, px/s: slow enough to count as stopped under the finger
+    pivot: 0.03                      // × its height: this close to the centre a finger's angle does not turn it
   };
   var body = {
     mode: 'rest',                    // rest | held-move | held-turn | free | detent | script | home
@@ -432,6 +435,7 @@
   };
   var rot = 'none';                  // none | held | free | detent | ease | script
   var held = false;                  // a finger holds it by the waist
+  var catching = false;              // a finger has just caught it moving and is stopping it
   var inertia0 = 0;                  // the spinning glass's moment of inertia a step ago
   var passBuzzAt = -1e9;
 
@@ -452,7 +456,7 @@
 
   /** Back home at once (Reset): no offset, no turn, nothing moving. */
   function bodyHome() {
-    held = false; rot = 'none';
+    held = false; rot = 'none'; catching = false;
     body.px = body.py = body.vx = body.vy = body.ax = body.ay = 0;
     body.tx = body.ty = 0;
     body.w = 0; body.theta = 0;
@@ -493,7 +497,13 @@
   /** One step of the glass as a body: where it is, how it is turned. */
   function stepBody(dt) {
     var ax = 0, ay = 0, k, c;
-    if (held) {
+    if (held && catching) {
+      // Caught on its way home: the finger's grip slips over the glass until
+      // it has stopped it, so it stops where it is, with nothing to pull it
+      // back to where the finger first touched it.
+      k = (Math.exp(-dt / BODY.catchTau) - 1) / dt;
+      ax = k * body.vx; ay = k * body.vy;
+    } else if (held) {
       k = BODY.fw; c = 2 * (reduceMotion ? 1 : BODY.fz) * k;
       ax = k * k * (body.tx - body.px) - c * body.vx;
       ay = k * k * (body.ty - body.py) - c * body.vy;
@@ -509,8 +519,21 @@
         body.vx * body.vx + body.vy * body.vy < 25) {
       body.px = body.py = body.vx = body.vy = 0;          // home, to within half a pixel
     }
+    if (held && catching && body.vx * body.vx + body.vy * body.vy < BODY.stopV * BODY.stopV) regrip();
     if (rot !== 'none') turnStep(dt);
     syncMode();
+  }
+
+  /**
+   * The finger has stopped the glass it caught. From here it simply holds
+   * it, from where the glass and the finger now are, so it stays put under
+   * a still finger and follows the finger as soon as it moves.
+   */
+  function regrip() {
+    catching = false;
+    flip.grabAngle = sim.angle;
+    body.tx = body.px; body.ty = body.py;
+    if (grab && grab.kind === 'move') anchorMove(grab);
   }
 
   function turnStep(dt) {
@@ -529,6 +552,13 @@
                            : (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
       th = flip.from + (flip.to - flip.from) * e;
       w = (th - prev) / dt;
+    } else if (rot === 'held' && catching) {
+      // Caught while it turned: the finger's grip slips until the glass has
+      // stopped, so it stops where it is and stays there (a spring anchored
+      // where the finger first touched would swing it back).
+      w *= Math.exp(-dt / BODY.catchTau);
+      th += w * dt;
+      flip.grabAngle = th;
     } else if (rot === 'held') {
       // follows the finger with some weight
       a = BODY.tw * BODY.tw * (flip.grabAngle - th) - 2 * BODY.tz * BODY.tw * w;
@@ -557,6 +587,7 @@
       else if (th < -Math.PI) { swapEnds(); th += Math.PI; flip.grabAngle += Math.PI; passBuzz(); }
     }
     sim.angle = th; body.theta = th; body.w = w; flip.spin = w;
+    if (catching && rot === 'held' && w < BODY.stopW && w > -BODY.stopW) regrip();
     if (rot === 'free') {
       if (w < BODY.wFree && w > -BODY.wFree) enterDetent();
     } else if (rot === 'detent') {
@@ -1440,6 +1471,7 @@
       kind: 'press',               // press → move | turn; none: only ever a tap
       far: 0,                      // farthest the finger has strayed (px²)
       caught: false, mendable: false,
+      lx: e.clientX, ly: e.clientY,                // where the finger is now
       fx: 0, fy: 0, p0x: 0, p0y: 0, last: 0
     };
     try { stage.setPointerCapture(e.pointerId); } catch (err) {}
@@ -1452,6 +1484,7 @@
     if (!g || e.pointerId !== g.id) return;
     var dx = e.clientX - g.x, dy = e.clientY - g.y, d2 = dx * dx + dy * dy;
     if (d2 > g.far) g.far = d2;
+    g.lx = e.clientX; g.ly = e.clientY;
     if (g.kind === 'move') { tether(g, e.clientX, e.clientY); return; }
     if (g.kind === 'turn') { turnTo(g, e.clientX, e.clientY); return; }
     if (g.kind !== 'press') return;
@@ -1486,11 +1519,22 @@
   /** Take the glass by the waist: it follows the finger from where it is now. */
   function holdMove(g, x, y) {
     g.kind = 'move';
-    g.fx = x; g.fy = y;
-    g.p0x = body.px; g.p0y = body.py;
-    body.tx = body.px; body.ty = body.py;
+    g.lx = x; g.ly = y;
+    anchorMove(g);
     held = true;
     syncMode();
+  }
+  /**
+   * Tie the tether from where the glass and the finger are now. A glass
+   * already out on the rubber band is tied at the pull that holds it just
+   * there, so the first small move of the finger never makes it jump.
+   */
+  function anchorMove(g) {
+    var r = Math.sqrt(body.px * body.px + body.py * body.py), h = reach() / 2;
+    var k = r > h ? unband(r, h) / r : 1;
+    g.fx = g.lx; g.fy = g.ly;
+    g.p0x = body.px * k; g.p0y = body.py * k;
+    body.tx = body.px; body.ty = body.py;
   }
   /** Take the glass by a bulb: it turns after the finger from the angle it is at now. */
   function holdTurn(g, x, y) {
@@ -1500,13 +1544,18 @@
     rot = 'held';
     syncMode();
   }
-  /** The glass was moving: it stops under the finger, with a soft felt thud. */
+  /**
+   * The glass was moving: it stops under the finger, with a soft felt thud.
+   * The finger brakes it at once (catching) and then holds it where it
+   * stopped (regrip), as a turn or a move.
+   */
   function catchBody(g, x, y) {
     var rx = x - g.cx, ry = y - g.cy;
     var turning = rot === 'free' || rot === 'detent' || rot === 'ease' || body.w > 0.5 || body.w < -0.5;
     g.caught = true;
     if (turning || Math.sqrt(rx * rx + ry * ry) > g.h * BODY.zone) holdTurn(g, x, y);
     else holdMove(g, x, y);
+    catching = true;
     audio.catchThud();
     buzz(10);
   }
@@ -1514,20 +1563,36 @@
     var e = Math.exp(-2 * (v < 0 ? -v : v)), t = (1 - e) / (1 + e);
     return v < 0 ? -t : t;
   }
+  /** The tether's reach in px: about a fifth of the screen (less with Reduce Motion). */
+  function reach() {
+    return reduceMotion ? BODY.reachReduced : BODY.reach * Math.min(window.innerWidth, window.innerHeight);
+  }
+  /** The rubber band: a pull of r px holds the glass this far out (one to one up to h, then softly less). */
+  function band(r, h) { return r > h ? h + h * tanh((r - h) / h) : r; }
+  /** ... and the pull that holds it at r px (r below 2h, which it never quite reaches). */
+  function unband(r, h) {
+    if (r <= h) return r;
+    var u = (r - h) / h;
+    if (u > 0.999) u = 0.999;
+    return h + h * 0.5 * Math.log((1 + u) / (1 - u));
+  }
   /** Where the finger pulls the glass: one to one near home, then a soft rubber band. */
   function tether(g, x, y) {
     var rx = g.p0x + x - g.fx, ry = g.p0y + y - g.fy, r = Math.sqrt(rx * rx + ry * ry);
-    var L = reduceMotion ? BODY.reachReduced : BODY.reach * Math.min(window.innerWidth, window.innerHeight);
-    var h = L / 2, k = 1;
-    if (r > h) k = (h + h * tanh((r - h) / h)) / r;
+    var h = reach() / 2, k = r > h ? band(r, h) / r : 1;
     body.tx = rx * k; body.ty = ry * k;
   }
   /** The finger's angle about the glass, unwrapped, adds to where the glass is turned to. */
   function turnTo(g, x, y) {
-    var ang = Math.atan2(y - g.cy, x - g.cx), d = ang - g.last;
+    var dx = x - g.cx, dy = y - g.cy, ang = Math.atan2(dy, dx), d = ang - g.last;
     if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI;
-    flip.grabAngle += d;
     g.last = ang;
+    // Close to the centre a finger's angle means little (a pixel of tremor
+    // there is many degrees), so it counts in full only a little way out:
+    // a glass caught at its waist stays put under a resting finger.
+    var r = Math.sqrt(dx * dx + dy * dy), r0 = BODY.pivot * g.h;
+    if (r < 2 * r0) d *= r > r0 ? (r - r0) / r0 : 0;
+    flip.grabAngle += d;
   }
   /**
    * Let go. A moved glass springs home. A turned one spins on if it was
@@ -1536,6 +1601,7 @@
    * short (the page hid, the screen turned), so it settles without a spin.
    */
   function letGo(g, cancel) {
+    catching = false;                  // (lifted while still braking it: it carries on from here)
     if (g.kind === 'move') { held = false; syncMode(); }
     else if (g.kind === 'turn' && rot === 'held') {
       if (reduceMotion) releaseTurn();
