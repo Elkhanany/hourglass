@@ -133,8 +133,10 @@ test('interface skeleton (every P0 member, types and initial values)', function 
   var keys = ['tauSlow', 'tauT', 'gzK', 'maxSweeps', 'sweepT', 'weightless', 'neckPress', 'cenEvery',
     'idleA', 'idleW', 'idleAl', 'idleGz', 'idleT', 'fricS0', 'fricS1', 'pCreepMax', 'pSlideMax',
     'pWakeMax', 'pDiagMax', 'liftTh', 'muW', 'sprayV', 'pSpray', 'hopT', 'hopMax', 'softCap', 'vMax'];
+  // the spec's values, except the spray and hops, calmed at integration
+  // (pSpray 0.35 → 0.08, hopMax 4 → 2: a fountain of sparks became sand jostling)
   var want = [0.35, 0.25, 1.0, 3, 0.75, 0.15, 0.25, 8, 0.01, 0.15, 2, 0.02, 0.02, 0.15, 0.85, 236, 250,
-    230, 240, 0.04, 0.40, 150, 0.35, 0.45, 4, 4096, 1400];
+    230, 240, 0.04, 0.40, 150, 0.08, 0.45, 2, 4096, 1400];
   keys.forEach(function (k, i) { ok(MOT[k] === want[i], 'Sim.MOTION.' + k + ' = ' + MOT[k] + ', spec ' + want[i]); });
   ok(JSON.stringify(DMG) === '{"WARN":1,"CRACK":2,"GROW":3,"BREACH":4,"WIDEN":5,"SEAL":6}', 'Sim.DMG ' + JSON.stringify(DMG));
   var s = new Sim({ scale: 1.08, seed: 7 });
@@ -522,7 +524,8 @@ test('micro-damage relaxes on the idle path; cracked stretches do not', function
   var cr = s.forceCrack(segOf(1, 1, 0.9), 40, 0);
   var warned = 0;
   steps(s, 120, function (x) { warned += x.frame.dmgN; });
-  near(s.segD[sA], 0.5 * Math.pow(1 - 1 / 960, 120), 2e-6, 'segD after 1 s');
+  // the new crack relaxed the rest of the glass (MOT.relief), then it heals
+  near(s.segD[sA], 0.5 * MOT.relief * Math.pow(1 - 1 / 960, 120), 2e-6, 'segD after 1 s');
   ok(s.dMax === s.segD[sA] && s.segD[cr.seg] === 1, 'dMax follows; the cracked segment holds');
   ok(warned === 0, 'falling damage sounded a creak');
   steps(s, 120 * 8);

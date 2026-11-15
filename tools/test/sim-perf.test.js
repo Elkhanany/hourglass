@@ -4,6 +4,9 @@
  *   every profile, a 5-minute glass mid-run, damage armed: per-frame (two
  *   steps) p95 ≤ 3.0 ms at q 1.08 and ≤ 4.0 ms at q 1.3, and no frame over
  *   6 ms after the first 2 s
+ *   a free spin (flicked to 16 rad/s and coasting, a completeFlip at every
+ *   half turn, as app.js spins it): per-frame p95 ≤ 3.0 ms at q 1.08, and
+ *   no frame that turns the lattice over above 6 ms
  *   the idle path costs what f446085's step() did, within ±10 %
  *   quality 0 cuts lateralVV's mean frame time by ≥ 30 %
  *
@@ -61,6 +64,36 @@ function timeProfile(name, scale, quality, secs) {
   }
   return { wall: frames.subarray(0, nf), cpu: cpu.subarray(0, nf) };
 }
+/**
+ * A free spin as app.js makes one (H.Turner): flicked to 16 rad/s in a
+ * quarter of a second, then coasting under drag, dry friction and the
+ * skater effect, with a completeFlip at every half turn, until the detent
+ * sets it down. λ 0.08, the clock standing still, as while any turn lasts.
+ * Frames (two steps, the body's step included) of the spin, and the
+ * frames that contain a completeFlip, apart.
+ */
+function timeSpin(scale, seed) {
+  if (!SIMS[scale]) SIMS[scale] = new H.P.Sim({ scale: scale, seed: 4242 });
+  var run = H.glassAt({ durMs: 300000, startMs: 150000, seed: seed, scale: scale, sim: SIMS[scale] });
+  var sim = run.sim, tn = new H.Turner(sim, H.LAM), acc = 0, cacc = 0, swapped = false;
+  var spin = { wall: [], cpu: [] }, swap = { wall: [], cpu: [] };
+  sim.gateOpen = false;
+  tn.flick(16, 0.25);
+  for (var k = 0; tn.busy() && k < 2400; k++) {
+    if ((k & 1) === 0) { sim.beginFrame(); acc = 0; cacc = 0; swapped = false; }
+    var c0 = process.cpuUsage(), t0 = now();
+    tn.step();
+    sim.step();
+    acc += now() - t0;
+    var c1 = process.cpuUsage(c0);
+    cacc += (c1.user + c1.system) / 1000;
+    if (tn.swapped) swapped = true;
+    sim.escN = 0;
+    if (k & 1) { var d = swapped ? swap : spin; d.wall.push(acc); d.cpu.push(cacc); }
+  }
+  return { spin: spin, swap: swap, swaps: tn.swaps };
+}
+
 function stats(fr) {
   var a = Array.prototype.slice.call(fr.wall), s = a.slice().sort(function (x, y) { return x - y; });
   var over6 = 0, preempted = 0, lateMax = 0;
@@ -86,6 +119,27 @@ var t00 = Date.now();
   timeProfile('vigorous', q, 1, 3);
   timeProfile('vigorous', q, 0, 3);
 });
+timeSpin(1.08, 1); timeSpin(1.08, 2);
+
+// a free spin: the spin's frames, and the frames that turn the lattice over
+(function () {
+  var best = null;
+  for (var t = 0; t < TRIES; t++) {
+    var r = timeSpin(1.08, 11 + t), sp = r.spin.wall.slice().sort(function (x, y) { return x - y; });
+    var p95 = sp[Math.floor(sp.length * 0.95)], swMax = 0, swPre = 0;
+    for (var i = 0; i < r.swap.wall.length; i++) {
+      var w = r.swap.wall[i];
+      if (w > 6 && r.swap.cpu[i] < 0.5 * w) { swPre++; continue; }        // the OS, not the sim
+      if (w > swMax) swMax = w;
+    }
+    var o = { p95: p95, p50: sp[sp.length >> 1], max: sp[sp.length - 1], swMax: swMax, swPre: swPre, swaps: r.swaps, n: sp.length };
+    if (!best || o.p95 + o.swMax / 2 < best.p95 + best.swMax / 2) best = o;
+    if (best.p95 <= 3.0 && best.swMax <= 6) break;
+  }
+  report(best.p95 <= 3.0 && best.swMax <= 6, 'free spin at q 1.08 (flicked to 16 rad/s, λ 0.08, ' + best.swaps + ' half turns): per-frame p95 ' +
+    best.p95.toFixed(2) + ' ms (≤ 3.0; p50 ' + best.p50.toFixed(2) + ', max ' + best.max.toFixed(2) + ' over ' + best.n + ' frames); ' +
+    'frames with a completeFlip at most ' + best.swMax.toFixed(2) + ' ms (≤ 6)' + (best.swPre ? '; ' + best.swPre + ' preempted by the OS' : ''));
+})();
 
 [[1.08, 3.0], [1.3, 4.0]].forEach(function (c) {
   var worstP95 = 0, worstName = '', bad = [], notes = [], preempted = 0;

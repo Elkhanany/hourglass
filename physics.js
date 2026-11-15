@@ -5,8 +5,16 @@
  *                               a cellular automaton for packed / sliding sand
  *                               plus sub-pixel ballistic particles for the
  *                               free-falling stream, the pour and the splash.
+ *                               A glass at rest steps exactly as it always
+ *                               has; moved, turned or shaken, it feels the
+ *                               true-size field (the bed lifts and lands, the
+ *                               sand runs hot), and its glass can crack, leak
+ *                               and be mended.
  * 2. HourglassPhysics.Renderer  Per-grain pixel renderer (ImageData / Uint32)
- *                               and the blown-glass vessel, caps and lighting.
+ *                               and the blown-glass vessel, caps and lighting,
+ *                               with its cracks, gold mends and their glints.
+ * 3. HourglassPhysics.Spill     Sand that has left the glass, falling in the
+ *                               room and gathering in a dune on the desk.
  *
  * Zero dependencies. License: GPL-3.0.
  * ---------------------------------------------------------------------------
@@ -156,6 +164,22 @@
     var k = Math.round(Math.atan2(x, y) / (Math.PI / 4));
     return ((k % 8) + 8) % 8;
   }
+  /**
+   * The engine stores a field in the form its first value needs: a small
+   * integer, or a double. Widening it later changes the object's shape and
+   * throws away the compiled code of every function that touches it, which
+   * cost whole frames (10–25 ms) on the first turn, spin or shake of a page,
+   * when these fields first take fractions. So they take their double form
+   * here, before anything is compiled, as the slugs' U and Z do.
+   */
+  var SIM_DOUBLES = ['angle', 'tilt', 'gx', 'gy', 'mAx', 'mAy', 'mW', 'mAl', 'mLam', 'mGz', 'relCap', 'dMax', '_iz'];
+  function asDoubles(o, keys) {
+    for (var k = 0; k < keys.length; k++) {
+      var v = o[keys[k]];
+      o[keys[k]] = 0.5;
+      o[keys[k]] = v;
+    }
+  }
 
   function Sim(opts) {
     opts = opts || {};
@@ -239,6 +263,7 @@
 
     this._buildVessel();
     this._initMotion();
+    asDoubles(this, SIM_DOUBLES);
     this.reset(opts.grains || this.defaultGrains);
   }
 
@@ -273,9 +298,16 @@
     // the bed flies as one body (a completely inelastic bouncing bed)
     liftTh: 0.04,        // × G: lift-off margin, so a bed at 1 g does not chatter
     muW: 0.40,           // sand on glass, while pressed sideways
-    // spray, hops and airborne grains
-    sprayV: 150, pSpray: 0.35, hopT: 0.45, hopMax: 4, softCap: 4096, vMax: 1400,
-    pSprayQ1: 0.15, hopMaxQ1: 2,      // the lighter quality level (the governor's 1)
+    // Spray, hops and airborne grains. Kept sparse and low on purpose: a
+    // shaken bed should read as sand jostling in a glass (the bed lifting
+    // and landing carries the effect), not as a fountain of sparks. At the
+    // first values (pSpray 0.35, 6 hop tries per unit of T, hops up to
+    // 360 cells/s) shaking threw 270–660 grains/s up to 50 cells high.
+    sprayV: 150, pSpray: 0.08, hopT: 0.45, hopMax: 2, softCap: 4096, vMax: 1400,
+    sprayE: 0.2, sprayEr: 0.2,        // spray leaves at (sprayE + sprayEr·U) of the landing speed
+    hopK: 1.5,                        // hop tries per step per unit of temperature above hopT
+    hopV0: 40, hopV: 80,              // a hop's speed: hopV0 + hopV·min(T, 2)·U(0.3, 1), cells/s
+    pSprayQ1: 0.04, hopMaxQ1: 1,      // the lighter quality level (the governor's 1)
     jitX: 0.011, jitY: 0.004,         // a falling grain's aerodynamic jitter, per step (as today)
     retryV: 25,          // cells/s: a grain with nowhere to settle rises against the field and tries again
     Dcap: 8,             // a crack is full grown long before its stretch holds this much damage
@@ -296,6 +328,8 @@
     warn: [0.35, 0.60, 0.80, 0.92],   // creak levels 1–4, crossing upward
     warnRearm: 0.15,     // a level re-arms this far below its threshold
     maxCracks: 3,        // per glass
+    relief: 0.5,         // a crack relaxes the rest of the glass: every other stretch keeps this share of its damage
+    calm: 2.5,           // s: after a crack, no other starts this soon
     gateGuard: 4,        // cracks and holes stay at least this many rows from the gate
     L0: 4, growK: 22, growL: 30, growStep: 6, Lmax: 140,   // crack length, cells
     Lhole: 26, widen: 0.8, wMax: 3,   // breached at L > 26, wider at 26·(1 + 0.8·w)
@@ -389,9 +423,10 @@
     this.reduced = false;                // Reduce Motion: gentler physics, a glass that cannot crack
     this.quality = 2;                    // 2 full, 1 lighter, 0 lightest (set by the app)
 
-    // Each bulb's bed: the field it feels, its slow mean, centroid and heat.
+    // Each bulb's bed: the field it feels, the slow mean of that field
+    // without gravity (what heats the sand is a change in it), centroid and heat.
     this.bf = new Float32Array(4);       // [f0x, f0y, f1x, f1y], cells/s²
-    this.bfSlow = new Float32Array(4);
+    this.hSlow = new Float32Array(4);    // slow mean of bf − G·ĝ, cells/s²
     this.cen = new Float32Array(4);      // bed centroids, cells from the glass centre
     this.agit = new Float32Array(2);     // granular temperature T_b
     this.sweepAcc = new Float32Array(2); // fractional CA sweeps carried over
@@ -429,6 +464,7 @@
     this._cenAt = -1e9;                  // step the centroids were last measured
 
     this._motionStep = false;            // the last step took the motion path
+    this._cell32 = new Uint32Array(cell.buffer, cell.byteOffset, N >> 2);   // the lattice, four cells a word (_sandRow)
     this._iz = 0; this._izAt = -1;       // cached moment of inertia (inertiaZ)
     this.neckGuards = 0;                 // _freeNear answers refused across the neck (diagnostic)
 
@@ -474,6 +510,7 @@
     this.segS = new Float32Array(WALL_SEGS);   // strength of this glass's flaws
     this.segKt = new Float32Array(WALL_SEGS);  // stress concentration of the shape
     this.segCrack = new Int8Array(WALL_SEGS);  // index of the segment's crack, −1 none
+    this.segHit = new Float32Array(WALL_SEGS); // how hard each stretch is being hit lately (raw supply, fading as segP does)
     for (s = 0; s < WALL_SEGS; s++) {
       // Stress gathers at the blown shoulder by the waist and at the dome under the cap.
       var u = ((s % WALL_BINS) + 0.5) / WALL_BINS, a = (u - 0.05) / 0.06, c = (1 - u) / 0.08;
@@ -489,6 +526,7 @@
     this._pendP = false;                 // some segment still has a blow to absorb (segP)
     this.nOpen = 0;                      // unsealed cracks with a breach
     this._crackId = 0;
+    this._crackHold = -1e9;              // no new crack starts before this step (MOT.calm after one)
     this._holeBuf = new Uint8Array(N);   // holeMap's storage: a breach never allocates
     this.holeMap = null;                 // Uint8Array(N) from the first breach until reset
   };
@@ -575,10 +613,10 @@
       S.air = false; S.U = 0; S.Z = 0; S.kZ = 0; S.seat = 1;
       this.nAir[b] = 0;
       this.cair[b].fill(0); this.cpin[b].fill(0); this.cdOff[b].fill(0);
-      this.bf[2 * b] = this.bfSlow[2 * b] = G * gx;
-      this.bf[2 * b + 1] = this.bfSlow[2 * b + 1] = G * gy;
+      this.bf[2 * b] = G * gx;
+      this.bf[2 * b + 1] = G * gy;
     }
-    this.cen.fill(0); this.agit.fill(0); this.sweepAcc.fill(0);
+    this.hSlow.fill(0); this.cen.fill(0); this.agit.fill(0); this.sweepAcc.fill(0);
     this._landAt[0] = this._landAt[1] = -1e9;
     this._cenAt = -1e9;
     this._motionStep = false;
@@ -594,11 +632,12 @@
     if (this.cracks.length) this.crackRev++;       // so the picture drops them
     this.cracks.length = 0;
     this.segCrack.fill(-1);
-    this.segD.fill(0); this.segP.fill(0);
+    this.segD.fill(0); this.segP.fill(0); this.segHit.fill(0);
     this._pendP = false;
     if (this.holeMap !== null) { this._holeBuf.fill(0); this.holeMap = null; }
     this.nOpen = 0; this.dMax = 0; this.warnSeg = -1;
     this.warnLatch.fill(0);
+    this._crackHold = -1e9;
     this.lost = 0; this.leakedTop = 0; this.leakedBottom = 0;
     this.escN = 0;
     this._leakStep = -1e9; this._leakLive = false;
@@ -840,7 +879,7 @@
    * ---------------------------------------------------------------- */
   Sim.prototype._stepMotion = function () {
     var G = this.G, f = this.frame, gate = this.gateY;
-    var bf = this.bf, bs = this.bfSlow, cen = this.cen, agit = this.agit, slug = this.slug;
+    var bf = this.bf, hs = this.hSlow, cen = this.cen, agit = this.agit, slug = this.slug;
     var entry = !this._motionStep, b, T, n;
     this._motionStep = true;
 
@@ -854,26 +893,30 @@
     // 2. Where each bed is: the rotational terms act at its centroid.
     if (entry || this.steps - this._cenAt >= MOT.cenEvery) this._centroids();
 
-    // 3. The field each bed feels, its slow mean, and how hot the sand runs.
-    //    f_b = G·ĝ + A + λ·[ω²·r_b + α·(r_y, −r_x)]: gravity, the felt
-    //    acceleration of the glass, centrifugal and Euler at the bed. Heat
-    //    comes from what changes (|f − f̄|), not from a steady lean, and from
-    //    shaking out of the screen's plane.
+    // 3. The field each bed feels, and how hot the sand runs.
+    //    f_b = G·ĝ + h_b, with h_b = A + λ·[ω²·r_b + α·(r_y, −r_x)]: gravity,
+    //    plus the felt acceleration of the glass and centrifugal and Euler at
+    //    the bed. Only a change in h_b heats the sand (|h − h̄|), and shaking
+    //    out of the screen's plane. Gravity is left out on purpose: turning
+    //    the glass swings gravity round in the glass's own frame, and a slow
+    //    turn, a lean or the Flip button must leave the sand as calm as it
+    //    always was; it slides and avalanches on its own as the glass turns.
     var lam = this.mLam, w = this.mW, w2 = lam * w * w, la = lam * this.mAl;
-    var Fx = G * gx + this.mAx, Fy = G * gy + this.mAy;     // the neck (r = 0) feels just this
+    var Ax = this.mAx, Ay = this.mAy;
+    var Fx = G * gx + Ax, Fy = G * gy + Ay;                 // the neck (r = 0) feels just this
     var kS = 1 - Math.exp(-DT / MOT.tauSlow), kT = 1 - Math.exp(-DT / MOT.tauT);
     var gzD = MOT.gzK * this.mGz;
     for (b = 0; b < 2; b++) {
       var rx = cen[2 * b], ry = cen[2 * b + 1];
-      var fx = Fx + w2 * rx + la * ry, fy = Fy + w2 * ry - la * rx;
-      bf[2 * b] = fx; bf[2 * b + 1] = fy;
+      var hx = Ax + w2 * rx + la * ry, hy = Ay + w2 * ry - la * rx;
+      bf[2 * b] = Fx + w2 * rx + la * ry; bf[2 * b + 1] = Fy + w2 * ry - la * rx;
       if (entry) {                                    // no fake kick on the way in
-        bs[2 * b] = fx; bs[2 * b + 1] = fy;
+        hs[2 * b] = hx; hs[2 * b + 1] = hy;
       } else {
-        bs[2 * b] += (fx - bs[2 * b]) * kS;
-        bs[2 * b + 1] += (fy - bs[2 * b + 1]) * kS;
+        hs[2 * b] += (hx - hs[2 * b]) * kS;
+        hs[2 * b + 1] += (hy - hs[2 * b + 1]) * kS;
       }
-      var ex = fx - bs[2 * b], ey = fy - bs[2 * b + 1];
+      var ex = hx - hs[2 * b], ey = hy - hs[2 * b + 1];
       var D = Math.sqrt(ex * ex + ey * ey) / G + gzD;
       if (D > 3) D = 3;
       T = agit[b] + (D - agit[b]) * kT;
@@ -983,20 +1026,56 @@
    * n sweeps of bulb b's automaton along (ux, uy). Shaken sand loses its
    * friction (vibration fluidises a bed), so the stick-slip odds are lerped
    * toward free flow with the temperature T for these sweeps only.
+   *
+   * Only the rows that hold sand are swept. A row that is empty when a sweep
+   * starts is still empty when the sweep reaches it (sand enters it only
+   * from rows swept after it, and a grain that has moved is done for that
+   * sweep), and sand spreads by at most one row per sweep; so the sweeps
+   * start on the rows that hold sand and widen by a row each time. Every
+   * grain meets the same rules as under full sweeps: only the dice rolled
+   * for empty rows are saved. It helps most when a bulb holds little sand,
+   * or a spin has flung its bed toward the far end.
    */
   Sim.prototype._caBulb = function (b, ux, uy, n, full, T) {
     var yLo = b ? this.gateY + 1 : 1, yHi = b ? this.H - 1 : this.gateY;
+    var lo = this._sandRow(yLo, yHi - 1, 1);
+    if (lo < 0) return;                               // no sand in this bulb
+    var hi = this._sandRow(yHi - 1, lo, -1);
     var c0 = this.pCreep, s0 = this.pSlide, w0 = this.pWake, d0 = this.pDiag;
     var s = 1.2 * (T - MOT.fricS0) / MOT.fricS1;
     if (s > 0) {
+      // Rounded up: the automaton compares whole dice (0 … 255) with these,
+      // and d < p is d < ⌈p⌉ for a whole d, so nothing changes, and the odds
+      // stay whole numbers (see asDoubles: no change of shape mid-shake).
       if (s > 1) s = 1;
-      this.pCreep = c0 + (MOT.pCreepMax - c0) * s;
-      this.pSlide = s0 + (MOT.pSlideMax - s0) * s;
-      this.pWake = w0 + (MOT.pWakeMax - w0) * s;
-      this.pDiag = d0 + (MOT.pDiagMax - d0) * s;
+      this.pCreep = Math.ceil(c0 + (MOT.pCreepMax - c0) * s);
+      this.pSlide = Math.ceil(s0 + (MOT.pSlideMax - s0) * s);
+      this.pWake = Math.ceil(w0 + (MOT.pWakeMax - w0) * s);
+      this.pDiag = Math.ceil(d0 + (MOT.pDiagMax - d0) * s);
     }
-    while (n-- > 0) this._ca(ux, uy, yLo, yHi, full);
+    for (var k = 0; k < n; k++) {
+      var a = lo - k, z = hi + 1 + k;                 // rows a … z − 1
+      this._ca(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full);
+    }
     this.pCreep = c0; this.pSlide = s0; this.pWake = w0; this.pDiag = d0;
+  };
+
+  /**
+   * The first row from y0 toward y1 (step dy = ±1) that holds a grain, or
+   * −1. Four cells at a time: sand is the only cell value with bit 1 set
+   * (REST 2, MOVE 3), and a word that runs past either end of a row reads
+   * only glass, since every row starts and ends in solid wall.
+   */
+  Sim.prototype._sandRow = function (y0, y1, dy) {
+    var w32 = this._cell32, W = this.W, rowMin = this.rowMin, rowMax = this.rowMax;
+    for (var y = y0; dy > 0 ? y <= y1 : y >= y1; y += dy) {
+      if (rowMin[y] > rowMax[y]) continue;
+      var base = y * W, e = (base + rowMax[y]) >> 2;
+      for (var q = (base + rowMin[y]) >> 2; q <= e; q++) {
+        if ((w32[q] & 0x02020202) !== 0) return y;
+      }
+    }
+    return -1;
   };
 
   /* ---------------------------------------------------------------- *
@@ -1174,7 +1253,7 @@
       var ps = this.reduced ? 0 : (this.quality >= 2 ? MOT.pSpray : (this.quality === 1 ? MOT.pSprayQ1 : 0));
       if (v > MOT.sprayV && ps > 0 && this.np < MOT.softCap && this.np < this.PCAP &&
           cell[i - dir * W] === EMPTY && this._rand() < ps) {
-        var p = this.np++, e3 = 0.2 + 0.4 * this._rand();
+        var p = this.np++, e3 = MOT.sprayE + MOT.sprayEr * this._rand();
         this.px[p] = x + 0.5;
         this.py[p] = y + 0.5 - dir * 0.6;
         this.pvx[p] = (this._rand() - 0.5) * 0.9 * v * e3;
@@ -1208,6 +1287,7 @@
     if (h > 2) h = 2;
     var d = MOT.A * h * (Math.pow(x, MOT.n) - Math.pow(MOT.xTh, MOT.n));
     if (d > MOT.capCol) d = MOT.capCol;
+    this.segHit[s] += d;
     d += this.segP[s];
     this.segP[s] = d > MOT.Pmax ? MOT.Pmax : d;
     this._pendP = true;
@@ -1223,7 +1303,7 @@
   Sim.prototype._hops = function (b) {
     if (this.np >= MOT.softCap || this.np >= this.PCAP) return;
     var T = this.agit[b], cap = this.quality >= 2 ? MOT.hopMax : MOT.hopMaxQ1;
-    var n = Math.floor((T - MOT.hopT) * 6 + this._rand());
+    var n = Math.floor((T - MOT.hopT) * MOT.hopK + this._rand());
     if (n > cap) n = cap;
     if (n <= 0) return;
     var fx = this.bf[2 * b], fy = this.bf[2 * b + 1], fm = Math.sqrt(fx * fx + fy * fy);
@@ -1250,7 +1330,7 @@
       if (i < 0) continue;
       j = i + step;
       if (cell[j] !== EMPTY) continue;
-      var sp = 40 + 160 * Tc * (0.3 + 0.7 * this._rand());
+      var sp = MOT.hopV0 + MOT.hopV * Tc * (0.3 + 0.7 * this._rand());
       var lat = (this._rand() + this._rand() + this._rand() - 1.5) * 120 * T;   // ≈ N(0, 60·T)
       p = this.np++;
       this.px[p] = (j % W) + 0.5;
@@ -1959,7 +2039,7 @@
   Sim.prototype._flipState = function () {
     var W = this.W, H = this.H, N = W * H, k, h, t;
     // per-bulb vectors and states
-    flipBulbPair(this.bf); flipBulbPair(this.bfSlow); flipBulbPair(this.cen);
+    flipBulbPair(this.bf); flipBulbPair(this.hSlow); flipBulbPair(this.cen);
     t = this.agit[0]; this.agit[0] = this.agit[1]; this.agit[1] = t;
     t = this.sweepAcc[0]; this.sweepAcc[0] = this.sweepAcc[1]; this.sweepAcc[1] = t;
     t = this._landAt[0]; this._landAt[0] = this._landAt[1]; this._landAt[1] = t;
@@ -1972,7 +2052,7 @@
     t = s0.kZ; s0.kZ = s1.kZ; s1.kZ = t;
     s0.seat = 1; s1.seat = 1;
     // the glass: damage, flaws, cracks and their breaches
-    flipSegArray(this.segD); flipSegArray(this.segP);
+    flipSegArray(this.segD); flipSegArray(this.segP); flipSegArray(this.segHit);
     flipSegArray(this.segS); flipSegArray(this.segKt);
     flipSegArray(this.segCrack);
     if (this.warnSeg >= 0) this.warnSeg = flipSegIndex(this.warnSeg);
@@ -2116,8 +2196,9 @@
    * no faster than rMax (a crack runs at a bounded speed, so one blow can
    * never do what sustained cycling does) and an unabsorbed blow fades.
    * Micro-damage in glass that has not cracked arrests and fades (τ tauHeal);
-   * a stretch that reaches 1 cracks, up to maxCracks per glass; a crack
-   * grows with further damage, breaks through and widens. Then the creaks.
+   * a stretch that reaches 1 cracks, up to maxCracks per glass, one at a
+   * time (see _relieve); a crack grows with further damage, breaks through
+   * and widens. Then the creaks.
    */
   Sim.prototype._damageStep = function (motion) {
     var segD = this.segD, segP = this.segP, sc = this.segCrack, s, p, d;
@@ -2132,6 +2213,7 @@
             if (sc[s] >= 0 && this.cracks[sc[s]].sealed) continue;
             d = r * Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
             if (d > MOT.capB) d = MOT.capB;
+            this.segHit[s] += d;
             p = segP[s] + d;
             segP[s] = p > MOT.Pmax ? MOT.Pmax : p;
             this._pendP = true;
@@ -2140,8 +2222,9 @@
       }
     }
     if (this._pendP) {
-      var cap = MOT.rMax * DT, kP = Math.exp(-DT / MOT.tauP), pend = false;
+      var cap = MOT.rMax * DT, kP = Math.exp(-DT / MOT.tauP), pend = false, hit = this.segHit;
       for (s = 0; s < WALL_SEGS; s++) {
+        hit[s] *= kP;
         p = segP[s];
         if (p <= 0) continue;
         var take = p < cap ? p : cap;
@@ -2153,17 +2236,38 @@
       }
       this._pendP = pend;
     }
-    var heal = 1 - DT / MOT.tauHeal, full = this.cracks.length >= MOT.maxCracks;
+    var heal = 1 - DT / MOT.tauHeal, pick = -1, pickD = 0, pickH = 0;
+    var hold = this.cracks.length >= MOT.maxCracks || this.steps < this._crackHold;
     for (s = 0; s < WALL_SEGS; s++) {
       d = segD[s];
       if (d <= 0) continue;
       if (sc[s] >= 0) { this._grow(sc[s]); continue; }
       if (d < 1) { segD[s] = d * heal; continue; }
-      if (full) { segD[s] = 0.999; continue; }        // the glass has its three
-      this._initCrack(s, -1);
-      full = this.cracks.length >= MOT.maxCracks;
+      if (hold) { segD[s] = 0.999; continue; }        // the glass has its three, or has just cracked
+      // Damage grows at a bounded rate, so the hardest shaking brings several
+      // stretches to 1 together: the one being hit hardest now gives way.
+      p = this.segHit[s];
+      if (pick < 0 || p > pickH || (p === pickH && d > pickD)) { pick = s; pickH = p; pickD = d; }
     }
+    if (pick >= 0) this._initCrack(pick, -1);
     this._scanDamage(true);
+  };
+
+  /**
+   * A crack relaxes the glass around it: the stress that was building in
+   * every other stretch without a crack eases to MOT.relief of what it was,
+   * and no other crack starts for MOT.calm seconds. Under the hardest
+   * shaking several stretches load up together; this way they give way one
+   * at a time, each after creaks of its own, not as a sudden starburst.
+   */
+  Sim.prototype._relieve = function (s) {
+    var segD = this.segD, segP = this.segP, sc = this.segCrack, k = MOT.relief;
+    for (var q = 0; q < WALL_SEGS; q++) {
+      if (q === s || sc[q] >= 0) continue;
+      segD[q] *= k;
+      segP[q] *= k;
+    }
+    this._crackHold = this.steps + Math.round(MOT.calm / DT);
   };
 
   /**
@@ -2248,11 +2352,12 @@
     return cr;
   };
 
-  /** A crack starts in segment s, at wall cell `at` (−1: the usual site). Emits CRACK. */
+  /** A crack starts in segment s, at wall cell `at` (−1: the usual site), and relieves the rest. Emits CRACK. */
   Sim.prototype._initCrack = function (s, at) {
     var cr = this._makeCrack(s, at >= 0 ? at : this._crackSite(s), this._rand() * 4294967296);
     this.crackRev++;
     this._pushDmg(Sim.DMG.CRACK, this.cracks.length - 1, 0, this._panX(cr.x));
+    this._relieve(s);
     this._scanDamage(false);
     return cr;
   };
