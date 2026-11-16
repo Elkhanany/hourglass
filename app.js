@@ -38,6 +38,7 @@
     chime: true, tilt: false, zenFull: false, haptics: true,
     keepAwake: true, frame: true,
     ambience: 'none', ambienceLevel: 0.5,
+    breath: false, breathPattern: 'calm',
     durationMs: 5 * 60000,
     motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
     hintMend: false                  // the one-time "hold it still to mend" note was shown
@@ -227,6 +228,7 @@
     }
     syncWakeLock();
     saveSession();
+    breathSync();
     sim.quiet = 0;
     dirty = true;
   }
@@ -1257,6 +1259,95 @@
   }
 
   /* ======================================================================
+   *  Breathing pace
+   *
+   *  While the sand runs, the light behind the glass swells through the
+   *  in-breath, holds, and fades through the out-breath. Each part of a
+   *  breath is one transition of the layer's opacity and scale (styles.css,
+   *  #breath), so the compositor does the breathing and no script runs
+   *  between the parts: a timer only begins the next one. Which part it is
+   *  comes from the wall clock every time, never from counting, so a late
+   *  timer, a slow frame or a sleeping phone cannot shift a breath.
+   * ==================================================================== */
+  var BREATHS = {                    // ms: in, hold, out, hold
+    calm: [4000, 0, 6000, 0],        // six breaths a minute
+    box: [4000, 4000, 4000, 4000],
+    deep: [4000, 7000, 8000, 0]
+  };
+  // (a damaged setting may name anything: "constructor" is not a pattern)
+  if (!Object.prototype.hasOwnProperty.call(BREATHS, settings.breathPattern)) settings.breathPattern = 'calm';
+  var breathEl = $('breath');
+  var breath = { on: false, t0: 0, n: NaN, timer: 0 };   // t0: when this run of breaths began (Date.now())
+
+  /**
+   * Begin the part of the breath the clock says it is in, and wait for the
+   * next. `back`: the page was away, so the glow is put exactly where the
+   * clock says, whatever its transitions did meanwhile.
+   */
+  function breathStep(back) {
+    clearTimeout(breath.timer);
+    if (!breath.on || document.hidden) return;         // (no timers while away)
+    var p = BREATHS[settings.breathPattern], cycle = p[0] + p[1] + p[2] + p[3];
+    var e = Date.now() - breath.t0, c = Math.floor(e / cycle), i = 0;
+    e -= c * cycle;
+    while (e >= p[i]) { e -= p[i]; i++; }              // 0 in, 1 held full, 2 out, 3 held at rest
+    if (back === true || 4 * c + i !== breath.n) {
+      breath.n = 4 * c + i;
+      var cl = breathEl.classList, st = breathEl.style, from = i === 1 || i === 2, to = i < 2;
+      if (back === true || e > 300 || cl.contains('in') !== from) {
+        // not straight from the part before: start from where this part starts
+        st.transition = 'none';
+        cl.toggle('in', from);
+        void getComputedStyle(breathEl).opacity;       // (styles only, no layout)
+      }
+      st.transition = '';
+      if (to !== from) {
+        // late by e ms: the transition is entered that far in, and still ends on time
+        st.transitionDuration = p[i] + 'ms';
+        st.transitionDelay = -e + 'ms';
+        cl.toggle('in', to);
+      }
+    }
+    breath.timer = setTimeout(breathStep, p[i] - e);
+  }
+  /**
+   * Stop the glow where it is, so that what comes next starts from there and
+   * takes its own full time (a transition turned round in mid-air would
+   * otherwise be cut short by the browser).
+   */
+  function breathHold() {
+    var st = breathEl.style, cs = getComputedStyle(breathEl), o = cs.opacity, tf = cs.transform;
+    st.transition = 'none'; st.opacity = o; st.transform = tf;
+    void cs.opacity;
+    st.transition = st.opacity = st.transform = '';
+  }
+  /** From rest a breath begins by swelling; a new pattern chosen mid-breath goes on from where the glow is. */
+  function breathBegin() {
+    var p = BREATHS[settings.breathPattern];
+    breathHold();
+    breath.t0 = Date.now() - (breathEl.classList.contains('in') ? p[0] + p[1] : 0);
+    breath.n = NaN;
+    breathStep();
+  }
+  /** Breathing only while the sand is running; otherwise the glow eases back to rest. */
+  function breathSync() {
+    var want = settings.breath && T.state === 'running';
+    if (want === breath.on) return;
+    breath.on = want;
+    if (want) breathBegin();
+    else {
+      clearTimeout(breath.timer);
+      breathHold();
+      breathEl.classList.remove('in');                 // the stylesheet's own transition: slowly back
+    }
+  }
+  /** The layer exists only while the switch is on (at rest it is clear). */
+  function breathLayer(on) {
+    breathEl.hidden = !on;
+    if (on) void getComputedStyle(breathEl).opacity;   // its resting style, before it first swells
+  }
+
+  /* ======================================================================
    *  Layout
    * ==================================================================== */
   var layoutQueued = false;
@@ -1366,6 +1457,11 @@
   var toastTimer = 0;
   function toast(msg, ms) {
     toastEl.textContent = msg;
+    // Said while Tune is open, it would lie on the rows it is about: there it
+    // sits in the sheet's head, just above them (and goes when the sheet goes).
+    var y = sheetOpen === sheetSettings ? sheetSettings.offsetTop + sheetSettings.querySelector('.sheet-body').offsetTop - 4 : 0;
+    toastEl.classList.toggle('high', y > 0);
+    toastEl.style.bottom = y > 0 ? 'calc(100% - ' + y + 'px)' : '';
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, ms || 2200);
@@ -1791,6 +1887,7 @@
     if (!el) return;
     sheetOpen = null;
     el.classList.remove('open'); scrim.classList.remove('open');
+    if (toastEl.classList.contains('high')) toastEl.classList.remove('show');   // a toast in Tune's head fades with it
     var done = function () { el.hidden = true; if (!sheetOpen) scrim.hidden = true; };
     if (instant) done(); else setTimeout(done, 560);
     if (sheetOpener && !instant) { try { sheetOpener.focus({ preventScroll: true }); } catch (e) {} }
@@ -1881,6 +1978,40 @@
   $('opt-haptics').addEventListener('change', function (e) {
     settings.haptics = e.target.checked; save();
     buzz(12);
+  });
+  // breathing pace: the switch, and under it the pattern (hidden while it is off)
+  var optBreath = $('opt-breath'), breathRow = $('breath-row'), breathHide = 0;
+  function showBreath() {
+    optBreath.checked = settings.breath;
+    breathRow.hidden = !settings.breath;
+    var b = document.querySelectorAll('#breaths button');
+    for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-checked', b[i].dataset.breath === settings.breathPattern ? 'true' : 'false');
+  }
+  optBreath.addEventListener('change', function (e) {
+    settings.breath = e.target.checked; save();
+    showBreath();
+    clearTimeout(breathHide);
+    if (settings.breath) {
+      breathLayer(true);
+      toast('Breathe in as the glow swells, out as it fades', 3600);   // (wrapped, "out as it fades" stays whole)
+      // the choice has appeared under the switch: bring it into view if the sheet cuts it off
+      var sb = sheetSettings.querySelector('.sheet-body');
+      var over = breathRow.getBoundingClientRect().bottom - sb.getBoundingClientRect().bottom;
+      if (over > 0) {
+        try { sb.scrollBy({ top: over, behavior: reduceMotion ? 'auto' : 'smooth' }); } catch (err) { sb.scrollTop += over; }
+      }
+    } else {
+      breathHide = setTimeout(function () { breathLayer(false); }, 2600);   // once it has eased back to rest
+    }
+    breathSync();
+  });
+  $('breaths').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b || b.dataset.breath === settings.breathPattern) return;
+    settings.breathPattern = b.dataset.breath; save();
+    showBreath();
+    if (breath.on) breathBegin();
+    buzz(8);
   });
 
   /* ---- custom duration dial ----------------------------------------- */
@@ -2028,6 +2159,7 @@
       lastFrame = performance.now(); acc = 0; dirty = true;
       motion.reset();                  // stale sensor history is not felt on return
     }
+    breathStep(true);                  // away: no timers; back: the breath the clock says it is
     syncWakeLock();
   });
   window.addEventListener('pagehide', saveSession);
@@ -2152,6 +2284,8 @@
   $('opt-haptics').checked = settings.haptics;
   showVolume();
   showAmbience();
+  showBreath();
+  breathLayer(settings.breath);
   setMuted(settings.muted);
   setCharacter(settings.character);
   syncPills();
@@ -2191,7 +2325,7 @@
     flipNow: startFlip, setDuration: setDuration, setTheme: setTheme,
     topAt: topAt, remAt: remAt, grainsFor: grainsFor,
     wakeState: function () { return wakeState; }, grav: grav,
-    motion: motion, body: body, spill: spill, perf: perf,
+    motion: motion, body: body, spill: spill, perf: perf, breath: breath,
     retime: function () { return maybeRetime(performance.now(), true); },
     debug: {
       /** Crack the glass at wall segment `seg` (sim.forceCrack), and let the app hear and see it at once. */
