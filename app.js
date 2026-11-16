@@ -921,6 +921,11 @@
     wPrev = w;
     var al = alLP > 300 ? 300 : (alLP < -300 ? -300 : alLP);
     sim.setMotion(G * (fx * c + fy * s), G * (-fx * s + fy * c), w, al, lamNow, mz);
+    // The sand was moving across the screen with the glass and keeps that speed when the
+    // glass is stopped or snatched away: its beds slide on (physics.js setCarry). In the
+    // glass's own cells, not as a g-ratio: the sand lives in slow motion, the hand does not.
+    var kx = reduceMotion ? 0 : -body.ax / room.px, ky = reduceMotion ? 0 : -body.ay / room.px;
+    sim.setCarry(kx * c + ky * s, -kx * s + ky * c);
   }
 
   /* ======================================================================
