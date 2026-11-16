@@ -2322,9 +2322,10 @@
    * End of timer: a warm singing-bowl bloom. Inharmonic partials, each a
    * slowly beating pair, soft attack (no mallet), ≈5 s natural decay.
    */
-  HourglassAudio.prototype.chime = function (delay) {
+  HourglassAudio.prototype.chime = function (delay, soft) {
     if (!this.ready || !this.chimeEnabled || this.ctx.state !== 'running') return;
-    this._bell(this.ctx.currentTime + (delay || 0) + 0.03, 349.23, 0.12, 1);   // F4: warm, yet audible on small phone speakers
+    // F4: warm, yet audible on small phone speakers (`soft`: lighter and shorter, between two phases of a sequence)
+    this._bell(this.ctx.currentTime + (delay || 0) + 0.03, 349.23, soft ? 0.07 : 0.12, soft ? 0.8 : 1);
   };
 
   /** The bowl's partials at f0, `level` out, each decay × `decay`. */
