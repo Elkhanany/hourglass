@@ -684,6 +684,8 @@ input[type="range"]::-moz-range-thumb {
   .act.primary { width: 56px; height: 56px; }
   .pill { height: 34px; }
   #status { display: none; }
+  /* a sequence still says which phase it is in: to screen readers always, and on screen where there is room (landscape, below) */
+  #app.seq #status { display: block; position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 @media (max-width: 350px) {
   .act { font-size: 10px; letter-spacing: 0.06em; }
@@ -697,6 +699,8 @@ input[type="range"]::-moz-range-thumb {
   #readout { font-size: clamp(34px, 7vw, 54px); }
   #toast { bottom: calc(var(--sab) + 20px); left: 25%; }
   #toast.high { bottom: calc(var(--sab) + 20px); top: auto; }
+  /* beside the glass there is room for a sequence's phase line */
+  #app.seq #status { position: static; width: auto; height: auto; margin-top: 6px; overflow: visible; clip-path: none; }
 }
 @media (min-width: 760px) and (min-height: 700px) {
   #hud-bottom { padding-bottom: calc(var(--sab) + 22px); }
