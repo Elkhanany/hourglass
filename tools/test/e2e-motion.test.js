@@ -140,11 +140,17 @@ async function spyAll(t) {
 }
 
 async function liveNodes(t) {
-  await t.cdp.send('HeapProfiler.collectGarbage');
-  await sleep(300);
-  await t.cdp.send('HeapProfiler.collectGarbage');
-  await sleep(300);
-  return t.nodes.created - t.nodes.destroyed;
+  // the median of three looks: the grains' own ticks come and go by half a dozen nodes
+  var seen = [];
+  for (var k = 0; k < 3; k++) {
+    await t.cdp.send('HeapProfiler.collectGarbage');
+    await sleep(300);
+    await t.cdp.send('HeapProfiler.collectGarbage');
+    await sleep(300);
+    seen.push(t.nodes.created - t.nodes.destroyed);
+  }
+  seen.sort(function (a, b) { return a - b; });
+  return seen[1];
 }
 
 async function shakeGlass(env, profile, secs) {
@@ -170,24 +176,30 @@ async function shakeGlass(env, profile, secs) {
 }
 
 async function e3(s, env) {
-  // vigorous: Γ4 at 5.5 Hz for 20 s never cracks the glass
-  var v = await shakeGlass(env, 'vigorous', 20);
+  // A hard shake that must not mark the glass: 'normal', Γ2 at 4.5 Hz, for 20 s. (This was
+  // 'vigorous', Γ4 at 5.5 Hz, with dMax < 0.4: since the crash work that shake cracks the
+  // glass in two seconds, by intent, and what must stay safe is held to dMax < 0.2.)
+  var v = await shakeGlass(env, 'normal', 20);
   var t = v.t;
   await sleep(20500);
   var a = await t.eval(function () {
     var H = window.Hourglass, sp = window.__spy;
     return { cracks: H.sim.cracks.length, dMax: sp.dmgMax, thumpE: sp.thumpE, sprayed: sp.sprayed, agit: sp.agitMax, armed: H.sim.damageArmed };
   });
-  s.check('E3 vigorous 20 s: no crack, dMax < 0.4', a.cracks === 0 && a.dMax < 0.4, 'cracks ' + a.cracks + ', dMax ' + a.dMax.toFixed(3));
-  s.check('E3 vigorous: at least 20 thumps reached feedAudio', a.thumpE >= 20, a.thumpE + ' frames with a thump');
-  s.check('E3 vigorous: grains sprayed', a.sprayed > 0, a.sprayed + ' frames with spray');
-  s.check('E14 vigorous: st.agit > 0.3 reached audio.update', a.agit > 0.3, 'max agit ' + a.agit.toFixed(2));
+  s.check('E3 normal 20 s: no crack, dMax < 0.2', a.cracks === 0 && a.dMax < 0.2, 'cracks ' + a.cracks + ', dMax ' + a.dMax.toFixed(3));
+  s.check('E3 normal: at least 20 thumps reached feedAudio', a.thumpE >= 20, a.thumpE + ' frames with a thump');
+  s.check('E3 normal: grains sprayed', a.sprayed > 0, a.sprayed + ' frames with spray');
+  s.check('E14 normal: st.agit > 0.3 reached audio.update', a.agit > 0.3, 'max agit ' + a.agit.toFixed(2));
   await t.eval(function () { window.__drive({ profile: 'calm', conv: 'ios' }); });
-  await sleep(2400);
+  await sleep(1200);
   var after = await liveNodes(t);
-  s.check('E14 vigorous: live AudioNodes back to baseline ± 10 within 3 s', Math.abs(after - v.base) <= 10,
+  // Nothing may be left over: no more than 10 nodes above the baseline. (It also asked for no
+  // fewer than 10 below. After this gentler shake the count comes back 10 to 20 under the
+  // baseline, which was taken while the tap that started the glass was still ringing; fewer
+  // nodes is not a leak, so that side is now only held to 30.)
+  s.check('E14 normal: live AudioNodes back to the baseline (+10 at most) within 3 s', after - v.base <= 10 && v.base - after <= 30,
           'baseline ' + v.base + ', 3 s after ' + after);
-  await H.invariants(s, t, 'E3 vigorous');
+  await H.invariants(s, t, 'E3 normal');
   await t.close();
 
   // very vigorous, slow: Γ5.5 at 4 Hz cracks it
@@ -213,8 +225,12 @@ async function e3(s, env) {
     };
   }, w.t0);
   s.check('E3 veryVigSlow: ≥ 3 creaks (WARN) before the first crack', b.warns >= 3, b.warns + ' warnings, levels ' + JSON.stringify(b.levels));
-  s.check('E3 veryVigSlow: first crack 4.5–10 s into the shake', b.crackS >= 4.5 && b.crackS <= 10, 'at ' + b.crackS.toFixed(2) + ' s');
-  s.check('E3 veryVigSlow: exactly one "cracked" toast', b.toasts === 1, b.toasts + ' toasts');
+  // (4.5–10 s until the crash work: the fatigue limit and the rate cap were set so that only
+  // 5.5 g kept up for five seconds or more cracked it, which is what the user could not do)
+  s.check('E3 veryVigSlow: first crack 1.2–5 s into the shake', b.crackS >= 1.2 && b.crackS <= 5, 'at ' + b.crackS.toFixed(2) + ' s');
+  // (the note used to show once in the app's life; now for each of the first three cracks)
+  s.check('E3 veryVigSlow: one "cracked" toast for each crack, three at most', b.toasts === Math.min(3, b.evs.crack) && b.toasts >= 1,
+          b.toasts + ' toasts for ' + b.evs.crack + ' cracks');
   s.check('E3 veryVigSlow: breach within 4 s of the crack', b.breachS >= 0 && b.breachS <= 4, 'after ' + b.breachS.toFixed(2) + ' s, w = ' + b.w);
   var spillAt = await t.eval(function (bt) { return window.__spillAt || -1; }, b.breachT);
   s.check('E3 veryVigSlow: escaped grains reach the spill', b.spill > 0 && b.lost > 0, 'spill.count ' + b.spill + ', lost ' + b.lost);
@@ -237,7 +253,7 @@ async function e3(s, env) {
   }
   // at rest the breach leaks only as wide as it is
   await t.eval(function () { window.__drive({ profile: 'calm', conv: 'ios' }); });
-  await sleep(1500);
+  await sleep(3500);
   var l0 = await t.eval(function () {
     var H = window.Hourglass;
     return { lost: H.sim.lost, ws: H.sim.cracks.filter(function (c) { return !c.sealed; }).map(function (c) { return c.w; }), now: performance.now() };
@@ -250,10 +266,14 @@ async function e3(s, env) {
   l0.ws.forEach(function (w) { most += [0, 0.2, 4, 12][w] || 0; });
   s.check('E3: at rest the leak matches the breaches (w = ' + JSON.stringify(l0.ws) + ')', rate >= 0 && rate <= most,
           rate.toFixed(2) + ' grains/s, at most ' + most.toFixed(1));
-  await sleep(1000);
+  // The glass now ends this shake with three cracks, each breached and leaking, and every grain
+  // that leaves patters: those sounds are alive for as long as it leaks. So the glass is
+  // mended first (the leak stops within a step), and then nothing may be left over.
+  await t.eval(function () { window.Hourglass.sim.sealCracks(); });
+  await sleep(6500);                                 // (the mend's own bell rings for five seconds)
   var after2 = await liveNodes(t);
-  s.check('E14 veryVigSlow: live AudioNodes back to baseline ± 10 within 3 s', Math.abs(after2 - w.base) <= 10,
-          'baseline ' + w.base + ', after ' + after2);
+  s.check('E14 veryVigSlow: live AudioNodes back to baseline ± 10 once the leak has stopped and the mend bell has rung out',
+          Math.abs(after2 - w.base) <= 10, 'baseline ' + w.base + ', after ' + after2);
   await t.eval(function () { window.__driveStop(); });
   await H.invariants(s, t, 'E3 veryVigSlow');
   await t.close();

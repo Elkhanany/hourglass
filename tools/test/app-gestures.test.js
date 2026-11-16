@@ -357,7 +357,9 @@ async function testCatchMove(s, env) {
     if (p60 === null) p60 = q[R_PX];
     else if (Math.abs(q[R_PX] - p60) > drift) drift = Math.abs(q[R_PX] - p60);
   });
-  s.check('CATCH (move): caught on its way home', vTouch < -100 && pTouch > 20,
+  // (the screen's edge now stops the glass 56 px out, where the rubber band let it go to 86: it is
+  // let go nearer home and is nearer still when the finger comes down again, so "> 20 px" is "> 10")
+  s.check('CATCH (move): caught on its way home', vTouch < -100 && pTouch > 10,
           'at ' + pTouch.toFixed(1) + ' px from home, moving ' + vTouch.toFixed(0) + ' px/s');
   s.check('CATCH (move): stopped within 120 ms, held as a move', first >= 0 && first <= 120 && mode === 'held-move',
           'below 5 px/s at ' + first.toFixed(0) + ' ms, mode ' + mode);
@@ -527,7 +529,7 @@ async function testReduced(s, env) {
     await sleep(700);
     await t.eval(function () {
       window.__drive({ profile: 'calm', conv: 'ios' });
-      window.__rm = { air: 0, spray: 0, hops: 0, steps: 0 };
+      window.__rm = { air: 0, spray: 0, hops: 0, steps: 0, d0: window.Hourglass.sim.dMax };
       __rec.start(function (H) {
         var f = H.sim.frame, m = window.__rm;
         m.steps++;
@@ -546,7 +548,10 @@ async function testReduced(s, env) {
       var H = window.Hourglass;
       return { m: window.__rm, cracks: H.sim.cracks.length, dMax: H.sim.dMax, on: H.grav.on };
     });
-    s.check('REDUCED: veryVigSlow 15 s never cracks it', rm.on && rm.cracks === 0 && rm.dMax === 0, 'cracks ' + rm.cracks + ', dMax ' + rm.dMax);
+    // (The finger's own blows now count with Reduce Motion too, and this page was flicked a
+    // moment ago: what is asked here is that the phone's shaking adds nothing to the glass.)
+    s.check('REDUCED: veryVigSlow 15 s never cracks it and adds no damage', rm.on && rm.cracks === 0 && rm.dMax <= rm.m.d0,
+            'cracks ' + rm.cracks + ', dMax ' + rm.m.d0 + ' before the shake, ' + rm.dMax + ' after');
     s.check('REDUCED: ... the bed never flies, nothing sprays or hops', rm.m.air === 0 && rm.m.spray === 0 && rm.m.hops === 0 && rm.m.steps > 1000,
             JSON.stringify(rm.m));
   }

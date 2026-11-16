@@ -105,7 +105,9 @@ async function e4(s, env) {
   var t = await env.open({});
   var start = await startGlass(t);
   await sleep(15000 - (Date.now() - start));
-  await shake(t, 'vigorous', 20);
+  // (A hard shake that does not crack the glass: 'normal', 2 g at 4.5 Hz. It was 'vigorous',
+  // 4 g at 5.5 Hz, which since the crash work cracks the glass in two seconds, by intent.)
+  await shake(t, 'normal', 20);
   await waitEnd(t);
   await sleep(500);
   var r = await result(t);
