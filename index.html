@@ -261,6 +261,26 @@
         </div>
         <div class="dial-band" aria-hidden="true"></div>
       </div>
+      <!-- work and rest: a rest after the glass, and the pair repeated -->
+      <div id="seq" class="rows">
+        <div class="row">
+          <span><b id="rest-name">Then rest</b></span>
+          <div class="stepper" role="group" aria-labelledby="rest-name">
+            <button type="button" data-seq="rest:-1" aria-label="One minute less rest" aria-disabled="true"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 12h10"/></svg></button>
+            <output id="rest-out" class="off" aria-live="polite">Off</output>
+            <button type="button" data-seq="rest:1" aria-label="One minute more rest"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v10M7 12h10"/></svg></button>
+          </div>
+        </div>
+        <div class="row" id="seq-hint"><small>Add a rest and the glass turns itself over</small></div>
+        <div class="row" id="rounds-row" hidden>
+          <span><b id="rounds-name">Rounds</b></span>
+          <div class="stepper" role="group" aria-labelledby="rounds-name">
+            <button type="button" data-seq="rounds:-1" aria-label="One round fewer" aria-disabled="true"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 12h10"/></svg></button>
+            <output id="rounds-out" aria-live="polite">1</output>
+            <button type="button" data-seq="rounds:1" aria-label="One round more"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v10M7 12h10"/></svg></button>
+          </div>
+        </div>
+      </div>
       <button id="custom-set" class="cta" type="button">Set <span id="custom-preview">05:00</span></button>
     </div>
   </section>

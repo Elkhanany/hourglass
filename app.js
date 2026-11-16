@@ -40,6 +40,7 @@
     ambience: 'none', ambienceLevel: 0.5,
     breath: false, breathPattern: 'calm',
     durationMs: 5 * 60000,
+    restMs: 0, rounds: 1,            // a work and rest sequence: the rest after each glass (0: none), and how often
     motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
     hintMend: false                  // the one-time "hold it still to mend" note was shown
   };
@@ -57,8 +58,10 @@
   if (settings.motionSign !== 1 && settings.motionSign !== -1) settings.motionSign = 0;
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts
   var qt = /[?&]t=(\d{1,5})(?:&|$)/.exec(location.search);
-  if (qt) settings.durationMs = +qt[1] * 1000;
+  if (qt) { settings.durationMs = +qt[1] * 1000; settings.restMs = 0; }
   settings.durationMs = Math.max(10000, Math.min(5999000, settings.durationMs));
+  if (!(settings.restMs >= 10000 && settings.restMs <= 3600000)) settings.restMs = 0;
+  settings.rounds = settings.restMs ? Math.max(1, Math.min(12, settings.rounds | 0)) : 1;
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch (e) {}
   }
@@ -129,8 +132,10 @@
     return Math.round(sim.capacity * Math.max(0.17, Math.min(0.78, f)));
   }
 
-  function calibrate() {
-    var N = sim.total, d = T.durationMs;
+  /** Time the neck so that N grains last d ms (by default: the whole glass, its whole length). */
+  function calibrate(d, N) {
+    d = d || T.durationMs;
+    N = Math.max(8, N === undefined ? sim.total : N);
     T.tailMs = Math.min(2600, Math.max(500, d * 0.04));
     var rate = N / (d / 1000);
     T.tailGrains = Math.max(3, Math.min(30, Math.floor(rate * T.tailMs / 1000 / TAIL_P)));
@@ -160,10 +165,20 @@
     var now = Date.now(), d = now - T.lastTick;
     T.lastTick = now;
     if (d > 1500) back = true;                 // frames and timers stopped: we were asleep
+    if (d <= 0 || T.state !== 'running') return;
+    // between two phases of a sequence the glass is turning itself over: unwatched (hidden, or back from
+    // a sleep with the turn long due), the clock goes on without it
+    if (seq.gap) {
+      if (document.hidden || (back && now - seq.gap > SEQ_SETTLE + SEQ_TURN + 1500)) phaseEnd(now - seq.gap);
+      return;
+    }
     // on its side (real motion) the neck cannot flow, so time stands still too
-    if (d <= 0 || T.state !== 'running' || flip.active || (grav.on && sim.gy < 0.7)) return;
+    if (flip.active || (grav.on && sim.gy < 0.7)) return;
     T.rem -= d;
-    if (T.rem <= 0) { T.rem = 0; finish(); }
+    if (T.rem <= 0) {
+      if (seq.rest && seq.phase < 2 * seq.rounds - 1) phaseEnd(-T.rem);
+      else { T.rem = 0; finish(); }
+    }
   }
 
   /**
@@ -220,7 +235,7 @@
     var was = T.state;
     T.state = s;
     app.dataset.state = s;
-    statusEl.textContent = flip.active ? STATUS.turning : STATUS[s];
+    statusEl.textContent = flip.active ? STATUS.turning : statusFor(s);
     btnPlay.setAttribute('aria-label', s === 'running' ? 'Pause' : (s === 'done' ? 'Flip and start again' : 'Start'));
     if (s === 'running') {
       if (was !== 'running') T.lastTick = Date.now();   // (a glass that was running keeps its time)
@@ -236,6 +251,7 @@
   var pendingStart = false;
   function start() {
     if (resetting) { pendingStart = true; return; }     // mid cross-fade: start as soon as it lands
+    if (seq.gap) { seq.gap = Date.now(); setState('running'); return; }   // paused between two phases: on with the turn
     if (flip.active) return;
     if (T.state === 'done' || T.rem <= 0) {
       if (sim.nTop === 0) { startFlip(true); return; }
@@ -253,6 +269,7 @@
     buzz(10);
   }
   function finish() {
+    if (seq.rest) seq.phase = 2 * seq.rounds;   // a sequence is over: turned again, it starts from its first glass
     endWall = Date.now();            // before setState: the wake lock covers the ending
     setState('done');
     audio.chime(0.75);               // after the last grain has landed
@@ -286,6 +303,8 @@
       spill.clear();
       sim.reset(grainsFor(T.durationMs));
       sim.tilt = 0;
+      seq.phase = 0; seq.gap = 0;    // a sequence starts over, from its first glass
+      app.classList.remove('pass');
       calibrate();
       T.rem = T.durationMs;
       S.flow = S.imp = S.slides = 0;
@@ -300,13 +319,134 @@
     }, 460);
   }
 
-  function setDuration(ms) {
+  /** A new glass of `ms`. Followed by a rest (ms) it is a sequence of `rounds`; a plain duration ends one. */
+  function setDuration(ms, rest, rounds) {
     ms = Math.max(10000, Math.min(5999000, Math.round(ms / 1000) * 1000));
     T.durationMs = ms;
     settings.durationMs = ms;
+    seq.rest = settings.restMs = rest > 0 ? Math.max(10000, Math.min(3600000, Math.round(rest / 1000) * 1000)) : 0;
+    seq.rounds = settings.rounds = seq.rest ? Math.max(1, Math.min(12, rounds | 0)) : 1;
     save();
     syncPills();
     reset(T.state === 'running');
+  }
+
+  /* ======================================================================
+   *  Work and rest
+   *
+   *  A custom glass may be followed by a rest, and the pair repeated: a
+   *  sequence of rounds × (work, then rest). Every phase is the same sand,
+   *  timed to its own length. When one runs out a soft bowl sounds, the
+   *  glass turns itself over with the Flip button's unhurried half turn,
+   *  and the next begins as the turn ends; the last ends as any glass does.
+   *  The wall clock stays the master: with nobody watching (the page hidden,
+   *  the phone asleep) no turn is drawn, and the sequence is simply put
+   *  where the clock says it is, each turn that passed counted at its length.
+   * ==================================================================== */
+  var SEQ_BOWL = 750;                // ms after a phase ran out: its last grain has landed, the soft bowl sounds
+  var SEQ_SETTLE = 1200;             // ms: ... and as it blooms the glass begins to turn
+  var SEQ_TURN = 2600;               // ms: the turn itself (the Flip button's)
+  var seq = {
+    rest: settings.restMs,           // ms of rest after each glass (0: no sequence)
+    rounds: settings.rounds,
+    phase: 0,                        // 0 work, 1 rest, 2 work, …; 2 × rounds once the last has ended
+    gap: 0                           // between two phases: when (Date.now()) the one before ran out
+  };
+
+  /** How long phase i lasts: work on the even ones, rest on the odd. */
+  function phaseMs(i) { return (i & 1) ? seq.rest : T.durationMs; }
+  /** "Work" or "Rest", and which round when there is more than one. */
+  function phaseName() {
+    var i = Math.min(seq.phase, 2 * seq.rounds - 1);
+    return ((i & 1) ? 'Rest' : 'Work') + (seq.rounds > 1 ? ' · ' + ((i >> 1) + 1) + ' of ' + seq.rounds : '');
+  }
+  /** The status line: in a sequence it names the phase, quietly. */
+  function statusFor(s) {
+    if (!seq.rest || (s !== 'running' && s !== 'paused')) return STATUS[s];
+    return phaseName() + (s === 'paused' ? ' · paused' : '');
+  }
+  /** Phase i begins: the sand above the neck is timed to last exactly its length. */
+  function beginPhase(i) {
+    seq.phase = i; seq.gap = 0;
+    app.classList.remove('pass');
+    calibrate(phaseMs(i), sim.nTop);
+    T.rem = phaseMs(i);
+    T.lastTick = Date.now();         // its time runs from this moment
+  }
+
+  /**
+   * A phase that is not the last ran out, `over` ms ago. Watched: a soft bowl
+   * as the last grain lands, then the glass turns itself over (seqTurn).
+   * Unwatched: straight to where the clock says the sequence is by now, with
+   * at most one bowl, for a turn that has only just passed.
+   */
+  function phaseEnd(over) {
+    T.rem = 0;
+    if (!seq.gap && !back && !document.hidden) {
+      seq.gap = Date.now() - over;
+      audio.chime(Math.max(0, SEQ_BOWL - over) / 1000, true);
+      saveSession();
+      return;
+    }
+    var at = seqAt(seq.phase, over);
+    if (flip.active) { flip.active = false; flip.dragging = false; }   // a turn under way is dropped, as Reset drops one
+    if (grab) grab.kind = 'none';
+    bodyHome();
+    turnedUnseen(at[2]);
+    beginPhase(at[0]);
+    T.rem -= at[1];
+    applyBody(0);
+    if (T.rem <= 0) { T.rem = 0; finish(); return; }
+    if (at[1] < 10000) audio.chime(0, true);
+    setState('running', true);
+  }
+  /**
+   * Where the wall clock puts a sequence `over` ms after phase i ran out with
+   * nobody watching: [the phase, ms into it, turns made]. Each turn takes its
+   * usual time (one it would still be in the middle of is cut short). Past the
+   * end of the last phase, the ms run on beyond it.
+   */
+  function seqAt(i, over) {
+    var last = 2 * seq.rounds - 1, turns = 0, d;
+    for (;;) {
+      over = Math.max(0, over - SEQ_SETTLE - SEQ_TURN);
+      d = phaseMs(++i); turns++;
+      if (over < d || i === last) return [i, over, turns];
+      over -= d;
+    }
+  }
+  /**
+   * The glass was turned over `turns` times unseen, all its sand run through
+   * each time: the sand rests in the upper bulb again, and whatever belongs
+   * to the glass (its cracks and gold) has turned with it.
+   */
+  function turnedUnseen(turns) {
+    if (turns & 1) sim.completeFlip();
+    var dmg = sim.serializeDamage();
+    sim.reset(sim.total);
+    sim.restoreDamage(dmg);
+  }
+  /** Between two phases, once a frame: the last grain lands, the bowl sounds, then the glass turns itself over. */
+  function seqTurn() {
+    if (flip.active || resetting) return;
+    var t = T.state === 'running' ? Date.now() - seq.gap - SEQ_SETTLE : -1;     // (paused, it waits)
+    if (!reduceMotion) { if (t >= 0) startFlip(true); return; }                 // (as soon as no hand holds the glass)
+    // Reduce Motion: no turn. In the same time the sand fades away below, and returns above.
+    app.classList.toggle('pass', t > SEQ_TURN - 1300);
+    if (t < SEQ_TURN) return;
+    turnedUnseen(1);
+    beginPhase(seq.phase + 1);
+    setState('running', true);
+  }
+  /**
+   * The glass has been turned over: by the sequence itself, a hand, the Flip
+   * button or the phone. Between two phases that begins the next one; after
+   * the end of the last, the sequence starts again from its first glass.
+   */
+  function seqSwapped(next) {
+    if (seq.gap) { beginPhase(seq.phase + 1); return T.state === 'paused' ? 'paused' : 'running'; }
+    if (seq.rest && seq.phase >= 2 * seq.rounds && next === 'running') beginPhase(0);
+    return next;
   }
 
   /* ======================================================================
@@ -372,7 +512,7 @@
   }
 
   function endTurn() {
-    var byHand = rot !== 'script';
+    var byHand = rot !== 'script' || seq.gap > 0;      // (a sequence's own turn is no touch either)
     flip.active = false; flip.dragging = false; flip.spin = 0;
     sim.flipping = false;
     sim.angle = 0;
@@ -383,7 +523,7 @@
     applyBody(0);
     audio.flipEnd();
     buzz(22);
-    setState(flip.swapped ? stateAfterSwap(flip.was, flip.auto) : flip.was, byHand);
+    setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was, byHand);
   }
   /** Turning a glass over starts it, unless you had paused it. */
   function stateAfterSwap(was, auto) {
@@ -664,7 +804,7 @@
 
   function handlePour(now, dtMs) {
     pour.active = false;
-    if (!(pour.held || now < pour.until) || flip.active || resetting) return;
+    if (!(pour.held || now < pour.until) || flip.active || resetting || seq.gap) return;
     pour.acc += POUR_RATE * Math.min(dtMs, 50) / 1000;
     var n = pour.acc | 0;
     if (!n) { pour.active = true; return; }
@@ -785,7 +925,7 @@
     T.rem = there;
     applyBody(0);
     buzz(18);
-    setState(stateAfterSwap(was, false), true);       // the phone turned over: not a touch
+    setState(seqSwapped(stateAfterSwap(was, false)), true);   // the phone turned over: not a touch
   }
 
   var tiltOver = 0;
@@ -852,6 +992,7 @@
     if (dtMs <= 0) return;
 
     tickClock();
+    if (seq.gap) seqTurn();
     if (grav.on) {
       var hd = motion.heading;
       if (hd === hd && hd !== Infinity && hd !== -Infinity) grav.target = hd;   // finite: known
@@ -948,7 +1089,7 @@
     if (flip.active) {
       var f = Math.min(1, Math.abs(sim.angle) / Math.PI);
       f = f * f * (3 - 2 * f);
-      flip.shown = T.rem + (remAt(sim.total - sim.nTop) - T.rem) * f;
+      flip.shown = T.rem + ((seq.gap ? phaseMs(seq.phase + 1) : remAt(sim.total - sim.nTop)) - T.rem) * f;
     }
     renderer.drawGlass(sim.angle + sim.tilt);            // reflections follow the room, not the glass
     renderer.syncDamage(sim.angle + sim.tilt, now);      // cracks glint as the glass turns
@@ -1231,9 +1372,10 @@
       else rise();
     }
     // Playing with the glass never brings the controls back; only the Flip
-    // button's turn (which a tap on the button started) does.
+    // button's turn (which a tap on the button started) does. A sequence's
+    // own turn between two phases does not either.
     var zen = hold || zenForced || (T.state === 'running' && !sheetOpen && !pour.held &&
-              !(flip.active && flip.mode === 'script') && now - lastInput > 4000);
+              !(flip.active && flip.mode === 'script' && !seq.gap) && now - lastInput > 4000);
     if (zen !== app.classList.contains('zen')) { app.classList.toggle('zen', zen); applyZoom(); }
     // settled: once fully dim, stop re-blurring the panel and stop taking taps on the controls
     var on = app.classList.contains('zen');          // read the class: the moon button sets it directly
@@ -1526,6 +1668,7 @@
       };
       var dmg = sim.serializeDamage();
       if (dmg) s.damage = dmg;
+      if (seq.rest) s.seq = [seq.rest, seq.rounds, seq.phase];
       localStorage.setItem(SKEY, JSON.stringify(s));
     } catch (e) {}
   }
@@ -1534,18 +1677,33 @@
     try { s = JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch (e) { return false; }
     if (!s || s.v !== 1 || qt) return false;
     var away = Date.now() - s.at;
-    if (!(away >= 0) || away > 6 * 3600000) return false;
+    if (!(away >= 0) || away > 6 * 3600000 + (seq.rest ? seq.rounds * (T.durationMs + seq.rest) : 0)) return false;   // (a sequence may run long)
     if (s.durationMs !== T.durationMs || s.scale !== sim.geo.q) return false;   // a different glass
     if (!(s.total > 0) || s.total > sim.maxTotal || !(s.mpg > 0) || !(s.tailMs > 0)) return false;
-    var rem = +s.rem || 0, state = s.state;
-    if (state === 'running') { rem -= away; if (rem <= 0) { rem = 0; state = 'done'; } }
+    var q = Array.isArray(s.seq) ? s.seq : [0, 1, 0];
+    if (q[0] !== seq.rest || q[1] !== seq.rounds) return false;                  // a different sequence
+    var rem = +s.rem || 0, state = s.state, ph = Math.max(0, Math.min(2 * seq.rounds, q[2] | 0)), at = null, ago = away;
+    if (state === 'running') {
+      rem -= away;
+      if (rem <= 0 && seq.rest) {
+        if (ph < 2 * seq.rounds - 1) {
+          at = seqAt(ph, -rem);                        // phases ran out while away: on to where the clock is now
+          ph = at[0]; rem = phaseMs(ph) - at[1];
+        }
+        ago = -rem;                                    // (a sequence runs for hours: how long ago it ended, if it has)
+      }
+      if (rem <= 0) { rem = 0; state = 'done'; if (seq.rest) ph = 2 * seq.rounds; }
+    }
     T.lastTick = Date.now();                           // the clock goes on from this moment
     if (state !== 'running' && state !== 'paused' && state !== 'done') return false;
-    if (state === 'done' && away > 3600000) return false;                       // long finished: start fresh
+    if (state === 'done' && ago > 3600000) return false;                        // long finished: start fresh
     sim.reset(s.total);
     sim.restoreDamage(s.damage);                         // an older session has none: the glass stays whole
     T.mpg = s.mpg; T.tailMs = s.tailMs; T.tailGrains = s.tailGrains; T.rate = 1000 / T.mpg;
     T.mpg0 = s.mpg0 > 0 ? s.mpg0 : s.mpg;
+    seq.phase = ph;
+    if (at) { turnedUnseen(at[2]); calibrate(phaseMs(at[0]), sim.nTop); }
+    else if (state === 'paused' && rem <= 0 && seq.rest && ph < 2 * seq.rounds - 1) seq.gap = Date.now();   // left between two phases
     T.rem = rem;
     var top = state === 'done' ? 0
             : (state === 'paused' ? Math.min(sim.nTop, s.top | 0) : Math.ceil(topAt(rem)));
@@ -1854,12 +2012,31 @@
   function syncPills() {
     var pills = durations.querySelectorAll('.pill[data-min]'), hit = false;
     for (var i = 0; i < pills.length; i++) {
-      var on = +pills[i].dataset.min * 60000 === T.durationMs;
+      var on = !seq.rest && +pills[i].dataset.min * 60000 === T.durationMs;
       pills[i].setAttribute('aria-checked', on ? 'true' : 'false');
       if (on) hit = true;
     }
     pillCustom.setAttribute('aria-pressed', hit ? 'false' : 'true');
-    customLabel.textContent = hit ? 'Custom' : fmt(T.durationMs)[0];
+    customLabel.textContent = hit ? 'Custom' : (seq.rest ? seqBrief(T.durationMs, seq.rest, seq.rounds) : fmt(T.durationMs)[0]);
+    pillCustom.setAttribute('aria-label', 'Custom duration' + (seq.rest ? ': ' + seqSpoken(T.durationMs, seq.rest, seq.rounds) : ''));
+    pillCustom.classList.toggle('seq', seq.rest > 0);
+    pillCustom.classList.toggle('long', customLabel.textContent.length > 9);
+  }
+  /** A sequence in a few characters, for the Custom pill: "25·5 ×4" (minutes; with seconds, "1:30·5"). */
+  function seqBrief(work, rest, rounds) {
+    function brief(ms) { return ms % 60000 ? Math.floor(ms / 60000) + ':' + pad2(Math.round(ms / 1000) % 60) : '' + ms / 60000; }
+    return brief(work) + '·' + brief(rest) + (rounds > 1 ? ' ×' + rounds : '');
+  }
+  /** ... and in words, for screen readers: "25 minutes, then rest 5 minutes, 4 rounds". */
+  function seqSpoken(work, rest, rounds) {
+    function say(ms) {
+      var sec = Math.round(ms / 1000), m = Math.floor(sec / 60), out = [];
+      sec %= 60;
+      if (m) out.push(m + (m === 1 ? ' minute' : ' minutes'));
+      if (sec || !m) out.push(sec + (sec === 1 ? ' second' : ' seconds'));
+      return out.join(' ');
+    }
+    return say(work) + ', then rest ' + say(rest) + (rounds > 1 ? ', ' + rounds + ' rounds' : '');
   }
   durations.addEventListener('click', function (e) {
     var pill = e.target.closest('.pill');
@@ -2047,7 +2224,12 @@
     previewQueued = true;
     requestAnimationFrame(function () {
       previewQueued = false;
-      $('custom-preview').textContent = fmt(customMs())[0];
+      var ms = customMs(), set = $('custom-set');
+      $('custom-preview').textContent = fmt(ms)[0] +
+        (draft.rest ? ', rest ' + draft.rest + (draft.rounds > 1 ? ', ×' + draft.rounds : '') : '');
+      // (read aloud: "Set 25 minutes, then rest 5 minutes, 4 rounds")
+      if (draft.rest) set.setAttribute('aria-label', 'Set ' + seqSpoken(ms, draft.rest * 60000, draft.rounds));
+      else set.removeAttribute('aria-label');
       wheelMin.setAttribute('aria-valuenow', wheelValue(wheelMin));
       wheelSec.setAttribute('aria-valuenow', wheelValue(wheelSec));
     });
@@ -2077,18 +2259,59 @@
     setWheel(w, v, true);
     buzz(6);
   });
+  // then rest: the dial's time, a rest after it, and the pair repeated (see "Work and rest")
+  var draft = { rest: 0, rounds: 1 };                   // as set in the sheet: minutes of rest (0: off), rounds
+  var DRAFT_LIM = { rest: [0, 60], rounds: [1, 12] };
+  function showDraft() {
+    $('rest-out').textContent = draft.rest ? draft.rest + ' min' : 'Off';
+    $('rest-out').classList.toggle('off', !draft.rest);
+    $('rounds-out').textContent = draft.rounds;
+    $('seq-hint').hidden = draft.rest > 0;              // Rounds takes the hint's place: nothing in the sheet moves
+    $('rounds-row').hidden = !draft.rest;
+    var b = document.querySelectorAll('#seq button');
+    for (var i = 0; i < b.length; i++) {
+      var p = b[i].dataset.seq.split(':');
+      b[i].setAttribute('aria-disabled', draft[p[0]] === DRAFT_LIM[p[0]][+p[1] < 0 ? 0 : 1] ? 'true' : 'false');
+    }
+    previewCustom();
+  }
+  function stepDraft(b) {
+    var p = b.dataset.seq.split(':'), lim = DRAFT_LIM[p[0]];
+    draft[p[0]] = Math.max(lim[0], Math.min(lim[1], draft[p[0]] + +p[1]));
+    showDraft();
+  }
+  // a tap steps once; held, a stepper runs on
+  var stepTimer = 0, stepRan = false;
+  $('seq').addEventListener('pointerdown', function (e) {
+    var b = e.target.closest('button');
+    clearTimeout(stepTimer);
+    stepRan = false;
+    if (!b || e.button) return;
+    stepTimer = setTimeout(function run() { stepRan = true; stepDraft(b); stepTimer = setTimeout(run, 110); }, 450);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (t) {
+    $('seq').addEventListener(t, function () { clearTimeout(stepTimer); });
+  });
+  $('seq').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b || stepRan) { stepRan = false; return; }     // (the click that ends a hold steps no further)
+    stepDraft(b);
+    buzz(6);
+  });
   function openCustom(opener) {
     openSheet(sheetCustom, opener);
     var total = Math.round(T.durationMs / 1000);
     setWheel(wheelMin, Math.min(99, Math.floor(total / 60)), false);
     setWheel(wheelSec, total % 60, false);
-    previewCustom();
+    draft.rest = Math.round(seq.rest / 60000);
+    draft.rounds = seq.rounds;
+    showDraft();
   }
   $('custom-set').addEventListener('click', function () {
     var raw = (wheelValue(wheelMin) * 60 + wheelValue(wheelSec)) * 1000;
     if (raw < 10000) toast('Shortest glass is 10 seconds');
     closeSheet();
-    setDuration(customMs());
+    setDuration(customMs(), draft.rest * 60000, draft.rounds);
     buzz(12);
   });
 
@@ -2320,7 +2543,7 @@
 
   // A small handle for the curious (and for automated tests).
   window.Hourglass = {
-    sim: sim, renderer: renderer, audio: audio, timer: T, flip: flip, stats: S,
+    sim: sim, renderer: renderer, audio: audio, timer: T, flip: flip, stats: S, seq: seq,
     start: start, pause: pause, toggle: toggle, reset: reset,
     flipNow: startFlip, setDuration: setDuration, setTheme: setTheme,
     topAt: topAt, remAt: remAt, grainsFor: grainsFor,
