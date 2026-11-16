@@ -40,7 +40,8 @@
     ambience: 'none', ambienceLevel: 0.5,
     durationMs: 5 * 60000,
     motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
-    mendNotes: 0                     // how often the "hold it still to mend" note was shown (the first three cracks)
+    mendNotes: 0,                    // how often the "hold it still to mend" note was shown (the first three cracks)
+    hintCrack: false                 // the one-time "the glass can crack" note was shown
   };
   try {
     var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -1018,7 +1019,7 @@
     // whichever way it is shaken (motion.js counts them from all three axes)
     sim.damageArmed = grav.on && motion.armed && !reduceMotion;
     if (grav.on) sim.shake(motion.takeSwings());
-    sim.spinArmed = !reduceMotion && (rot === 'free' || rot === 'held' || rot === 'detent');   // spun by hand
+    sim.spinArmed = rot === 'free' || rot === 'held' || rot === 'detent';   // spun by hand
     sim.reduced = reduceMotion;
     // the rotational terms at the glass's true size on screen
     lamNow = renderer.scale * zoomK() * kfNow * MM_PER_PX * 1e-3 * sim.G / 9.81;
@@ -1161,7 +1162,15 @@
     for (var e = dmgSeen; e < n; e++) {
       var type = f.dmgType[e], k = f.dmgK[e], lv = f.dmgLevel[e], x = f.dmgX[e];
       renderer.damageEvent(type, k, lv, now);
-      if (type === DMG.WARN) { audio.creak(lv, x); buzz(6); }
+      if (type === DMG.WARN) {
+        audio.creak(lv, x); buzz(6);
+        // the first creak a finger causes: say once what it means (a shaken phone is told in Tune)
+        if (!settings.hintCrack && !sim.damageArmed) {
+          settings.hintCrack = true; save();
+          var ws = sim.segInfo(sim.warnSeg);
+          toast('Careful: the glass can crack', 3200, lowOnScreen(ws ? ws.bulb : 0));
+        }
+      }
       else if (type === DMG.CRACK) {
         audio.crack(x);
         audio.setCracked('cracked');
@@ -2166,9 +2175,11 @@
   /* ======================================================================
    *  Reduce Motion
    *
-   *  The same glass, gentler: a drag glides home without a sway, a turn
-   *  never spins on, the phone's shaking is halved and capped below what
-   *  lifts the bed, nothing flashes, and the glass cannot crack.
+   *  The same glass, gentler: let go, it glides home without a fall or a
+   *  sway, a turn never spins on, the phone's shaking is halved and capped
+   *  below what lifts the bed (and cannot crack the glass), and nothing
+   *  flashes. What a finger does to the glass still counts: knocked, spun
+   *  hard or banged on the desk it creaks and cracks as ever.
    * ==================================================================== */
   var reduceMotion = false;
   var rmq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;

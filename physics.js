@@ -440,7 +440,7 @@
     this.damageArmed = false;            // only sustained real phone motion arms damage
     this.spinArmed = false;              // a spin made by hand (flick, turn) loads the domes
     this.relCap = 0;                     // most grains the neck may release per step (0: no cap)
-    this.reduced = false;                // Reduce Motion: gentler physics, a glass that cannot crack
+    this.reduced = false;                // Reduce Motion: gentler physics; the phone's own shaking cannot crack the glass
     this.quality = 2;                    // 2 full, 1 lighter, 0 lightest (set by the app)
 
     // Each bulb's bed: the field it feels, the slow mean of that field
@@ -2493,7 +2493,7 @@
     // hard again and again, the glass creaks and then cracks at its weakest
     // dome. Finger play counts here: spinning it this hard is as deliberate
     // as shaking it, and a turn or the Flip (≤ 2.2 rad/s) never comes close.
-    if (motion && this.spinArmed && !this.reduced && this.mLam > 0) {
+    if (motion && this.spinArmed && this.mLam > 0) {
       var wv = this.mW < 0 ? -this.mW : this.mW;
       var gc = this.mLam * wv * wv * this.geo.HB / this.G;          // g at the dome
       if (gc > MOT.spinTh) {
