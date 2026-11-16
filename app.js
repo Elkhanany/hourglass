@@ -208,7 +208,9 @@
   var S = { flow: 0, imp: 0, slides: 0 };       // smoothed physics → audio
   // real motion: where the device says down is, and whether the glass is held the other way up
   var grav = { on: false, target: 0, base: 0, seen: false };
-  var R0 = { width: 0, height: 0, scale: 1 };   // the instrument's layout box (zoom-local CSS px)
+  // the instrument's layout box (zoom-local CSS px); its centre on the page with the
+  // controls dimmed (cx, cy), and how far the controls' return moves it (dx, dy)
+  var R0 = { width: 0, height: 0, scale: 1, cx: 0, cy: 0, dx: 0, dy: 0 };
 
   /**
    * `quiet`: the glass was turned by hand or by the phone, not started from
@@ -393,13 +395,20 @@
    *  The glass as a body
    *
    *  The glass is a real object of the size it appears. Taken by its waist
-   *  it follows the finger on a soft tether and springs home when let go;
-   *  taken by a bulb it turns; flicked, it spins on by itself, slowing as
-   *  its sand is flung outward, and settles upright or inverted. Touch it
-   *  while it moves and it stops under the finger. The sand feels all of
-   *  it: the glass's true on-screen acceleration and turning enter the field
-   *  the simulation steps in (composeField), so a drag sloshes the sand and
-   *  a hard spin pins it to the ends.
+   *  it follows the finger wherever it still fits on the screen; taken by a
+   *  bulb it turns; flicked, it spins on by itself, slowing as its sand is
+   *  flung outward, and settles upright or inverted. Touch it while it
+   *  moves and it stops under the finger. The sand feels all of it: the
+   *  glass's true on-screen acceleration and turning enter the field the
+   *  simulation steps in (composeField), so a drag sloshes the sand and a
+   *  hard spin pins it to the ends.
+   *
+   *  It stands on a desk and lives in a room: the desk is a floor at its
+   *  resting height, the screen's edges are walls. Let go in the air it
+   *  falls under the sand's own slow-motion gravity, lands, bounces a
+   *  little and is centred again; thrown, it flies. Whatever it strikes it
+   *  strikes at some speed, and that blow reaches the glass (sim.impact),
+   *  the sand, the ear and the hand (bodyHit).
    *
    *  One step of this model runs before every physics step (1/120 s).
    *  Offsets are page px from home; angles rad, + = clockwise on screen.
@@ -417,8 +426,11 @@
     dw: 7, dz: 0.9,                  // the detent that sets it down on an end
     turnAt: 0.07,                    // rad (4°): a smaller nudge is not a turn
     zone: 0.15,                      // grabs this near the centre (× its height) move it; farther out turn it
-    reach: 0.22,                     // the tether's reach, × the shorter side of the screen
-    reachReduced: 40,                // px, with Reduce Motion
+    bounce: 0.2,                     // what it keeps of its speed off the desk or an edge of the screen
+    bounceMin: 70,                   // px/s: a slower rebound is no bounce (so two visible ones at most)
+    hitMin: 120,                     // px/s: a slower contact is a touch, not a blow
+    joltK: 0.22, joltV0: 170, joltMax: 200,   // a landing throws the bed up at joltK·(v − joltV0), cells/s
+    joltSide: 300, joltSideMax: 3,   // a blow from the side pushes the sand at v / joltSide g (cells/s per g), 3 g at most
     catchTau: 0.01,                  // s: a finger stops a moving glass this quickly, where it is
     stopW: 0.02, stopV: 2,           // rad/s, px/s: slow enough to count as stopped under the finger
     pivot: 0.03                      // × its height: this close to the centre a finger's angle does not turn it
@@ -431,8 +443,16 @@
     theta: 0,                        // = sim.angle
     w: 0,                            // on-screen rotation rate, rad/s (no jumps at the swaps)
     tx: 0, ty: 0,                    // where the finger pulls it
-    td: 0                            // the end the detent sets it down on
+    td: 0,                           // the end the detent sets it down on
+    air: false,                      // let go in the air and not landed yet: it falls freely, and its sand with it
+    jx: 0, jy: 0, jn: 0,             // what a blow does to the sand: g, page frame, for jn more steps
+    hits: 0, hitV: 0, hitGrade: 0    // blows it has taken; the last one's speed (px/s) and what it did (sim.impact)
   };
+  // The room the glass has, as offsets from home (page px): the desk is a
+  // floor at 0, the screen's edges are the walls (x0 … x1) and the ceiling
+  // (y0). g is the gravity it falls under, px/s²: the sand's own slow-motion
+  // gravity at the size the glass is drawn.
+  var room = { x0: 0, x1: 0, y0: 0, g: 0, px: 1 };
   var rot = 'none';                  // none | held | free | detent | ease | script
   var held = false;                  // a finger holds it by the waist
   var catching = false;              // a finger has just caught it moving and is stopping it
@@ -460,8 +480,59 @@
     body.px = body.py = body.vx = body.vy = body.ax = body.ay = 0;
     body.tx = body.ty = 0;
     body.w = 0; body.theta = 0;
+    body.air = false; body.jx = body.jy = 0; body.jn = 0;
     sim.angle = 0;
     syncMode();
+  }
+
+  /** Measure the room (see `room`): once a frame, and whenever the layout changes. */
+  function measureRoom() {
+    var g = sim.geo, zen = app.classList.contains('zen');
+    var s = renderer.scale * (zen ? 1 : Z.k0);            // CSS px per cell on screen
+    var hw = (renderer.frame ? g.capHalf : g.R + g.wall) * s;
+    var hh = (g.HB + (renderer.frame ? 14 : 2) * g.q) * s;
+    var cx = R0.cx + (zen ? 0 : R0.dx), cy = R0.cy + (zen ? 0 : R0.dy);
+    room.x0 = Math.min(0, hw - cx);
+    room.x1 = Math.max(0, window.innerWidth - hw - cx);
+    room.y0 = Math.min(0, hh - cy);
+    room.g = sim.G * s;
+    room.px = s;
+  }
+
+  /**
+   * The glass has struck the desk or an edge of the screen at v px/s, the
+   * speed straight into it; (nx, ny) points from the glass to what it hit
+   * (page frame). The glass takes the blow where it hit (sim.impact: a
+   * clink, a creak, a crack or a breach, by the speed); the sand feels it
+   * through the field it already steps in (a landing throws the bed up, so
+   * it jumps and lands; a blow from the side pushes it over), bounded so
+   * that a small set-down stays calm; and it is heard and felt, scaled by
+   * the speed. With Reduce Motion the sand is left alone.
+   */
+  function bodyHit(nx, ny, v) {
+    var rho = sim.angle + grav.base, c = Math.cos(rho), s = Math.sin(rho);
+    var grade = sim.impact(nx * c + ny * s, -nx * s + ny * c, v);
+    body.hits++; body.hitV = v; body.hitGrade = grade;
+    if (!reduceMotion) {
+      var vc = v / room.px, G = sim.G, a;
+      if (ny !== 0) {
+        // the bed leaves its seat at u cells/s after two steps of this pull
+        var u = BODY.joltK * (vc - BODY.joltV0);
+        if (u > BODY.joltMax) u = BODY.joltMax;
+        if (u > 0) { body.jx = 0; body.jy = -(1.05 + u / (2 * DT * G)); body.jn = 2; }
+      } else {
+        a = vc / BODY.joltSide;
+        if (a > BODY.joltSideMax) a = BODY.joltSideMax;
+        if (a > 0.3) { body.jx = nx * a; body.jy = 0; body.jn = 4; }
+      }
+      sim.wakeAll();
+    }
+    // the base on the desk (or the frame on the screen's edge), and the glass answering
+    var k = v / 1800;
+    audio.thump(k * k, 0.8 * nx, sim.nTop >= sim.nBottom ? 0 : 1);
+    if (v > 300) { k = (v - 250) / 1700; audio.clack(k * k, 0.8 * nx); }
+    if (v > 300) buzz(grade ? 16 : 8);
+    lastMotionAt = performance.now();
   }
 
   /** How far a spin at w rad/s coasts before friction stops it (rad, signed): the exact distance. */
@@ -496,7 +567,9 @@
 
   /** One step of the glass as a body: where it is, how it is turned. */
   function stepBody(dt) {
-    var ax = 0, ay = 0, k, c;
+    var ax = 0, ay = 0, k, c, v, e, hx = false, hy = false, vx0 = body.vx, vy0 = body.vy;
+    var flying = false;
+    if (body.jn > 0 && --body.jn === 0) body.jx = body.jy = 0;   // (a blow's push on the sand has been felt)
     if (held && catching) {
       // Caught on its way home: the finger's grip slips over the glass until
       // it has stopped it, so it stops where it is, with nothing to pull it
@@ -507,14 +580,55 @@
       k = BODY.fw; c = 2 * (reduceMotion ? 1 : BODY.fz) * k;
       ax = k * k * (body.tx - body.px) - c * body.vx;
       ay = k * k * (body.ty - body.py) - c * body.vy;
-    } else if (body.px || body.py || body.vx || body.vy) {
-      k = BODY.hw; c = 2 * (reduceMotion ? 1 : BODY.hz) * k;
+    } else if (reduceMotion) {
+      // Reduce Motion: let go, it glides home as it always did (no fall, no sway)
+      if (body.px || body.py || body.vx || body.vy) {
+        k = BODY.hw; c = 2 * k;
+        ax = -k * k * body.px - c * body.vx;
+        ay = -k * k * body.py - c * body.vy;
+      }
+    } else if (body.py < 0 || body.vy < 0) {
+      ay = room.g;                                        // in the air: it falls (and flies on, if it was thrown)
+      flying = true;
+    } else if (body.px || body.vx) {
+      k = BODY.hw; c = 2 * BODY.hz * k;                   // on the desk: the home spring centres it
       ax = -k * k * body.px - c * body.vx;
-      ay = -k * k * body.py - c * body.vy;
     }
+    if (!flying) body.air = false;
+    // Against the desk or an edge, a push into it moves nothing (the finger
+    // slides on); only arriving at speed is a blow.
+    if (body.py >= 0 && ay > 0 && body.vy >= 0) { ay = 0; body.vy = 0; }
+    if (body.py <= room.y0 && ay < 0 && body.vy <= 0) { ay = 0; body.vy = 0; }
+    if (body.px >= room.x1 && ax > 0 && body.vx >= 0) { ax = 0; body.vx = 0; }
+    if (body.px <= room.x0 && ax < 0 && body.vx <= 0) { ax = 0; body.vx = 0; }
     body.vx += ax * dt; body.vy += ay * dt;
     body.px += body.vx * dt; body.py += body.vy * dt;
-    body.ax = ax; body.ay = ay;
+    // A hand sets it down dead; let go, it keeps a fifth of its speed, while that is still a bounce.
+    e = held || reduceMotion ? 0 : BODY.bounce;
+    if (body.py > 0) {
+      v = body.vy; body.py = 0;
+      body.vy = v * e > BODY.bounceMin ? -v * e : 0;
+      body.air = false;
+      if (v > BODY.hitMin) { bodyHit(0, 1, v); hy = true; }
+    } else if (body.py < room.y0) {
+      v = -body.vy; body.py = room.y0;
+      body.vy = v * e > BODY.bounceMin ? v * e : 0;
+      if (v > BODY.hitMin) { bodyHit(0, -1, v); hy = true; }
+    }
+    if (body.px > room.x1) {
+      v = body.vx; body.px = room.x1;
+      body.vx = v * e > BODY.bounceMin ? -v * e : 0;
+      if (v > BODY.hitMin) { bodyHit(1, 0, v); hx = true; }
+    } else if (body.px < room.x0) {
+      v = -body.vx; body.px = room.x0;
+      body.vx = v * e > BODY.bounceMin ? v * e : 0;
+      if (v > BODY.hitMin) { bodyHit(-1, 0, v); hx = true; }
+    }
+    // What the sand feels of this at the glass's true size: its acceleration
+    // as it really moved (a blow's own share comes through bodyHit instead,
+    // and free fall is felt at the sand's scale: see composeField).
+    body.ax = hx ? 0 : (body.vx - vx0) / dt;
+    body.ay = hy || flying ? 0 : (body.vy - vy0) / dt;
     if (!held && body.px * body.px + body.py * body.py < 0.25 &&
         body.vx * body.vx + body.vy * body.vy < 25) {
       body.px = body.py = body.vx = body.vy = 0;          // home, to within half a pixel
@@ -644,8 +758,11 @@
       }
       mw = tw + wf;
     }
-    // the glass accelerating one way pushes its sand the other (g, page frame)
-    var fx = mx - K_DRAG * KPX * body.ax, fy = my - K_DRAG * KPX * body.ay;
+    // the glass accelerating one way pushes its sand the other (g, page frame);
+    // a blow pushes it for a moment more (bodyHit), and while the glass falls
+    // freely its sand falls with it, all but weightless
+    var fx = mx - K_DRAG * KPX * body.ax + body.jx, fy = my - K_DRAG * KPX * body.ay + body.jy;
+    if (body.air) fy -= 0.9;
     var G = sim.G;
     var w = body.w + mw;
     alLP += ((w - wPrev) / DT - alLP) * ALPHA_K;
@@ -977,6 +1094,7 @@
   /** Place, turn and scale the glass on screen, once a frame. */
   function applyBody(dtMs) {
     zkNow = app.classList.contains('zen') ? 1 : Z.k0;
+    measureRoom();
     var th = sim.angle, w = body.w < 0 ? -body.w : body.w, total = th + grav.base;
     var r = total ? 'rotate(' + total.toFixed(4) + 'rad)' : '';
     if (r !== shownRot) { rotor.style.transform = r; shownRot = r; }
@@ -1304,6 +1422,7 @@
     Z.k0 = k0;
     Z.normal = 'translate(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px) scale(' + k0.toFixed(4) + ')';
     R0.width = r.width; R0.height = r.height; R0.scale = r.scale;
+    R0.cx = Math.round(x) + r.width / 2; R0.cy = Math.round(y) + r.height / 2; R0.dx = dx; R0.dy = dy;
     // The desk the spilled sand lands on: the base slab's lower edge (or the
     // glass's own tip without the frame). Its canvas lives in the zoom, not
     // in the glass, so the dune stays on the desk however the glass moves.
@@ -1592,15 +1711,12 @@
     syncMode();
   }
   /**
-   * Tie the tether from where the glass and the finger are now. A glass
-   * already out on the rubber band is tied at the pull that holds it just
-   * there, so the first small move of the finger never makes it jump.
+   * The finger takes hold from where the glass and the finger are now, so
+   * the first small move of the finger never makes the glass jump.
    */
   function anchorMove(g) {
-    var r = Math.sqrt(body.px * body.px + body.py * body.py), h = reach() / 2;
-    var k = r > h ? unband(r, h) / r : 1;
     g.fx = g.lx; g.fy = g.ly;
-    g.p0x = body.px * k; g.p0y = body.py * k;
+    g.p0x = body.px; g.p0y = body.py;
     body.tx = body.px; body.ty = body.py;
   }
   /** Take the glass by a bulb: it turns after the finger from the angle it is at now. */
@@ -1626,28 +1742,14 @@
     audio.catchThud();
     buzz(10);
   }
-  function tanh(v) {
-    var e = Math.exp(-2 * (v < 0 ? -v : v)), t = (1 - e) / (1 + e);
-    return v < 0 ? -t : t;
-  }
-  /** The tether's reach in px: about a fifth of the screen (less with Reduce Motion). */
-  function reach() {
-    return reduceMotion ? BODY.reachReduced : BODY.reach * Math.min(window.innerWidth, window.innerHeight);
-  }
-  /** The rubber band: a pull of r px holds the glass this far out (one to one up to h, then softly less). */
-  function band(r, h) { return r > h ? h + h * tanh((r - h) / h) : r; }
-  /** ... and the pull that holds it at r px (r below 2h, which it never quite reaches). */
-  function unband(r, h) {
-    if (r <= h) return r;
-    var u = (r - h) / h;
-    if (u > 0.999) u = 0.999;
-    return h + h * 0.5 * Math.log((1 + u) / (1 - u));
-  }
-  /** Where the finger pulls the glass: one to one near home, then a soft rubber band. */
+  /**
+   * Where the finger pulls the glass: one to one, wherever the finger goes.
+   * The desk and the screen's edges stop the glass itself (stepBody); the
+   * finger may go on past them, and how fast it drove the glass into them
+   * is how hard the blow is.
+   */
   function tether(g, x, y) {
-    var rx = g.p0x + x - g.fx, ry = g.p0y + y - g.fy, r = Math.sqrt(rx * rx + ry * ry);
-    var h = reach() / 2, k = r > h ? band(r, h) / r : 1;
-    body.tx = rx * k; body.ty = ry * k;
+    body.tx = g.p0x + x - g.fx; body.ty = g.p0y + y - g.fy;
   }
   /** The finger's angle about the glass, unwrapped, adds to where the glass is turned to. */
   function turnTo(g, x, y) {
@@ -1662,14 +1764,20 @@
     flip.grabAngle += d;
   }
   /**
-   * Let go. A moved glass springs home. A turned one spins on if it was
-   * flung (not with Reduce Motion, which keeps the old eased release), or
-   * settles on the end it was heading for. `cancel`: the gesture was cut
-   * short (the page hid, the screen turned), so it settles without a spin.
+   * Let go. A moved glass falls to the desk from where it is (with the
+   * speed the hand gave it) and is centred again; with Reduce Motion it
+   * glides home. A turned one spins on if it was flung (not with Reduce
+   * Motion, which keeps the old eased release), or settles on the end it
+   * was heading for. `cancel`: the gesture was cut short (the page hid, the
+   * screen turned), so it settles without a spin.
    */
   function letGo(g, cancel) {
     catching = false;                  // (lifted while still braking it: it carries on from here)
-    if (g.kind === 'move') { held = false; syncMode(); }
+    if (g.kind === 'move') {
+      held = false;
+      body.air = !reduceMotion && (body.py < -1 || body.vy < -BODY.bounceMin);
+      syncMode();
+    }
     else if (g.kind === 'turn' && rot === 'held') {
       if (reduceMotion) releaseTurn();
       else if (!cancel && (body.w > BODY.wFree || body.w < -BODY.wFree)) { rot = 'free'; inertia0 = inertia(); }
@@ -2191,7 +2299,7 @@
     flipNow: startFlip, setDuration: setDuration, setTheme: setTheme,
     topAt: topAt, remAt: remAt, grainsFor: grainsFor,
     wakeState: function () { return wakeState; }, grav: grav,
-    motion: motion, body: body, spill: spill, perf: perf,
+    motion: motion, body: body, room: room, spill: spill, perf: perf,
     retime: function () { return maybeRetime(performance.now(), true); },
     debug: {
       /** Crack the glass at wall segment `seg` (sim.forceCrack), and let the app hear and see it at once. */

@@ -88,8 +88,9 @@ async function waitRest(t, ms) {
   } catch (e) { return -1; }
 }
 
-async function lmax(t, reduced) {
-  return reduced ? 40 : await t.eval(function () { return 0.22 * Math.min(innerWidth, innerHeight); });
+/** How far the glass can be carried to the right before the screen's edge stops it (px). */
+async function lmax(t) {
+  return t.eval(function () { return window.Hourglass.room.x1; });
 }
 
 /* ---- 2. MOVE ------------------------------------------------------------ */
@@ -126,8 +127,10 @@ async function testMove(s, env, opts) {
   }
   var over = pRel > 0 ? 100 * maxNeg / pRel : 0;
   var settle = lastOut < 0 ? 0 : lastOut - r.upAt;
-  s.check(label + ': max |translate| ≤ Lmax' + (opts.reduced ? '' : ' + 2 px'), maxP <= L + (opts.reduced ? 0.5 : 2) && maxP > 10,
-          'max ' + maxP.toFixed(1) + ' px, Lmax ' + L.toFixed(1) + ' px');
+  // (until the glass could fall and hit, a rubber band held it within 0.22 × the screen's shorter
+  // side, 40 px with Reduce Motion; now it goes where the finger goes until the screen's edge stops it)
+  s.check(label + ': it stops at the edge of the screen (max |translate| ≤ the room + 0.5 px)', maxP <= L + 0.5 && maxP > 10,
+          'max ' + maxP.toFixed(1) + ' px, room to the right ' + L.toFixed(1) + ' px');
   s.check(label + ': back to |p| < 0.5 px within 1.3 s', lastOut >= 0 ? settle <= 1300 : true, 'settled ' + settle.toFixed(0) + ' ms after release');
   if (opts.reduced) s.check(label + ': no overshoot (≤ 1 px)', maxNeg <= 1, 'overshoot ' + maxNeg.toFixed(2) + ' px');
   else s.check(label + ': overshoot 5–15 %', over >= 5 && over <= 15, over.toFixed(1) + ' % of ' + pRel.toFixed(1) + ' px');
@@ -136,7 +139,8 @@ async function testMove(s, env, opts) {
     var dRem = c0.rem - r.rem, dWall = r.now - c0.now;
     s.check(label + ': the clock ran (T.rem fell by the wall time)', Math.abs(dRem - dWall) <= 60,
             'T.rem −' + dRem.toFixed(0) + ' ms over ' + dWall + ' ms');
-    s.check(label + ': sim gets ax < 0 while the glass accelerates right', axN > 3 && axBad === 0,
+    // (the screen's edge now stops the glass after 56 px here, so it has fewer steps to pick up speed in)
+    s.check(label + ': sim gets ax < 0 while the glass accelerates right', axN >= 2 && axBad === 0,
             axN + ' steps accelerating right (peak ' + maxAx.toFixed(0) + ' px/s² = ' + (maxAx * 1.631e-5).toFixed(2) + ' g), ' + axBad + ' with ax ≥ 0');
     if (CFG.e2e) {
       var slides = 0;

@@ -324,6 +324,12 @@
     gamTh: 4.6, gamC: 6, nB: 16, tauB: 0.5, capB: 0.02, bendBins: 3,   // the waist bends
     spinTh: 0.2, spinC: 0.8, spinRate: 0.6, domeBins: 4,              // a hard spin loads the domes (g at the dome)
     knockTh: 0.85, knockA: 0.08, knockCap: 0.1,                       // a knock on the glass (tap or click)
+    // The glass itself striking the desk or an edge of the screen (impact):
+    // the speed of the blow on screen, px/s. Below impV[0] it only clinks;
+    // up to impV[1] it creaks and keeps impD of damage; from there it cracks
+    // at once, impL[0] … impL[1] cells long; from impV[2] it breaks through
+    // (impL[2] … impL[3] cells by 1.5 × impV[2]).
+    impV: [700, 920, 1800], impD: 0.35, impL: [14, 24, 28, 40], impBins: 3,
     rMax: 0.30,          // 1/s: fastest sub-critical growth (bounded crack velocity)
     tauP: 0.6,           // s: an unabsorbed blow fades
     tauHeal: 8,          // s: micro-damage arrests while no crack is visible
@@ -514,6 +520,7 @@
     this.segKt = new Float32Array(WALL_SEGS);  // stress concentration of the shape
     this.segCrack = new Int8Array(WALL_SEGS);  // index of the segment's crack, −1 none
     this.segHit = new Float32Array(WALL_SEGS); // how hard each stretch is being hit lately (raw supply, fading as segP does)
+    this._impH = new Float32Array(WALL_SEGS);  // scratch for impact(): how far out each stretch lies along the blow
     for (s = 0; s < WALL_SEGS; s++) {
       // Stress gathers at the blown shoulder by the waist and at the dome under the cap.
       var u = ((s % WALL_BINS) + 0.5) / WALL_BINS, a = (u - 0.05) / 0.06, c = (1 - u) / 0.08;
@@ -668,12 +675,13 @@
   /**
    * True while anything is still in motion (used to idle the render loop):
    * grains in the air, recent avalanches, a turn, a step on the motion path,
-   * a bed in flight, or a breach still passing sand.
+   * a bed in flight, a breach still passing sand, or damage that has yet to
+   * fade from glass that did not crack (its mark fades with it).
    */
   Sim.prototype.isActive = function () {
     return this.np > 0 || this.quiet < 24 || this.flipping ||
       this._motionStep || this.slug[0].air || this.slug[1].air ||
-      this._leakLive || this.steps - this._leakStep < MOT.leakLinger || this._pendP;
+      this._leakLive || this.steps - this._leakStep < MOT.leakLinger || this._pendP || this.dMax > 0.02;
   };
 
   /**
@@ -708,6 +716,96 @@
     this._pendP = true;
     this.quiet = 0;
     return seg;
+  };
+
+  /**
+   * The glass itself strikes something: the desk it lands on, or an edge of
+   * the screen. (nx, ny) points from the glass to what it hit, in the
+   * vessel's own frame (x right, y down the lattice); v is the speed of the
+   * blow on screen, px/s. This is the hand's own deliberate act, so its
+   * damage is written at once: nothing has to arm it, and neither the cap on
+   * one blow (Pmax) nor the bounded rate (rMax) applies. It lands on the
+   * weakest stretch of glass within impBins bins of the place that hit (the
+   * lower dome for a landing upright, the flank for a wall), or on the open
+   * crack there. Returns what it did: 0 nothing, 1 a creak (impD of damage),
+   * 2 a crack, 3 a breach (from impV[2], or a cracking blow on a stretch
+   * that is cracked already; each one after that widens the breach).
+   */
+  Sim.prototype.impact = function (nx, ny, v) {
+    var V = MOT.impV, IL = MOT.impL;
+    nx = finiteOr0(nx); ny = finiteOr0(ny); v = finiteOr0(v);
+    if (!(v >= V[0]) || (nx === 0 && ny === 0)) return 0;
+    var g = this.geo, sc = this.segCrack, cracks = this.cracks, hs = this._impH;
+    var s, q, k, u, h, far = -1e9;
+    // the place that hit: the stretches farthest out along (nx, ny) ...
+    for (s = 0; s < WALL_SEGS; s++) {
+      u = ((s % WALL_BINS) + 0.5) / WALL_BINS;
+      h = ((((s / WALL_BINS) | 0) & 1) ? 1 : -1) * profile(u, g) * nx + (s >= 2 * WALL_BINS ? 1 : -1) * u * g.HB * ny;
+      hs[s] = h;
+      if (h > far) far = h;
+    }
+    // ... and, within impBins bins of them, the open crack if there is one, else the weakest stretch
+    var pick = -1, pickW = 0, open = -1;
+    for (s = 0; s < WALL_SEGS; s++) {
+      if (hs[s] < far - 0.5) continue;
+      var b0 = s - (s % WALL_BINS), lo = s - MOT.impBins, hi = s + MOT.impBins;
+      if (lo < b0) lo = b0;
+      if (hi > b0 + WALL_BINS - 1) hi = b0 + WALL_BINS - 1;
+      for (q = lo; q <= hi; q++) {
+        k = sc[q];
+        if (k >= 0) { if (!cracks[k].sealed && open < 0) open = q; continue; }     // mended gold holds
+        var w = this.segKt[q] / this.segS[q];
+        if (w > pickW) { pickW = w; pick = q; }
+      }
+    }
+    this._pendP = true;                                // the next step looks at the glass
+    this.quiet = 0;
+    if (v < V[1]) {
+      // a creak: the stretch keeps impD of the way to a crack (an open crack lengthens instead)
+      s = open >= 0 ? open : pick;
+      if (s < 0) return 0;
+      h = this.segD[s] + MOT.impD;
+      this.segD[s] = h > MOT.Dcap ? MOT.Dcap : h;
+      if (open < 0) {
+        var f = this.frame, n0 = f.dmgN, lv = 0;
+        this._scanDamage(true);
+        if (f.dmgN === n0) {                           // no new level crossed: it is heard all the same
+          for (k = 0; k < 4; k++) if (this.dMax >= MOT.warn[k]) lv = k + 1;
+          this._pushDmg(Sim.DMG.WARN, -1, lv < 1 ? 1 : lv, this._panSeg(s));
+        }
+      }
+      return 1;
+    }
+    var cr = null, grade = v >= V[2] ? 3 : 2, wide = grade === 3 ? 2 : 1, fresh = false;
+    if (open >= 0) {
+      cr = cracks[sc[open]];                           // cracked here already: this blow breaks it through
+      grade = 3;
+    } else if (pick >= 0 && cracks.length < MOT.maxCracks) {
+      if (this.segD[pick] < 1) this.segD[pick] = 1;
+      cr = this._initCrack(pick, -1);
+      fresh = true;
+    } else {
+      for (k = 0; k < cracks.length && !cr; k++) if (!cracks[k].sealed) cr = cracks[k];
+      if (!cr) return 0;                               // three gold seams: it holds
+      grade = 3;
+    }
+    var t = grade === 3 ? (v - V[2]) / (0.5 * V[2]) : (v - V[1]) / (V[2] - V[1]);
+    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    var L = grade === 3 ? IL[2] + (IL[3] - IL[2]) * t : IL[0] + (IL[1] - IL[0]) * t;
+    if (L > MOT.Lmax) L = MOT.Lmax;
+    if (L > cr.L) {
+      if (!fresh) this._pushDmg(Sim.DMG.GROW, cracks.indexOf(cr), (L / MOT.growStep) | 0, this._panX(cr.x));
+      cr.L = L;
+      this.crackRev++;
+    }
+    if (grade === 3) {
+      if (cr.nh === 0) {
+        this._openHole(cr, true);
+        while (cr.nh < wide) if (!this._widenHole(cr, false)) break;
+      } else this._widenHole(cr, true);
+    }
+    cr.D0 = this.segD[cr.seg];
+    return grade;
   };
 
   /**
