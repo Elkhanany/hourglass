@@ -30,8 +30,8 @@ async function e1(s, env) {
       tilt: row.querySelector('b').textContent
     };
   });
-  // f446085 had 3 buttons at the top, 13 below and 6 Tune rows
-  s.check('E1: the main screen\'s controls are unchanged', ui.top === 3 && ui.bottom === 12 && ui.rows === 6, JSON.stringify(ui));
+  // f446085 had 3 buttons at the top, 13 below and 6 Tune rows; Layered sand added a seventh row
+  s.check('E1: the main screen\'s controls are unchanged', ui.top === 3 && ui.bottom === 12 && ui.rows === 7, JSON.stringify(ui));
   s.check('E1: the #opt-tilt row reads "Real motion"', ui.tilt === 'Real motion', '"' + ui.tilt + '"');
   await t.eval(function () { window.Hourglass.setDuration(20000); });
   await sleep(1000);

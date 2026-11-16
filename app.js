@@ -37,6 +37,7 @@
     theme: 'sahara', character: 'asmr', volume: 0.8, muted: false,
     chime: true, tilt: false, zenFull: false, haptics: true,
     keepAwake: true, frame: true,
+    layers: false,                   // layered sand: two tones that settle into strata
     ambience: 'none', ambienceLevel: 0.5,
     durationMs: 5 * 60000,
     motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
@@ -73,6 +74,8 @@
     glBack: $('c-glass-back'), glFront: $('c-glass-front')
   });
   renderer.setFrame(settings.frame);
+  sim.setLayers(settings.layers);    // (before the glass is filled: the fill is laid in bands)
+  renderer.setLayers(settings.layers);
   // sand that got out of the glass, on the desk below it
   var spill = new P.Spill(spillCanvas, renderer);
   var audio = new window.HourglassAudio();
@@ -1872,6 +1875,15 @@
       layout();                                        // the bare glass can sit larger
     });
   });
+  // Layered sand: the sand in the glass is laid in strata where it lies (or
+  // goes back to one tone), behind the same slow cross-fade as a new material.
+  $('opt-layers').addEventListener('change', function (e) {
+    settings.layers = e.target.checked; save();
+    softSwap(function () {
+      sim.setLayers(settings.layers);
+      renderer.setLayers(settings.layers);
+    });
+  });
   // 'click', not 'change': iOS only shows its motion prompt from a direct tap
   optTilt.addEventListener('click', function (e) { setMotion(e.target.checked, true); });
   $('opt-zen').addEventListener('change', function (e) {
@@ -2148,6 +2160,7 @@
   $('opt-chime').checked = settings.chime;
   $('opt-awake').checked = settings.keepAwake;
   $('opt-frame').checked = settings.frame;
+  $('opt-layers').checked = settings.layers;
   $('opt-zen').checked = settings.zenFull;
   $('opt-haptics').checked = settings.haptics;
   showVolume();
