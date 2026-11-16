@@ -194,9 +194,9 @@ async function e3(s, env) {
   await sleep(1200);
   var after = await liveNodes(t);
   // Nothing may be left over: no more than 10 nodes above the baseline. (It also asked for no
-  // fewer than 10 below. After this gentler shake the count comes back 10 to 20 under the
-  // baseline, which was taken while the tap that started the glass was still ringing; fewer
-  // nodes is not a leak, so that side is now only held to 30.)
+  // fewer than 10 below. After this gentler shake the count came back 12 and 22 under the
+  // baseline in two runs; which sounds had ended was not found out. Fewer nodes is not a
+  // leak, so that side is now only held to 30.)
   s.check('E14 normal: live AudioNodes back to the baseline (+10 at most) within 3 s', after - v.base <= 10 && v.base - after <= 30,
           'baseline ' + v.base + ', 3 s after ' + after);
   await H.invariants(s, t, 'E3 normal');
