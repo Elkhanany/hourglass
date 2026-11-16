@@ -1,10 +1,66 @@
 # Hourglass
 
-A sand hourglass timer for the browser. Every grain is simulated, every sound is
-synthesised live, and nothing is loaded from anywhere else: no libraries, no CDNs,
-no audio files. It installs as a Progressive Web App and runs offline.
+*A calm sand timer you can hold.* Every grain is simulated and every sound is
+synthesised as you listen. Turn the glass, flick it into a spin, tilt or shake
+your phone, and the sand answers. Shake it very hard and the glass cracks;
+hold a finger on the crack and it mends with gold.
 
-Live (once GitHub Pages is enabled): `https://elkhanany.github.io/hourglass/`
+![Three hourglasses on a phone: Sahara quartz with its controls, lapis lazuli dimmed in Zen, and sea glass](docs/images/hero.jpg)
+
+**[Open Hourglass →](https://elkhanany.github.io/hourglass/)**
+
+It is free, has no ads, accounts or tracking, and works offline. Nothing is
+loaded from anywhere else: no libraries, no fonts, no audio files.
+
+## Install it
+
+- **iPhone and iPad (Safari):** open the link, tap **Share**, then **Add to
+  Home Screen**. Opened from there it runs full screen and offline. To tilt
+  and shake the sand with the phone, turn on **Real motion** in **Tune** and
+  allow motion access when asked.
+- **Android (Chrome):** open the link and tap **Install app** (or ⋮ →
+  **Install app**). The installed app runs full screen; a long press on its
+  icon offers 5, 15 and 30 minute glasses.
+- **Desktop (Chrome, Edge, Safari):** it runs in the browser; Chrome and Edge
+  also offer **Install** in the address bar. A burst of mouse clicks knocks
+  on the glass.
+
+## Six sands
+
+![The six sands: Sahara quartz, volcanic black, moonstone, lapis lazuli, rose quartz and sea glass](docs/images/sands.jpg)
+
+Sahara Quartz in walnut, Volcanic Black in brushed brass, Moonstone in
+frosted silver, Lapis Lazuli in gold, Rose Quartz in copper and Sea Glass in
+driftwood. Tap the name at the top to change it, or choose in **Tune**.
+
+## What it does
+
+- **Keeps exact time.** Presets of 1, 5, 10, 15, 30 and 60 minutes, or any
+  time from 10 seconds to 99:59. The last grain leaves the neck at `00:00.0`,
+  even if the phone slept in between.
+- **Real sand.** About 10,000 to 35,000 grains, each one simulated: piles slump
+  at sand's own angle, the stream breathes and wanders, grains bounce off the
+  glass.
+- **Real sound.** The whisper of the neck, the tick of grains on glass, the
+  resonance of the vessel, a singing bowl at the end, and an optional brook or
+  rain behind it, all synthesised live.
+- **Zen.** Four seconds after you let it run, the controls fade and the glass
+  fills the screen; the end of a glass is quiet and slow.
+- **A glass you can hold.** Drag it by the waist, turn it by a bulb, flick it
+  into a spin and catch it. The sand feels each move at the true scale of the
+  glass.
+- **Real motion.** With the switch on, the sand follows how you hold the phone:
+  lean it, turn it over, shake it.
+- **Break it, mend it.** Very hard shaking, five or six hard flicks in a row,
+  or a burst of hard knocks creaks the glass, then cracks it, and sand trickles
+  out into a small dune. Hold a finger still on the crack to mend it with gold
+  (kintsugi), or press Reset for a new glass.
+
+<p>
+  <img src="docs/images/kintsugi.jpg" width="210" alt="A rose quartz glass mended with a seam of gold along its shoulder">
+  &nbsp;
+  <img src="docs/images/tune.jpg" width="210" alt="The Tune sheet: materials, frame, sound, ambience and switches">
+</p>
 
 ## Using it
 
@@ -399,6 +455,24 @@ Offline-first, stale-while-revalidate cache of the app shell. Every path is
 relative (`./`), including `start_url` and `scope`, so the app works from a
 sub-directory such as `/hourglass/`.
 
+## Project structure
+
+```
+index.html  styles.css      the page and its look (one screen, two sheets)
+app.js                      the controller: clock, gestures, Zen, settings, sessions
+physics.js                  the sand simulation, the glass, cracks and spilled sand
+audio.js                    the procedural sound engine
+motion.js                   the phone's motion sensors
+sw.js  manifest.json        offline cache and install metadata
+icons/                      app icons and iPhone launch screens (icons/splash)
+docs/images/                the pictures in this README and the install screenshots
+tools/icons.html            regenerates the icons from one SVG
+tools/test/                 development-only tests (not part of the app)
+```
+
+The app is plain files with no build step: whatever is in the repository is
+what the browser runs.
+
 ## Deploying to GitHub Pages
 
 1. Merge to `main`.
@@ -410,7 +484,8 @@ The empty `.nojekyll` file in the repository root tells Pages to serve the files
 as they are, without running Jekyll.
 
 When you change any shipped file, bump `VERSION` in `sw.js` so installed copies
-drop the old cache.
+drop the old cache. An installed app picks up a new version on its second
+launch after the change (the first launch fetches it in the background).
 
 ## Running locally
 
@@ -418,7 +493,7 @@ Any static file server works. The page must be served over `http://localhost`
 or HTTPS for the service worker to register.
 
 ```bash
-python3 -m http.server 8000
+npm start                      # or: python3 -m http.server 8000
 ```
 
 Then open `http://localhost:8000/`.
@@ -426,21 +501,22 @@ Then open `http://localhost:8000/`.
 ## Tests
 
 Development-only tests live in `tools/test` and are not part of the app (the
-service worker does not cache them). They need Node 22 and a global
-Playwright with Chromium; the repository has no `package.json`.
+service worker does not cache them). They need Node 22 and Playwright with
+Chromium:
 
 ```bash
-node tools/test/sim-identity.test.js           # the simulation, in Node
-node tools/test/app-gestures.test.js           # the app, in an iPhone 12 Chromium
-node tools/test/e2e-timer.test.js              # integration scenarios E4 and E5
+npm install && npx playwright install chromium
+npm test                       # every suite, one line each (about 15 minutes)
+npm run test:physics           # the simulation only, in Node (about 3 minutes)
+node tools/test/app-gestures.test.js     # any single suite
 ```
 
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
   nothing moving, every grain lands exactly as before. The others cover
   cracks, leaks, mending and saving (`p0`), conservation, sanity, flight,
-  fracture, leak, flip, persistence, determinism, the valve, the clock and
-  performance.
+  fracture, spinning, knocking, leak, flip, persistence, determinism, the
+  valve, the clock and performance.
 - `render-*`: the crack paths, their redraw and the spilled sand's physics in
   Node; cracks, their glint, kintsugi and the spill in the real app; and,
   with no cracks, the picture against f446085, pixel for pixel.
@@ -471,11 +547,13 @@ GPU to composite, while here the main thread copies them in software and
 another thread composites them. `e2e-perf` with `--trace` notes how each
 stretch was spent, telling the app's own work from that.
 
-## Icons
+## Icons and launch screens
 
 `icons/` holds the SVG source and the PNG sizes the manifest and iOS need.
 `tools/icons.html` regenerates all of them in the browser from one SVG
-template; it is not part of the installed app.
+template; it is not part of the installed app. `icons/splash/` holds dark
+launch screens for current iPhone sizes, so an app opened from the home screen
+never flashes white before its first frame.
 
 ## Browser notes
 
