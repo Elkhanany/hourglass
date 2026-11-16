@@ -4506,7 +4506,7 @@
         o = 4 * s;
         sn = Math.sin(Math.atan2(e.seg[o + 3] - e.seg[o + 1], e.seg[o + 2] - e.seg[o]) + rot - 0.9);
         sn *= sn;
-        var al = 0.45 + 0.45 * sn * sn * sn;
+        var al = 0.40 + 0.55 * sn * sn * sn;
         if (e.can[CRACK_ST * s + 6]) al *= 0.8;   // side branches are finer
         if (flash > 0) al += (1 - al) * flash;
         lv = (al * CRACK_LV + 0.5) | 0;
