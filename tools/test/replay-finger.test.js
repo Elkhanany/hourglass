@@ -240,9 +240,9 @@ async function neverMarks(s, env) {
   for (k = 0; k < 8; k++) { await flick(t, g, FLICKS.casual); await sleep(900); }
   await sleep(2500);
   log = await t.log(); st = await state(t);
-  var gmax = Math.max.apply(null, log.flicks.map(function (q) { return q.g; }).concat([0]));
-  never(s, 'eight casual flicks', log, st, 'peak g at the dome ' + log.flicks.map(function (q) { return q.g; }).join(' ') + ' (a dose from 0.22: ' +
-    ((0.22 / gmax - 1) * 100).toFixed(0) + ' % to spare)');
+  var gs = log.flicks.map(function (q) { return q.g; }), gmean = gs.reduce(function (a, b) { return a + b; }, 0) / (gs.length || 1);
+  never(s, 'eight casual flicks', log, st, 'peak g at the dome ' + gs.join(' ') + ' (mean ' + gmean.toFixed(2) +
+    '; a dose starts at 0.22, and eight flicks pass 0.2 of damage only from 0.23 each)');
   await t.close();
 
   t = await fresh(env, { idle: true });
@@ -313,7 +313,8 @@ async function neverMarks(s, env) {
     lows.push(log.from.toFixed(0) + ' px → ' + hv + ' px/s');
     if (!(log.from < 55 && log.dMaxPeak < 0.2 && st.cracks.length === 0)) break;
   }
-  s.check('NEVER set-downs from under 55 px (let go at three heights)', k === 3 && st.dMax < 0.2, lows.join(', ') + ' (a mark from 700 px/s); damage ' + st.dMax.toFixed(3));
+  s.check('NEVER set-downs from under 55 px (let go at three heights)', k === 3 && st.dMax < 0.2 && st.cracks.length === 0,
+    lows.join(', ') + ' (a mark from 700 px/s); damage ' + st.dMax.toFixed(3));
   await t.close();
 }
 
@@ -334,14 +335,20 @@ async function more(s, env) {
   await sleep(3000);
   var healed = await state(t);
   s.check('... and the mark fades as the glass heals', healed.dMax < st.dMax - 0.05 && healed.dMax > 0, st.dMax.toFixed(2) + ' → ' + healed.dMax.toFixed(2) + ' in 3 s');
-  // two more drops from the same height: the third creak-size blow cracks it; the note is not shown again
-  await t.mark();
-  log = await drop(t, 106, 700);
-  var again = log.events.filter(function (e) { return e.k === 'toast' && /can crack/.test(e.v); }).length;
-  log = await drop(t, 106, 700);
-  st = await state(t);
-  s.check('three such drops in a row crack it (the note about care is not repeated)', st.cracks.length === 1 && again === 0,
-    st.cracks.length + ' crack, the note shown again ' + again + ' times');
+  // more drops from the same height, one after another: each adds its 0.35 to what has not yet
+  // healed (it fades with a time constant of 8 s), so about the fifth cracks it; the note is not shown again
+  var again = 0, nDrops = 1, trail = [st.dMax.toFixed(2)];
+  while (nDrops < 8) {
+    log = await drop(t, 106, 700);
+    nDrops++;
+    again += log.events.filter(function (e) { return e.k === 'toast' && /can crack/.test(e.v); }).length;
+    st = await state(t);
+    trail.push(st.cracks.length ? 'crack' : log.dMaxPeak.toFixed(2));
+    if (st.cracks.length) break;
+  }
+  s.check('such drops one after another crack it, on about the fifth or sixth (the note about care is not repeated)',
+    st.cracks.length === 1 && nDrops >= 4 && nDrops <= 7 && again === 0,
+    'damage after each: ' + trail.join(', ') + '; the note shown again ' + again + ' times');
   // a second cracking blow on the crack opens it, and sand spills
   log = await drop(t, 280, 1500);
   await sleep(3500);
