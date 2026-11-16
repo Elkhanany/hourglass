@@ -622,6 +622,7 @@ input[type="range"]::-moz-range-thumb {
   transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+#toast.high { bottom: auto; top: calc(var(--sat) + 150px); }   /* about the lower bulb: clear of it */
 
 /* ------------------------------------------------------------------ *
  *  Small / short / wide screens
@@ -645,6 +646,7 @@ input[type="range"]::-moz-range-thumb {
   #hud-bottom { left: auto; width: 44%; max-width: 400px; padding-bottom: calc(var(--sab) + 8px); }
   #readout { font-size: clamp(34px, 7vw, 54px); }
   #toast { bottom: calc(var(--sab) + 20px); left: 25%; }
+  #toast.high { bottom: calc(var(--sab) + 20px); top: auto; }
 }
 @media (min-width: 760px) and (min-height: 700px) {
   #hud-bottom { padding-bottom: calc(var(--sab) + 22px); }

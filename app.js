@@ -40,7 +40,7 @@
     ambience: 'none', ambienceLevel: 0.5,
     durationMs: 5 * 60000,
     motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
-    hintMend: false                  // the one-time "hold it still to mend" note was shown
+    mendNotes: 0                     // how often the "hold it still to mend" note was shown (the first three cracks)
   };
   try {
     var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -1139,6 +1139,8 @@
     return st;
   }
   function hasOpenCrack() { return crackState() === 'cracked'; }
+  /** True when lattice bulb `b` (0 above the neck) is the lower one on screen as the glass stands. */
+  function lowOnScreen(b) { return (b === 1) !== (grav.base !== 0); }
 
   /**
    * What happened to the glass since the last look: creaks before a crack,
@@ -1151,14 +1153,14 @@
     for (var e = dmgSeen; e < n; e++) {
       var type = f.dmgType[e], k = f.dmgK[e], lv = f.dmgLevel[e], x = f.dmgX[e];
       renderer.damageEvent(type, k, lv, now);
-      if (type === DMG.WARN) audio.creak(lv, x);
+      if (type === DMG.WARN) { audio.creak(lv, x); buzz(6); }
       else if (type === DMG.CRACK) {
         audio.crack(x);
         audio.setCracked('cracked');
         buzz([8, 40, 18]);
-        if (!settings.hintMend) {
-          settings.hintMend = true; save();
-          toast('The glass cracked · hold it still to mend', 4200);
+        if (settings.mendNotes < 3) {
+          settings.mendNotes++; save();
+          toast('The glass cracked · hold it still to mend', 4200, lowOnScreen(sim.cracks[k] ? sim.cracks[k].bulb : 0));
         }
         keep = true;
       } else if (type === DMG.GROW) audio.crackGrow(x);
@@ -1483,8 +1485,10 @@
   }
 
   var toastTimer = 0;
-  function toast(msg, ms) {
+  /** `high`: show it up under the readout (a note about the glass must not cover the spot it is about). */
+  function toast(msg, ms, high) {
     toastEl.textContent = msg;
+    toastEl.classList.toggle('high', !!high);
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, ms || 2200);

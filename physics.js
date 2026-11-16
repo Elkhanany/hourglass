@@ -339,7 +339,7 @@
     relief: 0.5,         // a crack relaxes the rest of the glass: every other stretch keeps this share of its damage
     calm: 2.5,           // s: after a crack, no other starts this soon
     gateGuard: 4,        // cracks and holes stay at least this many rows from the gate
-    L0: 4, growK: 22, growL: 30, growStep: 6, Lmax: 140,   // crack length, cells
+    L0: 16, growK: 22, growL: 30, growStep: 6, Lmax: 140,  // crack length, cells (born long enough to be seen)
     Lhole: 26, widen: 0.8, wMax: 3,   // breached at L > 26, wider at 26·(1 + 0.8·w)
     sealS: 1.5,          // a mended seam is half as strong again
     // the leak: 2-D Beverloo flow with jamming
@@ -4040,6 +4040,8 @@
   var CRACK_ST = 7;                 // canonical floats per segment: x0, y0, x1, y1, t0, t1, branch
   var CRACK_LV = 32;                // hairline brightness levels: one stroke per level in use
   var CRACK_REDRAW = 33;            // ms: c-front is redrawn at most 30 times a second
+  var CRACK_FLASH = 600;            // ms: a new crack flashes bright for this long
+  var MARK_FROM = 0.2;              // damage from which a stretch of glass shows its stress mark
   var HALF_PI = Math.PI / 2;
   var CRACK_SHADOW = 'rgba(0,0,0,0.30)', CHIP_DARK = 'rgba(0,0,0,0.55)';
   var GOLD = 'rgba(214,170,92,0.95)', GOLD_CORE = 'rgba(255,232,180,0.9)';
@@ -4115,6 +4117,16 @@
   }
 
   /**
+   * How far round the glass, from the middle of its face toward the side
+   * its wall segment is on, a crack in segment `seg` starts (and its stress
+   * mark shows): 0.55 to 0.9 rad, always the same for the same band of glass.
+   */
+  var FACE_U = 0.95;                // ... and no nearer the far end than this (the collar hides the rest)
+  function facePhi(seg) {
+    return 0.55 + 0.35 * hash01(11 + 7 * (seg % WALL_BINS));
+  }
+
+  /**
    * Grow crack cr's path at length 2·lk cells. Its kind follows where it
    * starts: by the waist a hoop runs round the shoulder (bending pulls along
    * the axis), on the dome a star of 3 to 5 arms spreads from the impact,
@@ -4130,10 +4142,19 @@
     var star = u0 > 0.75, hoop = u0 < 0.3;
     crackStream(seed, -1, -1);
     var nArms = star ? 3 + Math.floor(crackRand() * 3) : 1;
+    if (!hoop) {
+      // Seen edge-on at the silhouette, the first 20 or 30 cells of a crack
+      // hide in the glass's bright rim, so a new crack could not be seen at
+      // all. Away from the waist it therefore starts on the face of the
+      // glass (facePhi), clear of the collar that seats the dome: just
+      // where the stress mark showed before it.
+      phi0 = facePhi(cr.seg);
+      if (u0 > FACE_U) u0 = FACE_U;
+    }
     for (j = 0; j < nArms; j++) {
       if (star) {
-        // spread over ±70° about the way into the face, a little uneven
-        var sp = -70 + 140 * (j + 0.5) / nArms + (crackRand() - 0.5) * 84 / nArms;
+        // all round, a little uneven: the star of a blow
+        var sp = 360 * (j + 0.5) / nArms + (crackRand() - 0.5) * 180 / nArms;
         crackArm[2 * j] = -HALF_PI + sp * Math.PI / 180;
         crackArm[2 * j + 1] = 0.5 + 0.3 * crackRand();
       } else {
@@ -4217,7 +4238,8 @@
       aKind: new Uint8Array(4),           //   1 cracking, 2 breaking through,
       aT0: new Float64Array(4),           //   and when it began
       aN: 0,
-      warnT0: 0, warnT1: 0, warnX: 0, warnY: 0,   // a creak's pinpoint glint
+      warnT0: 0, warnT1: 0,                       // a creak: the stress mark brightens for a moment
+      markQ: 0,                                   // the stress mark as last drawn (0: none)
       info: { bulb: 0, side: 1, u: 0 },
       lev: new Uint8Array(4 * CRACK_SEGS),        // brightness level per hairline segment
       cnt: new Uint16Array(CRACK_LV + 1)
@@ -4257,12 +4279,24 @@
     return true;
   }
 
+  /**
+   * The stress mark to draw, as a whole number that changes whenever the
+   * picture of it should: 0 for none (no stretch of uncracked glass holds
+   * MARK_FROM of damage), else its place and its strength in 24 steps.
+   */
+  function markLevel(sim) {
+    var D = sim.dMax, s = sim.warnSeg;
+    if (!(D >= MARK_FROM) || !(s >= 0)) return 0;
+    if (D > 1) D = 1;
+    return 1 + Math.floor((D - MARK_FROM) / (1 - MARK_FROM) * 24) + 32 * s;
+  }
+
   /** How far through its flash of `kind` crack cr is: 1 at the start, 0 when done. */
   function crackFlash(st, cr, kind, now) {
     var f = 0;
     for (var a = 0; a < 4; a++) {
       if (st.aRec[a] !== cr || st.aKind[a] !== kind) continue;
-      var x = (now - st.aT0[a]) / (kind === 1 ? 250 : 120);
+      var x = (now - st.aT0[a]) / (kind === 1 ? CRACK_FLASH : 120);
       if (x >= 0 && x < 1) { x = kind === 1 ? (1 - x) * (1 - x) : 1 - x; if (x > f) f = x; }
     }
     return f;
@@ -4300,11 +4334,13 @@
    */
   Renderer.prototype._drawCracks = function (ctx) {
     var sim = this.sim, cracks = sim.cracks, n = cracks ? cracks.length : 0, st = this._dmg;
-    if (!st && !n) return;
+    var mark = markLevel(sim);
+    if (!st && !n && !mark) return;
     st = crackState(this);
     st.rev = sim.crackRev;
+    st.markQ = mark;
     var now = st.now, warn = st.warnT1 > now;
-    if (!n && !warn) return;
+    if (!n && !mark) return;
     var rot = st.rot, lev = st.lev, cnt = st.cnt, cur = st.cur, k, s, o, e, cr, any, base, lv, sn, f;
     var total = 0;
     for (k = 0; k < n; k++) { cur[k] = this._crackPath(cracks[k]); total += cur[k].n; }
@@ -4323,7 +4359,7 @@
         any = true;
       }
     }
-    if (any) { ctx.strokeStyle = CRACK_SHADOW; ctx.lineWidth = 0.9; ctx.stroke(); }
+    if (any) { ctx.strokeStyle = CRACK_SHADOW; ctx.lineWidth = 1.6; ctx.stroke(); }
 
     // the hairline: each segment glints as it faces the key light, |sin(a + rot − 0.9)|^6
     cnt.fill(0);
@@ -4336,15 +4372,15 @@
         o = 4 * s;
         sn = Math.sin(Math.atan2(e.seg[o + 3] - e.seg[o + 1], e.seg[o + 2] - e.seg[o]) + rot - 0.9);
         sn *= sn;
-        var al = 0.30 + 0.55 * sn * sn * sn;
+        var al = 0.45 + 0.45 * sn * sn * sn;
         if (e.can[CRACK_ST * s + 6]) al *= 0.8;   // side branches are finer
-        if (flash > 0) al += (0.95 - al) * flash;
+        if (flash > 0) al += (1 - al) * flash;
         lv = (al * CRACK_LV + 0.5) | 0;
         lev[base + s] = lv; cnt[lv]++;
       }
       base += e.n;
     }
-    ctx.lineWidth = 0.32;
+    ctx.lineWidth = 0.7;
     for (lv = 0; lv <= CRACK_LV; lv++) {
       if (!cnt[lv]) continue;
       ctx.beginPath();
@@ -4427,16 +4463,46 @@
       ctx.globalAlpha = 1;
     }
 
-    // a creak: a pinpoint of light where the glass is most stressed
-    if (warn) {
-      var wl = (0.7 * (1 - (now - st.warnT0) / 300) * CRACK_LV + 0.5) | 0;
-      if (wl > 0) {
-        var gr = ctx.createRadialGradient(st.warnX, st.warnY, 0, st.warnX, st.warnY, 1.5);
-        gr.addColorStop(0, GLINT[wl > CRACK_LV ? CRACK_LV : wl]);
-        gr.addColorStop(1, GLINT[0]);
-        ctx.fillStyle = gr;
-        ctx.fillRect(st.warnX - 1.5, st.warnY - 1.5, 3, 3);
+    // The stress mark: where the glass is most loaded and has not cracked, a
+    // pale bloom on the glass with three craze lines, growing with the damage
+    // (about 5 to 20 px across) and fading as it heals. A creak brightens it
+    // for a moment.
+    if (mark) {
+      var info = sim.segInfo(sim.warnSeg, st.info), D = sim.dMax > 1 ? 1 : sim.dMax;
+      var mt = (D - MARK_FROM) / (1 - MARK_FROM), g = sim.geo;
+      // it shows where a crack would start: on the face of the glass, or (by the waist) at its edge
+      var mu = info.u, mphi = HALF_PI - 0.06;
+      if (mu >= 0.3) { mphi = facePhi(sim.warnSeg); if (mu > FACE_U) mu = FACE_U; }
+      var mx = info.side * profile(mu, g) * Math.sin(mphi), my = (info.bulb ? 1 : -1) * mu * g.HB;
+      var mr = 3 + 6.2 * mt;                                 // cells: its radius
+      var ma = (0.55 + 0.40 * mt) * (mt < 0.06 ? mt / 0.06 : 1);
+      if (warn) ma += (1 - ma) * 0.7 * (1 - (now - st.warnT0) / 300);
+      ctx.save();
+      tracePath(ctx, g, g.wall);
+      ctx.clip();
+      // (a soft shade round it first, so it reads on sand as well as on dark glass)
+      var mg = ctx.createRadialGradient(mx, my, 0.5 * mr, mx, my, 1.5 * mr);
+      mg.addColorStop(0, 'rgba(0,0,0,' + (0.32 * ma).toFixed(3) + ')');
+      mg.addColorStop(1, NO_SHADOW);
+      ctx.fillStyle = mg;
+      ctx.fillRect(mx - 1.5 * mr, my - 1.5 * mr, 3 * mr, 3 * mr);
+      mg = ctx.createRadialGradient(mx, my, 0, mx, my, mr);
+      mg.addColorStop(0, GLINT[(ma * CRACK_LV + 0.5) | 0]);
+      mg.addColorStop(0.5, GLINT[(ma * 0.5 * CRACK_LV + 0.5) | 0]);
+      mg.addColorStop(1, GLINT[0]);
+      ctx.fillStyle = mg;
+      ctx.fillRect(mx - mr, my - mr, 2 * mr, 2 * mr);
+      // three craze lines from its heart, always the same for the same stretch
+      ctx.beginPath();
+      for (k = 0; k < 3; k++) {
+        var ca = (k + hash01(sim.warnSeg * 7 + k)) * 2.094;
+        var cl = mr * (0.5 + 0.4 * hash01(sim.warnSeg * 13 + k));
+        ctx.moveTo(mx, my);
+        ctx.lineTo(mx + cl * Math.cos(ca), my + cl * Math.sin(ca));
       }
+      ctx.strokeStyle = CRACK_SHADOW; ctx.lineWidth = 1.1; ctx.stroke();
+      ctx.strokeStyle = GLINT[(ma * CRACK_LV + 0.5) | 0]; ctx.lineWidth = 0.45; ctx.stroke();
+      ctx.restore();
     }
     ctx.restore();
   };
@@ -4454,8 +4520,9 @@
    */
   Renderer.prototype.syncDamage = function (rot, nowMs) {
     var sim = this.sim, n = sim.cracks ? sim.cracks.length : 0, st = this._dmg, k;
+    var mark = markLevel(sim);
     if (!st) {
-      if (!n) return false;
+      if (!n && !mark) return false;
       st = crackState(this);
     }
     if (!this.cssW) return false;               // not laid out yet: layout() draws everything
@@ -4464,9 +4531,9 @@
     if (this.reduced && st.animEnd > nowMs) st.animEnd = nowMs;   // Reduce Motion: stop flashing now
     var running = st.animEnd > nowMs, ending = st.animEnd > 0 && !running;
     if (sim.crackRev === st.rev) {
-      if (!n && !running && !ending) { this.animating = false; return false; }
+      if (!n && !running && !ending && mark === st.markQ) { this.animating = false; return false; }
       var due = nowMs - st.lastT >= CRACK_REDRAW || nowMs < st.lastT;
-      var changed = running || ending || (n > 0 && (st.dirty || Math.abs(rot - st.rot) > 0.03));
+      var changed = running || ending || mark !== st.markQ || (n > 0 && (st.dirty || Math.abs(rot - st.rot) > 0.03));
       for (k = 0; k < n && due && !changed; k++) changed = crackStale(st, sim.cracks[k]);
       if (!due || !changed) {
         this.animating = running || ending;
@@ -4482,9 +4549,9 @@
 
   /**
    * A damage event from sim.frame (type is a Sim.DMG value; k the crack's
-   * index, −1 for WARN; level the creak level 1–4). Starts its flash: a
-   * 300 ms pinpoint glint at the stressed wall for WARN, the hairline
-   * flaring bright over 250 ms for CRACK, and a 120 ms brighter chip rim for
+   * index, −1 for WARN; level the creak level 1–4). Starts its flash: the
+   * stress mark brightening for 300 ms for WARN, the hairline flaring
+   * bright over 600 ms for CRACK, and a 120 ms brighter chip rim for
    * BREACH and WIDEN. Reduce Motion skips them all; the change itself is
    * drawn on the next syncDamage.
    */
@@ -4494,10 +4561,7 @@
     if (this.reduced) return;
     nowMs = +nowMs || 0;
     if (type === D.WARN) {
-      var info = sim.warnSeg >= 0 ? sim.segInfo(sim.warnSeg, st.info) : null;
-      if (!info) return;
-      st.warnX = info.side * profile(info.u, sim.geo);
-      st.warnY = (info.bulb ? 1 : -1) * info.u * sim.geo.HB;
+      if (!markLevel(sim)) return;
       st.warnT0 = nowMs; st.warnT1 = nowMs + 300;
       dur = 300;
     } else if (type === D.CRACK || type === D.BREACH || type === D.WIDEN) {
@@ -4508,7 +4572,7 @@
       st.aRec[a] = cr;
       st.aKind[a] = type === D.CRACK ? 1 : 2;
       st.aT0[a] = nowMs;
-      dur = type === D.CRACK ? 250 : 120;
+      dur = type === D.CRACK ? CRACK_FLASH : 120;
     } else {
       return;
     }
