@@ -483,12 +483,13 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   color: var(--ink);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 2px 8px rgba(0, 0, 0, 0.3);
 }
-/* acoustic characters: an hourglass each, with a name beneath */
+/* sound cards (acoustic characters and ambiences): one hourglass, the same in every card,
+   its sound drawn beside it, the name beneath */
 .segmented.chars button {
   display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 5px;
   min-height: 78px; padding: 10px 4px 8px; font-size: 12px; font-weight: 400; text-align: center;
 }
-.segmented.chars .ic { width: 34px; height: 34px; stroke-width: 1.2; opacity: 0.8; flex: none; }
+.segmented.chars .ic { width: 34px; height: 34px; stroke-width: 1.2; opacity: 0.8; flex: none; transition: color 0.22s var(--ease), opacity 0.22s var(--ease); }
 .segmented.chars button[aria-checked="true"] .ic { opacity: 1; color: var(--accent); }
 
 .slider-row {
@@ -636,6 +637,7 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 350px) {
   .act { font-size: 10px; letter-spacing: 0.06em; }
   .segmented button { font-size: 11.5px; }
+  .segmented.chars button { min-height: 85px; }   /* two-line names: both sound groups keep one card height */
 }
 /* landscape phones: readout to the left, controls stay reachable */
 @media (orientation: landscape) and (max-height: 520px) {
