@@ -34,7 +34,7 @@
 <div id="app" data-state="idle">
 
   <!-- warm light pooling behind the glass -->
-  <div id="ambient" aria-hidden="true"></div>
+  <div id="ambient" aria-hidden="true"><div id="breath" hidden></div></div>
 
   <!-- the instrument -->
   <main id="stage" aria-label="Hourglass. Tap to start or pause. Drag to move or turn it.">
@@ -214,6 +214,17 @@
           <span><b>Full Zen</b><small>Hide the controls completely while running</small></span>
           <input id="opt-zen" class="switch" type="checkbox" role="switch">
         </label>
+        <label class="row" for="opt-breath">
+          <span><b>Breathing pace</b><small>The glow swells as you breathe in and fades as you breathe out</small></span>
+          <input id="opt-breath" class="switch" type="checkbox" role="switch">
+        </label>
+        <div id="breath-row" class="sub" hidden>
+          <div id="breaths" class="segmented" role="radiogroup" aria-label="Breathing pattern">
+            <button type="button" role="radio" aria-checked="true" data-breath="calm" aria-label="Calm: in 4 seconds, out 6">Calm <i>4·6</i></button>
+            <button type="button" role="radio" aria-checked="false" data-breath="box" aria-label="Box: in 4 seconds, hold 4, out 4, hold 4">Box <i>4·4·4·4</i></button>
+            <button type="button" role="radio" aria-checked="false" data-breath="deep" aria-label="Deep: in 4 seconds, hold 7, out 8">Deep <i>4·7·8</i></button>
+          </div>
+        </div>
         <label class="row" for="opt-haptics">
           <span><b>Haptics</b><small>Subtle taps where the device supports them</small></span>
           <input id="opt-haptics" class="switch" type="checkbox" role="switch" checked>
