@@ -150,16 +150,19 @@
    * Output levels of the glass's own sounds against their recipes, found by
    * rendering offline through the real chain (whose compressor lets a few
    * milliseconds of transient through and lifts them):
-   *   crack  the snap, the ring and the knock of a crack: it peaks about
-   *          15 dB under the completion bowl (13.5 at the least), surprising
-   *          but never alarming
-   *   tick   the tiny ticks of strained glass (creaks, a crack settling or
-   *          growing): four creak ticks peak under −32 dBFS, panned or not,
-   *          on an intact or a cracked glass
+   *   crack  the ring and the knock of a crack, surprising but never
+   *          alarming: 20 dB under the completion bowl in loudness (RMS)
+   *   snap   the crack's first 3 ms. It must top the creaks that warn of
+   *          it, so it peaks near −11 dBFS, where the thumps and tinks are
+   *   creak0, creak1   the ticks of strained glass, levels 1 and 4. They
+   *          are a warning and must be heard on a phone's speaker: they
+   *          peak between about −17 and −12 dBFS (they were 25 dB lower, and
+   *          nobody ever heard the glass complain before it cracked)
+   *   tick   the fainter ticks of a crack settling or growing
    *   hum    the mend hum; at its recipe's level it rendered at −70 dBFS,
    *          below hearing, and sits near −48 dBFS RMS with this
    */
-  var LEVEL = { crack: 0.045, tick: 0.2, hum: 12 };
+  var LEVEL = { crack: 0.045, tick: 0.2, hum: 12, creak0: 0.10, creak1: 0.15, snap: 0.18 };
 
   /* ======================================================================
    *  Buffer synthesis
@@ -2207,8 +2210,10 @@
   };
 
   /**
-   * The glass under strain: `level` (1–4) tiny ticks, like a cooling glass,
-   * each a 1.2 ms high hiss that sets the vessel ringing. One call per 300 ms.
+   * The glass under strain: `level` (1–4) ticks, like a cooling glass, each
+   * a 1.5 ms hiss that sets the vessel ringing. They are a warning, so they
+   * are meant to be heard: about as loud as a grain on glass, louder and
+   * higher with each level (3.2, 4, 5 and 6.3 kHz). One call per 300 ms.
    */
   HourglassAudio.prototype.creak = function (level, pan) {
     if (!this._live() || !this._spaced('creak', 0.3)) return;
@@ -2216,13 +2221,14 @@
     n = n < 1 ? 1 : (n > 4 ? 4 : n);
     var when = this.ctx.currentTime + 0.004;
     pan = (pan === pan && pan ? pan : 0) * 0.6;          // a site on the glass, not at the ear
+    var gain = LEVEL.creak0 + (LEVEL.creak1 - LEVEL.creak0) * (n - 1) / 3, hp = 3200 * Math.pow(1.25, n - 1);
     for (var k = 0; k < n; k++) {
-      this._creakAt(when, (0.03 + 0.02 * rnd()) * LEVEL.tick, pan);
+      this._creakAt(when, gain * (0.9 + 0.2 * rnd()), pan, hp * (0.95 + 0.1 * rnd()));
       when += 0.035 + 0.055 * rnd();
     }
   };
-  HourglassAudio.prototype._creakAt = function (when, gain, pan) {
-    this._click(when, 0.0012, 5000, gain, pan, 0.8);
+  HourglassAudio.prototype._creakAt = function (when, gain, pan, hp) {
+    this._click(when, 0.0015, hp || 5000, gain, pan, 0.8);
   };
 
   /**
@@ -2234,7 +2240,7 @@
     if (!this._live() || !this._spaced('crack', 0.25)) return;
     var t = this.ctx.currentTime + 0.004;
     pan = (pan === pan && pan ? pan : 0) * 0.6;
-    this._click(t, 0.003, 2000, 0.3 * LEVEL.crack, pan, 0, 0.05);   // the snap
+    this._click(t, 0.003, 2000, LEVEL.snap, pan, 0, 0.05);          // the snap: it tops the creaks before it
     this._ring(t, 3 * LEVEL.crack);                              // the vessel rings, 0.3–0.6 s
     this._thud(t, 0.22 * LEVEL.crack, 1.7);                      // the body of the glass
     var n = 6 + ((rnd() * 3) | 0);                               // and it settles
@@ -2322,9 +2328,10 @@
    * End of timer: a warm singing-bowl bloom. Inharmonic partials, each a
    * slowly beating pair, soft attack (no mallet), ≈5 s natural decay.
    */
-  HourglassAudio.prototype.chime = function (delay) {
+  HourglassAudio.prototype.chime = function (delay, soft) {
     if (!this.ready || !this.chimeEnabled || this.ctx.state !== 'running') return;
-    this._bell(this.ctx.currentTime + (delay || 0) + 0.03, 349.23, 0.12, 1);   // F4: warm, yet audible on small phone speakers
+    // F4: warm, yet audible on small phone speakers (`soft`: lighter and shorter, between two phases of a sequence)
+    this._bell(this.ctx.currentTime + (delay || 0) + 0.03, 349.23, soft ? 0.07 : 0.12, soft ? 0.8 : 1);
   };
 
   /** The bowl's partials at f0, `level` out, each decay × `decay`. */

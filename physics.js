@@ -172,7 +172,7 @@
    * when these fields first take fractions. So they take their double form
    * here, before anything is compiled, as the slugs' U and Z do.
    */
-  var SIM_DOUBLES = ['angle', 'tilt', 'gx', 'gy', 'mAx', 'mAy', 'mW', 'mAl', 'mLam', 'mGz', 'relCap', 'dMax', '_iz'];
+  var SIM_DOUBLES = ['angle', 'tilt', 'gx', 'gy', 'mAx', 'mAy', 'mW', 'mAl', 'mLam', 'mGz', 'relCap', 'dMax', '_iz', '_lrng', '_layNeed'];
   function asDoubles(o, keys) {
     for (var k = 0; k < keys.length; k++) {
       var v = o[keys[k]];
@@ -260,6 +260,15 @@
     this.topSweeps = 0;       // extra CA sweeps of the upper bulb per step
     this.lag = 0;             // grains the neck still owes the clock
     this.rng = (opts.seed | 0) || 0x2F6E2B1;
+    this.layers = !!opts.layers;   // layered sand: bit 7 of a grain's colour seed is its tone (setLayers)
+    this._lrng = 1;           // the strata's own random stream (never the sand's)
+    this._pourTone = 0; this._pourLeft = 0; this._pourAt = -1e9;   // the layer being poured in
+    this._lb = new Int16Array(W);  // lower heap: each column's surface when the layer being laid began
+    this._lbRaw = new Int16Array(W);
+    this._layN = -1;          // grains below the neck when it began (−1: none begun)
+    this._layNeed = 0;        // ... and how many make the layer
+    this._layWait = 0;        // calm steps to wait before the next one begins
+    this._layUp = 0;          // the tone that stays on top in this layer; the other sifts down
 
     this._buildVessel();
     this._initMotion();
@@ -315,16 +324,33 @@
     nSeg: WALL_BINS,     // wall segments per bulb and side (bins of u; read-only)
     weibull: 20,         // Weibull modulus of the flaw strengths (median 1)
     n: 16,               // stress-corrosion exponent of soda-lime glass
-    vc: 16,              // landing speed v/√(G·cell) of the reference stress (very hard shaking cracks it in ~6 s)
+    vc: 11,              // landing speed v/√(G·cell) of the reference stress (a vigorous shake cracks it in ~3 s)
     xTh: 0.78,           // fatigue limit K_th/K_IC: below it a crack never grows
     A: 0.40,             // damage per reference column landing
     hRef: 40,            // grains in a reference column (h = min(2, n/hRef))
     capCol: 0.5,         // the most one column landing can supply
-    Pmax: 0.15,          // the most one blow can ever do
-    gamTh: 4.6, gamC: 6, nB: 16, tauB: 0.5, capB: 0.02, bendBins: 3,   // the waist bends
+    Pmax: 0.45,          // the most one blow of the sand can ever do
+    gamTh: 2.6, gamC: 3.4, nB: 16, tauB: 0.5, capB: 0.06, bendBins: 3,   // the waist bends
+    // The phone shaken hard in any direction (shake): each swing of a sustained
+    // shake loads the glass by shakeD, unless a landing has loaded it within
+    // shakeQuiet steps (then the sand in the screen's plane is doing the work)
+    shakeD: 0.085, shakeQuiet: 30,
     spinTh: 0.2, spinC: 0.8, spinRate: 0.6, domeBins: 4,              // a hard spin loads the domes (g at the dome)
-    knockTh: 0.85, knockA: 0.08, knockCap: 0.1,                       // a knock on the glass (tap or click)
-    rMax: 0.30,          // 1/s: fastest sub-critical growth (bounded crack velocity)
+    flawCap: 2,          // a flaw counts for at most this much of a steady load (the spin, the bending waist)
+    // one flick by hand, at let-go (flick): its peak g at the dome, from flickG[0] (nothing) to flickG[1] (flickD of damage)
+    flickG: [0.22, 0.40], flickD: 0.4,
+    // a knock on the glass (tap or click): a fingertip covers knockBins bins either way, and both
+    // sides of the glass when it lands within knockMid of the axis (× the glass's half-width there)
+    // (measured with a real finger's scatter: the third knock of a burst, strength 1.0, adds 0.04 at
+    // most, so triple taps stay harmless; the fourth to eighth, 1.2, add 0.23 each: a crack on the eighth)
+    knockTh: 1.0, knockA: 0.08, knockCap: 0.23, knockBins: 3, knockMid: 0.3, knockFlaw: 1.5,
+    // The glass itself striking the desk or an edge of the screen (impact):
+    // the speed of the blow on screen, px/s. Below impV[0] it only clinks;
+    // up to impV[1] it creaks and keeps impD of damage; from there it cracks
+    // at once, impL[0] … impL[1] cells long; from impV[2] it breaks through
+    // (impL[2] … impL[3] cells by 1.5 × impV[2]).
+    impV: [700, 920, 1800], impD: 0.35, impL: [14, 24, 28, 40], impBins: 3,
+    rMax: 0.9,           // 1/s: fastest sub-critical growth (bounded crack velocity)
     tauP: 0.6,           // s: an unabsorbed blow fades
     tauHeal: 8,          // s: micro-damage arrests while no crack is visible
     warn: [0.35, 0.60, 0.80, 0.92],   // creak levels 1–4, crossing upward
@@ -333,7 +359,7 @@
     relief: 0.5,         // a crack relaxes the rest of the glass: every other stretch keeps this share of its damage
     calm: 2.5,           // s: after a crack, no other starts this soon
     gateGuard: 4,        // cracks and holes stay at least this many rows from the gate
-    L0: 4, growK: 22, growL: 30, growStep: 6, Lmax: 140,   // crack length, cells
+    L0: 16, growK: 22, growL: 30, growStep: 6, Lmax: 140,  // crack length, cells (born long enough to be seen)
     Lhole: 26, widen: 0.8, wMax: 3,   // breached at L > 26, wider at 26·(1 + 0.8·w)
     sealS: 1.5,          // a mended seam is half as strong again
     // the leak: 2-D Beverloo flow with jamming
@@ -423,7 +449,7 @@
     this.damageArmed = false;            // only sustained real phone motion arms damage
     this.spinArmed = false;              // a spin made by hand (flick, turn) loads the domes
     this.relCap = 0;                     // most grains the neck may release per step (0: no cap)
-    this.reduced = false;                // Reduce Motion: gentler physics, a glass that cannot crack
+    this.reduced = false;                // Reduce Motion: gentler physics; the phone's own shaking cannot crack the glass
     this.quality = 2;                    // 2 full, 1 lighter, 0 lightest (set by the app)
 
     // Each bulb's bed: the field it feels, the slow mean of that field
@@ -462,6 +488,8 @@
     this._dLo = H; this._dHi = -1;       // rows a flying bed has changed this step
     this._n = 0; this._moved = 0;        // what the last column shift found and moved
     this._landAt = new Float64Array(2);  // step of each bulb's last landing
+    this._loadAt = -1e9;                 // step of the last landing that loaded the glass (_load)
+    this._shakeSeg = -1; this._shakeAt = -1e9;   // where the phone's shaking is wearing on the glass, and since when
     this._thumpN = new Float32Array(2);  // grains landed this frame, per bulb (the thump's pan)
     this._slamN = 0;                     // ... and slammed into the far end
     this._cenAt = -1e9;                  // step the centroids were last measured
@@ -514,6 +542,7 @@
     this.segKt = new Float32Array(WALL_SEGS);  // stress concentration of the shape
     this.segCrack = new Int8Array(WALL_SEGS);  // index of the segment's crack, −1 none
     this.segHit = new Float32Array(WALL_SEGS); // how hard each stretch is being hit lately (raw supply, fading as segP does)
+    this._impH = new Float32Array(WALL_SEGS);  // scratch for impact(): how far out each stretch lies along the blow
     for (s = 0; s < WALL_SEGS; s++) {
       // Stress gathers at the blown shoulder by the waist and at the dome under the cap.
       var u = ((s % WALL_BINS) + 0.5) / WALL_BINS, a = (u - 0.05) / 0.06, c = (1 - u) / 0.08;
@@ -602,6 +631,8 @@
     this.quiet = 0;
     this.nev = 0;
     this._newGlass();
+    this._layN = -1; this._pourLeft = 0;
+    if (this.layers) this._strata();
   };
 
   /**
@@ -621,6 +652,8 @@
     }
     this.hSlow.fill(0); this.cen.fill(0); this.agit.fill(0); this.sweepAcc.fill(0);
     this._landAt[0] = this._landAt[1] = -1e9;
+    this._loadAt = -1e9;
+    this._shakeSeg = -1; this._shakeAt = -1e9;
     this._cenAt = -1e9;
     this._motionStep = false;
     this._izAt = -1;
@@ -668,46 +701,163 @@
   /**
    * True while anything is still in motion (used to idle the render loop):
    * grains in the air, recent avalanches, a turn, a step on the motion path,
-   * a bed in flight, or a breach still passing sand.
+   * a bed in flight, a breach still passing sand, or damage that has yet to
+   * fade from glass that did not crack (its mark fades with it).
    */
   Sim.prototype.isActive = function () {
     return this.np > 0 || this.quiet < 24 || this.flipping ||
       this._motionStep || this.slug[0].air || this.slug[1].air ||
-      this._leakLive || this.steps - this._leakStep < MOT.leakLinger || this._pendP;
+      this._leakLive || this.steps - this._leakStep < MOT.leakLinger || this._pendP || this.dMax > 0.02;
   };
 
   /**
    * A knock on the glass: a tap or a click near (x, y) (lattice cells), `s`
-   * how hard (about 0.55 for an ordinary tap, up to ~1.3 for a quick, hard
-   * burst). The blow lands on the nearest wall and obeys the same fatigue
-   * limit as the sand's blows, so ordinary taps never mark the glass; a
-   * burst of hard knocks creaks, then cracks it where it is struck.
-   * Returns the segment struck, or −1.
+   * how hard (0.6 for an ordinary tap, up to 1.2 for the fourth and later
+   * of a quick burst). A fingertip is broad: the blow lands on every stretch
+   * of wall within knockBins bins of the row it struck, on the side it
+   * struck, and on both sides when it struck near the axis, so knocks that
+   * scatter by a few pixels still add up. It obeys the fatigue limit, so
+   * single, double and triple taps never mark the glass; a blow above it
+   * writes up to knockCap of damage at once (a flaw counts for at most
+   * knockFlaw of it), so a few hard knocks near one place creak, then crack
+   * it there. The creaks and the crack are queued at once, for the app to
+   * play inside the tap. Returns the segment struck, or −1.
    */
   Sim.prototype.knock = function (x, y, s) {
-    if (this.reduced || !(s > 0)) return -1;
-    var W = this.W, H = this.H, seg = -1, yi = Math.round(y), k, sg, yy;
+    if (!(s > 0)) return -1;
+    var W = this.W, H = this.H, seg = -1, yi = Math.round(y), k, sg, yy = 0, row = -1;
     if (yi < 1) yi = 1; else if (yi > H - 2) yi = H - 2;
-    for (k = 0; k < 8 && seg < 0; k++) {               // the nearest row with glass on both sides
-      for (sg = -1; sg <= 1 && seg < 0; sg += 2) {
+    for (k = 0; k < 8 && row < 0; k++) {               // the nearest row with glass on both sides
+      for (sg = -1; sg <= 1 && row < 0; sg += 2) {
         yy = yi + sg * k;
         if (yy < 1 || yy > H - 2 || this.rowMin[yy] > this.rowMax[yy]) continue;
-        seg = this.segOf[yy * W + (x < this.geo.cx ? this.rowMin[yy] - 1 : this.rowMax[yy] + 1)];
+        row = yy;
+      }
+    }
+    if (row < 0) return -1;
+    var x0 = this.rowMin[row], x1 = this.rowMax[row], dx = x - this.geo.cx, half = (x1 - x0 + 1) / 2;
+    var mid = (dx < 0 ? -dx : dx) < MOT.knockMid * half;
+    var sn = Math.pow(s, MOT.nB), th = Math.pow(MOT.knockTh, MOT.nB);
+    var sc = this.segCrack, segD = this.segD, top = -1, topD = 0, any = false;
+    for (sg = -1; sg <= 1; sg += 2) {
+      var s0 = this.segOf[row * W + (sg < 0 ? x0 - 1 : x1 + 1)];
+      if (s0 < 0) continue;
+      if ((sg < 0) === (dx < 0)) seg = s0;             // the side it struck
+      else if (!mid) continue;
+      var b0 = s0 - (s0 % WALL_BINS), lo = s0 - MOT.knockBins, hi = s0 + MOT.knockBins;
+      if (lo < b0) lo = b0;
+      if (hi > b0 + WALL_BINS - 1) hi = b0 + WALL_BINS - 1;
+      for (var q = lo; q <= hi; q++) {
+        k = sc[q];
+        if (k >= 0 && this.cracks[k].sealed) continue;                 // mended gold holds
+        var fl = Math.pow(this.segKt[q] / this.segS[q], MOT.nB);
+        var d = MOT.knockA * (sn * (fl > MOT.knockFlaw ? MOT.knockFlaw : fl) - th);
+        if (d <= 0) continue;
+        if (d > MOT.knockCap) d = MOT.knockCap;
+        this.segHit[q] += d;
+        d += segD[q];
+        segD[q] = d > MOT.Dcap ? MOT.Dcap : d;
+        any = true;
+        if (k < 0 && d >= 1 && d > topD) { topD = d; top = q; }
       }
     }
     if (seg < 0) return -1;
-    var sc = this.segCrack[seg];
-    if (sc >= 0 && this.cracks[sc].sealed) return seg;             // mended gold holds
-    var raw = Math.pow(s * this.segKt[seg] / this.segS[seg], MOT.nB) - Math.pow(MOT.knockTh, MOT.nB);
-    if (raw <= 0) return seg;
-    var d = MOT.knockA * raw;
-    if (d > MOT.knockCap) d = MOT.knockCap;
-    this.segHit[seg] += d;
-    d += this.segP[seg];
-    this.segP[seg] = d > MOT.Pmax ? MOT.Pmax : d;
-    this._pendP = true;
+    if (!any) return seg;
+    this._pendP = true;                                // the next step looks at the glass
     this.quiet = 0;
+    if (top >= 0 && this.cracks.length < MOT.maxCracks && this.steps >= this._crackHold) this._initCrack(top, -1);
+    this._scanDamage(true);
     return seg;
+  };
+
+  /**
+   * The glass itself strikes something: the desk it lands on, or an edge of
+   * the screen. (nx, ny) points from the glass to what it hit, in the
+   * vessel's own frame (x right, y down the lattice); v is the speed of the
+   * blow on screen, px/s. This is the hand's own deliberate act, so its
+   * damage is written at once: nothing has to arm it, and neither the cap on
+   * one blow (Pmax) nor the bounded rate (rMax) applies. It lands on the
+   * weakest stretch of glass within impBins bins of the place that hit (the
+   * lower dome for a landing upright, the flank for a wall), or on the open
+   * crack there. Returns what it did: 0 nothing, 1 a creak (impD of damage),
+   * 2 a crack, 3 a breach (from impV[2], or a cracking blow on a stretch
+   * that is cracked already; each one after that widens the breach).
+   */
+  Sim.prototype.impact = function (nx, ny, v) {
+    var V = MOT.impV, IL = MOT.impL;
+    nx = finiteOr0(nx); ny = finiteOr0(ny); v = finiteOr0(v);
+    if (!(v >= V[0]) || (nx === 0 && ny === 0)) return 0;
+    var g = this.geo, sc = this.segCrack, cracks = this.cracks, hs = this._impH;
+    var s, q, k, u, h, far = -1e9;
+    // the place that hit: the stretches farthest out along (nx, ny) ...
+    for (s = 0; s < WALL_SEGS; s++) {
+      u = ((s % WALL_BINS) + 0.5) / WALL_BINS;
+      h = ((((s / WALL_BINS) | 0) & 1) ? 1 : -1) * profile(u, g) * nx + (s >= 2 * WALL_BINS ? 1 : -1) * u * g.HB * ny;
+      hs[s] = h;
+      if (h > far) far = h;
+    }
+    // ... and, within impBins bins of them, the open crack if there is one, else the weakest stretch
+    var pick = -1, pickW = 0, open = -1;
+    for (s = 0; s < WALL_SEGS; s++) {
+      if (hs[s] < far - 0.5) continue;
+      var b0 = s - (s % WALL_BINS), lo = s - MOT.impBins, hi = s + MOT.impBins;
+      if (lo < b0) lo = b0;
+      if (hi > b0 + WALL_BINS - 1) hi = b0 + WALL_BINS - 1;
+      for (q = lo; q <= hi; q++) {
+        k = sc[q];
+        if (k >= 0) { if (!cracks[k].sealed && open < 0) open = q; continue; }     // mended gold holds
+        var w = this.segKt[q] / this.segS[q];
+        if (w > pickW) { pickW = w; pick = q; }
+      }
+    }
+    this._pendP = true;                                // the next step looks at the glass
+    this.quiet = 0;
+    if (v < V[1]) {
+      // a creak: the stretch keeps impD of the way to a crack (an open crack lengthens instead)
+      s = open >= 0 ? open : pick;
+      if (s < 0) return 0;
+      h = this.segD[s] + MOT.impD;
+      this.segD[s] = h > MOT.Dcap ? MOT.Dcap : h;
+      if (open < 0) {
+        var f = this.frame, n0 = f.dmgN, lv = 0;
+        this._scanDamage(true);
+        if (f.dmgN === n0) {                           // no new level crossed: it is heard all the same
+          for (k = 0; k < 4; k++) if (this.dMax >= MOT.warn[k]) lv = k + 1;
+          this._pushDmg(Sim.DMG.WARN, -1, lv < 1 ? 1 : lv, this._panSeg(s));
+        }
+      }
+      return 1;
+    }
+    var cr = null, grade = v >= V[2] ? 3 : 2, wide = grade === 3 ? 2 : 1, fresh = false;
+    if (open >= 0) {
+      cr = cracks[sc[open]];                           // cracked here already: this blow breaks it through
+      grade = 3;
+    } else if (pick >= 0 && cracks.length < MOT.maxCracks) {
+      if (this.segD[pick] < 1) this.segD[pick] = 1;
+      cr = this._initCrack(pick, -1);
+      fresh = true;
+    } else {
+      for (k = 0; k < cracks.length && !cr; k++) if (!cracks[k].sealed) cr = cracks[k];
+      if (!cr) return 0;                               // three gold seams: it holds
+      grade = 3;
+    }
+    var t = grade === 3 ? (v - V[2]) / (0.5 * V[2]) : (v - V[1]) / (V[2] - V[1]);
+    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    var L = grade === 3 ? IL[2] + (IL[3] - IL[2]) * t : IL[0] + (IL[1] - IL[0]) * t;
+    if (L > MOT.Lmax) L = MOT.Lmax;
+    if (L > cr.L) {
+      if (!fresh) this._pushDmg(Sim.DMG.GROW, cracks.indexOf(cr), (L / MOT.growStep) | 0, this._panX(cr.x));
+      cr.L = L;
+      this.crackRev++;
+    }
+    if (grade === 3) {
+      if (cr.nh === 0) {
+        this._openHole(cr, true);
+        while (cr.nh < wide) if (!this._widenHole(cr, false)) break;
+      } else this._widenHole(cr, true);
+    }
+    cr.D0 = this.segD[cr.seg];
+    return grade;
   };
 
   /**
@@ -888,6 +1038,7 @@
 
     // 3. Free-falling grains.
     if (this.np) this._particles(gx, gy);
+    if (this.layers) this._sift();
 
     // 4. A breached glass leaks, even at rest, and micro-damage slowly arrests.
     if (this.nOpen > 0) this._leak();
@@ -1018,6 +1169,7 @@
 
     // 8. Grains in the air, in the full field.
     if (this.np) this._particlesM();
+    if (this.layers) this._sift();
 
     // 9. A breached glass leaks; shaking breaks the arches that jam it.
     if (this.nOpen > 0) this._leak();
@@ -1328,6 +1480,97 @@
     d += this.segP[s];
     this.segP[s] = d > MOT.Pmax ? MOT.Pmax : d;
     this._pendP = true;
+    this._loadAt = this.steps;
+  };
+
+  /**
+   * A flick of the glass by hand has just been let go; gPeak is the most its
+   * spin pressed the sand on the domes while the hand had it (g at the dome,
+   * λ·ω²·HB/G). One dose of damage, written at once on the weakest dome
+   * stretch (or the open crack there): nothing below flickG[0], flickD from
+   * flickG[1], so casual flicks never mark the glass and three hard ones
+   * crack it. The creak or the crack is queued at once, for the app to play
+   * inside the gesture. Returns the dose.
+   */
+  Sim.prototype.flick = function (gPeak) {
+    gPeak = finiteOr0(gPeak);
+    var d = (gPeak - MOT.flickG[0]) / (MOT.flickG[1] - MOT.flickG[0]);
+    if (!(d > 0)) return 0;
+    d = (d > 1 ? 1 : d) * MOT.flickD;
+    var sc = this.segCrack, pick = -1, pickW = 0, open = -1, s, k;
+    for (var q = 0; q < 4; q++) {
+      for (var u = WALL_BINS - MOT.domeBins; u < WALL_BINS; u++) {
+        s = q * WALL_BINS + u;
+        k = sc[s];
+        if (k >= 0) { if (!this.cracks[k].sealed && open < 0) open = s; continue; }     // mended gold holds
+        var w = this.segKt[s] / this.segS[s];
+        if (w > pickW) { pickW = w; pick = s; }
+      }
+    }
+    s = open >= 0 ? open : pick;
+    if (s < 0) return 0;
+    this.segHit[s] += d;
+    k = this.segD[s] + d;
+    this.segD[s] = k > MOT.Dcap ? MOT.Dcap : k;
+    this._pendP = true;
+    this.quiet = 0;
+    if (open < 0 && k >= 1 && this.cracks.length < MOT.maxCracks && this.steps >= this._crackHold) this._initCrack(s, -1);
+    this._scanDamage(true);
+    return d;
+  };
+
+  /**
+   * The phone itself is being shaken hard, in whatever direction: n more
+   * swings of a sustained shake, as motion.js counts them from all three
+   * axes. Across the screen's plane a shake throws no bed that could land
+   * (the lattice is flat), so each swing loads the glass directly: shakeD on
+   * the weakest stretch of wall beside the sand of the fuller bulb, absorbed
+   * like any other load. Only while damage is armed, and not while landings
+   * are loading the glass already. Returns the stretch loaded, or −1.
+   */
+  Sim.prototype.shake = function (n) {
+    if (!(n > 0) || !this.damageArmed || this.reduced) return -1;
+    if (this.steps - this._loadAt < MOT.shakeQuiet) return -1;
+    if (n > 4) n = 4;
+    var b = this.nTop >= this.total - this.nTop ? 0 : 1, best = this._shakeSeg, k;
+    // one shake wears on one place: the stretch chosen as it began, while the swings keep coming
+    if (best >= 0 && this.steps - this._shakeAt < 60) {
+      k = this.segCrack[best];
+      if (k >= 0 && this.cracks[k].sealed) best = -1;
+    } else best = -1;
+    if (best < 0) best = this._shakeSite(b);
+    if (best < 0) return -1;
+    this._shakeSeg = best; this._shakeAt = this.steps;
+    var d = MOT.shakeD * n;
+    this.segHit[best] += d;
+    d += this.segP[best];
+    this.segP[best] = d > MOT.Pmax ? MOT.Pmax : d;
+    this._pendP = true;
+    this.quiet = 0;
+    return best;
+  };
+  /** The weakest stretch of wall beside the sand of bulb b (a mended one never), or −1. */
+  Sim.prototype._shakeSite = function (b) {
+    var g = this.geo, gate = this.gateY, k;
+    var lo = this._sandRow(b ? gate + 1 : 1, b ? this.H - 2 : gate - 1, 1);
+    if (lo < 0) return -1;
+    var hi = this._sandRow(b ? this.H - 2 : gate - 1, lo, -1);
+    var u0 = (lo + 0.5 - g.cy) / g.HB, u1 = (hi + 0.5 - g.cy) / g.HB;
+    if (u0 < 0) u0 = -u0;
+    if (u1 < 0) u1 = -u1;
+    if (u0 > u1) { k = u0; u0 = u1; u1 = k; }
+    var b0 = (u0 * WALL_BINS) | 0, b1 = (u1 * WALL_BINS) | 0, best = -1, bestW = 0;
+    if (b1 > WALL_BINS - 1) b1 = WALL_BINS - 1;
+    for (var side = 0; side < 2; side++) {
+      for (var bin = b0; bin <= b1; bin++) {
+        var s = (b * 2 + side) * WALL_BINS + bin;
+        k = this.segCrack[s];
+        if (k >= 0 && this.cracks[k].sealed) continue;                 // mended gold holds
+        var w = this.segKt[s] / this.segS[s];
+        if (w > bestW) { bestW = w; best = s; }
+      }
+    }
+    return best;
   };
 
   /**
@@ -1637,6 +1880,7 @@
   Sim.prototype.pour = function (n) {
     var W = this.W, g = this.geo, made = 0;
     var y0 = this.topY + 3;
+    var tone = this.layers && n > 0 ? this._pourLayer(n) : -1;
     while (made < n) {
       if (this.total >= this.maxTotal || this.np >= this.PCAP) break;
       var x = g.cx + (this._rand() - 0.5) * 5.5;
@@ -1647,6 +1891,7 @@
       this.pvx[p] = (this._rand() - 0.5) * 30;
       this.pvy[p] = 70 + this._rand() * 70;
       this.pseed[p] = (this._rand() * 256) | 0;
+      if (tone >= 0) this.pseed[p] = (this.pseed[p] & 127) | tone;
       this.pinfo[p] = K_POUR;
       this.total++; this.nTop++;
       made++;
@@ -2063,6 +2308,7 @@
     this.nTop = this.total - this.nTop;
     this.angle = 0;
     this.flipping = false;
+    this._pourLeft = 0; this._layN = -1; // sand poured or falling now lands on another surface
     this.wakeAll();
     this._flipState();
   };
@@ -2144,6 +2390,7 @@
     this._landSlugs();
     this._landAll();
     this._izAt = -1;
+    if (this.layers && this._layN < 0) this._layer();
     var W = this.W, cell = this.cell, seed = this.seed;
     var gy0 = this.gateY, below = (gy0 + 1) * W, moved = 0, guard = 0;
     var span = this.gateX1 - this.gateX0 + 1;
@@ -2170,6 +2417,7 @@
     }
     this.nTop -= moved;
     this.wakeAll();
+    if (this.layers) this._siftAll();
     return moved;
   };
 
@@ -2248,7 +2496,8 @@
           for (var u = 0; u < MOT.bendBins; u++) {
             s = q * WALL_BINS + u;
             if (sc[s] >= 0 && this.cracks[sc[s]].sealed) continue;
-            d = r * Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
+            d = Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
+            d = r * (d > MOT.flawCap ? MOT.flawCap : d);
             if (d > MOT.capB) d = MOT.capB;
             this.segHit[s] += d;
             p = segP[s] + d;
@@ -2262,7 +2511,7 @@
     // hard again and again, the glass creaks and then cracks at its weakest
     // dome. Finger play counts here: spinning it this hard is as deliberate
     // as shaking it, and a turn or the Flip (≤ 2.2 rad/s) never comes close.
-    if (motion && this.spinArmed && !this.reduced && this.mLam > 0) {
+    if (motion && this.spinArmed && this.mLam > 0) {
       var wv = this.mW < 0 ? -this.mW : this.mW;
       var gc = this.mLam * wv * wv * this.geo.HB / this.G;          // g at the dome
       if (gc > MOT.spinTh) {
@@ -2272,7 +2521,8 @@
           for (var u2 = WALL_BINS - MOT.domeBins; u2 < WALL_BINS; u2++) {
             s = q2 * WALL_BINS + u2;
             if (sc[s] >= 0 && this.cracks[sc[s]].sealed) continue;
-            d = rs * Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
+            d = Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
+            d = rs * (d > MOT.flawCap ? MOT.flawCap : d);
             this.segHit[s] += d;
             p = segP[s] + d;
             segP[s] = p > MOT.Pmax ? MOT.Pmax : p;
@@ -2766,6 +3016,278 @@
   };
 
   /* ---------------------------------------------------------------- *
+   *  Layered sand: two tones that settle into strata
+   *
+   *  A grain's tone is bit 7 of its colour seed, the byte that has always
+   *  travelled with the grain wherever it goes (the automaton, the stream,
+   *  a bed in flight, a flip, a breach, the dune on the desk). So no path
+   *  can leave a tone behind, and the sand itself never looks at it: with
+   *  layers on, the lattice, the grains in the air and the sand's random
+   *  stream evolve exactly as they do without.
+   *
+   *  The start is a fill laid in bands. They are drawn down through the
+   *  neck together, so what falls is a mixture; and as a real mixture of
+   *  two sands does (Makse, Havlin, King and Stanley, Nature 386, 1997),
+   *  it settles into strata by itself. Here that is sifting: in each layer
+   *  freshly laid on the heap, grains of one tone work their way down
+   *  under the other, turn and turn about from layer to layer, so every
+   *  layer freezes as two strata. A sifting grain trades places with a
+   *  neighbour: their seeds trade cells, and the lattice is left as it is.
+   *  Bands, layers and sifting draw on a random stream of their own.
+   * ---------------------------------------------------------------- */
+
+  /** Layered-sand tunables. Change values in place; the object is shared. */
+  var LAY = Sim.LAYERS = {
+    share: 0.4,          // the companion tone's share of sand that has no bands to go by
+    min: 4, span: 8,     // a layer on the heap is min … min + span grains deep (two strata)
+    pSift: 64,           // /256 chance per visit that a grain sifts under the one below it
+    pSide: 128,          // /256 chance per visit that it sifts down sideways instead
+    reach: 32,           // grains above the layer's floor that sifting looks at
+    wait: 30,            // calm steps before a layer begins on sand that was turned or shaken
+    pour: 420            // grains in a poured layer: pour … 2·pour
+  };
+
+  /**
+   * Layered sand on or off. On: the sand in the glass is laid in strata
+   * where it lies. Off: the tones are forgotten (bit 7 is noise again, as
+   * in a glass that never had them).
+   */
+  Sim.prototype.setLayers = function (on) {
+    on = !!on;
+    if (on === this.layers) return;
+    this.layers = on;
+    this._pourLeft = 0;
+    if (on) { this._strata(); return; }
+    var cell = this.cell, seed = this.seed, N = cell.length, salt = glassHash(this.rng ^ 0x3C6EF372), i;
+    for (i = 0; i < N; i++) if (cell[i] >= REST) seed[i] = (seed[i] & 127) | (glassHash(i ^ salt) & 128);
+    for (i = 0; i < this.np; i++) this.pseed[i] = (this.pseed[i] & 127) | (glassHash(~i ^ salt) & 128);
+  };
+
+  Sim.prototype._lrand = function () {
+    var s = this._lrng;
+    s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+    this._lrng = s;
+    return (s >>> 0) / 4294967296;
+  };
+
+  /**
+   * Lay the sand in the glass in strata. Above the neck: five to nine
+   * bands of unequal thickness, their seams gently wavy and a grain or so
+   * ragged, a little different every time, following the surface of the
+   * pile (level in a fresh fill, the crater of a glass part-way through).
+   * The companion tone never makes up most of them: the glass stays the
+   * material it is. Below the neck, whatever lies there is sifted into
+   * the strata a run would have left.
+   */
+  Sim.prototype._strata = function () {
+    var W = this.W, cell = this.cell, seed = this.seed, x0 = this._bx0, x1 = this._bx1;
+    var lo = this.colLo[0], hi = this.colHi[0], edge = [], amp = [], kx = [], ph = [];
+    var x, y, i, k, s, last, deep = 0, n0 = 0, n1 = 0;
+    var salt = this._lrng = glassHash(this.rng ^ 0x51ED270B) || 0x6D2B79F5;
+    // how deep the sand lies: each column from its surface (its first grain that rests on another)
+    for (x = x0; x <= x1; x++) {
+      s = -1; last = -1;
+      for (y = lo[x]; y <= hi[x]; y++) {
+        if (cell[y * W + x] < REST) continue;
+        if (s < 0 && (y === hi[x] || cell[(y + 1) * W + x] >= REST)) s = y;
+        last = y;
+      }
+      if (s >= 0 && last - s + 1 > deep) deep = last - s + 1;
+    }
+    var nb = 5 + ((this._lrand() * 5) | 0), sum = 0, at = 0, t0 = this._lrand() < 0.5 ? 0 : 1;
+    if (nb > deep / 6) nb = Math.max(1, Math.floor(deep / 6));
+    for (k = 0; k < nb; k++) { edge[k] = 0.55 + this._lrand(); sum += edge[k]; }
+    for (k = 0; k < nb; k++) {
+      // seam k lies under band k; it wanders by less than a third of the thinner band beside it
+      var th = edge[k] * deep / sum, a = 1.2 + 1.8 * this._lrand();
+      at += th;
+      edge[k] = at;
+      amp[k] = a < 0.3 * th ? a : 0.3 * th;
+      if (k > 0 && amp[k - 1] > 0.3 * th) amp[k - 1] = 0.3 * th;
+      kx[k] = 2 * Math.PI / (50 + 90 * this._lrand());
+      ph[k] = 2 * Math.PI * this._lrand();
+    }
+    for (x = x0; x <= x1; x++) {
+      s = -1;
+      for (y = lo[x]; y <= hi[x]; y++) {
+        i = y * W + x;
+        if (cell[i] < REST) continue;
+        if (s < 0 && (y === hi[x] || cell[i + W] >= REST)) s = y;
+        var d = (s < 0 ? 0 : y - s) + ((glassHash(i ^ salt) >>> 8) / 16777216 - 0.5) * 1.6;
+        for (k = 0; k < nb - 1; k++) {
+          if (d < edge[k] + amp[k] * (Math.sin(x * kx[k] + ph[k]) + 0.35 * Math.sin(x * kx[k] * 2.7 + 1.9 * ph[k]))) break;
+        }
+        k = (k + t0) & 1;
+        if (k) n1++; else n0++;
+        seed[i] = (seed[i] & 127) | (k << 7);
+      }
+    }
+    if (n1 > n0) {
+      for (x = x0; x <= x1; x++) {
+        for (y = lo[x]; y <= hi[x]; y++) if (cell[y * W + x] >= REST) seed[y * W + x] ^= 128;
+      }
+    }
+    // below the neck and in the air there are no bands to go by
+    var cut = LAY.share * 16777216;
+    lo = this.colLo[1]; hi = this.colHi[1];
+    for (x = x0; x <= x1; x++) {
+      for (y = lo[x]; y <= hi[x]; y++) {
+        i = y * W + x;
+        if (cell[i] >= REST) seed[i] = (seed[i] & 127) | ((glassHash(i ^ salt) >>> 8) < cut ? 128 : 0);
+      }
+      this._lb[x] = hi[x] + 1;                         // all of it counts as freshly laid
+    }
+    for (i = 0; i < this.np; i++) this.pseed[i] = (this.pseed[i] & 127) | ((glassHash(~i ^ salt) >>> 8) < cut ? 128 : 0);
+    this._siftAll();
+  };
+
+  /**
+   * A new layer begins on the lower heap: note where its surface is now
+   * (each column's first grain that rests on another, the floor where there
+   * is none; a pit or a stray grain is not the surface, so each column takes
+   * the median of five) and how much sand makes the layer. Sand above the
+   * noted surface is the fresh layer; the tone that sifts down changes.
+   */
+  Sim.prototype._layer = function () {
+    var W = this.W, cell = this.cell, lb = this._lb, raw = this._lbRaw, lo = this.colLo[1], hi = this.colHi[1];
+    var x0 = this._bx0, x1 = this._bx1, top = this._sandRow(this.gateY + 1, this._botY, 1), wide = 0, x, y, s;
+    if (top < 0) top = this.H;
+    for (x = x0; x <= x1; x++) {
+      s = hi[x] + 1;
+      for (y = lo[x] > top ? lo[x] : top; y <= hi[x]; y++) {
+        if (cell[y * W + x] >= REST && (y === hi[x] || cell[(y + 1) * W + x] >= REST)) { s = y; wide++; break; }
+      }
+      raw[x] = s;
+    }
+    for (x = x0; x <= x1; x++) {
+      // the median of raw[x − 2 … x + 2]: the value with two others at or below it and two at or above
+      var m = raw[x], k, q, lt, le;
+      for (k = -2; k <= 2; k++) {
+        if (x + k < x0 || x + k > x1) continue;
+        var v = raw[x + k];
+        for (q = -2, lt = 0, le = 0; q <= 2; q++) {
+          if (x + q < x0 || x + q > x1) continue;
+          if (raw[x + q] < v) lt++;
+          if (raw[x + q] <= v) le++;
+        }
+        if (lt <= 2 && le >= 3) { m = v; break; }
+      }
+      lb[x] = m > hi[x] + 1 ? hi[x] + 1 : m;
+    }
+    this._layN = this.total - this.nTop;
+    this._layNeed = (LAY.min + LAY.span * this._lrand()) * (wide > 24 ? wide : 24);
+    this._layUp ^= 1;
+  };
+
+  /**
+   * One step of sifting on the lower heap (upright and calm only: a glass
+   * being turned or shaken mixes its sand, and the next layer starts from
+   * wherever that leaves it). Every eighth column is visited, from the
+   * layer's floor up: a grain of the tone that is sinking, lying on one of
+   * the other, may trade places with it, or with the one diagonally below.
+   */
+  Sim.prototype._sift = function () {
+    if (this.flipping || this.gy <= 0.7 || this.agit[1] > 0.05 || this.slug[1].air) {
+      this._layN = -1; this._layWait = LAY.wait;
+      return;
+    }
+    if (this._layN < 0) {
+      if (this._layWait > 0) { this._layWait--; return; }
+      this._layer();
+    } else if (this.total - this.nTop - this._layN >= this._layNeed) this._layer();
+    var W = this.W, cell = this.cell, seed = this.seed, lb = this._lb, x1 = this._bx1;
+    var s = this._lrng, up = this._layUp, pSift = LAY.pSift, pSide = LAY.pSide, reach = LAY.reach;
+    var i, j, n, t, u, v, y, d;
+    for (var x = this._bx0 + (this.steps & 7); x <= x1; x += 8) {
+      y = lb[x] - 1;
+      i = y * W + x;
+      if (cell[i] < REST) continue;
+      t = seed[i];
+      for (n = 0; n < reach; n++, y--) {
+        j = i - W;
+        if (cell[j] < REST) break;
+        u = seed[j];
+        if ((t >> 7) === up) {                         // the grain below stays up: what is on it may sink
+          s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+          if ((u >> 7) !== up) {
+            if ((s & 255) < pSift) { seed[i] = u; seed[j] = t; u = t; }
+          } else if ((s & 255) < pSide) {
+            d = (s & 512) ? 1 : -1;
+            if (y - 1 < lb[x + d] && cell[j + d] >= REST) {
+              v = seed[j + d];
+              if ((v >> 7) !== up) { seed[i] = v; seed[j + d] = t; }
+            }
+          }
+        }
+        i = j; t = u;
+      }
+    }
+    this._lrng = s;
+  };
+
+  /**
+   * Sift all the sand above the noted surface at once, into as many layers
+   * as a run would have laid there (after a fast-forward; when layers are
+   * turned on): within each layer of each column, one tone goes under the
+   * other, turn and turn about. Then the next layer begins.
+   */
+  Sim.prototype._siftAll = function () {
+    var W = this.W, cell = this.cell, seed = this.seed, lb = this._lb, x0 = this._bx0, x1 = this._bx1;
+    var cut = [], tmp = [], x, y, k, n, q, sum = 0, cols = 0;
+    for (x = x0; x <= x1; x++) {
+      for (y = lb[x] - 1, n = 0; cell[y * W + x] >= REST; y--) n++;
+      if (n) { sum += n; cols++; }
+    }
+    var K = cols ? Math.max(1, Math.round(sum / cols / (LAY.min + LAY.span / 2))) : 0, at = 0;
+    for (k = 0, sum = 0; k < K; k++) { cut[k] = 0.55 + this._lrand(); sum += cut[k]; }
+    for (k = 0; k < K; k++) { at += cut[k] / sum; cut[k] = at; }
+    for (x = x0; x <= x1 && K; x++) {
+      for (y = lb[x] - 1, n = 0; cell[y * W + x] >= REST; y--) n++;
+      var yb = lb[x] - 1;                              // each layer runs from yb up to ya
+      for (k = 0; k < K && n; k++) {
+        var ya = k === K - 1 ? lb[x] - n : lb[x] - Math.round(n * cut[k]), dn = (k + this._layUp) & 1;
+        for (y = yb, q = 0; y >= ya; y--) if ((seed[y * W + x] >> 7) === dn) tmp[q++] = seed[y * W + x];
+        for (y = yb; y >= ya; y--) if ((seed[y * W + x] >> 7) !== dn) tmp[q++] = seed[y * W + x];
+        for (y = yb, q = 0; y >= ya; y--) seed[y * W + x] = tmp[q++];
+        yb = ya - 1;
+      }
+    }
+    this._layer();
+  };
+
+  /**
+   * The tone (as bit 7) of the next `n` grains poured in. Sand is poured in
+   * layers of 420 to 840 grains (a held Sand button lays one in about a
+   * second, a few taps make one between them), each in the other tone from
+   * the layer under it: the one just poured, or whatever lies on top of the
+   * pile under the pour.
+   */
+  Sim.prototype._pourLayer = function (n) {
+    if (this._pourLeft <= 0) {
+      var t = this._pourTone;
+      if (this.steps - this._pourAt > 120) {            // the last pour has landed: look at the pile
+        var x = this.geo.cx | 0, W = this.W;
+        for (var y = this.topY; y < this.gateY; y++) {
+          if (this.cell[y * W + x] >= REST) { t = this.seed[y * W + x] >> 7; break; }
+        }
+      }
+      this._pourTone = t ^ 1;
+      this._pourLeft = LAY.pour + ((this._lrand() * LAY.pour) | 0);
+    }
+    this._pourLeft -= n;
+    this._pourAt = this.steps;
+    return this._pourTone << 7;
+  };
+
+  /** Grains of each tone, in the lattice and in the air: [tone 0, tone 1]. */
+  Sim.prototype.tones = function () {
+    var cell = this.cell, seed = this.seed, n = [0, 0], i, N = cell.length;
+    for (i = 0; i < N; i++) if (cell[i] >= REST) n[seed[i] >> 7]++;
+    for (i = 0; i < this.np; i++) n[this.pseed[i] >> 7]++;
+    return n;
+  };
+
+  /* ---------------------------------------------------------------- *
    *  Diagnostics (used by the test-suite; cheap enough to keep)
    * ---------------------------------------------------------------- */
   Sim.prototype.census = function () {
@@ -2791,6 +3313,13 @@
         alt: { p: 0.11, h: 30, s: 0.70, l: 0.54 },       // amber grains
         mica: { p: 0.05, h: 46, s: 0.40, l: 0.90 }       // mica glints
       },
+      // the companion tone of layered sand: a deeper sienna
+      sand2: {
+        h: 21, s: 0.56, l: 0.42, dh: 6, dl: 0.07,
+        dark: { p: 0.05, h: 16, s: 0.50, l: 0.27 },
+        alt: { p: 0.11, h: 26, s: 0.62, l: 0.48 },
+        mica: { p: 0.04, h: 40, s: 0.45, l: 0.80 }
+      },
       glint: [255, 247, 224],
       // how the sand takes the light: surface rim (levels), share of glossy
       // grains and their extra sparkle, highlight tint, soft bloom
@@ -2812,6 +3341,13 @@
         dark: { p: 0.10, h: 240, s: 0.10, l: 0.15 },
         alt: { p: 0.12, h: 262, s: 0.30, l: 0.37 },      // iridescent basalt
         mica: { p: 0.07, h: 44, s: 0.82, l: 0.62 }       // gold flecks
+      },
+      // layered: pumice, a warm ash grey
+      sand2: {
+        h: 28, s: 0.13, l: 0.44, dh: 10, dl: 0.06,
+        dark: { p: 0.08, h: 22, s: 0.11, l: 0.30 },
+        alt: { p: 0.12, h: 34, s: 0.20, l: 0.51 },
+        mica: { p: 0.05, h: 44, s: 0.70, l: 0.64 }
       },
       glint: [255, 226, 150],
       // black sand only reads if it is *lit*: a strong rim on the surface,
@@ -2836,6 +3372,13 @@
         alt: { p: 0.14, h: 208, s: 0.34, l: 0.82 },      // blue adularescence
         mica: { p: 0.06, h: 200, s: 0.20, l: 0.98 }
       },
+      // layered: the stone's blue shadow
+      sand2: {
+        h: 216, s: 0.22, l: 0.60, dh: 10, dl: 0.06,
+        dark: { p: 0.06, h: 224, s: 0.20, l: 0.45 },
+        alt: { p: 0.12, h: 204, s: 0.30, l: 0.68 },
+        mica: { p: 0.06, h: 200, s: 0.24, l: 0.95 }
+      },
       glint: [255, 255, 255],
       light: {
         rim: [3, 1], aoMax: 8, gloss: 0.14, glossBoost: 4, hl: 0.9, tint: [255, 255, 255],
@@ -2855,6 +3398,13 @@
         dark: { p: 0.10, h: 230, s: 0.58, l: 0.24 },    // deep ultramarine
         alt: { p: 0.10, h: 214, s: 0.22, l: 0.66 },      // pale calcite veins
         mica: { p: 0.07, h: 45, s: 0.85, l: 0.62 }       // pyrite: flecks of gold
+      },
+      // layered: seams of old gold
+      sand2: {
+        h: 38, s: 0.42, l: 0.40, dh: 6, dl: 0.06,
+        dark: { p: 0.07, h: 30, s: 0.40, l: 0.28 },
+        alt: { p: 0.10, h: 44, s: 0.50, l: 0.48 },
+        mica: { p: 0.06, h: 50, s: 0.85, l: 0.72 }
       },
       glint: [255, 226, 150],
       // a dark sand, lit like the volcanic one so it reads against the night
@@ -2877,6 +3427,13 @@
         alt: { p: 0.12, h: 12, s: 0.48, l: 0.83 },       // peach
         mica: { p: 0.05, h: 0, s: 0.10, l: 0.97 }
       },
+      // layered: a deeper, dustier rose
+      sand2: {
+        h: 344, s: 0.30, l: 0.61, dh: 8, dl: 0.06,
+        dark: { p: 0.05, h: 338, s: 0.26, l: 0.46 },
+        alt: { p: 0.12, h: 356, s: 0.36, l: 0.66 },
+        mica: { p: 0.05, h: 0, s: 0.12, l: 0.94 }
+      },
       glint: [255, 244, 244],
       light: {
         rim: [3, 1], aoMax: 8, gloss: 0.14, glossBoost: 4, hl: 0.9, tint: [255, 255, 255],
@@ -2896,6 +3453,13 @@
         dark: { p: 0.05, h: 188, s: 0.30, l: 0.50 },     // deeper teal
         alt: { p: 0.12, h: 140, s: 0.28, l: 0.78 },      // pale green
         mica: { p: 0.05, h: 180, s: 0.14, l: 0.96 }
+      },
+      // layered: deep-water teal
+      sand2: {
+        h: 188, s: 0.32, l: 0.49, dh: 10, dl: 0.06,
+        dark: { p: 0.05, h: 196, s: 0.32, l: 0.35 },
+        alt: { p: 0.12, h: 178, s: 0.30, l: 0.56 },
+        mica: { p: 0.05, h: 180, s: 0.16, l: 0.94 }
       },
       glint: [236, 255, 250],
       light: {
@@ -3160,6 +3724,7 @@
       this.bbuf = new Uint32Array(this.bimg.data.buffer);
     }
     this.frame = true;    // caps + posts around the glass
+    this.layers = false;  // layered sand: two tones (setLayers)
     this.glass = null;    // [far wall, near wall] WebGL layers, or null → drawn glass
     this.glassRot = 0;
     this._initGlass();
@@ -3295,22 +3860,29 @@
     }
   };
 
-  /** Per-grain colour table: 256 persistent seeds × 48 light levels. */
+  /**
+   * Per-grain colour table: 256 persistent seeds × 48 light levels. With
+   * layered sand, bit 7 of a seed is the grain's tone (the theme's sand, or
+   * its companion sand2) and the other seven spread over that tone's kinds
+   * of grain.
+   */
   Renderer.prototype._buildLUT = function () {
     var th = this.theme, sd = th.sand, lut = this.lut, li = th.light;
-    var tint = li.tint, em = li.emit;
-    var darkN = Math.round(sd.dark.p * 256);
-    var micaN = Math.round(sd.mica.p * 256);
-    var altN = Math.round(sd.alt.p * 256);
+    var tint = li.tint, em = li.emit, lay = this.layers && th.sand2;
     for (var s = 0; s < 256; s++) {
+      var c = s;
+      if (lay) { sd = s < 128 ? th.sand : th.sand2; c = (s & 127) << 1; }
+      var darkN = Math.round(sd.dark.p * 256);
+      var micaN = Math.round(sd.mica.p * 256);
+      var altN = Math.round(sd.alt.p * 256);
       var u1 = hash01(s * 7 + 1), u2 = hash01(s * 13 + 5), u3 = hash01(s * 29 + 11);
       var base, mica = 0;
-      if (s < darkN) {
+      if (c < darkN) {
         base = hsl(sd.dark.h + (u1 - 0.5) * 10, sd.dark.s, sd.dark.l + (u2 - 0.5) * 0.08);
-      } else if (s >= 256 - micaN) {
+      } else if (c >= 256 - micaN) {
         base = hsl(sd.mica.h + (u1 - 0.5) * 14, sd.mica.s, sd.mica.l - u2 * 0.08);
         mica = 1;
-      } else if (s >= 256 - micaN - altN) {
+      } else if (c >= 256 - micaN - altN) {
         base = hsl(sd.alt.h + (u1 - 0.5) * sd.dh * 2.4, sd.alt.s, sd.alt.l + (u2 - 0.5) * sd.dl);
       } else {
         base = hsl(sd.h + (u1 - 0.5) * 2 * sd.dh,
@@ -3349,6 +3921,12 @@
     this.theme = THEMES[id] || THEMES.sahara;
     this._buildLUT();
     this.drawStatic();
+  };
+
+  /** Layered sand: draw the two tones (Sim.setLayers lays them). */
+  Renderer.prototype.setLayers = function (on) {
+    this.layers = !!on;
+    this._buildLUT();
   };
 
   /**
@@ -3942,6 +4520,8 @@
   var CRACK_ST = 7;                 // canonical floats per segment: x0, y0, x1, y1, t0, t1, branch
   var CRACK_LV = 32;                // hairline brightness levels: one stroke per level in use
   var CRACK_REDRAW = 33;            // ms: c-front is redrawn at most 30 times a second
+  var CRACK_FLASH = 600;            // ms: a new crack flashes bright for this long
+  var MARK_FROM = 0.2;              // damage from which a stretch of glass shows its stress mark
   var HALF_PI = Math.PI / 2;
   var CRACK_SHADOW = 'rgba(0,0,0,0.30)', CHIP_DARK = 'rgba(0,0,0,0.55)';
   var GOLD = 'rgba(214,170,92,0.95)', GOLD_CORE = 'rgba(255,232,180,0.9)';
@@ -4017,6 +4597,16 @@
   }
 
   /**
+   * How far round the glass, from the middle of its face toward the side
+   * its wall segment is on, a crack in segment `seg` starts (and its stress
+   * mark shows): 0.55 to 0.9 rad, always the same for the same band of glass.
+   */
+  var FACE_U = 0.95;                // ... and no nearer the far end than this (the collar hides the rest)
+  function facePhi(seg) {
+    return 0.55 + 0.35 * hash01(11 + 7 * (seg % WALL_BINS));
+  }
+
+  /**
    * Grow crack cr's path at length 2·lk cells. Its kind follows where it
    * starts: by the waist a hoop runs round the shoulder (bending pulls along
    * the axis), on the dome a star of 3 to 5 arms spreads from the impact,
@@ -4032,10 +4622,19 @@
     var star = u0 > 0.75, hoop = u0 < 0.3;
     crackStream(seed, -1, -1);
     var nArms = star ? 3 + Math.floor(crackRand() * 3) : 1;
+    if (!hoop) {
+      // Seen edge-on at the silhouette, the first 20 or 30 cells of a crack
+      // hide in the glass's bright rim, so a new crack could not be seen at
+      // all. Away from the waist it therefore starts on the face of the
+      // glass (facePhi), clear of the collar that seats the dome: just
+      // where the stress mark showed before it.
+      phi0 = facePhi(cr.seg);
+      if (u0 > FACE_U) u0 = FACE_U;
+    }
     for (j = 0; j < nArms; j++) {
       if (star) {
-        // spread over ±70° about the way into the face, a little uneven
-        var sp = -70 + 140 * (j + 0.5) / nArms + (crackRand() - 0.5) * 84 / nArms;
+        // all round, a little uneven: the star of a blow
+        var sp = 360 * (j + 0.5) / nArms + (crackRand() - 0.5) * 180 / nArms;
         crackArm[2 * j] = -HALF_PI + sp * Math.PI / 180;
         crackArm[2 * j + 1] = 0.5 + 0.3 * crackRand();
       } else {
@@ -4119,7 +4718,8 @@
       aKind: new Uint8Array(4),           //   1 cracking, 2 breaking through,
       aT0: new Float64Array(4),           //   and when it began
       aN: 0,
-      warnT0: 0, warnT1: 0, warnX: 0, warnY: 0,   // a creak's pinpoint glint
+      warnT0: 0, warnT1: 0,                       // a creak: the stress mark brightens for a moment
+      markQ: 0,                                   // the stress mark as last drawn (0: none)
       info: { bulb: 0, side: 1, u: 0 },
       lev: new Uint8Array(4 * CRACK_SEGS),        // brightness level per hairline segment
       cnt: new Uint16Array(CRACK_LV + 1)
@@ -4159,12 +4759,24 @@
     return true;
   }
 
+  /**
+   * The stress mark to draw, as a whole number that changes whenever the
+   * picture of it should: 0 for none (no stretch of uncracked glass holds
+   * MARK_FROM of damage), else its place and its strength in 24 steps.
+   */
+  function markLevel(sim) {
+    var D = sim.dMax, s = sim.warnSeg;
+    if (!(D >= MARK_FROM) || !(s >= 0)) return 0;
+    if (D > 1) D = 1;
+    return 1 + Math.floor((D - MARK_FROM) / (1 - MARK_FROM) * 24) + 32 * s;
+  }
+
   /** How far through its flash of `kind` crack cr is: 1 at the start, 0 when done. */
   function crackFlash(st, cr, kind, now) {
     var f = 0;
     for (var a = 0; a < 4; a++) {
       if (st.aRec[a] !== cr || st.aKind[a] !== kind) continue;
-      var x = (now - st.aT0[a]) / (kind === 1 ? 250 : 120);
+      var x = (now - st.aT0[a]) / (kind === 1 ? CRACK_FLASH : 120);
       if (x >= 0 && x < 1) { x = kind === 1 ? (1 - x) * (1 - x) : 1 - x; if (x > f) f = x; }
     }
     return f;
@@ -4202,11 +4814,13 @@
    */
   Renderer.prototype._drawCracks = function (ctx) {
     var sim = this.sim, cracks = sim.cracks, n = cracks ? cracks.length : 0, st = this._dmg;
-    if (!st && !n) return;
+    var mark = markLevel(sim);
+    if (!st && !n && !mark) return;
     st = crackState(this);
     st.rev = sim.crackRev;
+    st.markQ = mark;
     var now = st.now, warn = st.warnT1 > now;
-    if (!n && !warn) return;
+    if (!n && !mark) return;
     var rot = st.rot, lev = st.lev, cnt = st.cnt, cur = st.cur, k, s, o, e, cr, any, base, lv, sn, f;
     var total = 0;
     for (k = 0; k < n; k++) { cur[k] = this._crackPath(cracks[k]); total += cur[k].n; }
@@ -4225,7 +4839,7 @@
         any = true;
       }
     }
-    if (any) { ctx.strokeStyle = CRACK_SHADOW; ctx.lineWidth = 0.9; ctx.stroke(); }
+    if (any) { ctx.strokeStyle = CRACK_SHADOW; ctx.lineWidth = 1.6; ctx.stroke(); }
 
     // the hairline: each segment glints as it faces the key light, |sin(a + rot − 0.9)|^6
     cnt.fill(0);
@@ -4238,15 +4852,15 @@
         o = 4 * s;
         sn = Math.sin(Math.atan2(e.seg[o + 3] - e.seg[o + 1], e.seg[o + 2] - e.seg[o]) + rot - 0.9);
         sn *= sn;
-        var al = 0.30 + 0.55 * sn * sn * sn;
+        var al = 0.40 + 0.55 * sn * sn * sn;
         if (e.can[CRACK_ST * s + 6]) al *= 0.8;   // side branches are finer
-        if (flash > 0) al += (0.95 - al) * flash;
+        if (flash > 0) al += (1 - al) * flash;
         lv = (al * CRACK_LV + 0.5) | 0;
         lev[base + s] = lv; cnt[lv]++;
       }
       base += e.n;
     }
-    ctx.lineWidth = 0.32;
+    ctx.lineWidth = 0.7;
     for (lv = 0; lv <= CRACK_LV; lv++) {
       if (!cnt[lv]) continue;
       ctx.beginPath();
@@ -4329,16 +4943,46 @@
       ctx.globalAlpha = 1;
     }
 
-    // a creak: a pinpoint of light where the glass is most stressed
-    if (warn) {
-      var wl = (0.7 * (1 - (now - st.warnT0) / 300) * CRACK_LV + 0.5) | 0;
-      if (wl > 0) {
-        var gr = ctx.createRadialGradient(st.warnX, st.warnY, 0, st.warnX, st.warnY, 1.5);
-        gr.addColorStop(0, GLINT[wl > CRACK_LV ? CRACK_LV : wl]);
-        gr.addColorStop(1, GLINT[0]);
-        ctx.fillStyle = gr;
-        ctx.fillRect(st.warnX - 1.5, st.warnY - 1.5, 3, 3);
+    // The stress mark: where the glass is most loaded and has not cracked, a
+    // pale bloom on the glass with three craze lines, growing with the damage
+    // (about 5 to 20 px across) and fading as it heals. A creak brightens it
+    // for a moment.
+    if (mark) {
+      var info = sim.segInfo(sim.warnSeg, st.info), D = sim.dMax > 1 ? 1 : sim.dMax;
+      var mt = (D - MARK_FROM) / (1 - MARK_FROM), g = sim.geo;
+      // it shows where a crack would start: on the face of the glass, or (by the waist) at its edge
+      var mu = info.u, mphi = HALF_PI - 0.06;
+      if (mu >= 0.3) { mphi = facePhi(sim.warnSeg); if (mu > FACE_U) mu = FACE_U; }
+      var mx = info.side * profile(mu, g) * Math.sin(mphi), my = (info.bulb ? 1 : -1) * mu * g.HB;
+      var mr = 3 + 6.2 * mt;                                 // cells: its radius
+      var ma = (0.55 + 0.40 * mt) * (mt < 0.06 ? mt / 0.06 : 1);
+      if (warn) ma += (1 - ma) * 0.7 * (1 - (now - st.warnT0) / 300);
+      ctx.save();
+      tracePath(ctx, g, g.wall);
+      ctx.clip();
+      // (a soft shade round it first, so it reads on sand as well as on dark glass)
+      var mg = ctx.createRadialGradient(mx, my, 0.5 * mr, mx, my, 1.5 * mr);
+      mg.addColorStop(0, 'rgba(0,0,0,' + (0.32 * ma).toFixed(3) + ')');
+      mg.addColorStop(1, NO_SHADOW);
+      ctx.fillStyle = mg;
+      ctx.fillRect(mx - 1.5 * mr, my - 1.5 * mr, 3 * mr, 3 * mr);
+      mg = ctx.createRadialGradient(mx, my, 0, mx, my, mr);
+      mg.addColorStop(0, GLINT[(ma * CRACK_LV + 0.5) | 0]);
+      mg.addColorStop(0.5, GLINT[(ma * 0.5 * CRACK_LV + 0.5) | 0]);
+      mg.addColorStop(1, GLINT[0]);
+      ctx.fillStyle = mg;
+      ctx.fillRect(mx - mr, my - mr, 2 * mr, 2 * mr);
+      // three craze lines from its heart, always the same for the same stretch
+      ctx.beginPath();
+      for (k = 0; k < 3; k++) {
+        var ca = (k + hash01(sim.warnSeg * 7 + k)) * 2.094;
+        var cl = mr * (0.5 + 0.4 * hash01(sim.warnSeg * 13 + k));
+        ctx.moveTo(mx, my);
+        ctx.lineTo(mx + cl * Math.cos(ca), my + cl * Math.sin(ca));
       }
+      ctx.strokeStyle = CRACK_SHADOW; ctx.lineWidth = 1.1; ctx.stroke();
+      ctx.strokeStyle = GLINT[(ma * CRACK_LV + 0.5) | 0]; ctx.lineWidth = 0.45; ctx.stroke();
+      ctx.restore();
     }
     ctx.restore();
   };
@@ -4356,8 +5000,9 @@
    */
   Renderer.prototype.syncDamage = function (rot, nowMs) {
     var sim = this.sim, n = sim.cracks ? sim.cracks.length : 0, st = this._dmg, k;
+    var mark = markLevel(sim);
     if (!st) {
-      if (!n) return false;
+      if (!n && !mark) return false;
       st = crackState(this);
     }
     if (!this.cssW) return false;               // not laid out yet: layout() draws everything
@@ -4366,9 +5011,9 @@
     if (this.reduced && st.animEnd > nowMs) st.animEnd = nowMs;   // Reduce Motion: stop flashing now
     var running = st.animEnd > nowMs, ending = st.animEnd > 0 && !running;
     if (sim.crackRev === st.rev) {
-      if (!n && !running && !ending) { this.animating = false; return false; }
+      if (!n && !running && !ending && mark === st.markQ) { this.animating = false; return false; }
       var due = nowMs - st.lastT >= CRACK_REDRAW || nowMs < st.lastT;
-      var changed = running || ending || (n > 0 && (st.dirty || Math.abs(rot - st.rot) > 0.03));
+      var changed = running || ending || mark !== st.markQ || (n > 0 && (st.dirty || Math.abs(rot - st.rot) > 0.03));
       for (k = 0; k < n && due && !changed; k++) changed = crackStale(st, sim.cracks[k]);
       if (!due || !changed) {
         this.animating = running || ending;
@@ -4384,9 +5029,9 @@
 
   /**
    * A damage event from sim.frame (type is a Sim.DMG value; k the crack's
-   * index, −1 for WARN; level the creak level 1–4). Starts its flash: a
-   * 300 ms pinpoint glint at the stressed wall for WARN, the hairline
-   * flaring bright over 250 ms for CRACK, and a 120 ms brighter chip rim for
+   * index, −1 for WARN; level the creak level 1–4). Starts its flash: the
+   * stress mark brightening for 300 ms for WARN, the hairline flaring
+   * bright over 600 ms for CRACK, and a 120 ms brighter chip rim for
    * BREACH and WIDEN. Reduce Motion skips them all; the change itself is
    * drawn on the next syncDamage.
    */
@@ -4396,10 +5041,7 @@
     if (this.reduced) return;
     nowMs = +nowMs || 0;
     if (type === D.WARN) {
-      var info = sim.warnSeg >= 0 ? sim.segInfo(sim.warnSeg, st.info) : null;
-      if (!info) return;
-      st.warnX = info.side * profile(info.u, sim.geo);
-      st.warnY = (info.bulb ? 1 : -1) * info.u * sim.geo.HB;
+      if (!markLevel(sim)) return;
       st.warnT0 = nowMs; st.warnT1 = nowMs + 300;
       dur = 300;
     } else if (type === D.CRACK || type === D.BREACH || type === D.WIDEN) {
@@ -4410,7 +5052,7 @@
       st.aRec[a] = cr;
       st.aKind[a] = type === D.CRACK ? 1 : 2;
       st.aT0[a] = nowMs;
-      dur = type === D.CRACK ? 250 : 120;
+      dur = type === D.CRACK ? CRACK_FLASH : 120;
     } else {
       return;
     }
@@ -4519,6 +5161,7 @@
     this._bx = 0; this._by = 0; this._bw = 0; this._bh = 0;
     this._pal = [];                            // flight colours, 4 by seed, from the sand's own table
     this._palOf = undefined;
+    this._palLay = false;
     this._streak = '';
     this._nb = new Uint16Array(5);             // grains in flight per colour, then where each colour starts
     this._ord = new Int16Array(SPILL_AIR);     // grains in flight in colour order
@@ -4828,6 +5471,7 @@
     v = lut ? lut[(21 << 8) | 136] : SPILL_SAND;
     this._streak = 'rgba(' + (v & 255) + ',' + ((v >>> 8) & 255) + ',' + ((v >>> 16) & 255) + ',0.45)';
     this._palOf = ren ? ren.theme : null;
+    this._palLay = !!(ren && ren.layers);
   };
 
   /**
@@ -4886,7 +5530,7 @@
    */
   Spill.prototype.draw = function () {
     var ren = this.renderer, th = ren ? ren.theme : null;
-    if (th !== this._palOf) {                 // a new material: new sand colours
+    if (th !== this._palOf || !!(ren && ren.layers) !== this._palLay) {   // a new material, or its two tones: new sand colours
       this._palette();
       if (this.ctx) { this._markAll(); this._dirty = true; }
     }

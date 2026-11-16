@@ -1,22 +1,45 @@
 /*
  * physics-core acceptance 5: fracture classes.
  *
- * With damage armed, every profile runs on 3 seeds × 4 fills (the
- * physicist's calibration matrix: a 5-minute glass 20 s and 270 s into its
- * run, a 1-minute glass at 15 s, a 45-minute glass at 300 s), clock
- * running. Ordinary and even hard handling must never crack the glass
- * (dMax < 0.4); only big, fast swings kept up for about five seconds may:
+ * Every profile runs on 3 seeds × 4 fills (the physicist's calibration
+ * matrix: a 5-minute glass 20 s and 270 s into its run, a 1-minute glass at
+ * 15 s, a 45-minute glass at 300 s), clock running, with damage armed as the
+ * app arms it: by motion.js's own gate on the profile's acceleration (a
+ * third of a second of RMS above 1.6 g, held for 0.6 s; lib/harness.js
+ * armGate). Ordinary and even rough handling must never mark the glass
+ * (dMax < 0.2); a vigorous shake, 3 g or more kept up, cracks it in about
+ * three seconds:
  *
- *   vigSlow60    crack in [4.5, 9] s, breached within 4 s after it
- *   veryVigSlow  crack in [4.5, 10] s
- *   lateralVV    crack in [4.5, 8] s
+ *   firm60 (3 g at 5 Hz)                    crack in [1.5, 5] s
+ *   vigorous60, veryVigorous, veryVigSlow,
+ *   vigSlow60, lateralVV                    crack in [1.2, 4] s (vigSlow60: breached within 2 s after)
+ *   lateralFirm (3.5 g sideways)            crack in [2, 8] s
  *
  * Every crack is preceded by at least three creaks (WARN) with rising
  * levels; cracks come one at a time (a crack relieves the rest of the glass,
  * so no two start within 2.5 s); every hole sits at least gateGuard rows
- * from the gate; and with
- * damage disarmed, or with Reduce Motion, no profile ever damages the
- * glass at all. The census holds throughout.
+ * from the gate; and with damage disarmed, or with Reduce Motion, no profile
+ * ever damages the glass at all. The census holds throughout.
+ *
+ * Changed with the crash work, and why. The user's complaint was that the
+ * glass does not crack, and the diagnosis measured why: these classes asked
+ * for 5.5 g at 5.5 Hz kept up for five to nine seconds, which a hand shaking
+ * a phone does not do, while a vigorous shake (3 g at 3 to 5 Hz) landed the
+ * bed at 90 % of the fatigue limit for ever. So:
+ *  - the reference landing speed fell (vc 16 → 11), the rate cap rose (rMax
+ *    0.30 → 0.9 /s, Pmax 0.15 → 0.45) and the waist bends from 2.6 g: the
+ *    crack windows moved from [4.5, 10] s to [1.2, 5] s, and a crack is born
+ *    16 cells long, so it breaches about 0.3 s later;
+ *  - firm60 and lateralFirm (3 and 3.5 g) moved from "never" to "cracks":
+ *    they are the vigorous shake the brief says must crack it;
+ *  - vigorous60 and veryVigorous moved from "may, never before 4.5 s" to
+ *    "cracks in [1.2, 4] s";
+ *  - damage is armed by the app's real gate, not by fiat. With the lower
+ *    fatigue limit the sim alone no longer tells a violent single jerk
+ *    (hardJerks, 8 g for 33 ms) or a 2 g shake at 3 Hz from a vigorous shake;
+ *    the gate does, as it does in the app, and the "never" class is now
+ *    stricter for it (dMax < 0.2, no creak at all; it was < 0.4, with creaks
+ *    allowed for firm60 and hardJerks).
  *
  *   node tools/test/sim-fracture.test.js        exits 0 when every case passes
  */
@@ -24,18 +47,16 @@
 var H = require('./lib/harness.js');
 
 var SEEDS = [11, 22, 33];
-var NEVER = ['calm', 'sway', 'walking', 'running', 'normal', 'normalSlow', 'firm60',
-  'lateralFirm', 'knocks', 'hardJerks', 'drop', 'fingerWiggle', 'wristTwist', 'tableSpin'];
-// Firm shaking may creak at most. Vigorous and very vigorous shaking may crack it,
-// but never before 4.5 s and never without three rising creaks first.
-var CREAK_OK = { firm60: true, hardJerks: true };
-var MAY = ['vigorous60', 'veryVigorous'];
-var CRACK = { vigSlow60: [4.5, 9, 4], veryVigSlow: [4.5, 10, -1], lateralVV: [4.5, 8, -1] };
+var NEVER = ['calm', 'sway', 'walking', 'running', 'normal', 'normalSlow',
+  'knocks', 'hardJerks', 'drop', 'fingerWiggle', 'wristTwist', 'tableSpin'];
+// name: [earliest crack, latest crack (s), breach within this many s after (−1: not asked)]
+var CRACK = { firm60: [1.5, 5, -1], vigorous60: [1.2, 4, -1], veryVigorous: [1.2, 4, -1], vigSlow60: [1.2, 4, 2],
+  veryVigSlow: [1.2, 4, -1], lateralVV: [1.2, 4, -1], lateralFirm: [2, 8, -1] };
 
 function job(j) {
   var f = H.FILLS[j.fill];
   var run = H.glassAt({ durMs: f[0] * 60000, startMs: f[1] * 1000, seed: j.seed });
-  var o = { armed: j.armed !== false, reduced: !!j.reduced };
+  var o = { armed: j.armed === false ? false : 'auto', reduced: !!j.reduced };
   if (j.crack) o.stopAfterBreach = 4.5;
   var r = H.drive(run, j.name, o);
   var CRACK_EV = H.P.Sim.DMG.CRACK, cracksAt = [];
@@ -51,7 +72,7 @@ if (H.isWorker) {
   H.workerMain(job);
 } else {
   var jobs = [];
-  NEVER.concat(MAY, Object.keys(CRACK)).forEach(function (name) {
+  NEVER.concat(Object.keys(CRACK)).forEach(function (name) {
     SEEDS.forEach(function (seed) {
       for (var fill = 0; fill < H.FILLS.length; fill++) jobs.push({ name: name, seed: seed, fill: fill, crack: !!CRACK[name] });
     });
@@ -69,22 +90,6 @@ if (H.isWorker) {
     var errors = res.filter(function (r) { return r && r.error; });
     if (errors.length) { console.log(errors[0].error); process.exit(1); }
     var common = function (r) { return r.census === 0 && r.conserve === 0 && r.over === 0 && r.holesNearGate === 0; };
-    // may crack, but only after a warning and never early
-    MAY.forEach(function (name) {
-      var n = 0, cracked = 0, bad = [];
-      jobs.forEach(function (j, i) {
-        if (j.name !== name || j.kind) return;
-        var r = res[i];
-        n++;
-        if (!common(r)) bad.push('census or valve');
-        if (r.crackT >= 0) {
-          cracked++;
-          if (r.crackT < 4.5) bad.push('crack at ' + r.crackT.toFixed(2) + ' s');
-          if (r.warns < 3) bad.push('only ' + r.warns + ' creaks first');
-        }
-      });
-      report(bad.length === 0, name + ': ' + n + ' runs, ' + cracked + ' cracked (never before 4.5 s, always after creaks)' + (bad.length ? '; ' + bad.join('; ') : ''));
-    });
     // never crack
     NEVER.forEach(function (name) {
       var worst = 0, at = '', bad = 0, n = 0;
@@ -93,10 +98,10 @@ if (H.isWorker) {
         var r = res[i];
         n++;
         if (r.dMax > worst) { worst = r.dMax; at = 'seed ' + j.seed + ', ' + H.fillName(H.FILLS[j.fill]) + ', ' + r.site; }
-        if (r.cracks > 0 || (r.dMax >= 0.4 && !CREAK_OK[name]) || !common(r)) bad++;
+        if (r.cracks > 0 || r.dMax >= 0.2 || !common(r)) bad++;
       });
       report(bad === 0, name + ': ' + n + ' runs, no crack; worst dMax ' + worst.toFixed(3) + (at ? ' (' + at + ')' : '') +
-        (bad ? '; ' + bad + ' runs failed (crack, dMax ≥ 0.4, census or valve)' : ''));
+        (bad ? '; ' + bad + ' runs failed (crack, dMax ≥ 0.2, census or valve)' : ''));
     });
     // crack windows
     var gapMin = Infinity, multi = 0, nCracks = 0, crowded = [];

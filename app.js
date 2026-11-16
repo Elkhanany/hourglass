@@ -37,10 +37,14 @@
     theme: 'sahara', character: 'asmr', volume: 0.8, muted: false,
     chime: true, tilt: false, zenFull: false, haptics: true,
     keepAwake: true, frame: true,
+    layers: false,                   // layered sand: two tones that settle into strata
     ambience: 'none', ambienceLevel: 0.5,
+    breath: false, breathPattern: 'calm',
     durationMs: 5 * 60000,
+    restMs: 0, rounds: 1,            // a work and rest sequence: the rest after each glass (0: none), and how often
     motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
-    hintMend: false                  // the one-time "hold it still to mend" note was shown
+    mendNotes: 0,                    // how often the "hold it still to mend" note was shown (the first three cracks)
+    hintCrack: false                 // the one-time "the glass can crack" note was shown
   };
   try {
     var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -56,8 +60,10 @@
   if (settings.motionSign !== 1 && settings.motionSign !== -1) settings.motionSign = 0;
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts
   var qt = /[?&]t=(\d{1,5})(?:&|$)/.exec(location.search);
-  if (qt) settings.durationMs = +qt[1] * 1000;
+  if (qt) { settings.durationMs = +qt[1] * 1000; settings.restMs = 0; }
   settings.durationMs = Math.max(10000, Math.min(5999000, settings.durationMs));
+  if (!(settings.restMs >= 10000 && settings.restMs <= 3600000)) settings.restMs = 0;
+  settings.rounds = settings.restMs ? Math.max(1, Math.min(12, settings.rounds | 0)) : 1;
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch (e) {}
   }
@@ -73,6 +79,8 @@
     glBack: $('c-glass-back'), glFront: $('c-glass-front')
   });
   renderer.setFrame(settings.frame);
+  sim.setLayers(settings.layers);    // (before the glass is filled: the fill is laid in bands)
+  renderer.setLayers(settings.layers);
   // sand that got out of the glass, on the desk below it
   var spill = new P.Spill(spillCanvas, renderer);
   var audio = new window.HourglassAudio();
@@ -128,8 +136,10 @@
     return Math.round(sim.capacity * Math.max(0.17, Math.min(0.78, f)));
   }
 
-  function calibrate() {
-    var N = sim.total, d = T.durationMs;
+  /** Time the neck so that N grains last d ms (by default: the whole glass, its whole length). */
+  function calibrate(d, N) {
+    d = d || T.durationMs;
+    N = Math.max(8, N === undefined ? sim.total : N);
     T.tailMs = Math.min(2600, Math.max(500, d * 0.04));
     var rate = N / (d / 1000);
     T.tailGrains = Math.max(3, Math.min(30, Math.floor(rate * T.tailMs / 1000 / TAIL_P)));
@@ -159,10 +169,20 @@
     var now = Date.now(), d = now - T.lastTick;
     T.lastTick = now;
     if (d > 1500) back = true;                 // frames and timers stopped: we were asleep
+    if (d <= 0 || T.state !== 'running') return;
+    // between two phases of a sequence the glass is turning itself over: unwatched (hidden, or back from
+    // a sleep with the turn long due), the clock goes on without it
+    if (seq.gap) {
+      if (document.hidden || (back && now - seq.gap > SEQ_SETTLE + SEQ_TURN + 1500)) phaseEnd(now - seq.gap);
+      return;
+    }
     // on its side (real motion) the neck cannot flow, so time stands still too
-    if (d <= 0 || T.state !== 'running' || flip.active || (grav.on && sim.gy < 0.7)) return;
+    if (flip.active || (grav.on && sim.gy < 0.7)) return;
     T.rem -= d;
-    if (T.rem <= 0) { T.rem = 0; finish(); }
+    if (T.rem <= 0) {
+      if (seq.rest && seq.phase < 2 * seq.rounds - 1) phaseEnd(-T.rem);
+      else { T.rem = 0; finish(); }
+    }
   }
 
   /**
@@ -208,7 +228,9 @@
   var S = { flow: 0, imp: 0, slides: 0 };       // smoothed physics → audio
   // real motion: where the device says down is, and whether the glass is held the other way up
   var grav = { on: false, target: 0, base: 0, seen: false };
-  var R0 = { width: 0, height: 0, scale: 1 };   // the instrument's layout box (zoom-local CSS px)
+  // the instrument's layout box (zoom-local CSS px); its centre on the page with the
+  // controls dimmed (cx, cy), and how far the controls' return moves it (dx, dy)
+  var R0 = { width: 0, height: 0, scale: 1, cx: 0, cy: 0, dx: 0, dy: 0 };
 
   /**
    * `quiet`: the glass was turned by hand or by the phone, not started from
@@ -219,7 +241,7 @@
     var was = T.state;
     T.state = s;
     app.dataset.state = s;
-    statusEl.textContent = flip.active ? STATUS.turning : STATUS[s];
+    statusEl.textContent = flip.active ? STATUS.turning : statusFor(s);
     btnPlay.setAttribute('aria-label', s === 'running' ? 'Pause' : (s === 'done' ? 'Flip and start again' : 'Start'));
     if (s === 'running') {
       if (was !== 'running') T.lastTick = Date.now();   // (a glass that was running keeps its time)
@@ -227,6 +249,7 @@
     }
     syncWakeLock();
     saveSession();
+    breathSync();
     sim.quiet = 0;
     dirty = true;
   }
@@ -234,6 +257,7 @@
   var pendingStart = false;
   function start() {
     if (resetting) { pendingStart = true; return; }     // mid cross-fade: start as soon as it lands
+    if (seq.gap) { seq.gap = Date.now(); setState('running'); return; }   // paused between two phases: on with the turn
     if (flip.active) return;
     if (T.state === 'done' || T.rem <= 0) {
       if (sim.nTop === 0) { startFlip(true); return; }
@@ -251,6 +275,7 @@
     buzz(10);
   }
   function finish() {
+    if (seq.rest) seq.phase = 2 * seq.rounds;   // a sequence is over: turned again, it starts from its first glass
     endWall = Date.now();            // before setState: the wake lock covers the ending
     setState('done');
     audio.chime(0.75);               // after the last grain has landed
@@ -284,6 +309,8 @@
       spill.clear();
       sim.reset(grainsFor(T.durationMs));
       sim.tilt = 0;
+      seq.phase = 0; seq.gap = 0;    // a sequence starts over, from its first glass
+      app.classList.remove('pass');
       calibrate();
       T.rem = T.durationMs;
       S.flow = S.imp = S.slides = 0;
@@ -298,13 +325,134 @@
     }, 460);
   }
 
-  function setDuration(ms) {
+  /** A new glass of `ms`. Followed by a rest (ms) it is a sequence of `rounds`; a plain duration ends one. */
+  function setDuration(ms, rest, rounds) {
     ms = Math.max(10000, Math.min(5999000, Math.round(ms / 1000) * 1000));
     T.durationMs = ms;
     settings.durationMs = ms;
+    seq.rest = settings.restMs = rest > 0 ? Math.max(10000, Math.min(3600000, Math.round(rest / 1000) * 1000)) : 0;
+    seq.rounds = settings.rounds = seq.rest ? Math.max(1, Math.min(12, rounds | 0)) : 1;
     save();
     syncPills();
     reset(T.state === 'running');
+  }
+
+  /* ======================================================================
+   *  Work and rest
+   *
+   *  A custom glass may be followed by a rest, and the pair repeated: a
+   *  sequence of rounds × (work, then rest). Every phase is the same sand,
+   *  timed to its own length. When one runs out a soft bowl sounds, the
+   *  glass turns itself over with the Flip button's unhurried half turn,
+   *  and the next begins as the turn ends; the last ends as any glass does.
+   *  The wall clock stays the master: with nobody watching (the page hidden,
+   *  the phone asleep) no turn is drawn, and the sequence is simply put
+   *  where the clock says it is, each turn that passed counted at its length.
+   * ==================================================================== */
+  var SEQ_BOWL = 750;                // ms after a phase ran out: its last grain has landed, the soft bowl sounds
+  var SEQ_SETTLE = 1200;             // ms: ... and as it blooms the glass begins to turn
+  var SEQ_TURN = 2600;               // ms: the turn itself (the Flip button's)
+  var seq = {
+    rest: settings.restMs,           // ms of rest after each glass (0: no sequence)
+    rounds: settings.rounds,
+    phase: 0,                        // 0 work, 1 rest, 2 work, …; 2 × rounds once the last has ended
+    gap: 0                           // between two phases: when (Date.now()) the one before ran out
+  };
+
+  /** How long phase i lasts: work on the even ones, rest on the odd. */
+  function phaseMs(i) { return (i & 1) ? seq.rest : T.durationMs; }
+  /** "Work" or "Rest", and which round when there is more than one. */
+  function phaseName() {
+    var i = Math.min(seq.phase, 2 * seq.rounds - 1);
+    return ((i & 1) ? 'Rest' : 'Work') + (seq.rounds > 1 ? ' · ' + ((i >> 1) + 1) + ' of ' + seq.rounds : '');
+  }
+  /** The status line: in a sequence it names the phase, quietly. */
+  function statusFor(s) {
+    if (!seq.rest || (s !== 'running' && s !== 'paused')) return STATUS[s];
+    return phaseName() + (s === 'paused' ? ' · paused' : '');
+  }
+  /** Phase i begins: the sand above the neck is timed to last exactly its length. */
+  function beginPhase(i) {
+    seq.phase = i; seq.gap = 0;
+    app.classList.remove('pass');
+    calibrate(phaseMs(i), sim.nTop);
+    T.rem = phaseMs(i);
+    T.lastTick = Date.now();         // its time runs from this moment
+  }
+
+  /**
+   * A phase that is not the last ran out, `over` ms ago. Watched: a soft bowl
+   * as the last grain lands, then the glass turns itself over (seqTurn).
+   * Unwatched: straight to where the clock says the sequence is by now, with
+   * at most one bowl, for a turn that has only just passed.
+   */
+  function phaseEnd(over) {
+    T.rem = 0;
+    if (!seq.gap && !back && !document.hidden) {
+      seq.gap = Date.now() - over;
+      audio.chime(Math.max(0, SEQ_BOWL - over) / 1000, true);
+      saveSession();
+      return;
+    }
+    var at = seqAt(seq.phase, over);
+    if (flip.active) { flip.active = false; flip.dragging = false; }   // a turn under way is dropped, as Reset drops one
+    if (grab) grab.kind = 'none';
+    bodyHome();
+    turnedUnseen(at[2]);
+    beginPhase(at[0]);
+    T.rem -= at[1];
+    applyBody(0);
+    if (T.rem <= 0) { T.rem = 0; finish(); return; }
+    if (at[1] < 10000) audio.chime(0, true);
+    setState('running', true);
+  }
+  /**
+   * Where the wall clock puts a sequence `over` ms after phase i ran out with
+   * nobody watching: [the phase, ms into it, turns made]. Each turn takes its
+   * usual time (one it would still be in the middle of is cut short). Past the
+   * end of the last phase, the ms run on beyond it.
+   */
+  function seqAt(i, over) {
+    var last = 2 * seq.rounds - 1, turns = 0, d;
+    for (;;) {
+      over = Math.max(0, over - SEQ_SETTLE - SEQ_TURN);
+      d = phaseMs(++i); turns++;
+      if (over < d || i === last) return [i, over, turns];
+      over -= d;
+    }
+  }
+  /**
+   * The glass was turned over `turns` times unseen, all its sand run through
+   * each time: the sand rests in the upper bulb again, and whatever belongs
+   * to the glass (its cracks and gold) has turned with it.
+   */
+  function turnedUnseen(turns) {
+    if (turns & 1) sim.completeFlip();
+    var dmg = sim.serializeDamage();
+    sim.reset(sim.total);
+    sim.restoreDamage(dmg);
+  }
+  /** Between two phases, once a frame: the last grain lands, the bowl sounds, then the glass turns itself over. */
+  function seqTurn() {
+    if (flip.active || resetting) return;
+    var t = T.state === 'running' ? Date.now() - seq.gap - SEQ_SETTLE : -1;     // (paused, it waits)
+    if (!reduceMotion) { if (t >= 0) startFlip(true); return; }                 // (as soon as no hand holds the glass)
+    // Reduce Motion: no turn. In the same time the sand fades away below, and returns above.
+    app.classList.toggle('pass', t > SEQ_TURN - 1300);
+    if (t < SEQ_TURN) return;
+    turnedUnseen(1);
+    beginPhase(seq.phase + 1);
+    setState('running', true);
+  }
+  /**
+   * The glass has been turned over: by the sequence itself, a hand, the Flip
+   * button or the phone. Between two phases that begins the next one; after
+   * the end of the last, the sequence starts again from its first glass.
+   */
+  function seqSwapped(next) {
+    if (seq.gap) { beginPhase(seq.phase + 1); return T.state === 'paused' ? 'paused' : 'running'; }
+    if (seq.rest && seq.phase >= 2 * seq.rounds && next === 'running') beginPhase(0);
+    return next;
   }
 
   /* ======================================================================
@@ -370,7 +518,7 @@
   }
 
   function endTurn() {
-    var byHand = rot !== 'script';
+    var byHand = rot !== 'script' || seq.gap > 0;      // (a sequence's own turn is no touch either)
     flip.active = false; flip.dragging = false; flip.spin = 0;
     sim.flipping = false;
     sim.angle = 0;
@@ -381,7 +529,7 @@
     applyBody(0);
     audio.flipEnd();
     buzz(22);
-    setState(flip.swapped ? stateAfterSwap(flip.was, flip.auto) : flip.was, byHand);
+    setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was, byHand);
   }
   /** Turning a glass over starts it, unless you had paused it. */
   function stateAfterSwap(was, auto) {
@@ -393,13 +541,20 @@
    *  The glass as a body
    *
    *  The glass is a real object of the size it appears. Taken by its waist
-   *  it follows the finger on a soft tether and springs home when let go;
-   *  taken by a bulb it turns; flicked, it spins on by itself, slowing as
-   *  its sand is flung outward, and settles upright or inverted. Touch it
-   *  while it moves and it stops under the finger. The sand feels all of
-   *  it: the glass's true on-screen acceleration and turning enter the field
-   *  the simulation steps in (composeField), so a drag sloshes the sand and
-   *  a hard spin pins it to the ends.
+   *  it follows the finger wherever it still fits on the screen; taken by a
+   *  bulb it turns; flicked, it spins on by itself, slowing as its sand is
+   *  flung outward, and settles upright or inverted. Touch it while it
+   *  moves and it stops under the finger. The sand feels all of it: the
+   *  glass's true on-screen acceleration and turning enter the field the
+   *  simulation steps in (composeField), so a drag sloshes the sand and a
+   *  hard spin pins it to the ends.
+   *
+   *  It stands on a desk and lives in a room: the desk is a floor at its
+   *  resting height, the screen's edges are walls. Let go in the air it
+   *  falls under the sand's own slow-motion gravity, lands, bounces a
+   *  little and is centred again; thrown, it flies. Whatever it strikes it
+   *  strikes at some speed, and that blow reaches the glass (sim.impact),
+   *  the sand, the ear and the hand (bodyHit).
    *
    *  One step of this model runs before every physics step (1/120 s).
    *  Offsets are page px from home; angles rad, + = clockwise on screen.
@@ -417,9 +572,14 @@
     dw: 7, dz: 0.9,                  // the detent that sets it down on an end
     turnAt: 0.07,                    // rad (4°): a smaller nudge is not a turn
     zone: 0.15,                      // grabs this near the centre (× its height) move it; farther out turn it
-    reach: 0.22,                     // the tether's reach, × the shorter side of the screen
-    reachReduced: 40,                // px, with Reduce Motion
+    bounce: 0.2,                     // what it keeps of its speed off the desk or an edge of the screen
+    bounceMin: 70,                   // px/s: a slower rebound is no bounce (so two visible ones at most)
+    hitMin: 120,                     // px/s: a slower contact is a touch, not a blow
+    joltK: 0.22, joltV0: 170, joltMax: 200,   // a landing throws the bed up at joltK·(v − joltV0), cells/s
+    joltSide: 300, joltSideMax: 3,   // a blow from the side pushes the sand at v / joltSide g (cells/s per g), 3 g at most
     catchTau: 0.01,                  // s: a finger stops a moving glass this quickly, where it is
+    rideMs: 80,                      // ms: a finger on a spinning bulb may be the next flick: this long to move on with the spin
+    rideAt: 0.03,                    // rad: ... by at least this much; then the glass is carried along, not stopped
     stopW: 0.02, stopV: 2,           // rad/s, px/s: slow enough to count as stopped under the finger
     pivot: 0.03                      // × its height: this close to the centre a finger's angle does not turn it
   };
@@ -431,11 +591,20 @@
     theta: 0,                        // = sim.angle
     w: 0,                            // on-screen rotation rate, rad/s (no jumps at the swaps)
     tx: 0, ty: 0,                    // where the finger pulls it
-    td: 0                            // the end the detent sets it down on
+    td: 0,                           // the end the detent sets it down on
+    air: false,                      // let go in the air and not landed yet: it falls freely, and its sand with it
+    jx: 0, jy: 0, jn: 0,             // what a blow does to the sand: g, page frame, for jn more steps
+    hits: 0, hitV: 0, hitGrade: 0    // blows it has taken; the last one's speed (px/s) and what it did (sim.impact)
   };
+  // The room the glass has, as offsets from home (page px): the desk is a
+  // floor at 0, the screen's edges are the walls (x0 … x1) and the ceiling
+  // (y0). g is the gravity it falls under, px/s²: the sand's own slow-motion
+  // gravity at the size the glass is drawn.
+  var room = { x0: 0, x1: 0, y0: 0, g: 0, px: 1 };
   var rot = 'none';                  // none | held | free | detent | ease | script
   var held = false;                  // a finger holds it by the waist
   var catching = false;              // a finger has just caught it moving and is stopping it
+  var flickPeak = 0;                 // the hardest the sand pressed on the domes during this turn by hand, g
   var inertia0 = 0;                  // the spinning glass's moment of inertia a step ago
   var passBuzzAt = -1e9;
 
@@ -460,8 +629,59 @@
     body.px = body.py = body.vx = body.vy = body.ax = body.ay = 0;
     body.tx = body.ty = 0;
     body.w = 0; body.theta = 0;
+    body.air = false; body.jx = body.jy = 0; body.jn = 0;
     sim.angle = 0;
     syncMode();
+  }
+
+  /** Measure the room (see `room`): once a frame, and whenever the layout changes. */
+  function measureRoom() {
+    var g = sim.geo, zen = app.classList.contains('zen');
+    var s = renderer.scale * (zen ? 1 : Z.k0);            // CSS px per cell on screen
+    var hw = (renderer.frame ? g.capHalf : g.R + g.wall) * s;
+    var hh = (g.HB + (renderer.frame ? 14 : 2) * g.q) * s;
+    var cx = R0.cx + (zen ? 0 : R0.dx), cy = R0.cy + (zen ? 0 : R0.dy);
+    room.x0 = Math.min(0, hw - cx);
+    room.x1 = Math.max(0, window.innerWidth - hw - cx);
+    room.y0 = Math.min(0, hh - cy);
+    room.g = sim.G * s;
+    room.px = s;
+  }
+
+  /**
+   * The glass has struck the desk or an edge of the screen at v px/s, the
+   * speed straight into it; (nx, ny) points from the glass to what it hit
+   * (page frame). The glass takes the blow where it hit (sim.impact: a
+   * clink, a creak, a crack or a breach, by the speed); the sand feels it
+   * through the field it already steps in (a landing throws the bed up, so
+   * it jumps and lands; a blow from the side pushes it over), bounded so
+   * that a small set-down stays calm; and it is heard and felt, scaled by
+   * the speed. With Reduce Motion the sand is left alone.
+   */
+  function bodyHit(nx, ny, v) {
+    var rho = sim.angle + grav.base, c = Math.cos(rho), s = Math.sin(rho);
+    var grade = sim.impact(nx * c + ny * s, -nx * s + ny * c, v);
+    body.hits++; body.hitV = v; body.hitGrade = grade;
+    if (!reduceMotion) {
+      var vc = v / room.px, G = sim.G, a;
+      if (ny !== 0) {
+        // the bed leaves its seat at u cells/s after two steps of this pull
+        var u = BODY.joltK * (vc - BODY.joltV0);
+        if (u > BODY.joltMax) u = BODY.joltMax;
+        if (u > 0) { body.jx = 0; body.jy = -(1.05 + u / (2 * DT * G)); body.jn = 2; }
+      } else {
+        a = vc / BODY.joltSide;
+        if (a > BODY.joltSideMax) a = BODY.joltSideMax;
+        if (a > 0.3) { body.jx = nx * a; body.jy = 0; body.jn = 4; }
+      }
+      sim.wakeAll();
+    }
+    // the base on the desk (or the frame on the screen's edge), and the glass answering
+    var k = v / 1800;
+    audio.thump(k * k, 0.8 * nx, sim.nTop >= sim.nBottom ? 0 : 1);
+    if (v > 300) { k = (v - 250) / 1700; audio.clack(k * k, 0.8 * nx); }
+    if (v > 300) buzz(grade ? 16 : 8);
+    lastMotionAt = performance.now();
   }
 
   /** How far a spin at w rad/s coasts before friction stops it (rad, signed): the exact distance. */
@@ -496,7 +716,9 @@
 
   /** One step of the glass as a body: where it is, how it is turned. */
   function stepBody(dt) {
-    var ax = 0, ay = 0, k, c;
+    var ax = 0, ay = 0, k, c, v, e, hx = false, hy = false, vx0 = body.vx, vy0 = body.vy;
+    var flying = false;
+    if (body.jn > 0 && --body.jn === 0) body.jx = body.jy = 0;   // (a blow's push on the sand has been felt)
     if (held && catching) {
       // Caught on its way home: the finger's grip slips over the glass until
       // it has stopped it, so it stops where it is, with nothing to pull it
@@ -507,19 +729,61 @@
       k = BODY.fw; c = 2 * (reduceMotion ? 1 : BODY.fz) * k;
       ax = k * k * (body.tx - body.px) - c * body.vx;
       ay = k * k * (body.ty - body.py) - c * body.vy;
-    } else if (body.px || body.py || body.vx || body.vy) {
-      k = BODY.hw; c = 2 * (reduceMotion ? 1 : BODY.hz) * k;
+    } else if (reduceMotion) {
+      // Reduce Motion: let go, it glides home as it always did (no fall, no sway)
+      if (body.px || body.py || body.vx || body.vy) {
+        k = BODY.hw; c = 2 * k;
+        ax = -k * k * body.px - c * body.vx;
+        ay = -k * k * body.py - c * body.vy;
+      }
+    } else if (body.py < 0 || body.vy < 0) {
+      ay = room.g;                                        // in the air: it falls (and flies on, if it was thrown)
+      flying = true;
+    } else if (body.px || body.vx) {
+      k = BODY.hw; c = 2 * BODY.hz * k;                   // on the desk: the home spring centres it
       ax = -k * k * body.px - c * body.vx;
-      ay = -k * k * body.py - c * body.vy;
     }
+    if (!flying) body.air = false;
+    // Against the desk or an edge, a push into it moves nothing (the finger
+    // slides on); only arriving at speed is a blow.
+    if (body.py >= 0 && ay > 0 && body.vy >= 0) { ay = 0; body.vy = 0; }
+    if (body.py <= room.y0 && ay < 0 && body.vy <= 0) { ay = 0; body.vy = 0; }
+    if (body.px >= room.x1 && ax > 0 && body.vx >= 0) { ax = 0; body.vx = 0; }
+    if (body.px <= room.x0 && ax < 0 && body.vx <= 0) { ax = 0; body.vx = 0; }
     body.vx += ax * dt; body.vy += ay * dt;
     body.px += body.vx * dt; body.py += body.vy * dt;
-    body.ax = ax; body.ay = ay;
+    // A hand sets it down dead; let go, it keeps a fifth of its speed, while that is still a bounce.
+    e = held || reduceMotion ? 0 : BODY.bounce;
+    if (body.py > 0) {
+      v = body.vy; body.py = 0;
+      body.vy = v * e > BODY.bounceMin ? -v * e : 0;
+      body.air = false;
+      if (v > BODY.hitMin) { bodyHit(0, 1, v); hy = true; }
+    } else if (body.py < room.y0) {
+      v = -body.vy; body.py = room.y0;
+      body.vy = v * e > BODY.bounceMin ? v * e : 0;
+      if (v > BODY.hitMin) { bodyHit(0, -1, v); hy = true; }
+    }
+    if (body.px > room.x1) {
+      v = body.vx; body.px = room.x1;
+      body.vx = v * e > BODY.bounceMin ? -v * e : 0;
+      if (v > BODY.hitMin) { bodyHit(1, 0, v); hx = true; }
+    } else if (body.px < room.x0) {
+      v = -body.vx; body.px = room.x0;
+      body.vx = v * e > BODY.bounceMin ? v * e : 0;
+      if (v > BODY.hitMin) { bodyHit(-1, 0, v); hx = true; }
+    }
+    // What the sand feels of this at the glass's true size: its acceleration
+    // as it really moved (a blow's own share comes through bodyHit instead,
+    // and free fall is felt at the sand's scale: see composeField).
+    body.ax = hx ? 0 : (body.vx - vx0) / dt;
+    body.ay = hy || flying ? 0 : (body.vy - vy0) / dt;
     if (!held && body.px * body.px + body.py * body.py < 0.25 &&
         body.vx * body.vx + body.vy * body.vy < 25) {
       body.px = body.py = body.vx = body.vy = 0;          // home, to within half a pixel
     }
     if (held && catching && body.vx * body.vx + body.vy * body.vy < BODY.stopV * BODY.stopV) regrip();
+    if (grab && grab.ride && performance.now() > grab.ride) stopRide(grab);     // it was no flick: the finger stops it
     if (rot !== 'none') turnStep(dt);
     syncMode();
   }
@@ -565,6 +829,8 @@
       w += a * dt;
       if (w > wm) w = wm; else if (w < -wm) w = -wm;
       th += w * dt;
+      a = lamNow * w * w * sim.geo.HB / sim.G;        // how hard this presses the sand on the domes, g
+      if (a > flickPeak) flickPeak = a;
     } else if (rot === 'free') {
       // coasting: drag, plus a little dry friction ...
       w += (-w / BODY.tau - (w > 0 ? BODY.mu : -BODY.mu)) * dt;
@@ -644,8 +910,11 @@
       }
       mw = tw + wf;
     }
-    // the glass accelerating one way pushes its sand the other (g, page frame)
-    var fx = mx - K_DRAG * KPX * body.ax, fy = my - K_DRAG * KPX * body.ay;
+    // the glass accelerating one way pushes its sand the other (g, page frame);
+    // a blow pushes it for a moment more (bodyHit), and while the glass falls
+    // freely its sand falls with it, all but weightless
+    var fx = mx - K_DRAG * KPX * body.ax + body.jx, fy = my - K_DRAG * KPX * body.ay + body.jy;
+    if (body.air) fy -= 0.9;
     var G = sim.G;
     var w = body.w + mw;
     alLP += ((w - wPrev) / DT - alLP) * ALPHA_K;
@@ -662,7 +931,7 @@
 
   function handlePour(now, dtMs) {
     pour.active = false;
-    if (!(pour.held || now < pour.until) || flip.active || resetting) return;
+    if (!(pour.held || now < pour.until) || flip.active || resetting || seq.gap) return;
     pour.acc += POUR_RATE * Math.min(dtMs, 50) / 1000;
     var n = pour.acc | 0;
     if (!n) { pour.active = true; return; }
@@ -783,7 +1052,7 @@
     T.rem = there;
     applyBody(0);
     buzz(18);
-    setState(stateAfterSwap(was, false), true);       // the phone turned over: not a touch
+    setState(seqSwapped(stateAfterSwap(was, false)), true);   // the phone turned over: not a touch
   }
 
   var tiltOver = 0;
@@ -850,6 +1119,7 @@
     if (dtMs <= 0) return;
 
     tickClock();
+    if (seq.gap) seqTurn();
     if (grav.on) {
       var hd = motion.heading;
       if (hd === hd && hd !== Infinity && hd !== -Infinity) grav.target = hd;   // finite: known
@@ -891,9 +1161,11 @@
     // backlog drains as a slightly thicker thread, never as a clump.
     var motionRecent = motionRecentNow = now - lastMotionAt < 2000;
     sim.relCap = motionRecent ?T.rate * DT * (3 + 20 * Math.max(0, 1 - (T.rem - T.tailMs) / 5000)) : 0;
-    // only sustained, very hard real shaking can crack the glass
+    // only sustained, hard real shaking of the phone can crack the glass; its swings count
+    // whichever way it is shaken (motion.js counts them from all three axes)
     sim.damageArmed = grav.on && motion.armed && !reduceMotion;
-    sim.spinArmed = !reduceMotion && (rot === 'free' || rot === 'held' || rot === 'detent');   // spun by hand
+    if (grav.on) sim.shake(motion.takeSwings());
+    sim.spinArmed = rot === 'free' || rot === 'held' || rot === 'detent';   // spun by hand
     sim.reduced = reduceMotion;
     // the rotational terms at the glass's true size on screen
     lamNow = renderer.scale * zoomK() * kfNow * MM_PER_PX * 1e-3 * sim.G / 9.81;
@@ -946,7 +1218,7 @@
     if (flip.active) {
       var f = Math.min(1, Math.abs(sim.angle) / Math.PI);
       f = f * f * (3 - 2 * f);
-      flip.shown = T.rem + (remAt(sim.total - sim.nTop) - T.rem) * f;
+      flip.shown = T.rem + ((seq.gap ? phaseMs(seq.phase + 1) : remAt(sim.total - sim.nTop)) - T.rem) * f;
     }
     renderer.drawGlass(sim.angle + sim.tilt);            // reflections follow the room, not the glass
     renderer.syncDamage(sim.angle + sim.tilt, now);      // cracks glint as the glass turns
@@ -977,6 +1249,7 @@
   /** Place, turn and scale the glass on screen, once a frame. */
   function applyBody(dtMs) {
     zkNow = app.classList.contains('zen') ? 1 : Z.k0;
+    measureRoom();
     var th = sim.angle, w = body.w < 0 ? -body.w : body.w, total = th + grav.base;
     var r = total ? 'rotate(' + total.toFixed(4) + 'rad)' : '';
     if (r !== shownRot) { rotor.style.transform = r; shownRot = r; }
@@ -1021,6 +1294,8 @@
     return st;
   }
   function hasOpenCrack() { return crackState() === 'cracked'; }
+  /** True when lattice bulb `b` (0 above the neck) is the lower one on screen as the glass stands. */
+  function lowOnScreen(b) { return (b === 1) !== (grav.base !== 0); }
 
   /**
    * What happened to the glass since the last look: creaks before a crack,
@@ -1033,14 +1308,22 @@
     for (var e = dmgSeen; e < n; e++) {
       var type = f.dmgType[e], k = f.dmgK[e], lv = f.dmgLevel[e], x = f.dmgX[e];
       renderer.damageEvent(type, k, lv, now);
-      if (type === DMG.WARN) audio.creak(lv, x);
+      if (type === DMG.WARN) {
+        audio.creak(lv, x); buzz(6);
+        // the first creak a finger causes: say once what it means (a shaken phone is told in Tune)
+        if (!settings.hintCrack && !sim.damageArmed) {
+          settings.hintCrack = true; save();
+          var ws = sim.segInfo(sim.warnSeg);
+          toast('Careful: the glass can crack', 3200, lowOnScreen(ws ? ws.bulb : 0));
+        }
+      }
       else if (type === DMG.CRACK) {
         audio.crack(x);
         audio.setCracked('cracked');
         buzz([8, 40, 18]);
-        if (!settings.hintMend) {
-          settings.hintMend = true; save();
-          toast('The glass cracked · hold it still to mend', 4200);
+        if (settings.mendNotes < 3) {
+          settings.mendNotes++; save();
+          toast('The glass cracked · hold it still to mend', 4200, lowOnScreen(sim.cracks[k] ? sim.cracks[k].bulb : 0));
         }
         keep = true;
       } else if (type === DMG.GROW) audio.crackGrow(x);
@@ -1229,9 +1512,10 @@
       else rise();
     }
     // Playing with the glass never brings the controls back; only the Flip
-    // button's turn (which a tap on the button started) does.
+    // button's turn (which a tap on the button started) does. A sequence's
+    // own turn between two phases does not either.
     var zen = hold || zenForced || (T.state === 'running' && !sheetOpen && !pour.held &&
-              !(flip.active && flip.mode === 'script') && now - lastInput > 4000);
+              !(flip.active && flip.mode === 'script' && !seq.gap) && now - lastInput > 4000);
     if (zen !== app.classList.contains('zen')) { app.classList.toggle('zen', zen); applyZoom(); }
     // settled: once fully dim, stop re-blurring the panel and stop taking taps on the controls
     var on = app.classList.contains('zen');          // read the class: the moon button sets it directly
@@ -1254,6 +1538,95 @@
         if (p && p.catch) p.catch(function () {});
       } catch (e) {}
     }
+  }
+
+  /* ======================================================================
+   *  Breathing pace
+   *
+   *  While the sand runs, the light behind the glass swells through the
+   *  in-breath, holds, and fades through the out-breath. Each part of a
+   *  breath is one transition of the layer's opacity and scale (styles.css,
+   *  #breath), so the compositor does the breathing and no script runs
+   *  between the parts: a timer only begins the next one. Which part it is
+   *  comes from the wall clock every time, never from counting, so a late
+   *  timer, a slow frame or a sleeping phone cannot shift a breath.
+   * ==================================================================== */
+  var BREATHS = {                    // ms: in, hold, out, hold
+    calm: [4000, 0, 6000, 0],        // six breaths a minute
+    box: [4000, 4000, 4000, 4000],
+    deep: [4000, 7000, 8000, 0]
+  };
+  // (a damaged setting may name anything: "constructor" is not a pattern)
+  if (!Object.prototype.hasOwnProperty.call(BREATHS, settings.breathPattern)) settings.breathPattern = 'calm';
+  var breathEl = $('breath');
+  var breath = { on: false, t0: 0, n: NaN, timer: 0 };   // t0: when this run of breaths began (Date.now())
+
+  /**
+   * Begin the part of the breath the clock says it is in, and wait for the
+   * next. `back`: the page was away, so the glow is put exactly where the
+   * clock says, whatever its transitions did meanwhile.
+   */
+  function breathStep(back) {
+    clearTimeout(breath.timer);
+    if (!breath.on || document.hidden) return;         // (no timers while away)
+    var p = BREATHS[settings.breathPattern], cycle = p[0] + p[1] + p[2] + p[3];
+    var e = Date.now() - breath.t0, c = Math.floor(e / cycle), i = 0;
+    e -= c * cycle;
+    while (e >= p[i]) { e -= p[i]; i++; }              // 0 in, 1 held full, 2 out, 3 held at rest
+    if (back === true || 4 * c + i !== breath.n) {
+      breath.n = 4 * c + i;
+      var cl = breathEl.classList, st = breathEl.style, from = i === 1 || i === 2, to = i < 2;
+      if (back === true || e > 300 || cl.contains('in') !== from) {
+        // not straight from the part before: start from where this part starts
+        st.transition = 'none';
+        cl.toggle('in', from);
+        void getComputedStyle(breathEl).opacity;       // (styles only, no layout)
+      }
+      st.transition = '';
+      if (to !== from) {
+        // late by e ms: the transition is entered that far in, and still ends on time
+        st.transitionDuration = p[i] + 'ms';
+        st.transitionDelay = -e + 'ms';
+        cl.toggle('in', to);
+      }
+    }
+    breath.timer = setTimeout(breathStep, p[i] - e);
+  }
+  /**
+   * Stop the glow where it is, so that what comes next starts from there and
+   * takes its own full time (a transition turned round in mid-air would
+   * otherwise be cut short by the browser).
+   */
+  function breathHold() {
+    var st = breathEl.style, cs = getComputedStyle(breathEl), o = cs.opacity, tf = cs.transform;
+    st.transition = 'none'; st.opacity = o; st.transform = tf;
+    void cs.opacity;
+    st.transition = st.opacity = st.transform = '';
+  }
+  /** From rest a breath begins by swelling; a new pattern chosen mid-breath goes on from where the glow is. */
+  function breathBegin() {
+    var p = BREATHS[settings.breathPattern];
+    breathHold();
+    breath.t0 = Date.now() - (breathEl.classList.contains('in') ? p[0] + p[1] : 0);
+    breath.n = NaN;
+    breathStep();
+  }
+  /** Breathing only while the sand is running; otherwise the glow eases back to rest. */
+  function breathSync() {
+    var want = settings.breath && T.state === 'running';
+    if (want === breath.on) return;
+    breath.on = want;
+    if (want) breathBegin();
+    else {
+      clearTimeout(breath.timer);
+      breathHold();
+      breathEl.classList.remove('in');                 // the stylesheet's own transition: slowly back
+    }
+  }
+  /** The layer exists only while the switch is on (at rest it is clear). */
+  function breathLayer(on) {
+    breathEl.hidden = !on;
+    if (on) void getComputedStyle(breathEl).opacity;   // its resting style, before it first swells
   }
 
   /* ======================================================================
@@ -1304,6 +1677,7 @@
     Z.k0 = k0;
     Z.normal = 'translate(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px) scale(' + k0.toFixed(4) + ')';
     R0.width = r.width; R0.height = r.height; R0.scale = r.scale;
+    R0.cx = Math.round(x) + r.width / 2; R0.cy = Math.round(y) + r.height / 2; R0.dx = dx; R0.dy = dy;
     // The desk the spilled sand lands on: the base slab's lower edge (or the
     // glass's own tip without the frame). Its canvas lives in the zoom, not
     // in the glass, so the dune stays on the desk however the glass moves.
@@ -1364,8 +1738,15 @@
   }
 
   var toastTimer = 0;
-  function toast(msg, ms) {
+  /** `high`: show it up under the readout (a note about the glass must not cover the spot it is about). */
+  function toast(msg, ms, high) {
     toastEl.textContent = msg;
+    // Said while Tune is open, it would lie on the rows it is about: there it
+    // sits in the sheet's head, just above them (and goes when the sheet goes).
+    var y = sheetOpen === sheetSettings ? sheetSettings.offsetTop + sheetSettings.querySelector('.sheet-body').offsetTop - 4 : 0;
+    toastEl.classList.toggle('high', y > 0);
+    toastEl.style.bottom = y > 0 ? 'calc(100% - ' + y + 'px)' : '';
+    toastEl.classList.toggle('up', !!high && !(y > 0));
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, ms || 2200);
@@ -1430,6 +1811,7 @@
       };
       var dmg = sim.serializeDamage();
       if (dmg) s.damage = dmg;
+      if (seq.rest) s.seq = [seq.rest, seq.rounds, seq.phase];
       localStorage.setItem(SKEY, JSON.stringify(s));
     } catch (e) {}
   }
@@ -1438,18 +1820,33 @@
     try { s = JSON.parse(localStorage.getItem(SKEY) || 'null'); } catch (e) { return false; }
     if (!s || s.v !== 1 || qt) return false;
     var away = Date.now() - s.at;
-    if (!(away >= 0) || away > 6 * 3600000) return false;
+    if (!(away >= 0) || away > 6 * 3600000 + (seq.rest ? seq.rounds * (T.durationMs + seq.rest) : 0)) return false;   // (a sequence may run long)
     if (s.durationMs !== T.durationMs || s.scale !== sim.geo.q) return false;   // a different glass
     if (!(s.total > 0) || s.total > sim.maxTotal || !(s.mpg > 0) || !(s.tailMs > 0)) return false;
-    var rem = +s.rem || 0, state = s.state;
-    if (state === 'running') { rem -= away; if (rem <= 0) { rem = 0; state = 'done'; } }
+    var q = Array.isArray(s.seq) ? s.seq : [0, 1, 0];
+    if (q[0] !== seq.rest || q[1] !== seq.rounds) return false;                  // a different sequence
+    var rem = +s.rem || 0, state = s.state, ph = Math.max(0, Math.min(2 * seq.rounds, q[2] | 0)), at = null, ago = away;
+    if (state === 'running') {
+      rem -= away;
+      if (rem <= 0 && seq.rest) {
+        if (ph < 2 * seq.rounds - 1) {
+          at = seqAt(ph, -rem);                        // phases ran out while away: on to where the clock is now
+          ph = at[0]; rem = phaseMs(ph) - at[1];
+        }
+        ago = -rem;                                    // (a sequence runs for hours: how long ago it ended, if it has)
+      }
+      if (rem <= 0) { rem = 0; state = 'done'; if (seq.rest) ph = 2 * seq.rounds; }
+    }
     T.lastTick = Date.now();                           // the clock goes on from this moment
     if (state !== 'running' && state !== 'paused' && state !== 'done') return false;
-    if (state === 'done' && away > 3600000) return false;                       // long finished: start fresh
+    if (state === 'done' && ago > 3600000) return false;                        // long finished: start fresh
     sim.reset(s.total);
     sim.restoreDamage(s.damage);                         // an older session has none: the glass stays whole
     T.mpg = s.mpg; T.tailMs = s.tailMs; T.tailGrains = s.tailGrains; T.rate = 1000 / T.mpg;
     T.mpg0 = s.mpg0 > 0 ? s.mpg0 : s.mpg;
+    seq.phase = ph;
+    if (at) { turnedUnseen(at[2]); calibrate(phaseMs(at[0]), sim.nTop); }
+    else if (state === 'paused' && rem <= 0 && seq.rest && ph < 2 * seq.rounds - 1) seq.gap = Date.now();   // left between two phases
     T.rem = rem;
     var top = state === 'done' ? 0
             : (state === 'paused' ? Math.min(sim.nTop, s.top | 0) : Math.ceil(topAt(rem)));
@@ -1506,9 +1903,9 @@
       kind: 'press',               // press → move | turn; none: only ever a tap
       far: 0,                      // farthest the finger has strayed (px²)
       caught: false, mendable: false,
+      ride: 0, rideD: 0,           // riding a spin that may be flicked on: until when, and how far the finger has turned
       lx: e.clientX, ly: e.clientY,                // where the finger is now
-      fx: 0, fy: 0, p0x: 0, p0y: 0, last: 0,
-      pt: e.pointerType, pm: e.pressure || 0, am: (e.width || 0) * (e.height || 0)   // how hard it pressed
+      fx: 0, fy: 0, p0x: 0, p0y: 0, last: 0
     };
     try { stage.setPointerCapture(e.pointerId); } catch (err) {}
     if (!g.inside || sheetOpen || resetting || (flip.active && flip.mode === 'script')) { g.kind = 'none'; return; }
@@ -1520,8 +1917,6 @@
     if (!g || e.pointerId !== g.id) return;
     var dx = e.clientX - g.x, dy = e.clientY - g.y, d2 = dx * dx + dy * dy;
     if (d2 > g.far) g.far = d2;
-    if (e.pressure > g.pm) g.pm = e.pressure;
-    if ((e.width || 0) * (e.height || 0) > g.am) g.am = e.width * e.height;
     g.lx = e.clientX; g.ly = e.clientY;
     if (g.kind === 'move') { tether(g, e.clientX, e.clientY); return; }
     if (g.kind === 'turn') { turnTo(g, e.clientX, e.clientY); return; }
@@ -1546,39 +1941,55 @@
     var dur = performance.now() - g.t;
     if (g.caught || (g.kind !== 'press' && g.kind !== 'none') || g.far > 196 || dur > 700) return;
     if (dur > MEND_WAIT && hasOpenCrack()) return;
-    if (g.defer) { wake(); return; }               // dimmed: a tap only brings the controls back
+    if (g.defer) {
+      // dimmed: a tap brings the controls back and never starts or pauses,
+      // but the glass still feels it as a knock
+      wake();
+      if (g.kind === 'press' && !sheetOpen && !flip.active) { audio.tap(); knock(g); }
+      return;
+    }
     if (g.zen || g.kind !== 'press' || sheetOpen || !g.inside || flip.active) return;
     audio.tap();                       // fingertip on glass
     if (knock(g)) return;              // one of a quick burst: a knock, not a start or pause
+    knockUndo = T.state;
     toggle();
   }
   /*
-   * Knocking. Quick taps or clicks on the glass land harder and harder; the
-   * first of a burst still starts or pauses it, the rest only knock. Where
-   * the device says how hard the finger pressed (a pencil, 3D Touch) or how
-   * broad its touch was, that counts too. A burst of hard knocks creaks,
-   * then cracks the glass where it is struck.
+   * Knocking. Taps or clicks on the glass less than 0.6 s apart are a burst
+   * of knocks. The first of a burst starts or pauses the glass like any
+   * tap, and the second takes that back (it was a knock all along); the
+   * rest only knock. Knocks that come fast, less than 0.4 s apart, land
+   * harder and harder: 0.6, 0.8, 1.0, then 1.2 each; at two a second or
+   * slower they stay ordinary taps however long they go on. A few hard
+   * knocks near one place creak, then crack the glass where it is struck
+   * (sim.knock). How hard or how broadly the finger pressed is not asked:
+   * what a phone reports for it differs too much to tell a hard tap from a
+   * soft one.
    */
-  var knockAt = 0, knockRun = 0, touchArea = 0;
+  var KNOCK = { gap: 600, fast: 400 };           // ms
+  var knockAt = -1e9, knockRun = 0, knockUndo = null;     // (never "quick" for the first tap after the page opens)
   function knock(g) {
-    var now = performance.now(), quick = now - knockAt < 450;
+    var now = performance.now(), gap = now - knockAt, quick = gap < KNOCK.gap;
     knockAt = now;
-    knockRun = quick ? knockRun + 1 : 0;
-    var s = 0.55 + 0.17 * Math.min(knockRun, 4);
-    if (g.pt === 'pen' || (g.pm > 0 && g.pm !== 0.5)) s *= 0.5 + g.pm;
-    else if (g.pt === 'touch' && g.am > 1) {
-      touchArea = touchArea ? touchArea + (g.am - touchArea) * 0.2 : g.am;
-      var k = Math.sqrt(g.am / touchArea);
-      s *= k < 0.8 ? 0.8 : (k > 1.4 ? 1.4 : k);
-    }
+    knockRun = !quick ? 0 : (gap < KNOCK.fast ? knockRun + 1 : knockRun);
+    if (quick && knockUndo !== null) untoggle(knockUndo);
+    knockUndo = null;
+    var s = 0.6 + 0.2 * Math.min(knockRun, 3);
     if (sim.angle === 0) {
       var r = $('c-sand').getBoundingClientRect();     // the lattice, upright on screen
       var lx = (g.x - r.left) / r.width * sim.W, ly = (g.y - r.top) / r.height * sim.H;
       if (grav.base) { lx = sim.W - lx; ly = sim.H - ly; }
       sim.knock(lx, ly, s);
+      drainDamage(now);                // its creak or crack is heard and felt now, inside the tap
     }
     if (quick) buzz(8);
     return quick;
+  }
+  /** The tap that began a burst of knocks started or paused the glass: quietly take that back. */
+  function untoggle(was) {
+    if (flip.active || resetting || T.state === was) return;
+    if (was === 'running' && T.state === 'paused') setState('running', true);
+    else if ((was === 'paused' || was === 'idle') && T.state === 'running') { setState(was, true); audio.hush(); }
   }
   stage.addEventListener('pointerup', stageRelease);
   stage.addEventListener('pointercancel', stageRelease);
@@ -1592,15 +2003,12 @@
     syncMode();
   }
   /**
-   * Tie the tether from where the glass and the finger are now. A glass
-   * already out on the rubber band is tied at the pull that holds it just
-   * there, so the first small move of the finger never makes it jump.
+   * The finger takes hold from where the glass and the finger are now, so
+   * the first small move of the finger never makes the glass jump.
    */
   function anchorMove(g) {
-    var r = Math.sqrt(body.px * body.px + body.py * body.py), h = reach() / 2;
-    var k = r > h ? unband(r, h) / r : 1;
     g.fx = g.lx; g.fy = g.ly;
-    g.p0x = body.px * k; g.p0y = body.py * k;
+    g.p0x = body.px; g.p0y = body.py;
     body.tx = body.px; body.ty = body.py;
   }
   /** Take the glass by a bulb: it turns after the finger from the angle it is at now. */
@@ -1608,6 +2016,7 @@
     g.kind = 'turn';
     g.last = Math.atan2(y - g.cy, x - g.cx);
     flip.grabAngle = sim.angle;
+    flickPeak = 0;
     rot = 'held';
     syncMode();
   }
@@ -1617,37 +2026,55 @@
    * stopped (regrip), as a turn or a move.
    */
   function catchBody(g, x, y) {
-    var rx = x - g.cx, ry = y - g.cy;
+    var rx = x - g.cx, ry = y - g.cy, out = Math.sqrt(rx * rx + ry * ry) > g.h * BODY.zone;
     var turning = rot === 'free' || rot === 'detent' || rot === 'ease' || body.w > 0.5 || body.w < -0.5;
     g.caught = true;
-    if (turning || Math.sqrt(rx * rx + ry * ry) > g.h * BODY.zone) holdTurn(g, x, y);
+    if (rot === 'free' && out && !reduceMotion) {
+      // A finger on a bulb of a spinning glass may be the next flick. The
+      // glass spins on for a moment: if the finger moves on with the spin it
+      // is carried along (rideOn), so flick on flick builds speed; if not,
+      // the finger stops it as it always did (stopRide).
+      g.kind = 'turn';
+      g.last = Math.atan2(ry, rx);
+      g.ride = performance.now() + BODY.rideMs; g.rideD = 0;
+      return;
+    }
+    if (turning || out) holdTurn(g, x, y);
     else holdMove(g, x, y);
     catching = true;
     audio.catchThud();
     buzz(10);
   }
-  function tanh(v) {
-    var e = Math.exp(-2 * (v < 0 ? -v : v)), t = (1 - e) / (1 + e);
-    return v < 0 ? -t : t;
+  /** The finger moved on with the spin: it takes the glass at the speed it has (no brake). */
+  function rideOn(g) {
+    g.ride = 0;
+    flickPeak = 0;
+    // a hand that turns the glass leads it by 2ζ/ω of its speed: start from there, so nothing jerks
+    flip.grabAngle = sim.angle + body.w * 2 * BODY.tz / BODY.tw;
+    rot = 'held';
+    syncMode();
+    buzz(6);
   }
-  /** The tether's reach in px: about a fifth of the screen (less with Reduce Motion). */
-  function reach() {
-    return reduceMotion ? BODY.reachReduced : BODY.reach * Math.min(window.innerWidth, window.innerHeight);
+  /** It was no flick (the finger stayed, went the other way or left): the finger stops the glass where it is. */
+  function stopRide(g) {
+    g.ride = 0;
+    if (rot !== 'free' && rot !== 'detent') return;
+    flip.grabAngle = sim.angle;
+    flickPeak = 0;
+    rot = 'held';
+    catching = true;
+    syncMode();
+    audio.catchThud();
+    buzz(10);
   }
-  /** The rubber band: a pull of r px holds the glass this far out (one to one up to h, then softly less). */
-  function band(r, h) { return r > h ? h + h * tanh((r - h) / h) : r; }
-  /** ... and the pull that holds it at r px (r below 2h, which it never quite reaches). */
-  function unband(r, h) {
-    if (r <= h) return r;
-    var u = (r - h) / h;
-    if (u > 0.999) u = 0.999;
-    return h + h * 0.5 * Math.log((1 + u) / (1 - u));
-  }
-  /** Where the finger pulls the glass: one to one near home, then a soft rubber band. */
+  /**
+   * Where the finger pulls the glass: one to one, wherever the finger goes.
+   * The desk and the screen's edges stop the glass itself (stepBody); the
+   * finger may go on past them, and how fast it drove the glass into them
+   * is how hard the blow is.
+   */
   function tether(g, x, y) {
-    var rx = g.p0x + x - g.fx, ry = g.p0y + y - g.fy, r = Math.sqrt(rx * rx + ry * ry);
-    var h = reach() / 2, k = r > h ? band(r, h) / r : 1;
-    body.tx = rx * k; body.ty = ry * k;
+    body.tx = g.p0x + x - g.fx; body.ty = g.p0y + y - g.fy;
   }
   /** The finger's angle about the glass, unwrapped, adds to where the glass is turned to. */
   function turnTo(g, x, y) {
@@ -1659,18 +2086,38 @@
     // a glass caught at its waist stays put under a resting finger.
     var r = Math.sqrt(dx * dx + dy * dy), r0 = BODY.pivot * g.h;
     if (r < 2 * r0) d *= r > r0 ? (r - r0) / r0 : 0;
+    if (g.ride) {
+      // still spinning free under the finger: is this the next flick?
+      g.rideD += d;
+      if (g.rideD * body.w > BODY.rideAt * (body.w < 0 ? -body.w : body.w)) rideOn(g);
+      else if (g.rideD * body.w < -BODY.rideAt * (body.w < 0 ? -body.w : body.w)) stopRide(g);
+      return;
+    }
     flip.grabAngle += d;
   }
   /**
-   * Let go. A moved glass springs home. A turned one spins on if it was
-   * flung (not with Reduce Motion, which keeps the old eased release), or
-   * settles on the end it was heading for. `cancel`: the gesture was cut
-   * short (the page hid, the screen turned), so it settles without a spin.
+   * Let go. A moved glass falls to the desk from where it is (with the
+   * speed the hand gave it) and is centred again; with Reduce Motion it
+   * glides home. A turned one spins on if it was flung (not with Reduce
+   * Motion, which keeps the old eased release), or settles on the end it
+   * was heading for. `cancel`: the gesture was cut short (the page hid, the
+   * screen turned), so it settles without a spin.
    */
   function letGo(g, cancel) {
     catching = false;                  // (lifted while still braking it: it carries on from here)
-    if (g.kind === 'move') { held = false; syncMode(); }
-    else if (g.kind === 'turn' && rot === 'held') {
+    if (g.kind === 'move') {
+      held = false;
+      body.air = !reduceMotion && (body.py < -1 || body.vy < -BODY.bounceMin);
+      syncMode();
+    }
+    if (g.ride) { stopRide(g); body.w = 0; catching = false; }   // a touch too brief to tell: it stopped the glass
+    if (g.kind === 'turn' && rot === 'held') {
+      // A flick presses the sand on the domes: the harder it was, the more
+      // the glass keeps of it. (Its peak counts, but no more than half again
+      // what it was let go at: a jerk in the middle of a slow turn is no flick.)
+      var gOut = 1.5 * lamNow * body.w * body.w * sim.geo.HB / sim.G;
+      if (!cancel && sim.flick(flickPeak < gOut ? flickPeak : gOut) > 0) drainDamage(performance.now());
+      flickPeak = 0;
       if (reduceMotion) releaseTurn();
       else if (!cancel && (body.w > BODY.wFree || body.w < -BODY.wFree)) { rot = 'free'; inertia0 = inertia(); }
       else enterDetent();
@@ -1758,12 +2205,31 @@
   function syncPills() {
     var pills = durations.querySelectorAll('.pill[data-min]'), hit = false;
     for (var i = 0; i < pills.length; i++) {
-      var on = +pills[i].dataset.min * 60000 === T.durationMs;
+      var on = !seq.rest && +pills[i].dataset.min * 60000 === T.durationMs;
       pills[i].setAttribute('aria-checked', on ? 'true' : 'false');
       if (on) hit = true;
     }
     pillCustom.setAttribute('aria-pressed', hit ? 'false' : 'true');
-    customLabel.textContent = hit ? 'Custom' : fmt(T.durationMs)[0];
+    customLabel.textContent = hit ? 'Custom' : (seq.rest ? seqBrief(T.durationMs, seq.rest, seq.rounds) : fmt(T.durationMs)[0]);
+    pillCustom.setAttribute('aria-label', 'Custom duration' + (seq.rest ? ': ' + seqSpoken(T.durationMs, seq.rest, seq.rounds) : ''));
+    pillCustom.classList.toggle('seq', seq.rest > 0);
+    pillCustom.classList.toggle('long', customLabel.textContent.length > 9);
+  }
+  /** A sequence in a few characters, for the Custom pill: "25·5 ×4" (minutes; with seconds, "1:30·5"). */
+  function seqBrief(work, rest, rounds) {
+    function brief(ms) { return ms % 60000 ? Math.floor(ms / 60000) + ':' + pad2(Math.round(ms / 1000) % 60) : '' + ms / 60000; }
+    return brief(work) + '·' + brief(rest) + (rounds > 1 ? ' ×' + rounds : '');
+  }
+  /** ... and in words, for screen readers: "25 minutes, then rest 5 minutes, 4 rounds". */
+  function seqSpoken(work, rest, rounds) {
+    function say(ms) {
+      var sec = Math.round(ms / 1000), m = Math.floor(sec / 60), out = [];
+      sec %= 60;
+      if (m) out.push(m + (m === 1 ? ' minute' : ' minutes'));
+      if (sec || !m) out.push(sec + (sec === 1 ? ' second' : ' seconds'));
+      return out.join(' ');
+    }
+    return say(work) + ', then rest ' + say(rest) + (rounds > 1 ? ', ' + rounds + ' rounds' : '');
   }
   durations.addEventListener('click', function (e) {
     var pill = e.target.closest('.pill');
@@ -1791,6 +2257,7 @@
     if (!el) return;
     sheetOpen = null;
     el.classList.remove('open'); scrim.classList.remove('open');
+    if (toastEl.classList.contains('high')) toastEl.classList.remove('show');   // a toast in Tune's head fades with it
     var done = function () { el.hidden = true; if (!sheetOpen) scrim.hidden = true; };
     if (instant) done(); else setTimeout(done, 560);
     if (sheetOpener && !instant) { try { sheetOpener.focus({ preventScroll: true }); } catch (e) {} }
@@ -1872,6 +2339,15 @@
       layout();                                        // the bare glass can sit larger
     });
   });
+  // Layered sand: the sand in the glass is laid in strata where it lies (or
+  // goes back to one tone), behind the same slow cross-fade as a new material.
+  $('opt-layers').addEventListener('change', function (e) {
+    settings.layers = e.target.checked; save();
+    softSwap(function () {
+      sim.setLayers(settings.layers);
+      renderer.setLayers(settings.layers);
+    });
+  });
   // 'click', not 'change': iOS only shows its motion prompt from a direct tap
   optTilt.addEventListener('click', function (e) { setMotion(e.target.checked, true); });
   $('opt-zen').addEventListener('change', function (e) {
@@ -1881,6 +2357,40 @@
   $('opt-haptics').addEventListener('change', function (e) {
     settings.haptics = e.target.checked; save();
     buzz(12);
+  });
+  // breathing pace: the switch, and under it the pattern (hidden while it is off)
+  var optBreath = $('opt-breath'), breathRow = $('breath-row'), breathHide = 0;
+  function showBreath() {
+    optBreath.checked = settings.breath;
+    breathRow.hidden = !settings.breath;
+    var b = document.querySelectorAll('#breaths button');
+    for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-checked', b[i].dataset.breath === settings.breathPattern ? 'true' : 'false');
+  }
+  optBreath.addEventListener('change', function (e) {
+    settings.breath = e.target.checked; save();
+    showBreath();
+    clearTimeout(breathHide);
+    if (settings.breath) {
+      breathLayer(true);
+      toast('Breathe in as the glow swells, out as it fades', 3600);   // (wrapped, "out as it fades" stays whole)
+      // the choice has appeared under the switch: bring it into view if the sheet cuts it off
+      var sb = sheetSettings.querySelector('.sheet-body');
+      var over = breathRow.getBoundingClientRect().bottom - sb.getBoundingClientRect().bottom;
+      if (over > 0) {
+        try { sb.scrollBy({ top: over, behavior: reduceMotion ? 'auto' : 'smooth' }); } catch (err) { sb.scrollTop += over; }
+      }
+    } else {
+      breathHide = setTimeout(function () { breathLayer(false); }, 2600);   // once it has eased back to rest
+    }
+    breathSync();
+  });
+  $('breaths').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b || b.dataset.breath === settings.breathPattern) return;
+    settings.breathPattern = b.dataset.breath; save();
+    showBreath();
+    if (breath.on) breathBegin();
+    buzz(8);
   });
 
   /* ---- custom duration dial ----------------------------------------- */
@@ -1916,7 +2426,12 @@
     previewQueued = true;
     requestAnimationFrame(function () {
       previewQueued = false;
-      $('custom-preview').textContent = fmt(customMs())[0];
+      var ms = customMs(), set = $('custom-set');
+      $('custom-preview').textContent = fmt(ms)[0] +
+        (draft.rest ? ', rest ' + draft.rest + (draft.rounds > 1 ? ', ×' + draft.rounds : '') : '');
+      // (read aloud: "Set 25 minutes, then rest 5 minutes, 4 rounds")
+      if (draft.rest) set.setAttribute('aria-label', 'Set ' + seqSpoken(ms, draft.rest * 60000, draft.rounds));
+      else set.removeAttribute('aria-label');
       wheelMin.setAttribute('aria-valuenow', wheelValue(wheelMin));
       wheelSec.setAttribute('aria-valuenow', wheelValue(wheelSec));
     });
@@ -1946,18 +2461,59 @@
     setWheel(w, v, true);
     buzz(6);
   });
+  // then rest: the dial's time, a rest after it, and the pair repeated (see "Work and rest")
+  var draft = { rest: 0, rounds: 1 };                   // as set in the sheet: minutes of rest (0: off), rounds
+  var DRAFT_LIM = { rest: [0, 60], rounds: [1, 12] };
+  function showDraft() {
+    $('rest-out').textContent = draft.rest ? draft.rest + ' min' : 'Off';
+    $('rest-out').classList.toggle('off', !draft.rest);
+    $('rounds-out').textContent = draft.rounds;
+    $('seq-hint').hidden = draft.rest > 0;              // Rounds takes the hint's place: nothing in the sheet moves
+    $('rounds-row').hidden = !draft.rest;
+    var b = document.querySelectorAll('#seq button');
+    for (var i = 0; i < b.length; i++) {
+      var p = b[i].dataset.seq.split(':');
+      b[i].setAttribute('aria-disabled', draft[p[0]] === DRAFT_LIM[p[0]][+p[1] < 0 ? 0 : 1] ? 'true' : 'false');
+    }
+    previewCustom();
+  }
+  function stepDraft(b) {
+    var p = b.dataset.seq.split(':'), lim = DRAFT_LIM[p[0]];
+    draft[p[0]] = Math.max(lim[0], Math.min(lim[1], draft[p[0]] + +p[1]));
+    showDraft();
+  }
+  // a tap steps once; held, a stepper runs on
+  var stepTimer = 0, stepRan = false;
+  $('seq').addEventListener('pointerdown', function (e) {
+    var b = e.target.closest('button');
+    clearTimeout(stepTimer);
+    stepRan = false;
+    if (!b || e.button) return;
+    stepTimer = setTimeout(function run() { stepRan = true; stepDraft(b); stepTimer = setTimeout(run, 110); }, 450);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (t) {
+    $('seq').addEventListener(t, function () { clearTimeout(stepTimer); });
+  });
+  $('seq').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b || stepRan) { stepRan = false; return; }     // (the click that ends a hold steps no further)
+    stepDraft(b);
+    buzz(6);
+  });
   function openCustom(opener) {
     openSheet(sheetCustom, opener);
     var total = Math.round(T.durationMs / 1000);
     setWheel(wheelMin, Math.min(99, Math.floor(total / 60)), false);
     setWheel(wheelSec, total % 60, false);
-    previewCustom();
+    draft.rest = Math.round(seq.rest / 60000);
+    draft.rounds = seq.rounds;
+    showDraft();
   }
   $('custom-set').addEventListener('click', function () {
     var raw = (wheelValue(wheelMin) * 60 + wheelValue(wheelSec)) * 1000;
     if (raw < 10000) toast('Shortest glass is 10 seconds');
     closeSheet();
-    setDuration(customMs());
+    setDuration(customMs(), draft.rest * 60000, draft.rounds);
     buzz(12);
   });
 
@@ -1985,9 +2541,11 @@
   /* ======================================================================
    *  Reduce Motion
    *
-   *  The same glass, gentler: a drag glides home without a sway, a turn
-   *  never spins on, the phone's shaking is halved and capped below what
-   *  lifts the bed, nothing flashes, and the glass cannot crack.
+   *  The same glass, gentler: let go, it glides home without a fall or a
+   *  sway, a turn never spins on, the phone's shaking is halved and capped
+   *  below what lifts the bed (and cannot crack the glass), and nothing
+   *  flashes. What a finger does to the glass still counts: knocked, spun
+   *  hard or banged on the desk it creaks and cracks as ever.
    * ==================================================================== */
   var reduceMotion = false;
   var rmq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
@@ -2028,6 +2586,7 @@
       lastFrame = performance.now(); acc = 0; dirty = true;
       motion.reset();                  // stale sensor history is not felt on return
     }
+    breathStep(true);                  // away: no timers; back: the breath the clock says it is
     syncWakeLock();
   });
   window.addEventListener('pagehide', saveSession);
@@ -2148,10 +2707,13 @@
   $('opt-chime').checked = settings.chime;
   $('opt-awake').checked = settings.keepAwake;
   $('opt-frame').checked = settings.frame;
+  $('opt-layers').checked = settings.layers;
   $('opt-zen').checked = settings.zenFull;
   $('opt-haptics').checked = settings.haptics;
   showVolume();
   showAmbience();
+  showBreath();
+  breathLayer(settings.breath);
   setMuted(settings.muted);
   setCharacter(settings.character);
   syncPills();
@@ -2186,12 +2748,12 @@
 
   // A small handle for the curious (and for automated tests).
   window.Hourglass = {
-    sim: sim, renderer: renderer, audio: audio, timer: T, flip: flip, stats: S,
+    sim: sim, renderer: renderer, audio: audio, timer: T, flip: flip, stats: S, seq: seq,
     start: start, pause: pause, toggle: toggle, reset: reset,
     flipNow: startFlip, setDuration: setDuration, setTheme: setTheme,
     topAt: topAt, remAt: remAt, grainsFor: grainsFor,
     wakeState: function () { return wakeState; }, grav: grav,
-    motion: motion, body: body, spill: spill, perf: perf,
+    motion: motion, body: body, room: room, spill: spill, perf: perf, breath: breath,
     retime: function () { return maybeRetime(performance.now(), true); },
     debug: {
       /** Crack the glass at wall segment `seg` (sim.forceCrack), and let the app hear and see it at once. */

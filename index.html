@@ -34,7 +34,7 @@
 <div id="app" data-state="idle">
 
   <!-- warm light pooling behind the glass -->
-  <div id="ambient" aria-hidden="true"></div>
+  <div id="ambient" aria-hidden="true"><div id="breath" hidden></div></div>
 
   <!-- the instrument -->
   <main id="stage" aria-label="Hourglass. Tap to start or pause. Drag to move or turn it.">
@@ -167,6 +167,10 @@
           <span><b>Frame</b><small>Caps and posts around the glass</small></span>
           <input id="opt-frame" class="switch" type="checkbox" role="switch" checked>
         </label>
+        <label class="row" for="opt-layers">
+          <span><b>Layered sand</b><small>Two tones that settle into strata as they fall</small></span>
+          <input id="opt-layers" class="switch" type="checkbox" role="switch">
+        </label>
       </div>
 
       <h3>Acoustic character</h3>
@@ -207,13 +211,24 @@
           <input id="opt-awake" class="switch" type="checkbox" role="switch" checked>
         </label>
         <label class="row" for="opt-tilt">
-          <span><b>Real motion</b><small>Sand feels every lean, turn and shake. Shaken very hard, the glass can crack.</small></span>
+          <span><b>Real motion</b><small>Sand feels every lean, turn and shake. Shaking it hard can crack the glass.</small></span>
           <input id="opt-tilt" class="switch" type="checkbox" role="switch">
         </label>
         <label class="row" for="opt-zen">
           <span><b>Full Zen</b><small>Hide the controls completely while running</small></span>
           <input id="opt-zen" class="switch" type="checkbox" role="switch">
         </label>
+        <label class="row" for="opt-breath">
+          <span><b>Breathing pace</b><small>The glow swells as you breathe in and fades as you breathe out</small></span>
+          <input id="opt-breath" class="switch" type="checkbox" role="switch">
+        </label>
+        <div id="breath-row" class="sub" hidden>
+          <div id="breaths" class="segmented" role="radiogroup" aria-label="Breathing pattern">
+            <button type="button" role="radio" aria-checked="true" data-breath="calm" aria-label="Calm: in 4 seconds, out 6">Calm <i>4·6</i></button>
+            <button type="button" role="radio" aria-checked="false" data-breath="box" aria-label="Box: in 4 seconds, hold 4, out 4, hold 4">Box <i>4·4·4·4</i></button>
+            <button type="button" role="radio" aria-checked="false" data-breath="deep" aria-label="Deep: in 4 seconds, hold 7, out 8">Deep <i>4·7·8</i></button>
+          </div>
+        </div>
         <label class="row" for="opt-haptics">
           <span><b>Haptics</b><small>Subtle taps where the device supports them</small></span>
           <input id="opt-haptics" class="switch" type="checkbox" role="switch" checked>
@@ -249,6 +264,26 @@
           <span class="unit">sec</span>
         </div>
         <div class="dial-band" aria-hidden="true"></div>
+      </div>
+      <!-- work and rest: a rest after the glass, and the pair repeated -->
+      <div id="seq" class="rows">
+        <div class="row">
+          <span><b id="rest-name">Then rest</b></span>
+          <div class="stepper" role="group" aria-labelledby="rest-name">
+            <button type="button" data-seq="rest:-1" aria-label="One minute less rest" aria-disabled="true"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 12h10"/></svg></button>
+            <output id="rest-out" class="off" aria-live="polite">Off</output>
+            <button type="button" data-seq="rest:1" aria-label="One minute more rest"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v10M7 12h10"/></svg></button>
+          </div>
+        </div>
+        <div class="row" id="seq-hint"><small>Add a rest and the glass turns itself over</small></div>
+        <div class="row" id="rounds-row" hidden>
+          <span><b id="rounds-name">Rounds</b></span>
+          <div class="stepper" role="group" aria-labelledby="rounds-name">
+            <button type="button" data-seq="rounds:-1" aria-label="One round fewer" aria-disabled="true"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 12h10"/></svg></button>
+            <output id="rounds-out" aria-live="polite">1</output>
+            <button type="button" data-seq="rounds:1" aria-label="One round more"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v10M7 12h10"/></svg></button>
+          </div>
+        </div>
       </div>
       <button id="custom-set" class="cta" type="button">Set <span id="custom-preview">05:00</span></button>
     </div>

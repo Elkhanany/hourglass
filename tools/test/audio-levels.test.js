@@ -7,8 +7,16 @@
  * renders, and measures the output:
  *
  *   - 3 s of thumps (E = 1, 5 Hz) over agitation 2: peak ≤ −9 dBFS, RMS ≤ −20 dBFS
- *   - crack() peaks at least 12 dB under the completion bowl
- *   - creak(4) peaks at or below −30 dBFS
+ *   - crack() stays at least 12 dB under the completion bowl in loudness
+ *     (RMS, each over its own render) and never peaks above −9 dBFS, the
+ *     thumps' own limit; and it peaks at least as high as the loudest creak
+ *     less 3 dB. (Until creaks and cracks were meant to be heard, this asked
+ *     for a crack peaking 12 dB under the bowl, which left it 17 dB under a
+ *     thump and 20 dB under a tap: on a phone the glass cracked in silence.)
+ *   - creak(1) peaks at or above −24 dBFS and creak(4) at or below −9 dBFS,
+ *     and creak(4) is the louder. (This was "creak(4) ≤ −30 dBFS": a tick
+ *     30 dB under a tap, which nobody heard. A creak is the glass's warning
+ *     before it cracks, so it now sits with the tinks and thumps.)
  *   - a 40/s leak trickle: RMS ≤ −30 dBFS
  *   - with none of the new fields, the sand mix keeps its level: RMS within
  *     1.5 dB of f446085's audio.js in the same scenario, peaks at most 3 dB
@@ -162,6 +170,7 @@ async function main() {
       }
 
       // 3. creak(4), centred, at the side, and on a cracked glass
+      out.creak1 = await loudest(2, function (a) { a.creak(1, 0); });
       out.creak4 = await loudest(2, function (a) { a.creak(4, 0); });
       out.creak4_side = await loudest(2, function (a) { a.creak(4, 1); });
       out.creak4_cracked = await loudest(2, function (a) { a.setCracked('cracked'); a.creak(4, -1); });
@@ -218,11 +227,16 @@ async function main() {
     });
     var unders = res.pairs.map(function (p) { return p.under; });
     var minUnder = Math.min.apply(null, unders), meanUnder = unders.reduce(function (s, x) { return s + x; }, 0) / unders.length;
-    report(minUnder >= 12, 'crack() peak ≥ 12 dB under the bowl (same room, 6 renders, centre and either side)',
-           'dB under: ' + unders.join(', ') + ' (least ' + minUnder.toFixed(1) + ', mean ' + meanUnder.toFixed(1) + '); crack peaks ' +
-           res.pairs.map(function (p) { return p.crack; }).join(', ') + ' dBFS, bowl ' + res.pairs.map(function (p) { return p.bowl; }).join(', '));
-    report(res.creak4.peak <= -30 && res.creak4_side.peak <= -30 && res.creak4_cracked.peak <= -30, 'creak(4) peak ≤ −30 dBFS',
-           'centre ' + res.creak4.peak + ', side ' + res.creak4_side.peak + ', cracked glass ' + res.creak4_cracked.peak + ' dBFS (loudest of 3 each)');
+    var crackPk = Math.max.apply(null, res.pairs.map(function (p) { return p.crack; }).concat([res.crack.peak, res.crackSide.peak]));
+    var creakPk = Math.max(res.creak4.peak, res.creak4_side.peak, res.creak4_cracked.peak);
+    report(res.chime.rms - res.crack.rms >= 12 && res.chime.rms - res.crackSide.rms >= 12 && crackPk <= -9,
+           'crack(): ≥ 12 dB under the bowl in loudness (RMS), peak ≤ −9 dBFS',
+           'RMS ' + res.crack.rms + ' (centre), ' + res.crackSide.rms + ' (side) against the bowl\'s ' + res.chime.rms + ' dBFS; loudest peak ' +
+           crackPk + ' dBFS (bowl ' + res.pairs.map(function (p) { return p.bowl; }).join(', ') + '; peaks under the bowl: ' + unders.join(', ') +
+           ', least ' + minUnder.toFixed(1) + ', mean ' + meanUnder.toFixed(1) + ' dB)');
+    report(crackPk >= creakPk - 3, 'crack() peaks at least as high as the loudest creak, less 3 dB', 'crack ' + crackPk + ', creak(4) ' + creakPk + ' dBFS');
+    report(res.creak1.peak >= -24 && creakPk <= -9 && res.creak4.peak > res.creak1.peak, 'creaks are heard: creak(1) peak ≥ −24 dBFS, creak(4) ≤ −9 dBFS and the louder',
+           'creak(1) ' + res.creak1.peak + '; creak(4) centre ' + res.creak4.peak + ', side ' + res.creak4_side.peak + ', cracked glass ' + res.creak4_cracked.peak + ' dBFS (loudest of 3 each)');
     report(res.leak40.rms <= -30 && res.leak200.rms <= -30, 'leak pats at 40/s: RMS ≤ −30 dBFS',
            '40/s ' + res.leak40.rms + ' dBFS (peak ' + res.leak40.peak + '), asked 200/s ' + res.leak200.rms + ' dBFS');
     function avg(a, k) { return a.reduce(function (s, m) { return s + m[k]; }, 0) / a.length; }
