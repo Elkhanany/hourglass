@@ -379,7 +379,7 @@
     pLet: 205,           // /256 chance a sweep that a grain at rest, the sand under it gone, lets go (so a hanging mass loosens from its face)
     // Shaken sand loses the slopes it can hold: all of them × (1 − thHot·s), s rising from 0 at a
     // temperature of hotT0 to 1 at hotT1. Below hotT0 (walking, a sway, a finger's wiggle) nothing changes.
-    thHot: 0, hotT0: 0.5, hotT1: 1.5,
+    thHot: 0.55, hotT0: 0.5, hotT1: 1.5,
     // the thick avalanche (_slump): the slope over slB bins; it starts above thS + slUp and runs on down to slStop;
     // at most slMax grains a call (fewer at the lighter quality levels), a call every slEvery steps, a grain runs
     // on at most slRun bins, and a cliff gives up to slDeep grains from one bin; not while the glass spins past slW
