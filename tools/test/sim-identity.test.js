@@ -30,8 +30,13 @@ var OLD = L.baseline();
 var CASES = [
   { name: '1-min glass, gate open (clock.js)', seed: 4242, durMs: 60000 },
   { name: '45-min glass', seed: 1234, durMs: 2700000 },
-  { name: 'tilt 20 deg, 5-min glass', seed: 777, durMs: 300000, tilt: 20 * DEG },
-  { name: 'completeFlip at step 6000 (scripted flip)', seed: 99, durMs: 60000, flipAt: 6000 },
+  // Off the upright the sand now judges its slopes against gravity itself
+  // (sim.granular, on by default: tools/test/sim-repose). The four upright
+  // cases run with it on, as the app does, and must not notice it. These two
+  // lean and turn the glass, which is what it changes on purpose, so they
+  // follow the engine without it (granular: false), which must stay intact.
+  { name: 'tilt 20 deg, 5-min glass (granular off)', seed: 777, durMs: 300000, tilt: 20 * DEG, legacy: true },
+  { name: 'completeFlip at step 6000 (scripted flip, granular off)', seed: 99, durMs: 60000, flipAt: 6000, legacy: true },
   { name: 'pour 300 grains at step 3000', seed: 31337, durMs: 60000, pourAt: 3000 },
   { name: 'tablet scale 1.3, 5-min glass', seed: 2024, durMs: 300000, scale: 1.3 }
 ];
@@ -66,7 +71,8 @@ function hashFull(s) {
 
 /* ---- an app-like driver, identical for both versions ---- */
 function Runner(P, c, variant) {
-  var sim = this.sim = new P.Sim({ scale: c.scale || 1.08, seed: c.seed });
+  var sim = this.sim = new P.Sim(c.legacy ? { scale: c.scale || 1.08, seed: c.seed, granular: false }
+                                          : { scale: c.scale || 1.08, seed: c.seed });
   sim.reset(Clock.grainsFor(sim, c.durMs));
   if (c.tilt) { sim.tilt = c.tilt; sim.wakeAll(); }
   this.T = new Clock(sim, c.durMs);
