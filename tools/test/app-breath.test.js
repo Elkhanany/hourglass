@@ -245,8 +245,8 @@ async function tune(s, env) {
       on: window.Hourglass.breath.on
     };
   });
-  s.check('TUNE: the main screen has the same buttons (3 top, 12 bottom); Tune has one more row (7)',
-          ui.top === 3 && ui.bottom === 12 && ui.rows === 7, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
+  s.check('TUNE: the main screen has the same buttons (3 top, 12 bottom); Tune has its row (8 in all, with Layered sand)',
+          ui.top === 3 && ui.bottom === 12 && ui.rows === 8, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
   s.check('TUNE: "Breathing pace" follows Full Zen, its choice sits directly under it, then Haptics',
           ui.before === 'Full Zen' && ui.then === 'breath-row' && ui.after === 'Haptics' && ui.name === 'Breathing pace',
           ui.before + ' / ' + ui.name + ' / #' + ui.then + ' / ' + ui.after);
