@@ -375,14 +375,15 @@
     // field itself, in degrees below its horizontal
     thS: 37, thD: 29,    // a grain at rest lets go above thS (maximum stability); one already moving runs on above thD
     nS: 8, nD: 3,        // cells of the slope probed beyond the step
-    kinA: 0, kFall: 8, kSlide: 1,     // a kinetic sweep: a fall covers 1 + kinA·run cells (at most kFall), a slide runs on up to kSlide
+    kinA: 0.21, kFall: 8, kSlide: 12, // a kinetic sweep: a fall covers 1 + kinA·run cells (at most kFall), a slide runs on up to kSlide
+    pLet: 205,           // /256 chance a sweep that a grain at rest, the sand under it gone, lets go (so a hanging mass loosens from its face)
     thHot: 0,            // hot sand holds shallower slopes: thresholds × (1 − thHot·s)
     // the thick avalanche (_slump): the slope over slB bins; it starts above thS + slUp and runs on down to slStop;
     // at most slMax grains a call (fewer at the lighter quality levels), a call every slEvery steps, a grain runs
     // on at most slRun bins, and a cliff gives up to slDeep grains from one bin; not while the glass spins past slW
     slB: 8, slUp: 3, slStop: 36, slMax: 96, slEvery: 2, slRun: 64, slDeep: 6, slW: 3,
-    maxSweepsG: 3,       // most sweeps a step for a bulb (maxSweeps without granular)
-    offSweeps: 2,        // sweeps a step while turned or laid over (2 without granular: there a grain moves one cell a sweep)
+    maxSweepsG: 2,       // most sweeps a step for a bulb (maxSweeps without granular)
+    offSweeps: 1,        // sweeps a step while turned or laid over (2 without granular: there a grain moves one cell a sweep)
     offLean: 0.012,      // sin of the lean from which the glass counts as off the upright (0.7°)
     handBack: 420        // steps the upright glass keeps these rules after the last lean, turn or motion (3.5 s)
   };
@@ -2188,7 +2189,7 @@
     else { y = yLo; yEnd = yHi; yStep = 1; }
     var fixedX = ux > 0.35 ? -1 : (ux < -0.35 ? 1 : 0);
 
-    var kinA = kin ? Math.round(MOT.kinA * 256) : 0, kFall = MOT.kFall, kS = kin ? MOT.kSlide : 1;
+    var kinA = kin ? Math.round(MOT.kinA * 256) : 0, kFall = MOT.kFall, kS = kin ? MOT.kSlide : 1, pLet = MOT.pLet;
     var moved = 0, slides = 0, pending = 0, mark, k;
     var i, i0, c, cN, x, n, xs, base, x0, x1, p, t, tA, tB, lA, lB, o, a, r, K, nm, fall, prim, oth, aOth, wall, thr, np2, ok, d;
 
@@ -2238,7 +2239,10 @@
           fall = 0;
           if (cell[i + prim] === EMPTY) { t = prim; fall = 1; }
           else if (aOth >= 67.5 && cell[i + oth] === EMPTY) { t = oth; fall = 1; }
-          if (fall === 0) {
+          if (fall === 1) {
+            // packed sand does not drop as one block: a grain at rest takes a moment to let go
+            if (c === REST && ((s >>> 16) & 255) >= pLet) { cN = MOVE; pending++; break; }
+          } else {
             // --- a step to the side, if the slope beyond it is too steep -------
             wall = cell[i + dA] === WALL || cell[i + dB] === WALL;
             cls = (c === MOVE || wall) ? 1 : 0;
