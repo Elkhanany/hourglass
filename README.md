@@ -41,9 +41,9 @@ driftwood. Tap the name at the top to change it, or choose in **Tune**.
 - **Real sand.** About 10,000 to 35,000 grains, each one simulated: piles slump
   at sand's own angle, the stream breathes and wanders, grains bounce off the
   glass.
-- **Real sound.** The whisper of the neck, the tick of grains on glass, the
-  resonance of the vessel, a singing bowl at the end, and an optional brook or
-  rain behind it, all synthesised live.
+- **Real sound.** The soft hush of sand landing, made of thousands of tiny
+  grains, the first grains ticking on bare glass, a singing bowl at the end,
+  and an optional brook or rain behind it, all synthesised, nothing recorded.
 - **Zen.** Four seconds after you let it run, the controls fade and the glass
   fills the screen; the end of a glass is quiet and slow.
 - **A glass you can hold.** Drag it by the waist, turn it by a bulb, flick it
@@ -361,18 +361,52 @@ the tap on the switch.
 
 ### `audio.js` — procedural sound
 
-Web Audio API only.
+Web Audio API only. The sand is made of nothing but tiny impacts, because
+that is what sand sounds like: a fine grain lands in a fraction of a
+millisecond, the stream through the neck is almost silent, and what you hear
+is what the grains land on.
 
-1. **Glass cavity**: six narrow band-pass resonators (680 Hz to 7.25 kHz) fed by
-   the other layers; their pitch rises as the lower bulb fills.
-2. **Neck whisper**: looped pink noise shaped into a 2.5 to 9 kHz band over a
-   little band-passed brown noise, driven by the flow rate and slow LFOs.
-3. **Grain impacts**: 0.8 to 3 ms impulses triggered by physics impact events,
-   crisp on bare glass and softer once sand cushions the floor, plus Poisson
-   textures for dense flow.
-4. **Foley**: pour rush, flip thud and stereo sweep, and a singing-bowl bloom at
-   the end (optional).
-5. **The glass in the hand**: shaking is heard as it happens in the physics.
+1. **The sand as it lands**: two beds of micro-impacts, grains on bare glass
+   and grains on sand, synthesised once from a few dozen single clicks:
+   band-passed bursts of 0.1 to 0.5 ms between 2.5 and 11.5 kHz, some with a
+   neighbour nudged a moment later and a faint low give of the pile; on glass,
+   a hard click and one or two of the bulb's own short, high modes. Each bed
+   holds two populations drawn from one stream, a dense **hush** and a sparser
+   **crackle** (about 600 grains a second). On sand the hush is fine and
+   steady, as fine sand is: about 6,500 grains a second, airy, close to a
+   smooth hiss, its rate swinging only a little. The crackle over it is the
+   few louder grains, and comes and goes over tens of milliseconds and a few
+   tenths of a second. On bare glass both are sparser: the first grains are
+   few, and each is heard. The mix of grain sizes drifts, and every grain has
+   its own loudness (log-normal: a few are bigger), pitch and place in a
+   narrow cone in front, the far ear hearing it a few samples late. The sound crossfades from
+   glass to sand as the cushion grows. The hush follows the flow and swells a
+   little with its breathing, the crackle follows the impacts, and shaking
+   lifts the crackle into a soft shaker shimmer.
+2. **No loops**: each bed plays as an endless chain of 0.45 to 1.4 s segments
+   from random places in it, each at a slightly different speed and level,
+   crossfaded with equal power, so the texture never comes round the same way
+   (its waveform self-similarity at any lag from 1 to 12 s stays at 0.01 to
+   0.05; the old looped hiss read 0.6 to 0.9). While the page is hidden the chain hands over
+   to a plain loop of the bed, which needs no script to go on.
+3. **Grains you can tell apart**: the physics' impact events play single
+   grains, a dry crackle of one to three contacts on sand, a crisp click with a
+   short glassy ring on bare glass, each with its own log-normal loudness, now
+   and then a rebound, and its own place in front of you (where they land
+   wanders slowly). A slow glass is heard grain by grain; a fast one keeps
+   fewer, softer ones and lets the hush carry the rest. As the last grains
+   fall the hush and the crackle fade with them, and the final few land one by
+   one before the bowl.
+4. **The vessel**: a broad, low-Q body under the sand, whose lowest mode (the
+   air in the bulb) rises as it fills, and the glass's own six resonators
+   (680 Hz to 7.25 kHz). In the default character the sand never rings those:
+   only the glass in the hand does (a tap, a creak, a crack, a clack).
+5. **Foley**: a pour (the beds again, through a band that wanders on two
+   random flutters, never a clock), the slide of sand as the glass turns, the
+   air it cuts as it spins, flip thuds, a small avalanche down the pile every
+   few seconds (a soft swell to one side), and a singing-bowl bloom at the end
+   (optional).
+6. **The glass in the hand**: shaking is heard as it happens in the physics.
    Each time a bed lifts and lands there is a soft low thump with a little
    grain in it, and the vessel answers; sand slamming the far end clacks,
    glassier; while the sand is agitated the grain textures rise into a soft
@@ -393,17 +427,20 @@ Web Audio API only.
 Output passes through a generated 0.35 s room impulse response, a compressor and
 a soft clipper.
 
-Six characters re-voice the same engine. *Close-Miked ASMR*, *Warm Glass* and
-*Pure Sand Whisper* differ in balance and tone. Three more change the vessel
-itself, by retuning the resonator bank and the pitch of each grain:
+Six characters re-voice the same grains. *Close-Miked ASMR*, the default, is
+the sand alone, close and dry. *Warm Glass* is a thicker, softer glass that
+the grains ring gently, with more room and a darker tone; *Pure Sand Whisper*
+is mostly the hush. Three more change the vessel itself, by retuning the
+resonator bank, letting the sand ring it, and changing the pitch of every
+grain:
 
 - *Singing Glass*: resonators tuned to a D major pentatonic with long rings, so
   every grain strikes a small bell.
 - *Bamboo Rainstick*: broad, quickly damped woody resonances and lower-pitched
-  impacts.
-- *Desert Dune*: low resonances (150 Hz upward) driven hard by the whisper and
-  the avalanches, for the hum of sliding sand. Much of it sits below what a
-  phone speaker reproduces; it is meant for headphones.
+  grains.
+- *Desert Dune*: low resonances (150 Hz upward) driven hard by the hush, for
+  the hum of sliding sand. Much of it sits below what a phone speaker
+  reproduces; it is meant for headphones.
 
 An optional **ambience** plays behind the sand while it runs, bypassing the
 character's tone shaping. It keeps flowing through the last grain, then
@@ -427,14 +464,35 @@ main-thread time (each a few to a few tens of milliseconds, so the sand keeps
 falling smoothly): the saved one while the page settles after loading, another
 the first time it is chosen.
 
-Levels and spectra were set by offline rendering and measurement through the
-real output chain (about −25 dBFS RMS with grain peaks near −9 dBFS at the
-default volume; the brook and rain sit near −26 and −28 dBFS at their default
-level). The three newer characters and the ambiences have not been tuned by
-ear (the brook was matched to measurements, not by listening), and the sounds
-of the glass in the hand were levelled with the default character only, so
-treat the tables at the top of `audio.js` (`CHARACTERS`, the `MODES_*` sets,
-`WATER`, `AMBIENCES`, `LEVEL`) as a starting point.
+The sand was built against recordings of falling sand and grit (a continuous
+pour of fine sand, fine sugar poured close to the microphone, a rainstick,
+grit and stone trickles, grains on glass) and against the stream the app's
+physics actually feeds it, by rendering offline through the real output chain
+and measuring: the spectrum, how grainy and how fluttery it is, how its
+colour flickers, how its grains are spaced and how loud they are, its stereo
+image, and that nothing repeats or rings. The default character is voiced
+toward the fine, steady recordings rather than the coarse trickles, because
+the stream of an hourglass is fine and steady. In graininess it sits just
+above them (kurtosis 5.6, against 3.4 to 3.6 for the fine pour and the
+rainstick, 40 and more for the grit trickles, and 4.0 for the looped hiss it
+replaces), its flutter is close to theirs, and it is brighter and airier
+than the old hiss without being as bright as they are. Nothing repeats and
+nothing rings: no resonance stands more than about 1 dB out of the spectrum
+(the old hiss had peaks of 6 dB). The material is the same on every load (it
+was calibrated); only how it is played is random. It takes about 200 ms of
+synthesis on a desktop, done in slices of a few milliseconds while the page is
+idle.
+
+Levels were set the same way: the sand keeps the loudness it had, within
+about 1 dB at the default volume (near −32 dBFS RMS for a 30-minute glass,
+−29 for a 5-minute one and −27 for a one-minute one), so the bowl and the
+ambiences keep their balance; being made of grains rather than hiss, its
+peaks stand a little taller, near −8 to −9 dBFS. The brook and rain sit near
+−26 and −28 dBFS at their default level. The five other characters were
+levelled against the old ones, layer by layer, and the ambiences have not been
+tuned by ear (the brook was matched to measurements, not by listening), so
+treat the tables at the top of `audio.js` (`CHARACTERS`, `BEDS`, the `MODES_*`
+sets, `WATER`, `AMBIENCES`, `LEVEL`) as a starting point.
 
 ### `app.js`, `index.html`, `styles.css`
 

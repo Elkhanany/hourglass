@@ -5,15 +5,17 @@
  * 100 % Web Audio API — every sample is synthesised at start-up or in real
  * time. No audio files, no libraries.
  *
- *   Layer 1  Glass cavity      parallel bank of narrow resonators whose pitch
- *                              rises as the lower bulb fills with sand
- *   Layer 2  Neck whisper      shaped pink/brown noise, flow-rate + LFO driven
- *   Layer 3  Grain impacts     0.8–3 ms micro-impulses fired by physics events
- *                              (bare-glass "tink" ⇄ sand-on-sand "patter")
- *   Layer 4  Foley             pour rush, flip thud + sweep, end-of-timer bowl
- *   Layer 5  The glass in hand bed landings and slams when shaken, a shaker
- *                              shimmer, creaks, a crack, the trickle of a leak,
- *                              the hum of mending
+ *   The sand        nothing but tiny impacts. Grains landing on bare glass
+ *                   or on their own pile, thousands a second: the soft hush
+ *                   of the landing, its fine crackle, and the grains the
+ *                   physics drops one by one, each a click of its own
+ *   The vessel      the glass's own resonances (rung by the glass in hand;
+ *                   in some characters by the sand too) and the hollow body
+ *                   of the bulb, whose pitch rises as it fills
+ *   Foley           pour, flip thuds, the slide of sand as it turns, the air
+ *                   it cuts, the end-of-timer bowl
+ *   The glass in    bed landings and slams when shaken, a shaker shimmer,
+ *   hand            creaks, a crack, the trickle of a leak, the hum of mending
  *
  *   → micro-room convolution → compressor → soft clipper → master
  *
@@ -37,6 +39,14 @@
     [3800, 30, 0.52, 0.05],
     [5450, 26, 0.34, 0.03],
     [7250, 22, 0.20, 0.02]
+  ];
+  var MODES_WARM = [                    // thicker, softer glass: rounder, shorter rings
+    [520, 9, 1.00, 0.18],
+    [1150, 10, 0.80, 0.14],
+    [1980, 11, 0.62, 0.10],
+    [3150, 10, 0.42, 0.06],
+    [4700, 9, 0.26, 0.04],
+    [6600, 8, 0.14, 0.02]
   ];
   var MODES_CHIME = [                   // D major pentatonic: every grain rings a small bell
     [587.3, 70, 1.00, 0.004],
@@ -62,46 +72,66 @@
     [760, 12, 0.30, 0.02],
     [1140, 10, 0.18, 0.02]
   ];
+  // The hollow body of the bulb under the sand: broad and low-Q, so it
+  // colours the grains without ringing; the air cavity lowest. It rises as
+  // the bulb fills.
+  var MODES_BODY = [
+    [430, 2.2, 0.70, 0.45],
+    [1250, 3.0, 0.45, 0.15],
+    [2450, 3.5, 0.25, 0.12],
+    [3900, 4.0, 0.20, 0.08],
+    [5600, 4.0, 0.18, 0.05],
+    [7600, 4.0, 0.10, 0.03]
+  ];
 
   /*
-   * Acoustic characters. Layer levels, tone, and how the vessel itself is
-   * voiced: `modes` its resonances, `send` how much of the whisper excites
-   * them, `tick` the pitch of each grain impact, `band` the centre of the
-   * whisper, `body` the weight underneath it.
+   * Acoustic characters: how loud each layer is, the tone, and how the
+   * vessel is voiced.
+   *   whisper  the hush of the landing        beds   its fine crackle
+   *   shake    the crackle of a shaken glass (as loud as `beds`, if left out)
+   *   ticks    every grain struck one by one (the glass in hand's too);
+   *            grain is how strongly the stream's own grains land
+   *   body     the bulb's hollow body
+   *   modal    the vessel's own resonances (`modes`), always rung by the
+   *            glass in hand; `send` is how much the hush excites them and
+   *            `vessel` how much the crackle, the grains, the pour and the
+   *            slide do (0: the sand never rings the glass)
+   *   tick     the pitch of every grain       bed    the pitch of the beds
+   *   room, low, high, lp                     the room, and the tone
    */
   var CHARACTERS = {
     asmr: {
       name: 'Close-Miked ASMR',
-      whisper: 0.135, ticks: 0.19, beds: 0.21, modal: 0.15, room: 0.16,
-      low: 0, high: 2, lp: 13500
+      whisper: 0.034, beds: 0.016, shake: 0.034, ticks: 0.19, grain: 2.1, body: 0.08, modal: 0.15, room: 0.10,
+      low: 0, high: 0, lp: 18000, send: 0, vessel: 0
     },
     warm: {
       name: 'Warm Glass',
-      whisper: 0.125, ticks: 0.12, beds: 0.16, modal: 0.22, room: 0.30,
-      low: 3, high: -6, lp: 8200
+      whisper: 0.026, beds: 0.011, ticks: 0.12, grain: 2.4, body: 0.10, modal: 0.20, room: 0.30,
+      low: 3, high: -6, lp: 8200, modes: MODES_WARM, send: 0.09, vessel: 1
     },
     pure: {
       name: 'Pure Sand Whisper',
-      whisper: 0.21, ticks: 0.03, beds: 0.085, modal: 0.045, room: 0.12,
-      low: -1, high: 0, lp: 11500
+      whisper: 0.046, beds: 0.012, ticks: 0.03, grain: 2.0, body: 0.03, modal: 0.045, room: 0.12,
+      low: -1, high: 0, lp: 15000, send: 0, vessel: 0
     },
     chime: {
       name: 'Singing Glass',
-      whisper: 0.10, ticks: 0.17, beds: 0.12, modal: 0.30, room: 0.36,
+      whisper: 0.022, beds: 0.009, ticks: 0.17, grain: 2.2, body: 0, modal: 0.30, room: 0.36,
       low: 0, high: 0, lp: 11000,
-      modes: MODES_CHIME, send: 0.10, tick: 1.0, band: 1.0, body: 0.30
+      modes: MODES_CHIME, send: 0.05, vessel: 1, tick: 1.0, bed: 1
     },
     bamboo: {
       name: 'Bamboo Rainstick',
-      whisper: 0.06, ticks: 0.20, beds: 0.21, modal: 0.34, room: 0.22,
+      whisper: 0.012, beds: 0.011, ticks: 0.20, grain: 2.3, body: 0, modal: 0.38, room: 0.22,
       low: 2, high: -4, lp: 8500,
-      modes: MODES_BAMBOO, send: 0.30, tick: 0.58, band: 0.8, body: 0.55
+      modes: MODES_BAMBOO, send: 0.11, vessel: 1, tick: 0.58, bed: 0.8
     },
     dune: {
       name: 'Desert Dune',
-      whisper: 0.15, ticks: 0.07, beds: 0.14, modal: 0.46, room: 0.26,
+      whisper: 0.032, beds: 0.012, ticks: 0.07, grain: 2.0, body: 0, modal: 0.53, room: 0.26,
       low: 5, high: -9, lp: 5200,
-      modes: MODES_DUNE, send: 0.9, tick: 0.5, band: 0.52, body: 1.0
+      modes: MODES_DUNE, send: 0.25, vessel: 1, tick: 0.5, bed: 0.55
     }
   };
 
@@ -185,46 +215,6 @@
     return a;
   }
 
-  /** Grain on bare glass: a crisp, crystalline damped partial pair. */
-  function synthTink(sr) {
-    var f = 4500 + rnd() * 2500;
-    var f2 = f * (1.45 + rnd() * 0.5);
-    var tau = 0.00055 + rnd() * 0.0009;
-    var n = Math.ceil(sr * tau * 7);
-    var a = new Float32Array(n), ph = rnd() * TAU;
-    var atk = Math.max(2, Math.round(sr * 0.00012));
-    for (var i = 0; i < n; i++) {
-      var t = i / sr;
-      var env = Math.exp(-t / tau) * (i < atk ? 0.5 - 0.5 * Math.cos(Math.PI * i / atk) : 1);
-      a[i] = env * (Math.sin(TAU * f * t + ph) +
-                    0.38 * Math.sin(TAU * f2 * t + ph * 1.7) +
-                    0.5 * (rnd() * 2 - 1) * Math.exp(-t / 0.00025));
-    }
-    return normalize(a, 1);
-  }
-
-  /** Grain on sand: a dry, band-limited puff (no ring). */
-  function synthPat(sr) {
-    var fc = 1800 + rnd() * 1700, Q = 1.1 + rnd() * 0.8;
-    var tau = 0.00045 + rnd() * 0.0007;
-    var n = Math.ceil(sr * (tau * 6 + 0.0008));
-    var a = new Float32Array(n);
-    var w0 = TAU * fc / sr, alpha = Math.sin(w0) / (2 * Q);
-    var b0 = alpha, b2 = -alpha, a0 = 1 + alpha, a1 = -2 * Math.cos(w0), a2 = 1 - alpha;
-    var x1 = 0, x2 = 0, y1 = 0, y2 = 0;
-    var atk = Math.max(3, Math.round(sr * 0.00016));
-    for (var i = 0; i < n; i++) {
-      var t = i / sr;
-      var env = Math.exp(-t / tau) * (i < atk ? 0.5 - 0.5 * Math.cos(Math.PI * i / atk) : 1);
-      var x = (rnd() * 2 - 1) * env;
-      var y = (b0 * x + b2 * x2 - a1 * y1 - a2 * y2) / a0;
-      x2 = x1; x1 = x; y2 = y1; y1 = y;
-      a[i] = y;
-    }
-    // close the tail
-    for (i = Math.floor(n * 0.7); i < n; i++) a[i] *= (n - i) / (n * 0.3);
-    return normalize(a, 1);
-  }
 
   /** Wrap raw channel data (synthesised at `sr`) into an AudioBuffer. */
   function toBuffer(ctx, channels, sr) {
@@ -286,6 +276,443 @@
     }
     return buf;
   }
+
+  /* ----------------------------------------------------------------------
+   *  The sand, as it lands
+   *
+   *  A grain of fine sand is so light that the sound of it landing is over
+   *  in a fraction of a millisecond: a click whose colour is set by what it
+   *  lands on. On bare glass the wall answers with a few of its own short,
+   *  high modes; on sand the grain nudges one or two neighbours, and that is
+   *  all. Thousands a second blur into the soft hush of the landing, the
+   *  louder few poke out of it as a fine crackle, and now and then one stands
+   *  alone. So the sand is made of nothing but such clicks:
+   *
+   *    banks  a few dozen single impacts per surface, each one different
+   *    beds   seconds of thousands of them a second, landing in clumps (the
+   *           rate swings log-normally, over tens of milliseconds and over
+   *           a few tenths of a second), each with its own loudness (log-
+   *           normal: a few grains are bigger), shape, pitch and place in a
+   *           narrow cone in front (equal-power pan, the far ear a few
+   *           samples late)
+   *
+   *  The beds are synthesised offline in short slices while the page is
+   *  idle, and played without ever repeating (a Shuffler, below).
+   * -------------------------------------------------------------------- */
+
+  // The material is the same on every load (it is calibrated); only how it is played is random.
+  var SAND_SEED = 20261116;
+  // The bulb's own ringing, shared by every tink (Hz): inharmonic, like a thin shell.
+  var GLASS_MODES = [2930, 3710, 4580, 5790, 7120, 8460, 9930, 11600];
+
+  /*
+   * The beds, one per surface: four channels, the hush (L, R) and the
+   * crackle (L, R), drawn from one stream, so a clump is a clump for every
+   * size of grain. secs: length; bank: 'mbS' grains on sand, 'mbG' on glass;
+   * tilt: how far the louder grains lean to the lower (bigger) shapes;
+   * width: σ of the pan; itd: the far ear's delay at |pan| = 1 (s); pitch:
+   * ± speed of each grain; clump, swell, colour: [fc Hz, hp Hz] of the
+   * curves that swing the rate (tens of ms; a few tenths of a second) and
+   * the mix of shapes. Then per population: rate (grains/s); sigma, cap:
+   * their loudness, log-normal (σ of the log), eased under `cap` × the
+   * median; clump, swell, colour: how hard each curve swings it (σ of the
+   * log); bias: how far its shapes lean to the higher ones; floor: the
+   * share of the rate that never swings away (a fine stream never quite
+   * stops); lim: the rare highest peaks are held to this × its RMS.
+   *
+   * On sand the hush is fine and dense, as fine sand is: several thousand
+   * grains a second, steady, airy, close to a smooth hiss. The crackle over
+   * it is the few louder grains, and comes and goes.
+   */
+  var BEDS = {
+    sand: { secs: 7, bank: 'mbS', tilt: 0.5, width: 0.3, itd: 0.00015, pitch: 0.12,
+            clump: [40, 4], swell: [6, 0.7], colour: [18, 1],
+            hush: { rate: 6500, sigma: 0.4, cap: 4, clump: 0.2, swell: 0.3, colour: 1.6, bias: 1.6, floor: 0.5, lim: 8 },
+            crackle: { rate: 600, sigma: 0.5, cap: 3, clump: 0.25, swell: 0.6, colour: 3.0, floor: 0, lim: 7 } },
+    glass: { secs: 5, bank: 'mbG', tilt: 0.5, width: 0.24, itd: 0.00006, pitch: 0.05,
+             clump: [40, 4], swell: [6, 0.7], colour: [18, 1],
+             hush: { rate: 900, sigma: 0.5, cap: 4, clump: 0.6, swell: 0.6, colour: 3.6, floor: 0.35, lim: 8 },
+             crackle: { rate: 350, sigma: 0.5, cap: 3, clump: 0.25, swell: 0.6, colour: 3.0, floor: 0, lim: 7 } }
+  };
+
+  var now = root.performance && root.performance.now ? function () { return root.performance.now(); } : Date.now;
+
+  /**
+   * `nch` channels of `n` samples at `sr`, { buf, ch }: an AudioBuffer when
+   * one can be made before there is a context (the sound is then written
+   * straight into it, and building the graph copies nothing), else arrays.
+   */
+  function channels(nch, n, sr) {
+    var ch = [], c;
+    if (typeof root.AudioBuffer === 'function') {
+      try {
+        var b = new root.AudioBuffer({ numberOfChannels: nch, length: n, sampleRate: sr });
+        for (c = 0; c < nch; c++) ch.push(b.getChannelData(c));
+        return { buf: b, ch: ch };
+      } catch (e) { ch = []; }
+    }
+    for (c = 0; c < nch; c++) ch.push(new Float32Array(n));
+    return { buf: null, ch: ch };
+  }
+  /** Material made by channels() (or copied in with fill()), as an AudioBuffer for `ctx`. */
+  function asBuffer(ctx, m, sr) { return m.buf || toBuffer(ctx, m.ch, sr); }
+  /** Copy arrays (one per channel) into fresh channels(). */
+  function fill(arrays, sr) {
+    var m = channels(arrays.length, arrays[0].length, sr);
+    for (var c = 0; c < arrays.length; c++) m.ch[c].set(arrays[c]);
+    return m;
+  }
+
+  /** Add a noise burst through an RBJ band-pass (0 dB peak) into `a` from `at`, decaying as exp(−t/tau). */
+  function bpBurst(r, a, at, sr, fc, Q, tau, amp, atk) {
+    var w0 = TAU * fc / sr, alpha = Math.sin(w0) / (2 * Q), cw = Math.cos(w0);
+    var b0 = alpha / (1 + alpha), a1 = -2 * cw / (1 + alpha), a2 = (1 - alpha) / (1 + alpha);
+    var x1 = 0, x2 = 0, y1 = 0, y2 = 0, n = a.length - at, len = Math.min(n, Math.ceil(sr * tau * 7));
+    var k = Math.exp(-1 / (sr * tau)), env = amp;
+    for (var i = 0; i < n; i++) {
+      var x = 0;
+      if (i < len) {
+        x = (r() * 2 - 1) * env * (i < atk ? 0.5 - 0.5 * Math.cos(Math.PI * (i + 1) / (atk + 1)) : 1);
+        env *= k;
+      }
+      var y = b0 * (x - x2) - a1 * y1 - a2 * y2;
+      x2 = x1; x1 = x; y2 = y1; y1 = y;
+      a[at + i] += y;
+      if (i > len && (y < 0 ? -y : y) < 1e-6 && (y1 < 0 ? -y1 : y1) < 1e-6) break;
+    }
+  }
+  /** Add a damped sine (one mode) into `a` from `at`. */
+  function mode(a, at, sr, f, tau, amp, ph) {
+    var n = Math.min(a.length - at, Math.ceil(sr * tau * 7)), k = Math.exp(-1 / (sr * tau)), env = amp, w = TAU * f / sr;
+    for (var i = 0; i < n; i++) { a[at + i] += env * Math.sin(w * i + ph) * (i < 3 ? (i + 1) / 4 : 1); env *= k; }
+  }
+  /** Scale `a` so its energy (sum of squares) is E. */
+  function toEnergy(a, E) {
+    var s = 0, i;
+    for (i = 0; i < a.length; i++) s += a[i] * a[i];
+    s = Math.sqrt(E / (s || 1));
+    for (i = 0; i < a.length; i++) a[i] *= s;
+    return a;
+  }
+  /** A log-loudness eased under `top` by a soft knee `w` wide: the loud tail stays smooth, never piles up at a cap. */
+  function softTop(ln, top, w) {
+    var d = ln - top + w;
+    return d > 0 ? top - w + d / (1 + d / w) : ln;
+  }
+  /** Scale `a` down, if need be, so its peak is at most `p` (the sharpest few grains are a little softer). */
+  function peakCap(a, p) {
+    var m = 0, i;
+    for (i = 0; i < a.length; i++) { var v = a[i] < 0 ? -a[i] : a[i]; if (v > m) m = v; }
+    if (m > p) { m = p / m; for (i = 0; i < a.length; i++) a[i] *= m; }
+    return a;
+  }
+  /** Fade the last `frac` of `a` to zero. */
+  function fadeTail(a, frac) {
+    var n = a.length, s = Math.floor(n * (1 - frac));
+    for (var i = s; i < n; i++) a[i] *= (n - i) / (n - s);
+    return a;
+  }
+
+  /**
+   * `n` single micro-impacts for the beds, unit energy, ordered from the
+   * lowest to the highest. sand: a dry puff, sometimes two or three grains
+   * in a cluster (the neighbours it nudges); glass: a hard click with one or
+   * two of the bulb's modes, damped at once by the sand around it.
+   */
+  function microBank(r, sr, surface, n) {
+    var bank = [];
+    for (var j = 0; j < n; j++) {
+      var a, u = r(), fc, us = (j + r()) / n;                        // the pitches spread evenly over the range
+      if (surface === 'sand') {
+        fc = 2500 * Math.pow(2, 2.2 * us);                             // 2.5 … 11.5 kHz
+        var tau = 0.00011 + 0.00034 * r() * (4000 / Math.max(2500, fc));
+        a = new Float32Array(Math.ceil(sr * (tau * 8 + 0.0016)));
+        bpBurst(r, a, 0, sr, fc, 0.7 + 0.9 * r(), tau, 1, 2);
+        var subs = u < 0.45 ? 0 : (u < 0.85 ? 1 : 2);
+        for (var s = 0; s < subs; s++) {
+          bpBurst(r, a, Math.floor(sr * (0.00015 + 0.0009 * r())), sr, fc * (0.7 + 0.7 * r()), 0.8 + r(),
+                  tau * (0.6 + 0.6 * r()), 0.25 + 0.4 * r(), 2);
+        }
+        mode(a, 0, sr, 420 * Math.pow(2, 1.4 * r()), 0.0008 + 0.0012 * r(), 0.008 + 0.006 * r(), r() * TAU);   // the pile gives a little
+      } else {
+        fc = 6000 + 5000 * us;
+        a = new Float32Array(Math.ceil(sr * 0.007));
+        bpBurst(r, a, 0, sr, fc, 0.6, 0.00006 + 0.00008 * r(), 1, 1);        // the contact
+        for (var q = 1 + (r() < 0.5 ? 1 : 0); q > 0; q--) {
+          var f = GLASS_MODES[2 + ((Math.pow(r(), 0.7) * (GLASS_MODES.length - 2)) | 0)] * (1 + 0.025 * gauss(r));
+          mode(a, 0, sr, f, 0.0005 + 0.0011 * r() * (5000 / f), 0.14 + 0.16 * r(), r() * TAU);
+        }
+      }
+      a = toEnergy(fadeTail(a, 0.25), 1);
+      a.fc = fc;
+      bank.push(a);
+    }
+    bank.sort(function (x, y) { return x.fc - y.fc; });
+    return bank;
+  }
+
+  // A grain's energy (sum of squares at 48 kHz), the same as the earlier
+  // peak-normalised grains: every caller of _tick (thumps, clacks, chips,
+  // the leak) keeps its level.
+  var PAT_ENERGY = 10.9, TINK_ENERGY = 11.4;
+
+  /** One grain landing on sand that can be told apart: a dry crackle of 1–3 contacts and a whisper of body. */
+  function synthPat(r, sr, us) {
+    var a = new Float32Array(Math.ceil(sr * 0.009));
+    var fc = 3400 * Math.pow(2, 1.4 * us), tau = 0.00025 + 0.0004 * r();
+    bpBurst(r, a, 0, sr, fc, 0.9 + 0.6 * r(), tau, 1, 6);
+    for (var s = 1 + ((r() * 2.6) | 0); s > 0; s--) {
+      bpBurst(r, a, Math.floor(sr * (0.0004 + 0.0028 * Math.pow(r(), 1.5))), sr, fc * (0.8 + 0.6 * r()), 1 + r(),
+              tau * (0.5 + 0.7 * r()), 0.18 + 0.32 * r(), 2);
+    }
+    mode(a, 0, sr, 380 * Math.pow(2, 1.3 * r()), 0.0015 + 0.0015 * r(), 0.010 + 0.012 * r(), r() * TAU);   // the pile's faint thock
+    fadeTail(a, 0.3);
+    return peakCap(toEnergy(a, PAT_ENERGY), 1.35);
+  }
+
+  /** One grain on bare glass: a crisp contact and two or three of the bulb's modes, short (the sand damps them). */
+  function synthTink(r, sr, us) {
+    var a = new Float32Array(Math.ceil(sr * 0.03));
+    bpBurst(r, a, 0, sr, 7000 + 4500 * us, 0.7, 0.00007 + 0.00006 * r(), 1, 1);
+    var used = {};
+    for (var q = 0, picks = 2 + (r() < 0.4 ? 1 : 0); q < picks; q++) {
+      var k = 1 + ((Math.pow(r(), 0.75) * (GLASS_MODES.length - 2)) | 0);
+      if (used[k]) k++;
+      used[k] = 1;                                         // 3.7–11.6 kHz: glassy, never shrill on a phone
+      var f = GLASS_MODES[k] * (1 + 0.025 * gauss(r));     // where it lands, how much sand touches it
+      mode(a, 0, sr, f, (0.001 + 0.002 * r()) * Math.pow(3500 / f, 0.8), (0.25 + 0.3 * r()) / (1 + q * 0.5), r() * TAU);
+    }
+    if (r() < 0.5) bpBurst(r, a, Math.floor(sr * (0.001 + 0.003 * r())), sr, 7000 + 3000 * r(), 0.7, 0.00006, 0.15 + 0.2 * r(), 1);   // a tiny bounce
+    fadeTail(a, 0.2);
+    return peakCap(toEnergy(a, TINK_ENERGY), 1.2);
+  }
+
+  /**
+   * A bed of micro-impacts (see BEDS), made a little at a time: each call
+   * does one short stretch of the work (the curves; the grains of the next
+   * quarter second; a block of normalising and peak-finding) and returns the
+   * function for the next; the last returns its four channels (hush L,
+   * hush R, crackle L, crackle R; see channels()), each pair at unit RMS.
+   * It wraps round: seamless as a loop.
+   */
+  function grainBed(r, sr, bank, B) {
+    var secs = B.secs, n = Math.floor(sr * secs), cr = 500, nc = Math.round(secs * cr), out, pops;
+    var itd = B.itd * sr, nb = bank.length, t = 0, c1, c2, c3;
+    function curves() {
+      // one stream: its clumps (tens of ms), its swell, and the drift of its shapes, once per 2 ms
+      c1 = ctrlCurve(r, nc, B.clump[0], cr, B.clump[1]);
+      c2 = ctrlCurve(r, nc, B.swell[0], cr, B.swell[1]);
+      c3 = new Float32Array(nc + 1);
+      c3.set(ctrlCurve(r, nc, B.colour[0], cr, B.colour[1]));
+      c3[nc] = c3[0];
+      return streams;
+    }
+    function streams() {
+      pops = [B.hush, B.crackle].map(function (p) {
+        // a Poisson stream at the highest rate, thinned to the swinging one (which keeps its floor)
+        var sd = Math.sqrt(p.clump * p.clump + p.swell * p.swell), fl = p.floor || 0;
+        var M = fl + (1 - fl) * Math.exp(2.5 * sd), keep = new Float32Array(nc + 1), j;
+        for (j = 0; j < nc; j++) keep[j] = Math.min(1, (fl + (1 - fl) * Math.exp(p.clump * c1[j] + p.swell * c2[j] - sd * sd / 2)) / M);
+        keep[nc] = keep[0];
+        var o = { p: p, keep: keep, lam: p.rate * M, t: 0, top: Math.log(p.cap), L: null, R: null };
+        return o;
+      });
+      out = channels(4, n, sr);
+      pops[0].L = out.ch[0]; pops[0].R = out.ch[1]; pops[1].L = out.ch[2]; pops[1].R = out.ch[3];
+      return chunk;
+    }
+    function grains(o, end) {
+      var p = o.p, L = o.L, R = o.R, keep = o.keep, kc = p.colour;
+      for (;;) {
+        o.t += -Math.log(1 - r()) / o.lam;
+        if (o.t >= end) break;
+        var x = o.t * cr, c0 = x | 0;
+        if (r() >= keep[c0] + (keep[c0 + 1] - keep[c0]) * (x - c0)) continue;
+        var z = gauss(r), amp = Math.exp(softTop(p.sigma * z, o.top, 0.5));
+        // its shape, low to high: bigger grains lower, and the mix drifts from clump to clump
+        var u = r() * 0.998 + 0.001;
+        var q = Math.log(u / (1 - u)) - B.tilt * z + kc * (c3[c0] + (c3[c0 + 1] - c3[c0]) * (x - c0)) + (p.bias || 0);
+        var g = bank[Math.min(nb - 1, (nb / (1 + Math.exp(-q))) | 0)];
+        var pn = B.width * gauss(r);
+        pn = pn > 0.9 ? 0.9 : (pn < -0.9 ? -0.9 : pn);
+        var ang = (pn + 1) * Math.PI / 4, gl = amp * Math.cos(ang), gr = amp * Math.sin(ang);
+        var dl = pn > 0 ? Math.round(itd * pn) : 0, dr = pn < 0 ? Math.round(-itd * pn) : 0;   // the far ear later
+        var step = 1 + B.pitch * (2 * r() - 1), len = Math.floor((g.length - 1) / step), s0 = Math.floor(o.t * sr);
+        for (var k = 0; k < len; k++) {
+          var pos = k * step, i0 = pos | 0, v = g[i0] + (g[i0 + 1] - g[i0]) * (pos - i0);
+          var jl = s0 + k + dl, jr = s0 + k + dr;
+          if (jl >= n) jl -= n;
+          if (jr >= n) jr -= n;
+          L[jl] += v * gl;
+          R[jr] += v * gr;
+        }
+      }
+      o.t = end;
+    }
+    function chunk() {
+      var end = Math.min(secs, t + 0.1);
+      for (var q = 0; q < pops.length; q++) grains(pops[q], end);
+      t = end;
+      return t < secs ? chunk : level;
+    }
+    // then each pair: its energy, block by block; scaled to unit RMS while its
+    // peaks over the limit are noted; and the few of those held down
+    var BLK = 1 << 16, pq = 0, phase = 0, at = 0, e = 0, P = [], V = [];
+    function level() {
+      var o = pops[pq], L = o.L, R = o.R, end = at + BLK < n ? at + BLK : n, j, a, b;
+      if (phase === 0) {
+        for (j = at; j < end; j++) e += L[j] * L[j] + R[j] * R[j];
+      } else {
+        var k = Math.sqrt(2 * n / (e || 1)), thr = o.p.lim || 1e9;
+        for (j = at; j < end; j++) {
+          a = L[j] *= k; b = R[j] *= k;
+          if (a < 0) a = -a;
+          if (b < 0) b = -b;
+          if (b > a) a = b;
+          if (a > thr) { P.push(j); V.push(thr / a); }
+        }
+      }
+      at = end;
+      if (at < n) return level;
+      at = 0;
+      if (phase === 0) { phase = 1; return level; }
+      if (P.length) limitWalk(L, R, P, V, sr);
+      phase = 0; e = 0; P = []; V = [];
+      return ++pq < pops.length ? level : done;
+    }
+    function done() { return out; }
+    return curves;
+  }
+
+  /**
+   * Hold the few loudest peaks of a bed to `thr` (both channels, one gain):
+   * the gain eases down over the 0.5 ms before each peak and comes back with
+   * an 8 ms release. Only the stretches round a peak are walked. The walk
+   * starts in the widest gap between peaks, so it is seamless round the loop.
+   */
+  function limitPeaks(L, R, thr, sr) {
+    var P = [], V = [], i, m, v;
+    for (i = 0; i < L.length; i++) {
+      m = L[i] < 0 ? -L[i] : L[i];
+      v = R[i] < 0 ? -R[i] : R[i];
+      if (v > m) m = v;
+      if (m > thr) { P.push(i); V.push(thr / m); }
+    }
+    if (P.length) limitWalk(L, R, P, V, sr);
+    return P.length;
+  }
+  /** The walk of limitPeaks: P the samples over the limit (in order), V the gain each needs. */
+  function limitWalk(L, R, P, V, sr) {
+    var n = L.length, np = P.length, la = Math.max(2, Math.round(sr * 0.0005)), rel = Math.exp(-1 / (sr * 0.008));
+    var best = P[0] + n - P[np - 1], k0 = np - 1, k;
+    for (k = 1; k < np; k++) if (P[k] - P[k - 1] > best) { best = P[k] - P[k - 1]; k0 = k - 1; }
+    var s0 = P[k0] + (best >> 1), D = new Int32Array(np), W = new Float32Array(np);
+    for (k = 0; k < np; k++) {
+      var kk = (k0 + 1 + k) % np, d = (P[kk] - s0) % n;
+      D[k] = d < 0 ? d + n : d;
+      W[k] = V[kk];
+    }
+    var g = 1, j = 0, pos = 0;
+    while (pos < n && (j < np || g < 0.9999)) {
+      if (g >= 0.9999 && j < np && pos < D[j] - la) pos = D[j] - la;      // nothing near: skip ahead
+      var tg = 1;
+      for (k = j; k < np && D[k] <= pos + la; k++) {
+        var rp = W[k] + (1 - W[k]) * (D[k] - pos) / la;                      // ease down to the peak
+        if (rp < tg) tg = rp;
+      }
+      g = 1 - (1 - g) * rel;
+      if (tg < g) g = tg;
+      var ii = s0 + pos;
+      if (ii >= n) ii -= n;
+      L[ii] *= g;
+      R[ii] *= g;
+      pos++;
+      while (j < np && D[j] < pos) j++;
+    }
+  }
+
+  /* ----------------------------------------------------------------------
+   *  No loops: the Shuffler
+   * -------------------------------------------------------------------- */
+  var XF_IN = new Float32Array(17), XF_OUT = new Float32Array(17);
+  for (var xi = 0; xi < 17; xi++) { XF_IN[xi] = Math.sin(Math.PI / 2 * xi / 16); XF_OUT[xi] = Math.cos(Math.PI / 2 * xi / 16); }
+
+  /** An equal-power fade of `param` from 0 up to `g` (or, `out`, from g down to 0) over [t, t + d]. */
+  function xfade(param, t, d, g, out) {
+    var c = new Float32Array(17), src = out ? XF_OUT : XF_IN;
+    for (var i = 0; i < 17; i++) c[i] = src[i] * g;
+    try { param.setValueCurveAtTime(c, t, d); } catch (e) {
+      param.setValueAtTime(out ? g : 0, t);                  // where curves are not to be had: a straight line
+      param.linearRampToValueAtTime(out ? 0 : g, t + d);
+    }
+  }
+
+  /**
+   * Plays a bed as an endless chain of short segments from random places in
+   * it, each crossfaded into the next with equal power, each at a slightly
+   * different speed and level: the texture never comes round the same way.
+   * `pump(t, horizon)` keeps the chain scheduled `horizon` s ahead; without a
+   * buffer (still being made) it is silent. `park()` hands over to the whole
+   * bed on a loop, which needs no more scheduling (a hidden page may run no
+   * script); `pump` takes the chain back. `cut(t)` stops it at t.
+   *   o: { min, max: segment length (s); xf: crossfade (s); rate: ± speed;
+   *        jit: σ of its level (log); pitch(): the speed it centres on }
+   */
+  function Shuffler(ctx, dest, o) {
+    this.ctx = ctx; this.dest = dest; this.o = o; this.buf = null;
+    this.next = 0; this.lastOff = -10; this.segs = []; this.loop = null;
+  }
+  Shuffler.prototype.pump = function (t, horizon) {
+    var o = this.o, buf = this.buf, segs = this.segs;
+    if (!buf) return;
+    if (this.loop) this._unpark(t);
+    if (this.next < t) this.next = t;
+    while (segs.length && segs[0].end < t) segs.shift();
+    var D = buf.duration, xf = o.xf;
+    for (var n = 0; this.next < t + horizon && n < 8; n++) {
+      var d = o.min + (o.max - o.min) * rnd(), rate = o.pitch() * (1 + o.rate * (2 * rnd() - 1));
+      var need = (d + 2 * xf) * rate + 0.02, off, tries = 0;
+      do { off = rnd() * (D - need); } while (Math.abs(off - this.lastOff) < 1.0 && ++tries < 4);
+      this.lastOff = off;
+      var g = Math.exp(o.jit * (rnd() + rnd() + rnd() - 1.5) * 2), a = this.next;
+      var s = this.ctx.createBufferSource(), e = this.ctx.createGain();
+      s.buffer = buf;
+      s.playbackRate.value = rate;
+      e.gain.value = 0;
+      xfade(e.gain, a, xf, g, false);
+      xfade(e.gain, a + xf + d, xf, g, true);
+      s.connect(e); e.connect(this.dest);
+      s.start(a, off);
+      s.stop(a + d + 2 * xf + 0.02);
+      segs.push({ s: s, end: a + d + 2 * xf + 0.02 });
+      this.next = a + xf + d;
+    }
+  };
+  Shuffler.prototype.cut = function (t) {
+    for (var i = 0; i < this.segs.length; i++) { try { this.segs[i].s.stop(t); } catch (e) {} }
+    this.segs.length = 0;
+    this.next = 0;
+    if (this.loop) { try { this.loop.s.stop(t); } catch (e2) {} this.loop = null; }
+  };
+  Shuffler.prototype.park = function (t) {
+    if (!this.buf || this.loop) return;
+    var a = this.next > t ? this.next : t, s = this.ctx.createBufferSource(), e = this.ctx.createGain();
+    s.buffer = this.buf; s.loop = true;
+    s.playbackRate.value = this.o.pitch();
+    e.gain.value = 0;
+    xfade(e.gain, a, this.o.xf, 1, false);                   // as the chain's last segment fades out
+    s.connect(e); e.connect(this.dest);
+    s.start(a, rnd() * this.buf.duration);
+    this.loop = { s: s, e: e, at: a };
+  };
+  Shuffler.prototype._unpark = function (t) {
+    var l = this.loop, xf = this.o.xf, a = l.at + xf > t ? l.at + xf : t;
+    this.loop = null;
+    try { l.e.gain.cancelScheduledValues(a); } catch (e) {}
+    xfade(l.e.gain, a, xf, 1, true);
+    try { l.s.stop(a + xf + 0.02); } catch (e2) {}
+    this.next = a;                                            // the chain comes back in as the loop fades
+  };
 
   /* ----------------------------------------------------------------------
    *  Ambiences — an optional second layer behind the sand
@@ -589,8 +1016,6 @@
     this.chimeEnabled = true;
     this._last = {};          // last scheduled value per parameter
     this._cushion = 0;
-    this._drift = 0;
-    this._flutter = 0;
     this._voices = 0;
     this._silenced = false;
     this.ambience = 'none';   // optional second layer: 'none' | 'brook' | 'rain'
@@ -602,8 +1027,21 @@
     this._ambPreview = 0;     // audition until this context time
     this._ambUntil = 0;       // after a glass ends: flows on until this context time
     this._raw = {};           // pre-synthesised source material
-    this._prepStep = 0;
+    this._prepK = 0;          // the next PREP step…
+    this._job = null;         // …or the rest of the one under way
     this.onstate = null;      // callback(stateString)
+    // ---- the sand ----------------------------------------------------------
+    this._flowSlow = 0;       // the flow, slowly: its breathing is heard against this
+    this._flowOn = false;
+    this._evRate = 0;         // impact events / s, smoothed
+    this._grain = 1;          // how strongly the stream's grains land (by character)
+    this._wander = 0;         // where in front they land, drifting
+    this._slF = 0; this._slS = 0;                 // slides, quickly and slowly: a surge is an avalanche
+    this._slumpT = -1e9; this._slumpGap = 2;
+    this._pourOU = 0; this._pourOU2 = 0;          // the pour's random flutter
+    this._tg = {};            // target level of each bed, by shuffler key…
+    this._td = {};            // …how long its fade to silence takes (s)…
+    this._cutAt = {};         // …and when it was stopped, once silent
     // ---- the glass in hand -----------------------------------------------
     this.cracked = 'intact';  // 'intact' | 'cracked' | 'mended': how the vessel rings
     this._crF = 1;            // mode frequency × for that state
@@ -639,45 +1077,92 @@
 
   /* ---------------------------------------------------------------- *
    *  Source material, synthesised in small slices
+   *
+   *  First what every sound needs (the noises, the single grains: a few
+   *  milliseconds), then the beds. A step may return a function: the rest
+   *  of its work, a short stretch per call.
    * ---------------------------------------------------------------- */
-  var PREP_STEPS = [
-    function (r) { r.pinkL = rawNoise(PRE_SR, 5.3, 'pink'); },
-    function (r) { r.pinkR = rawNoise(PRE_SR, 5.3, 'pink'); },
-    function (r) { r.brownL = rawNoise(PRE_SR, 4.1, 'brown'); r.brownR = rawNoise(PRE_SR, 4.1, 'brown'); },
+  var PREP = [
+    // brown noise for the thuds and taps
+    function (r) { r.brownL = rawNoise(PRE_SR, 4.1, 'brown'); },
+    function (r) { r.brown = fill([r.brownL, rawNoise(PRE_SR, 4.1, 'brown')], PRE_SR); delete r.brownL; },
+    function (r) { r.rng = mulberry32(SAND_SEED); r.mbS = microBank(r.rng, PRE_SR, 'sand', 48); },
+    function (r) { r.mbG = microBank(r.rng, PRE_SR, 'glass', 32); },
     function (r) {
-      r.tinks = []; r.pats = [];
-      for (var i = 0; i < 14; i++) { r.tinks.push(synthTink(PRE_SR)); r.pats.push(synthPat(PRE_SR)); }
+      r.pats = [];
+      for (var i = 0; i < 32; i++) r.pats.push(fill([synthPat(r.rng, PRE_SR, (i + r.rng()) / 32)], PRE_SR));
     },
-    function (r) { r.patL = rawBed(PRE_SR, 3.7, r.pats, 380); r.patR = rawBed(PRE_SR, 3.7, r.pats, 380); },
-    function (r) { r.tinkL = rawBed(PRE_SR, 3.1, r.tinks, 120); r.tinkR = rawBed(PRE_SR, 3.1, r.tinks, 120); }
+    function (r) {
+      r.tinks = [];
+      for (var i = 0; i < 24; i++) r.tinks.push(fill([synthTink(r.rng, PRE_SR, (i + r.rng()) / 24)], PRE_SR));
+    }
   ];
+  var PREP_ESSENTIAL = PREP.length;           // what the graph cannot be built without
+  // pink noise for the air a turning glass cuts and the mend's hum (wanted a little later)
+  PREP.push(function (r) { r.pinkL = rawNoise(PRE_SR, 3.1, 'pink'); });
+  PREP.push(function (r) { r.pink = fill([r.pinkL, rawNoise(PRE_SR, 3.1, 'pink')], PRE_SR); delete r.pinkL; r.fresh = 'pink'; });
+  ['sand', 'glass'].forEach(function (key) {
+    PREP.push(function (r) {
+      var B = BEDS[key], job = grainBed(r.rng, PRE_SR, r[B.bank], B);
+      return function next() {
+        var res = job();
+        if (typeof res === 'function') { job = res; return next; }
+        r[key] = res;
+        r.fresh = key;                        // for the graph, once there is one
+        return null;
+      };
+    });
+  });
 
   /**
-   * Optional: call some time after load. Synthesises the noise beds a slice
-   * at a time while the page is idle, so the first touch stays instant.
+   * Run the preparation for about `budget` ms (at least one stretch of it);
+   * true while there is more to do.
+   */
+  HourglassAudio.prototype._prepSlice = function (budget) {
+    var t0 = now(), raw = this._raw;
+    for (;;) {
+      if (this._job) this._job = this._job() || null;
+      else if (this._prepK < PREP.length) {
+        var r = PREP[this._prepK++](raw);
+        this._job = typeof r === 'function' ? r : null;
+      }
+      if (raw.fresh) { var k = raw.fresh; raw.fresh = null; if (this.ready) this._bedReady(k); }
+      if (!this._job && this._prepK >= PREP.length) {
+        delete raw.mbS; delete raw.mbG; delete raw.rng;       // the beds are made: let the grains go
+        return false;
+      }
+      if (now() - t0 >= budget) return true;
+    }
+  };
+
+  /**
+   * Optional: call some time after load. Synthesises the sand a slice at a
+   * time (a few milliseconds each) while the page is idle, so the first
+   * touch stays instant. If the graph is built first, it goes on by itself.
    */
   HourglassAudio.prototype.prepare = function () {
     var self = this;
-    if (!AC || this._prepTimer || this._prepStep >= PREP_STEPS.length) return;
+    if (!AC || this._prepTimer || (this._prepK >= PREP.length && !this._job)) return;
     (function next() {
-      if (self._prepStep < PREP_STEPS.length) {
-        PREP_STEPS[self._prepStep++](self._raw);
-        self._prepTimer = setTimeout(next, 30);
-        return;
-      }
       self._prepTimer = 0;
+      if (self._prepSlice(5)) { self._prepTimer = setTimeout(next, 20); return; }
       // then the chosen ambience, so a first touch with it saved stays instant too
       if (self.ambience !== 'none') self._synthAmbience(self.ambience);
     })();
   };
-  /** Finish whatever `prepare()` has not done yet (synchronously). */
-  HourglassAudio.prototype._finishPrep = function () {
-    if (this._prepTimer) { clearTimeout(this._prepTimer); this._prepTimer = 0; }
-    while (this._prepStep < PREP_STEPS.length) PREP_STEPS[this._prepStep++](this._raw);
+  /** Finish the first `upto` steps of the preparation (all, if left out) at once. */
+  HourglassAudio.prototype._finishPrep = function (upto) {
+    var end = upto == null ? PREP.length : upto;
+    // a step under way is number _prepK − 1
+    while (this._prepK < end || (this._job && this._prepK <= end)) this._prepSlice(0);
+    if (!this._job && this._prepK >= PREP.length && this._prepTimer) { clearTimeout(this._prepTimer); this._prepTimer = 0; }
   };
 
   HourglassAudio.CHARACTERS = CHARACTERS;
   HourglassAudio.AMBIENCES = AMBIENCES;
+  // The synthesis itself, for offline tests and measurement.
+  HourglassAudio._synth = { microBank: microBank, grainBed: grainBed, limitPeaks: limitPeaks, synthPat: synthPat,
+                            synthTink: synthTink, mulberry32: mulberry32, BEDS: BEDS, PRE_SR: PRE_SR, SEED: SAND_SEED };
 
   /* ---------------------------------------------------------------- *
    *  Unlocking / lifecycle (iOS Safari is strict about all of this)
@@ -759,7 +1244,7 @@
    *  Graph
    * ---------------------------------------------------------------- */
   HourglassAudio.prototype._build = function () {
-    var ctx = this.ctx, i;
+    var ctx = this.ctx, i, self = this;
     var G = function (v) { var g = ctx.createGain(); g.gain.value = v; return g; };
     var BQ = function (type, f, q, gain) {
       var b = ctx.createBiquadFilter();
@@ -807,24 +1292,22 @@
 
     // layer faders (set by the acoustic character)
     this.gWhisper = G(0); this.gTicks = G(0); this.gBeds = G(0);
-    this.gModal = G(0); this.gFoley = G(0.9); this.gChime = G(1);
+    this.gModal = G(0); this.gBody = G(0); this.gFoley = G(0.9); this.gChime = G(1);
     this.gWhisper.connect(this.bus); this.gTicks.connect(this.bus);
-    this.gBeds.connect(this.bus); this.gModal.connect(this.bus);
+    this.gBeds.connect(this.bus); this.gModal.connect(this.bus); this.gBody.connect(this.bus);
     this.gFoley.connect(this.bus); this.gChime.connect(this.bus);
     this.chimeWet = G(0.55); this.gChime.connect(this.chimeWet); this.chimeWet.connect(this.conv);
 
-    // ---- source material ------------------------------------------------
-    this._finishPrep();
+    // ---- source material: what every sound needs now (a few ms if
+    //      prepare() has not made it yet); the beds as they are made ------
+    this._finishPrep(PREP_ESSENTIAL);
     var raw = this._raw;
-    var pink = toBuffer(ctx, [raw.pinkL, raw.pinkR], PRE_SR);
-    var brown = toBuffer(ctx, [raw.brownL, raw.brownR], PRE_SR);
+    this.pink = null;                       // (with the air, below, as soon as it is made)
+    this.brown = asBuffer(ctx, raw.brown, PRE_SR);
     this.tinks = []; this.pats = [];
-    for (i = 0; i < raw.tinks.length; i++) {
-      this.tinks.push(toBuffer(ctx, [raw.tinks[i]], PRE_SR));
-      this.pats.push(toBuffer(ctx, [raw.pats[i]], PRE_SR));
-    }
-    this.brown = brown;
-    this.pink = pink;
+    for (i = 0; i < raw.tinks.length; i++) this.tinks.push(asBuffer(ctx, raw.tinks[i], PRE_SR));
+    for (i = 0; i < raw.pats.length; i++) this.pats.push(asBuffer(ctx, raw.pats[i], PRE_SR));
+    delete raw.brown; delete raw.tinks; delete raw.pats;
     // A fifth of a second of white noise, for the glass's own clicks and
     // snaps. Seeded, so the crack's snap (always the same stretch of it) has
     // the same peak every time; the other clicks start anywhere in it.
@@ -832,7 +1315,7 @@
     for (i = 0; i < wn.length; i++) wn[i] = wr() * 2 - 1;
     this.white = toBuffer(ctx, [wn], PRE_SR);
 
-    // ---- Layer 1: glass cavity (modal bank) ----------------------------
+    // ---- the vessel: the glass's own resonances -------------------------
     this.modalIn = G(1);
     this.modalOut = G(2.6);
     this.modes = [];
@@ -845,79 +1328,111 @@
       this.modes.push(bp);
     }
     this.modalOut.connect(this.gModal);
-
-    // ---- Layer 2: neck whisper (silica on glass) -----------------------
-    this.wHP = BQ('highpass', 1500, 0.5);
-    this.wBand = BQ('peaking', 4300, 0.7, 6);
-    this.wAir = BQ('highshelf', 7500, null, 1);
-    this.wLP = BQ('lowpass', 9500, 0.6);
-    this.wEnv = G(0);                       // follows the flow rate
-    this.wLfo = G(1);                       // slow organic breathing
-    loop(pink).connect(this.wHP);
-    this.wHP.connect(this.wBand); this.wBand.connect(this.wAir);
-    this.wAir.connect(this.wLP); this.wLP.connect(this.wEnv);
-    // a little velvet underneath the hiss
-    this.wBody = BQ('bandpass', 950, 0.8);
-    var body = this.wBodyGain = G(0.42);
-    loop(brown).connect(this.wBody); this.wBody.connect(body); body.connect(this.wEnv);
-    this.wEnv.connect(this.wLfo); this.wLfo.connect(this.gWhisper);
-    var sW = this.wSend = G(0.55); this.wLfo.connect(sW); sW.connect(this.modalIn);
-    var lf = [[0.19, 0.085], [0.47, 0.05], [1.3, 0.02]];
-    for (i = 0; i < lf.length; i++) {
-      var o = ctx.createOscillator(), og = G(lf[i][1]);
-      o.frequency.value = lf[i][0];
-      o.connect(og); og.connect(this.wLfo.gain); o.start();
+    // ---- the hollow body of the bulb under the sand ---------------------
+    this.bodyIn = G(1);
+    var bodyOut = G(2.6);
+    this.bodyModes = [];
+    for (i = 0; i < MODES_BODY.length; i++) {
+      var bb = BQ('bandpass', MODES_BODY[i][0], MODES_BODY[i][1]), bg = G(MODES_BODY[i][2]);
+      this.bodyIn.connect(bb); bb.connect(bg); bg.connect(bodyOut);
+      this.bodyModes.push(bb);
     }
+    bodyOut.connect(this.gBody);
 
-    // ---- Layer 3: grain impacts -----------------------------------------
+    // ---- the sand as it lands: its hush, and its crackle -----------------
+    // A shelf follows the fall: a little less air as the pile rises.
+    this.sandBus = G(1); this.bedShelf = BQ('highshelf', 5200, null, 0);
+    this.sandBus.connect(this.bedShelf); this.bedShelf.connect(this.gWhisper);
+    this.crkBus = G(1); this.crkShelf = BQ('highshelf', 5200, null, 0);
+    this.crkBus.connect(this.crkShelf); this.crkShelf.connect(this.gBeds);
+    this.gHushS = G(0); this.gHushG = G(0); this.gCrkS = G(0); this.gCrkG = G(0);
+    this.gHushS.connect(this.sandBus); this.gHushG.connect(this.sandBus);
+    this.gCrkS.connect(this.crkBus); this.gCrkG.connect(this.crkBus);
+    // a bed has four channels: its hush to one level, its crackle to another
+    var split = function (hush, crk) {
+      var sp = ctx.createChannelSplitter(4), mh = ctx.createChannelMerger(2), mc = ctx.createChannelMerger(2);
+      sp.connect(mh, 0, 0); sp.connect(mh, 1, 1); sp.connect(mc, 2, 0); sp.connect(mc, 3, 1);
+      mh.connect(hush); mc.connect(crk);
+      return sp;
+    };
+    // …or all four into two: hush and crackle together (the pour), or the hush alone
+    // (the slide: thousands of grains rubbing past each other, smooth, no landings)
+    var both = function (dest, v, hushOnly) {
+      var m = G(v);
+      m.channelCount = 2; m.channelCountMode = 'explicit'; m.channelInterpretation = hushOnly ? 'discrete' : 'speakers';
+      m.connect(dest);
+      return m;
+    };
+    this.gSlump = G(1); this.gSlump.connect(this.sandBus);          // avalanches down the pile
+    // the dense grain textures of old are the crackle now (hush() and the tests read these)
+    this.patEnv = this.gCrkS; this.tinkEnv = this.gCrkG;
+    // how much of it rings the vessel (by character), and the body
+    this.wSend = G(0); this.bedShelf.connect(this.wSend); this.wSend.connect(this.modalIn);
+    this.cSend = G(0); this.crkShelf.connect(this.cSend); this.cSend.connect(this.modalIn);
+    var bH = G(0.05); this.bedShelf.connect(bH); bH.connect(this.bodyIn);
+
+    // ---- grains you can tell apart -------------------------------------
     this.tickBus = G(1);
     this.tickBus.connect(this.gTicks);
-    var sT = G(1.3); this.tickBus.connect(sT); sT.connect(this.modalIn);
-    // 3 pan positions × 3 loudness tiers: one node per voice, nothing else
-    this.tiers = [];
-    var pans = [-0.5, 0, 0.5], amps = [0.3, 0.56, 1];
-    for (i = 0; i < 3; i++) {
-      var pn = pan(pans[i]); pn.connect(this.tickBus);
-      var row = [];
-      for (var j = 0; j < 3; j++) { var tg = G(amps[j]); tg.connect(pn); row.push(tg); }
-      this.tiers.push(row);
+    this.tSend = G(0); this.tickBus.connect(this.tSend); this.tSend.connect(this.modalIn);
+    var bT = G(1.3); this.tickBus.connect(bT); bT.connect(this.bodyIn);
+    // each grain is panned on its own; off centre, the far ear hears it a hair later
+    this.itdBus = [];
+    for (i = -1; i <= 1; i++) {
+      var ib = G(1);
+      if (i && ctx.createStereoPanner && ctx.createChannelSplitter && ctx.createChannelMerger) {
+        var spl = ctx.createChannelSplitter(2), mrg = ctx.createChannelMerger(2), dl = ctx.createDelay(0.001);
+        dl.delayTime.value = 0.00006;
+        ib.connect(spl);
+        if (i > 0) { spl.connect(dl, 0); dl.connect(mrg, 0, 0); spl.connect(mrg, 1, 1); }
+        else { spl.connect(mrg, 0, 0); spl.connect(dl, 1); dl.connect(mrg, 0, 1); }
+        mrg.connect(this.tickBus);
+      } else ib.connect(this.tickBus);
+      this.itdBus.push(ib);
     }
-    // dense-flow textures
-    this.patEnv = G(0); this.tinkEnv = G(0);
-    loop(toBuffer(ctx, [raw.patL, raw.patR], PRE_SR)).connect(this.patEnv);
-    loop(toBuffer(ctx, [raw.tinkL, raw.tinkR], PRE_SR)).connect(this.tinkEnv);
-    this.patEnv.connect(this.gBeds); this.tinkEnv.connect(this.gBeds);
-    var sB = G(0.9); this.gBeds.connect(sB); sB.connect(this.modalIn);
 
-    // ---- Layer 4: foley -------------------------------------------------
-    // pour: a fuller, cascading rush
-    this.pBP = BQ('bandpass', 2300, 0.7);
+    // ---- foley ------------------------------------------------------------
+    // pour: fresh sand poured in from above, a fuller, cascading rush
+    this.pBP = BQ('bandpass', 2600, 0.7);
     this.pEnv = G(0);
-    loop(pink, 0.87).connect(this.pBP); this.pBP.connect(this.pEnv);
-    this.pEnv.connect(this.gFoley);
-    var sP = G(0.5); this.pEnv.connect(sP); sP.connect(this.modalIn);
+    this.pBP.connect(this.pEnv); this.pEnv.connect(this.gFoley);
+    this.sP = G(0); this.pEnv.connect(this.sP); this.sP.connect(this.modalIn);
     // rush: thousands of grains sliding over glass (flip, avalanches)
     this.rBP = BQ('bandpass', 1500, 0.8);
     this.rEnv = G(0);
     this.rPan = pan(0);
-    loop(pink, 0.62).connect(this.rBP); this.rBP.connect(this.rEnv);
+    this.rBP.connect(this.rEnv);
     this.rEnv.connect(this.rPan); this.rPan.connect(this.gFoley);
+    this.sR = G(0); this.rEnv.connect(this.sR); this.sR.connect(this.modalIn);
     // air: the glass cutting the air as it turns or spins, before the sand moves
     this.aBP = BQ('bandpass', 520, 0.9);
     this.aEnv = G(0);
     this.aPan = pan(0);
-    loop(pink, 0.47).connect(this.aBP); this.aBP.connect(this.aEnv);
+    this._airLoop = function () { loop(self.pink, 0.47).connect(self.aBP); };
+    this.aBP.connect(this.aEnv);
     this.aEnv.connect(this.aPan); this.aPan.connect(this.gFoley);
-    var sR = G(0.45); this.rEnv.connect(sR); sR.connect(this.modalIn);
 
-    // ---- Layer 5: outside the glass -------------------------------------
+    // every bed plays through a Shuffler: no loop is ever heard
+    var bedRate = function () { return self._bedRate || 1; };
+    var at = function (v) { return function () { return v; }; };
+    var BED = { min: 0.45, max: 1.4, xf: 0.05, rate: 0.04, jit: 0.08, pitch: bedRate };
+    var FOL = { min: 0.3, max: 0.9, xf: 0.04, rate: 0.04, jit: 0.15 };
+    var fol = function (v) { var o = {}, k; for (k in FOL) o[k] = FOL[k]; o.pitch = at(v); return o; };
+    this.shuf = {
+      S: new Shuffler(ctx, split(this.gHushS, this.gCrkS), BED), G: new Shuffler(ctx, split(this.gHushG, this.gCrkG), BED),
+      P: new Shuffler(ctx, both(this.pBP, 0.24), fol(0.95)), R: new Shuffler(ctx, both(this.rBP, 0.085, true), fol(0.72))
+    };
+    this._shufBed = { S: 'sand', G: 'glass', P: 'sand', R: 'sand' };
+    this.beds = {};
+    this._tg = {}; this._td = {}; this._cutAt = {};
+
+    // ---- outside the glass ----------------------------------------------
     // Spilled grains landing on the desk: no vessel to excite, so this bus
     // bypasses the modal bank. Its level follows the character's grains.
     this.spillBus = G(0);
     this.spillBus.connect(this.gFoley);
     this._resetRates();
 
-    this._raw = {};                         // wrapped into AudioBuffers: free the originals
     // ---- ambience: an optional layer behind the sand ----------------------
     // It bypasses the character's tone shaping (a dune should not muffle a brook).
     this.ambBus = G(0);
@@ -925,9 +1440,24 @@
     var aW = G(0.12); this.ambBus.connect(aW); aW.connect(this.conv);
 
     this.ready = true;
+    for (var key in BEDS) if (raw[key]) this._bedReady(key);
+    if (raw.pink) this._bedReady('pink');
+    // the rest still to come, a slice at a time, starting after this tap
+    if (this._prepK < PREP.length || this._job) setTimeout(function () { self.prepare(); }, 0);
     if (this.ambience !== 'none') this._loadAmbience(this.ambience);
     this._applyCharacter(0.01);
     this._applyMaster();
+  };
+
+  /** Material is made: wrap it for playing and hand it on (a bed to its shufflers, the pink noise to the air). */
+  HourglassAudio.prototype._bedReady = function (key) {
+    var raw = this._raw[key];
+    if (!raw || !this.ready) return;
+    var buf = asBuffer(this.ctx, raw, PRE_SR);
+    delete this._raw[key];
+    if (key === 'pink') { this.pink = buf; this._airLoop(); return; }
+    this.beds[key] = buf;
+    for (var k in this._shufBed) if (this._shufBed[k] === key) this.shuf[k].buf = buf;
   };
 
   /* ---------------------------------------------------------------- *
@@ -952,28 +1482,36 @@
 
   HourglassAudio.prototype._applyCharacter = function (tau) {
     if (!this.ready) return;
-    var c = CHARACTERS[this.character] || CHARACTERS.asmr, t = this.ctx.currentTime;
+    var c = CHARACTERS[this.character] || CHARACTERS.asmr, t = this.ctx.currentTime, i;
+    var vs = c.vessel != null ? c.vessel : 1;
     tau = tau || 0.25;
     this.gWhisper.gain.setTargetAtTime(c.whisper, t, tau);
     this.gTicks.gain.setTargetAtTime(c.ticks, t, tau);
     this.gBeds.gain.setTargetAtTime(c.beds, t, tau);
     this.gModal.gain.setTargetAtTime(c.modal, t, tau);
+    this.gBody.gain.setTargetAtTime(c.body || 0, t, tau);
     this.wet.gain.setTargetAtTime(c.room, t, tau);
     this.toneLow.gain.setTargetAtTime(c.low, t, tau);
     this.toneHigh.gain.setTargetAtTime(c.high, t, tau);
     this.toneLP.frequency.setTargetAtTime(c.lp, t, tau);
     // re-voice the vessel itself (a cracked or mended glass keeps its state)
     var modes = this._modes = c.modes || MODES;
-    for (var i = 0; i < this.modes.length; i++) {
+    for (i = 0; i < this.modes.length; i++) {
       this.modes[i].Q.setTargetAtTime(modes[i][1] * this._crQ, t, tau);
       this.modeGains[i].gain.setTargetAtTime(modes[i][2], t, tau);
     }
     this._last.fill = undefined;                         // retune on the next update
-    this.wSend.gain.setTargetAtTime(c.send != null ? c.send : 0.55, t, tau);
-    this.wBodyGain.gain.setTargetAtTime(c.body != null ? c.body : 0.42, t, tau);
+    // what of the sand rings it
+    this.wSend.gain.setTargetAtTime(c.send || 0, t, tau);
+    this.cSend.gain.setTargetAtTime(0.05 * vs, t, tau);
+    this.tSend.gain.setTargetAtTime(1.3 * vs, t, tau);
+    this.sP.gain.setTargetAtTime(0.5 * vs, t, tau);
+    this.sR.gain.setTargetAtTime(0.45 * vs, t, tau);
     this.spillBus.gain.setTargetAtTime(0.2 * c.ticks, t, tau);   // grains on the desk: very quiet
     this._tickRate = c.tick || 1;
-    this._band = c.band || 1;
+    this._grain = c.grain || 1;
+    this._shake = c.shake && c.beds ? c.shake / c.beds : 1;
+    this._bedRate = c.bed || 1;
   };
 
   /**
@@ -987,10 +1525,14 @@
     this._crF = v[0];
     this._crQ = v[1];
     if (!this.ready) return;
-    var t = this.ctx.currentTime, modes = this._modes, fill = this._fill;
-    for (var i = 0; i < this.modes.length; i++) {
+    var t = this.ctx.currentTime, modes = this._modes, fill = this._fill, i;
+    for (i = 0; i < this.modes.length; i++) {
       this.modes[i].Q.setTargetAtTime(modes[i][1] * this._crQ, t, 0.15);
       this.modes[i].frequency.setTargetAtTime(modes[i][0] * (1 + modes[i][3] * fill) * this._crF, t, 0.15);
+    }
+    for (i = 0; i < this.bodyModes.length; i++) {
+      this.bodyModes[i].Q.setTargetAtTime(MODES_BODY[i][1] * this._crQ, t, 0.15);
+      this.bodyModes[i].frequency.setTargetAtTime(MODES_BODY[i][0] * (1 + MODES_BODY[i][3] * fill) * this._crF, t, 0.15);
     }
   };
 
@@ -1162,6 +1704,7 @@
    *    spillPats grains / s landing on the desk below
    *  }
    * ---------------------------------------------------------------- */
+
   HourglassAudio.prototype.update = function (st) {
     if (!this.ready || this.ctx.state !== 'running') return;
     var ctx = this.ctx, t = ctx.currentTime;
@@ -1169,54 +1712,87 @@
     // ---- ambience: on while the glass runs, even while it is being turned ---
     this._ambience(st.ambient != null ? st.ambient : st.running);
 
-    // ---- Layer 2: whisper follows the flow ------------------------------
-    var flow = st.flow || 0;
-    var f01 = flow <= 0 ? 0 : Math.min(1, Math.pow(flow / 320, 0.45));
+    // ---- the stream, and its breathing -----------------------------------
+    // Heard against its own slow mean, the flow's swell lifts the whole sand.
+    var flow = st.flow || 0, tail = st.tail >= 0 ? (st.tail < 1 ? st.tail : 1) : 1, on = flow > 0.4;
+    if (on && !this._flowOn) this._flowSlow = flow;      // a stream that starts: no surge
+    this._flowOn = on;
+    this._flowSlow += (flow - this._flowSlow) * Math.min(1, dt / 2.5);
     // A long, slow timer still breathes softly; a short one is fuller.
-    var whisper = flow > 0.4 ? (0.34 + 0.66 * f01) * st.tail : 0;
-    this._set('w', this.wEnv.gain, whisper, whisper > (this._last.w || 0) ? 0.10 : 0.16);
-    // slow random drift of the "air" band keeps the hiss from sounding static
-    this._drift += dt;
-    if (this._drift > 0.27) {
-      this._drift = 0;
-      var centre = (4700 - 900 * f01) * (this._band || 1);   // heavier flow = slightly darker
-      this.wBand.frequency.setTargetAtTime(centre * (0.9 + rnd() * 0.22), t, 0.45);
-      this.wBody.frequency.setTargetAtTime(850 + rnd() * 260, t, 0.6);
+    var lvl = on ? 0.34 + 0.66 * Math.pow(Math.min(1, flow / 320), 0.45) : 0, pulse = 1;
+    if (on && this._flowSlow > 1) {
+      pulse = Math.pow(flow / this._flowSlow, 0.9);
+      pulse = pulse < 0.6 ? 0.6 : (pulse > 1.6 ? 1.6 : pulse);
     }
 
     // ---- bare glass ⇄ sand cushion --------------------------------------
     var cushTarget = Math.min(1, Math.pow((st.bottom || 0) / 900, 0.7));
     this._cushion += (cushTarget - this._cushion) * Math.min(1, dt * 3);
-    var cushion = this._cushion;
+    var cushion = this._cushion, cs = Math.sqrt(cushion), cg = Math.sqrt(1 - cushion);
 
-    // ---- Layer 3a: dense textures ---------------------------------------
+    // ---- the hush of the landing, and its crackle -------------------------
+    // (more grains, not louder ones: the hush swells a little, the crackle less;
+    // and it is the landing that is heard, so it waits for the first grains down)
     var imp = st.impacts || 0;
-    var dens = imp <= 0 ? 0 : Math.min(1, Math.pow(imp / 300, 0.5));
-    // Shaken, every grain rattles at once: the textures rise to a floor set by
-    // the agitation, a soft shaker shimmer, and settle back when it calms.
+    var bed = lvl * Math.pow(pulse, 0.7) * tail * Math.min(1, imp / (0.5 * flow + 2));
+    // (a faster stream is mostly a fuller hush: its crackle is denser, not louder;
+    // the last few grains a second take it down to nothing)
+    var dens = imp > 0 ? (0.5 + 0.5 * Math.sqrt(Math.min(1, imp / 300))) * Math.min(1, imp / 4) * Math.sqrt(pulse) * tail : 0;
+    // Shaken, every grain rattles at once: the crackle rises to a floor set by
+    // the agitation, a soft shaker shimmer, and settles back when it calms.
     var agit = st.agit > 0 ? (st.agit < 3 ? st.agit : 3) : 0;
     this._agit = agit;
     if (agit > 0) {
-      var floor = 0.5 * Math.pow(agit, 1.5);
-      if (floor > dens) dens = floor < 1 ? floor : 1;
+      var floor = 0.28 * Math.pow(agit, 1.5);
+      floor = (floor < 0.45 ? floor : 0.45) * (this._shake || 1);
+      if (floor > dens) dens = floor;
     }
-    this._set('pat', this.patEnv.gain, dens * cushion * 0.9, 0.12);
-    this._set('tnk', this.tinkEnv.gain, dens * (1 - cushion) * 0.8, 0.10);
+    // (the first grains on bare glass: fewer, each one heard)
+    this._beds(bed * cs, 0.55 * bed * cg, dens * cs, 0.5 * dens * cg, 0.12, 0.10);
+    // a shorter fall as the pile rises: a little less air
+    var fill = st.fill || 0;
+    this._set('bri', this.bedShelf.gain, -3.5 * fill, 0.5);
+    this._set('bri2', this.crkShelf.gain, -3.5 * fill, 0.5);
+    this._set('slump', this.gSlump.gain, 1, 0.1);
+    this._pump(t, 1.0, BED_KEYS);
 
-    // ---- Layer 3b: individual grains, straight from the physics ---------
-    var sim = st.sim;
-    if (sim && sim.nev) {
-      var max = this.character === 'asmr' ? 4 : 3;
-      var n = sim.nev, take = n < max ? n : max;
+    // ---- avalanches down the pile: when the slides surge, a soft slump --
+    var sl0 = st.slides || 0;
+    this._slF += (sl0 - this._slF) * Math.min(1, dt / 0.12);
+    this._slS += (sl0 - this._slS) * Math.min(1, dt / 1.5);
+    if (on && cushion > 0.3 && t - this._slumpT > this._slumpGap) {
+      var surge = this._slS > 300 ? this._slF / this._slS - 1.1 : 0;
+      if (surge > 0 || rnd() < dt * 0.05) {
+        var sv = surge > 0 ? Math.min(1, surge / 0.25) : 0.3 * rnd();
+        this._slumpT = t; this._slumpGap = 1.2 + 2.3 * rnd();
+        this._slump(t + 0.01, (0.35 + 0.65 * sv) * lvl * tail, (rnd() < 0.5 ? -1 : 1) * (0.18 + 0.25 * rnd()));
+      }
+    }
+
+    // ---- grains you can tell apart, straight from the physics -----------
+    // A slow glass is heard grain by grain; a fast one keeps fewer of them,
+    // each a little softer, and lets the hush carry the rest.
+    var sim = st.sim, n = sim && sim.nev ? sim.nev : 0;
+    this._evRate += (n / dt - this._evRate) * Math.min(1, dt * 3);
+    // where they land wanders slowly (a random walk, 4 s memory, σ 0.06 of the pan)
+    var kd = dt / 4;
+    this._wander += 0.06 * Math.sqrt(2 * kd) * gauss(rnd) - this._wander * kd;
+    if (n) {
+      var r = this._evRate > 1 ? this._evRate : 1, keep = Math.min(r, 22 + 0.28 * r) / r;
+      var soft = this._grain / Math.sqrt(1 + r / 150), take = n < 16 ? n : 16;
       for (var k = 0; k < take; k++) {
-        var e = n <= max ? k : (rnd() * n) | 0;
+        if (rnd() > keep) continue;
+        var e = n <= 16 ? k : (rnd() * n) | 0;
         var kind = sim.evK[e], v = sim.evV[e], x = sim.evX[e];
         var top = (kind & 2) !== 0;
         var glass = !top && ((kind & 1) === 0 || rnd() < Math.pow(1 - cushion, 1.5));
-        var amp = (0.32 + 0.68 * Math.pow(v, 1.2)) * (0.55 + 0.45 * rnd());
-        if (top) amp *= 0.55;
+        var ln = softTop(0.55 * gauss(rnd), 0.55, 0.5);   // every grain its own size: log-normal
+        var amp = (0.19 + 0.26 * Math.pow(v, 1.5)) * Math.exp(ln) * (top ? 0.55 : (glass ? 1.2 : 1)) * soft;
         // spread within the frame: Poisson arrivals, not a 60 Hz buzz
-        this._tick(t + 0.004 + rnd() * dt, glass, amp, x);
+        var when = t + 0.004 + rnd() * dt;
+        x = (x === x ? x : 0) + this._wander / 0.45;
+        this._tick(when, glass, amp, x);
+        if (rnd() < 0.15) this._tick(when + 0.0015 + 0.0045 * rnd(), glass, amp * (0.2 + 0.2 * rnd()), x);   // a rebound
       }
     }
 
@@ -1226,37 +1802,44 @@
       if (th[0] > 0) this.thump(th[0], th[1], 0);
       if (th[2] > 0) this.thump(th[2], th[3], 1);
     }
-    var sl = st.slam;
-    if (sl && sl[0] > 0) this.clack(sl[0], sl[1]);
+    var slm = st.slam;
+    if (slm && slm[0] > 0) this.clack(slm[0], slm[1]);
     // ---- Layer 5: grains trickling out of a chip, and landing on the desk ---
     var lp = st.leakPan;
     this._leakPan = lp > -1 ? (lp < 1 ? lp : 1) : (lp <= -1 ? -1 : 0);
     this._stream(this._leakS, st.leak > 0 ? (st.leak < 40 ? st.leak : 40) : 0, t + 0.004, dt);
     this._stream(this._spillS, st.spillPats > 0 ? (st.spillPats < 20 ? st.spillPats : 20) : 0, t + 0.004, dt);
 
-    // ---- Layer 1: the air cavity shrinks as the lower bulb fills --------
-    var fill = st.fill || 0;
+    // ---- the air cavity shrinks as the lower bulb fills --------------------
     this._fill = fill;
     if (this._last.fill === undefined || Math.abs(this._last.fill - fill) > 0.004) {
       this._last.fill = fill;
-      for (var m = 0; m < this.modes.length; m++) {
-        this.modes[m].frequency.setTargetAtTime(this._modes[m][0] * (1 + this._modes[m][3] * fill) * this._crF, t, 0.4);
+      var md = this._modes, m;
+      for (m = 0; m < this.modes.length; m++) {
+        this.modes[m].frequency.setTargetAtTime(md[m][0] * (1 + md[m][3] * fill) * this._crF, t, 0.4);
+      }
+      for (m = 0; m < this.bodyModes.length; m++) {
+        this.bodyModes[m].frequency.setTargetAtTime(MODES_BODY[m][0] * (1 + MODES_BODY[m][3] * fill) * this._crF, t, 0.4);
       }
     }
 
     // ---- Layer 4: pour ---------------------------------------------------
+    // Sand poured in from above: the beds again, through a band that wanders
+    // on two random (Ornstein–Uhlenbeck) flutters, 80 ms and 0.3 s, never a clock.
     if (st.pouring) {
-      this._flutter += dt;
-      if (this._flutter > 0.07) {
-        this._flutter = 0;
-        this.pEnv.gain.setTargetAtTime(0.28 + rnd() * 0.14, t, 0.05);
-        this.pBP.frequency.setTargetAtTime(1900 + rnd() * 900, t, 0.08);
-        this._last.pour = 1;
-      }
+      var kq = Math.min(1, dt / 0.08), kq2 = Math.min(1, dt / 0.3);
+      this._pourOU += Math.sqrt(2 * kq) * gauss(rnd) - this._pourOU * kq;
+      this._pourOU2 += Math.sqrt(2 * kq2) * gauss(rnd) - this._pourOU2 * kq2;
+      this.pEnv.gain.setTargetAtTime(0.3 * Math.exp(0.25 * this._pourOU), t, 0.03);
+      this.pBP.frequency.setTargetAtTime(2700 * Math.exp(0.18 * this._pourOU2), t, 0.08);
+      this._last.pour = 1;
+      this._tg.P = 1; this._td.P = 0.7;
     } else if (this._last.pour) {
       this._last.pour = 0;
       this.pEnv.gain.setTargetAtTime(0, t, 0.11);
+      this._tg.P = 0;
     }
+    this._pump(t, 1.0, POUR_KEYS);
 
     // ---- Layer 4: rush of sliding sand (flip / avalanches) --------------
     var sl = st.slides || 0;
@@ -1274,6 +1857,8 @@
       panTo = st.rushPan < -0.65 ? -0.65 : (st.rushPan > 0.65 ? 0.65 : st.rushPan);
     }
     this._set('rush', this.rEnv.gain, rush * 0.5, rush > (this._last.rush || 0) ? 0.06 : 0.22);
+    this._tg.R = rush > 0.002 ? 1 : 0; this._td.R = 1.4;
+    this._pump(t, 1.0, RUSH_KEYS);
 
     // ---- air: a soft whoosh the moment the glass turns, two swells a turn ---
     var wv = st.spin || 0, air = wv < 0.35 ? 0 : Math.min(1, Math.pow((wv - 0.35) / 12, 0.75));
@@ -1289,18 +1874,75 @@
     }
   };
 
-  /** Used while the page is hidden: hold a steady whisper without physics. */
+  var BED_KEYS = ['S', 'G'], POUR_KEYS = ['P'], RUSH_KEYS = ['R'];
+
+  /**
+   * The beds' levels: the hush and the crackle, on sand and on glass, gliding
+   * at tau h and c. Each bed's shuffler plays while either of its two does.
+   */
+  HourglassAudio.prototype._beds = function (hS, hG, cS, cG, h, c) {
+    var tg = this._tg, td = this._td;
+    tg.S = hS > cS ? hS : cS; tg.G = hG > cG ? hG : cG;
+    td.S = td.G = 6 * (h > c ? h : c);                      // silent by then, to −50 dB
+    this._set('hS', this.gHushS.gain, hS, h);
+    this._set('hG', this.gHushG.gain, hG, h);
+    this._set('cS', this.gCrkS.gain, cS, c);
+    this._set('cG', this.gCrkG.gain, cG, c);
+  };
+  /**
+   * Keep each shuffler that should sound scheduled `horizon` s ahead; one
+   * that has gone quiet is stopped once its fade is over.
+   */
+  HourglassAudio.prototype._pump = function (t, horizon, keys) {
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i], s = this.shuf[k];
+      if (this._tg[k] > 1e-4) { s.pump(t, horizon); this._cutAt[k] = 0; }
+      else if (!this._cutAt[k]) { this._cutAt[k] = t + (this._td[k] || 0.8); s.cut(this._cutAt[k]); }
+    }
+  };
+
+  /** A soft slump of sand down the side of the pile, to one side. */
+  HourglassAudio.prototype._slump = function (when, s, p) {
+    var ctx = this.ctx, buf = this.beds.sand;
+    if (!buf || !(s > 0)) return;
+    var src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain(), pn = this._panner(p);
+    src.buffer = buf;
+    src.playbackRate.value = 0.8 + 0.15 * rnd();
+    f.type = 'bandpass'; f.frequency.value = 2600 * Math.pow(2, 1.2 * rnd()); f.Q.value = 0.6;
+    g.gain.value = 0;
+    var rise = 0.06 + 0.08 * rnd();
+    g.gain.setTargetAtTime(1.1 * s, when, rise / 2.5);              // (its four channels meet in the panner: half each)
+    g.gain.setTargetAtTime(0, when + rise + 0.1 * rnd(), 0.22 + 0.25 * rnd());
+    src.connect(f); f.connect(g); g.connect(pn); pn.connect(this.gSlump);
+    src.start(when, rnd() * (buf.duration - 2.6));
+    src.stop(when + 2.4);
+  };
+
+  /**
+   * Used while the page is hidden: hold a steady stream without physics.
+   * The beds hand over to plain loops of themselves, which need no script
+   * to go on (a hidden page may get none); the next update() takes them back.
+   */
   HourglassAudio.prototype.hold = function (flow, tail) {
     if (!this.ready || this.ctx.state !== 'running') return;
-    var f01 = flow <= 0 ? 0 : Math.min(1, Math.pow(flow / 320, 0.45));
-    var w = flow > 0.4 ? (0.34 + 0.66 * f01) * tail : 0;
-    var dens = flow <= 0 ? 0 : Math.min(1, Math.pow(flow / 300, 0.5)) * tail;
-    this._set('w', this.wEnv.gain, w, 0.3);
-    this._set('pat', this.patEnv.gain, dens * this._cushion * 0.9, 0.3);
-    this._set('tnk', this.tinkEnv.gain, dens * (1 - this._cushion) * 0.8, 0.3);
+    var t = this.ctx.currentTime, on = flow > 0.4, i;
+    tail = tail >= 0 ? (tail < 1 ? tail : 1) : 1;
+    var lvl = on ? (0.34 + 0.66 * Math.pow(Math.min(1, flow / 320), 0.45)) * tail : 0;
+    var dens = flow > 0 ? (0.5 + 0.5 * Math.sqrt(Math.min(1, flow / 300))) * Math.min(1, flow / 4) * tail : 0;
+    var c = this._cushion, cs = Math.sqrt(c), cg = Math.sqrt(1 - c);
+    this._beds(lvl * cs, 0.55 * lvl * cg, dens * cs, 0.5 * dens * cg, 0.3, 0.3);
+    for (i = 0; i < BED_KEYS.length; i++) {
+      var k = BED_KEYS[i];
+      if (this._tg[k] > 1e-4) { this.shuf[k].park(t); this._cutAt[k] = 0; }
+      else if (!this._cutAt[k]) { this._cutAt[k] = t + this._td[k]; this.shuf[k].cut(this._cutAt[k]); }
+    }
     this._set('rush', this.rEnv.gain, 0, 0.2);
-    this._ambience(flow > 0.4);
-    if (this._last.pour) { this._last.pour = 0; this.pEnv.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1); }
+    this._tg.R = 0;
+    this._ambience(on);
+    if (this._last.pour) { this._last.pour = 0; this.pEnv.gain.setTargetAtTime(0, t, 0.1); }
+    this._tg.P = 0;
+    this._pump(t, 0, POUR_KEYS);
+    this._pump(t, 0, RUSH_KEYS);
     this._quietHand();                 // the textures above already left out the agitation
   };
 
@@ -1310,13 +1952,16 @@
     var t = this.ctx.currentTime;
     this._ambUntil = 0;
     this._ambience(false);
-    this._set('w', this.wEnv.gain, 0, 0.12);
-    this._set('pat', this.patEnv.gain, 0, 0.12);
-    this._set('tnk', this.tinkEnv.gain, 0, 0.1);
+    this._beds(0, 0, 0, 0, 0.12, 0.1);
+    this._set('slump', this.gSlump.gain, 0, 0.1);
     this._set('rush', this.rEnv.gain, 0, 0.2);
     if (this.aEnv) this._set('air', this.aEnv.gain, 0, 0.2);
     this.pEnv.gain.setTargetAtTime(0, t, 0.1);
     this._last.pour = 0;
+    this._tg.P = this._tg.R = 0;
+    this._pump(t, 0, BED_KEYS);
+    this._pump(t, 0, POUR_KEYS);
+    this._pump(t, 0, RUSH_KEYS);
     this._quietHand();
   };
 
@@ -1371,16 +2016,21 @@
    *  One grain hitting something
    * ---------------------------------------------------------------- */
   HourglassAudio.prototype._tick = function (when, glass, amp, x, rate) {
-    var ctx = this.ctx;
     var bank = glass ? this.tinks : this.pats;
-    var s = ctx.createBufferSource();
+    if (!bank || !bank.length) return;
+    var ctx = this.ctx, s = ctx.createBufferSource(), g = ctx.createGain();
     s.buffer = bank[(rnd() * bank.length) | 0];
-    s.playbackRate.value = (glass ? 0.88 + rnd() * 0.3 : 0.8 + rnd() * 0.45) * (this._tickRate || 1) * (rate || 1);
-    var p = x < -0.22 ? 0 : (x > 0.22 ? 2 : 1);
-    if (rnd() < 0.3) p = (rnd() * 3) | 0;           // a little air between grains
-    if (!glass) amp *= 0.8;
-    var tier = amp < 0.45 ? 0 : (amp < 0.76 ? 1 : 2);
-    s.connect(this.tiers[p][tier]);
+    s.playbackRate.value = (glass ? (0.96 + rnd() * 0.08) * this._crF : 0.86 + rnd() * 0.28) * (this._tickRate || 1) * (rate || 1);
+    g.gain.value = amp * (glass ? 1 : 0.8);
+    s.connect(g);
+    // where it fell, give or take: each grain its own place in a narrow cone in front
+    var p = (x === x && x ? x : 0) * 0.45 + 0.16 * gauss(rnd);
+    p = p < -0.6 ? -0.6 : (p > 0.6 ? 0.6 : p);
+    if (ctx.createStereoPanner) {
+      var pn = ctx.createStereoPanner();
+      pn.pan.value = p;
+      g.connect(pn); pn.connect(this.itdBus[p < -0.12 ? 0 : (p > 0.12 ? 2 : 1)]);
+    } else g.connect(this.itdBus[1]);
     s.start(when);
   };
 
@@ -1631,7 +2281,7 @@
     if (!this.ready) return;
     var ctx = this.ctx, t = ctx.currentTime, h = this._hum;
     p = p > 0 ? (p < 1 ? p : 1) : 0;
-    if (p > 0 && ctx.state === 'running') {
+    if (p > 0 && ctx.state === 'running' && this.pink) {      // (the pink noise is made just after the first tap)
       if (!h) {
         h = this._hum = { src: ctx.createBufferSource(), g: ctx.createGain() };
         h.src.buffer = this.pink; h.src.loop = true;
