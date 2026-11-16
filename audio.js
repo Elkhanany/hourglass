@@ -1769,12 +1769,18 @@
    * seed the loop was made with.
    * ------------------------------------------------------------------- */
 
-  /** The surf in front: 3 s before a wave breaks (not the smallest, not the biggest), as its swell comes up. */
+  /**
+   * The surf in front: 3 s before a wave breaks, as its swell comes up. Of the
+   * two waves with the longest wait for the next one, the bigger: it is heard
+   * to its end, backwash and all, before another arrives.
+   */
   function cueSurf(seconds, seed) {
-    var P = SURF.front, o = { P: P, rE: mulberry32(seed * 7919 + P.salt), seconds: seconds, W: [], E: [], nc: 0 };
+    var P = SURF.front, o = { P: P, rE: mulberry32(seed * 7919 + P.salt), seconds: seconds, W: [], E: [], nc: 0 }, W, i;
     surfPlan(o);
-    o.W.sort(function (a, b) { return a.big - b.big; });
-    return (((o.W[P.n >> 1].t - 3) % seconds) + seconds) % seconds;
+    W = o.W;                                             // in the order they break; after the last, the first again
+    for (i = 0; i < W.length; i++) W[i].gap = (i + 1 < W.length ? W[i + 1].t : W[0].t + seconds) - W[i].t;
+    W.sort(function (a, b) { return b.gap - a.gap; });
+    return (((W[W[0].big >= W[1].big ? 0 : 1].t - 3) % seconds) + seconds) % seconds;
   }
   /** A loop of drops: `lead` s before its second loudest drop falls. */
   function cueDrip(L, lead) {
