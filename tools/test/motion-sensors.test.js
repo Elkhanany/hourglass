@@ -355,9 +355,11 @@ function section3() {
     return { first: first, maxRms: maxRms };
   }
   var a = arming('vigSlow60', function (t, f) { Profiles.sample('vigSlow60', t, f); }, 3);
-  report(a.first >= 0 && a.first <= 0.8, 'Γ4 at 3.5 Hz arms within 0.8 s', 'armed at ' + (a.first >= 0 ? a.first.toFixed(3) + ' s' : 'never') + ', peak RMS ' + a.maxRms.toFixed(2) + ' g');
+  // (within 0.8 s while the RMS window was a quarter of a second; it is a third now, so that a
+  // 3 Hz shake holds steady in it, and fills 0.09 s later)
+  report(a.first >= 0 && a.first <= 1.0, 'Γ4 at 3.5 Hz arms within 1 s', 'armed at ' + (a.first >= 0 ? a.first.toFixed(3) + ' s' : 'never') + ', peak RMS ' + a.maxRms.toFixed(2) + ' g');
   var b = arming('veryVigSlow', function (t, f) { Profiles.sample('veryVigSlow', t, f); }, 3);
-  report(b.first >= 0 && b.first <= 0.8, 'Γ5.5 at 4 Hz arms within 0.8 s', 'armed at ' + (b.first >= 0 ? b.first.toFixed(3) + ' s' : 'never') + ', peak RMS ' + b.maxRms.toFixed(2) + ' g');
+  report(b.first >= 0 && b.first <= 1.0, 'Γ5.5 at 4 Hz arms within 1 s', 'armed at ' + (b.first >= 0 ? b.first.toFixed(3) + ' s' : 'never') + ', peak RMS ' + b.maxRms.toFixed(2) + ' g');
   var never = [
     ['walking', function (t, f) { Profiles.sample('walking', t, f); }, 12],
     ['running', function (t, f) { Profiles.sample('running', t, f); }, 12],
@@ -503,9 +505,56 @@ function section4() {
   })();
 }
 
+/* ======================================================================
+ *  5. The shake counter: swings of a hard shake, whichever way it goes
+ * ==================================================================== */
+function section5() {
+  console.log('\n5. The shake counter');
+  var TAU = 2 * Math.PI;
+  function shaking(felt, dur) {
+    var env = makeEnv(), m = new env.M({});
+    m.start();
+    var most = 0, taken = 0, firstAt = -1;
+    var r = run(env, m, { dur: 1.5 + dur, conv: 'ios', o: 0, felt: function (t, f) {
+      f.x = 0; f.y = 0; f.z = 0; f.w = 0;
+      if (t >= 1.5) felt(t - 1.5, f);
+      if (m.swings > most) most = m.swings;
+      var n = m.takeSwings();
+      if (n && firstAt < 0) firstAt = t - 1.5;
+      taken += n;
+    }, seed: 5 });
+    return { most: most, taken: taken, firstAt: firstAt, m: m, env: env, armedEver: r.log.some(function (q) { return q.armed; }) };
+  }
+  [['along the screen', 'y'], ['across it', 'x'], ['toward and away from the face', 'z']].forEach(function (ax) {
+    var a = shaking(function (t, f) { f[ax[1]] = Profiles.human(3, 4.5, t, 5); }, 3);
+    report(a.most >= 8 && a.taken >= 8 && a.firstAt > 0.6 && a.firstAt < 1.4 && a.armedEver, '3 g at 4.5 Hz ' + ax[0] + ': its swings count from the eighth',
+           'longest run ' + a.most + ', ' + a.taken + ' blows handed on, the first at ' + a.firstAt.toFixed(2) + ' s');
+  });
+  var slow = shaking(function (t, f) { f.z = Profiles.human(3, 3, t, 5); }, 4);
+  report(slow.most >= 8 && slow.taken > 0, '3 g at 3 Hz (a swing every 167 ms) still counts', 'longest run ' + slow.most + ', ' + slow.taken + ' blows');
+  [
+    ['running', function (t, f) { Profiles.sample('running', t, f); }, 10],
+    ['a firm shake, 1.5 g at 3 Hz, toward the face', function (t, f) { f.z = Profiles.human(1.5, 3, t, 3); }, 8],
+    ['a 2 g shake at 4.5 Hz', function (t, f) { f.y = Profiles.human(2, 4.5, t, 2); }, 8],
+    ['palm taps: 8 g for 25 ms, 2.5 a second, one way only', function (t, f) { if (t % 0.4 < 0.025) f.y = -8; }, 10],
+    ['a set-down: 12 g for 17 ms and a quarter of it back', function (t, f) { if (t > 1 && t < 1.017) f.z = 12; else if (t >= 1.017 && t < 1.05) f.z = -3; }, 3],
+    ['a drop: 0.35 s of free fall, then 12 g for 35 ms', function (t, f) { Profiles.sample('drop', t, f); }, 4]
+  ].forEach(function (c) {
+    var r = shaking(c[1], c[2]);
+    report(r.taken === 0 && r.most <= 3, 'never counts: ' + c[0], 'longest run ' + r.most + ' (8 count), ' + r.taken + ' blows');
+  });
+  (function () {
+    var a = shaking(function (t, f) { f.z = Profiles.human(3, 4.5, t, 5); }, 2);
+    var before = a.m.swings;
+    a.m.reset();
+    report(before >= 8 && a.m.swings === 0 && a.m.takeSwings() === 0, 'reset() forgets the shake under way', before + ' → ' + a.m.swings);
+  })();
+}
+
 section1();
 section2();
 section3();
 section4();
+section5();
 console.log('\n' + (cases - failures) + '/' + cases + ' passed');
 process.exit(failures ? 1 : 0);

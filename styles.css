@@ -671,6 +671,8 @@ input[type="range"]::-moz-range-thumb {
 /* said while Tune is open: in the sheet's head, between its title and its close
    button (app.js says how high; this keeps it over the sheet in landscape too) */
 #toast.high { left: 50%; }
+/* a note about the glass, shown up under the readout: clear of the lower bulb it is about */
+#toast.up { bottom: auto; top: calc(var(--sat) + 150px); }
 
 /* ------------------------------------------------------------------ *
  *  Small / short / wide screens
@@ -694,6 +696,7 @@ input[type="range"]::-moz-range-thumb {
   #hud-bottom { left: auto; width: 44%; max-width: 400px; padding-bottom: calc(var(--sab) + 8px); }
   #readout { font-size: clamp(34px, 7vw, 54px); }
   #toast { bottom: calc(var(--sab) + 20px); left: 25%; }
+  #toast.high { bottom: calc(var(--sab) + 20px); top: auto; }
 }
 @media (min-width: 760px) and (min-height: 700px) {
   #hud-bottom { padding-bottom: calc(var(--sab) + 22px); }

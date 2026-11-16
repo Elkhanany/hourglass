@@ -80,12 +80,12 @@
         M.seenMotion = true; M.seenOrient = true; M.live = true;
         var g2 = f.x * f.x + f.y * f.y + (f.z || 0) * (f.z || 0), now = performance.now();
         d.win.push(now, g2);
-        while (d.win.length && d.win[0] < now - 250) d.win.splice(0, 2);
+        while (d.win.length && d.win[0] < now - 340) d.win.splice(0, 2);
         var s = 0;
         for (var i = 1; i < d.win.length; i += 2) s += d.win[i];
         var rms = Math.sqrt(s / Math.max(1, d.win.length / 2));
         M.rms = rms;
-        if (rms >= 1.5) { d.hi += 1 / 60; d.lo = 0; } else { d.hi = 0; if (rms < 1.2) d.lo += 1 / 60; else d.lo = 0; }
+        if (rms >= 1.6) { d.hi += 1 / 60; d.lo = 0; } else { d.hi = 0; if (rms < 1.2) d.lo += 1 / 60; else d.lo = 0; }
         if (!d.armed && d.hi >= 0.6) d.armed = true;
         if (d.armed && d.lo >= 0.5) d.armed = false;
         M.armed = d.armed;

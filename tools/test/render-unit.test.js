@@ -48,7 +48,7 @@ function recorder() {
   function m(name, fn) {
     c[name] = function () { c.calls++; c.log.push(name); return fn ? fn.apply(null, arguments) : undefined; };
   }
-  ['save', 'restore', 'beginPath', 'moveTo', 'lineTo', 'ellipse', 'setTransform', 'arc', 'closePath'].forEach(function (n) { m(n); });
+  ['save', 'restore', 'beginPath', 'moveTo', 'lineTo', 'ellipse', 'setTransform', 'arc', 'closePath', 'clip'].forEach(function (n) { m(n); });
   m('stroke', function () { c.strokes++; });
   m('fill', function () { c.fills++; });
   m('fillRect', function () { c.rects++; });
@@ -394,10 +394,33 @@ test('syncDamage: the redraw policy', function () {
   for (i = 0; i < 60; i++) { rot += 0.05; r.syncDamage(rot, t += 1000 / 60); }  // 1 s at 60 Hz
   var turns60 = r.fronts - f0;
   ok(turns60 >= 28 && turns60 <= 30, 'turning for 1 s at 60 Hz redrew ' + turns60 + ' times');
-  // a creak: a 300 ms glint, redrawn at most 30 times a second, then one clean frame
+  // The stress mark: a stretch that holds 0.2 of damage or more shows it, for as long as it
+  // does (it used to be a 300 ms glint at each creak and nothing between). It is drawn when it
+  // appears, again only when it grows or fades by a step, and once more to take it away.
+  for (i = 0; i < 4; i++) r.syncDamage(rot, t += 16.7);     // (the last of the turning is drawn)
+  f0 = r.fronts;
+  s.segD[segOf(1, 1, 0.9)] = 0.15;
+  s._scanDamage(false);
+  for (i = 0; i < 6; i++) r.syncDamage(rot, t += 16.7);
+  ok(r.fronts === f0 && r._dmg.markQ === 0, 'damage 0.15 drew a mark');
+  s.segD[segOf(1, 1, 0.9)] = 0.51;
+  s._scanDamage(false);
+  ok(s.warnSeg >= 0, 'no stressed segment to mark');
+  for (i = 0; i < 6; i++) r.syncDamage(rot, t += 16.7);
+  ok(r.fronts === f0 + 1 && r._dmg.markQ > 0, 'the stress mark at 0.51: ' + (r.fronts - f0) + ' redraws');
+  var mark5 = r._dmg.markQ;
+  s.segD[segOf(1, 1, 0.9)] = 0.512;                  // the same step of its 24
+  s._scanDamage(false);
+  for (i = 0; i < 6; i++) r.syncDamage(rot, t += 16.7);
+  ok(r.fronts === f0 + 1, 'a mark that has not changed was redrawn');
+  s.segD[segOf(1, 1, 0.9)] = 0.7;
+  s._scanDamage(false);
+  for (i = 0; i < 6; i++) r.syncDamage(rot, t += 16.7);
+  ok(r.fronts === f0 + 2 && r._dmg.markQ > mark5, 'a mark that grew: ' + (r.fronts - f0 - 1) + ' redraws');
   s.segD[segOf(1, 1, 0.9)] = 0.5;
   s._scanDamage(false);
-  ok(s.warnSeg >= 0, 'no stressed segment to glint at');
+  for (i = 0; i < 6; i++) r.syncDamage(rot, t += 16.7);
+  // a creak: the mark brightens for 300 ms, redrawn at most 30 times a second, then one clean frame
   f0 = r.fronts;
   var tw = t;
   r.damageEvent(DMG.WARN, -1, 1, tw);
@@ -443,18 +466,18 @@ function brightest(ctx, rgb) {
   return best;
 }
 
-test('damageEvent: CRACK flashes the hairline, BREACH flares the rim, for 250 / 120 ms', function () {
+test('damageEvent: CRACK flashes the hairline, BREACH flares the rim, for 600 / 120 ms', function () {
   var s = glass([[1, 1, 0.9, 45, 2]]), r = fakeRenderer(s), t = 5000, i;
   r.ctx.reset();
   r.syncDamage(0, t);
   var hair0 = brightest(r.ctx, '255,250,240'), rim0 = brightest(r.ctx, '255,248,235');
   r.damageEvent(DMG.CRACK, 0, 0, t);
-  ok(r.animating && r._dmg.animEnd === t + 250, 'CRACK: 250 ms');
+  ok(r.animating && r._dmg.animEnd === t + 600, 'CRACK: 600 ms (it was 250: too brief to catch the eye)');
   r.ctx.reset();
   r.syncDamage(0, t += 34);
   var hair1 = brightest(r.ctx, '255,250,240');
   ok(hair1 >= 0.85 && hair1 > hair0 + 0.05, 'hairline during the flash ' + hair1 + ' vs ' + hair0);
-  for (i = 0; i < 20; i++) r.syncDamage(0, t += 17);
+  for (i = 0; i < 40; i++) r.syncDamage(0, t += 17);
   ok(!r.animating, 'the flash did not end');
   r.ctx.reset();
   r.syncDamage(0, t += 1000);

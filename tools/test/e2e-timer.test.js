@@ -1,10 +1,18 @@
 /*
  * Integration E4 and E5: the timer stays exact under shaking and leaks.
  *
- * E4  A 60 s glass shaken vigorously from 15 to 35 s (real motion.js, iOS
- *     convention): the rate is re-timed exactly once, no fastForward runs
- *     while the shaking is recent, and the last grain leaves within 30 ms of
- *     00:00.0. Variant: a 'normal' shake in the last 8 s: 'done' comes at
+ * E4  A 60 s glass shaken hard from 15 to 35 s (real motion.js, iOS
+ *     convention; 'normal', 2 g at 4.5 Hz, the hardest named shake that
+ *     leaves the glass whole): the rate is re-timed at most once and only
+ *     after the shaking, the sand above the neck is back within the
+ *     re-timing threshold once calm, no fastForward runs while the shaking
+ *     is recent, and the last grain leaves within 30 ms of 00:00.0.
+ *     (Until the crash work this shook it at 4 g and asked for exactly one
+ *     re-timing. That shake now cracks the glass within two seconds, by
+ *     intent, and at 2 g the neck keeps up well enough to need none: 180
+ *     grains behind at the worst, 26 once calm, against a threshold of 88.
+ *     "Exactly once after a hard shake" is still held by app-retime, where
+ *     the neck falls 2,300 grains behind.) Variant: a 'normal' shake in the last 8 s: 'done' comes at
  *     00:00.0 within 30 ms of start + 60 s, and the sand still above drains
  *     within 1.5 s after it.
  * E5  A 60 s glass breached in the upper funnel (forceCrack at u ≈ 0.15,
@@ -105,11 +113,17 @@ async function e4(s, env) {
   var t = await env.open({});
   var start = await startGlass(t);
   await sleep(15000 - (Date.now() - start));
-  await shake(t, 'vigorous', 20);
+  // (A hard shake that does not crack the glass: 'normal', 2 g at 4.5 Hz. It was 'vigorous',
+  // 4 g at 5.5 Hz, which since the crash work cracks the glass in two seconds, by intent.)
+  await shake(t, 'normal', 20);
   await waitEnd(t);
   await sleep(500);
   var r = await result(t);
-  s.check('E4: mpg changed exactly once (re-timed after the shaking)', r.clk.mpg.length === 1 && r.clk.mpg[0].t > 35, fmtMpg(r.clk.mpg));
+  s.note('E4', 'the sand above the neck strayed from the clock by up to ' + r.clk.devMax.toFixed(0) + ' grains (re-timed past ' + r.clk.thr.toFixed(0) +
+         ' once calm), ' + r.clk.devCalm.toFixed(0) + ' while calm; ' + r.lost + ' grains lost');
+  s.check('E4: re-timed at most once, and only after the shaking; once calm the sand matches the clock',
+          r.clk.mpg.length <= 1 && (r.clk.mpg.length === 0 || r.clk.mpg[0].t > 35) && r.clk.overCalm <= 30 && r.lost === 0,
+          fmtMpg(r.clk.mpg) + '; ' + r.clk.overCalm + ' calm frames past the threshold');
   var bad = r.ff.filter(function (c) { return c.motionRecent; });
   s.check('E4: no fastForward while motion was recent', bad.length === 0, r.ff.length + ' calls, ' + bad.length + ' while recent');
   var d = r.empty - r.done;

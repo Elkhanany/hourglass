@@ -8,6 +8,7 @@
  *     x, y, z      felt acceleration, g, page frame (z: out of the screen)
  *     w, wf        the phone's own turn and a flat spin's rate, rad/s
  *     rms, armed   the arming RMS (g) and the arming gate itself
+ *     swings       swings of a hard shake that count as blows, taken by takeSwings()
  *     live         a sample within the last 500 ms
  *     heading      page gravity angle, rad (undefined: not known yet)
  *     inPlane      how much of gravity lies in the screen plane
@@ -69,6 +70,11 @@
   proto.start = function () { this.running = true; stats.starts++; };
   proto.stop = function () { this.running = false; stats.stops++; };
   proto.reset = function () { stats.resets++; };
+  proto.takeSwings = function () {
+    var n = on(this) ? +D.swings || 0 : 0;
+    D.swings = 0;
+    return n;
+  };
   proto.sample = function (tMs, out) {
     out = out || {};
     stats.samples++;

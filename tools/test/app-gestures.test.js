@@ -88,8 +88,9 @@ async function waitRest(t, ms) {
   } catch (e) { return -1; }
 }
 
-async function lmax(t, reduced) {
-  return reduced ? 40 : await t.eval(function () { return 0.22 * Math.min(innerWidth, innerHeight); });
+/** How far the glass can be carried to the right before the screen's edge stops it (px). */
+async function lmax(t) {
+  return t.eval(function () { return window.Hourglass.room.x1; });
 }
 
 /* ---- 2. MOVE ------------------------------------------------------------ */
@@ -126,8 +127,10 @@ async function testMove(s, env, opts) {
   }
   var over = pRel > 0 ? 100 * maxNeg / pRel : 0;
   var settle = lastOut < 0 ? 0 : lastOut - r.upAt;
-  s.check(label + ': max |translate| ≤ Lmax' + (opts.reduced ? '' : ' + 2 px'), maxP <= L + (opts.reduced ? 0.5 : 2) && maxP > 10,
-          'max ' + maxP.toFixed(1) + ' px, Lmax ' + L.toFixed(1) + ' px');
+  // (until the glass could fall and hit, a rubber band held it within 0.22 × the screen's shorter
+  // side, 40 px with Reduce Motion; now it goes where the finger goes until the screen's edge stops it)
+  s.check(label + ': it stops at the edge of the screen (max |translate| ≤ the room + 0.5 px)', maxP <= L + 0.5 && maxP > 10,
+          'max ' + maxP.toFixed(1) + ' px, room to the right ' + L.toFixed(1) + ' px');
   s.check(label + ': back to |p| < 0.5 px within 1.3 s', lastOut >= 0 ? settle <= 1300 : true, 'settled ' + settle.toFixed(0) + ' ms after release');
   if (opts.reduced) s.check(label + ': no overshoot (≤ 1 px)', maxNeg <= 1, 'overshoot ' + maxNeg.toFixed(2) + ' px');
   else s.check(label + ': overshoot 5–15 %', over >= 5 && over <= 15, over.toFixed(1) + ' % of ' + pRel.toFixed(1) + ' px');
@@ -136,7 +139,8 @@ async function testMove(s, env, opts) {
     var dRem = c0.rem - r.rem, dWall = r.now - c0.now;
     s.check(label + ': the clock ran (T.rem fell by the wall time)', Math.abs(dRem - dWall) <= 60,
             'T.rem −' + dRem.toFixed(0) + ' ms over ' + dWall + ' ms');
-    s.check(label + ': sim gets ax < 0 while the glass accelerates right', axN > 3 && axBad === 0,
+    // (the screen's edge now stops the glass after 56 px here, so it has fewer steps to pick up speed in)
+    s.check(label + ': sim gets ax < 0 while the glass accelerates right', axN >= 2 && axBad === 0,
             axN + ' steps accelerating right (peak ' + maxAx.toFixed(0) + ' px/s² = ' + (maxAx * 1.631e-5).toFixed(2) + ' g), ' + axBad + ' with ax ≥ 0');
     if (CFG.e2e) {
       var slides = 0;
@@ -353,7 +357,9 @@ async function testCatchMove(s, env) {
     if (p60 === null) p60 = q[R_PX];
     else if (Math.abs(q[R_PX] - p60) > drift) drift = Math.abs(q[R_PX] - p60);
   });
-  s.check('CATCH (move): caught on its way home', vTouch < -100 && pTouch > 20,
+  // (the screen's edge now stops the glass 56 px out, where the rubber band let it go to 86: it is
+  // let go nearer home and is nearer still when the finger comes down again, so "> 20 px" is "> 10")
+  s.check('CATCH (move): caught on its way home', vTouch < -100 && pTouch > 10,
           'at ' + pTouch.toFixed(1) + ' px from home, moving ' + vTouch.toFixed(0) + ' px/s');
   s.check('CATCH (move): stopped within 120 ms, held as a move', first >= 0 && first <= 120 && mode === 'held-move',
           'below 5 px/s at ' + first.toFixed(0) + ' ms, mode ' + mode);
@@ -523,7 +529,7 @@ async function testReduced(s, env) {
     await sleep(700);
     await t.eval(function () {
       window.__drive({ profile: 'calm', conv: 'ios' });
-      window.__rm = { air: 0, spray: 0, hops: 0, steps: 0 };
+      window.__rm = { air: 0, spray: 0, hops: 0, steps: 0, d0: window.Hourglass.sim.dMax };
       __rec.start(function (H) {
         var f = H.sim.frame, m = window.__rm;
         m.steps++;
@@ -542,7 +548,10 @@ async function testReduced(s, env) {
       var H = window.Hourglass;
       return { m: window.__rm, cracks: H.sim.cracks.length, dMax: H.sim.dMax, on: H.grav.on };
     });
-    s.check('REDUCED: veryVigSlow 15 s never cracks it', rm.on && rm.cracks === 0 && rm.dMax === 0, 'cracks ' + rm.cracks + ', dMax ' + rm.dMax);
+    // (The finger's own blows now count with Reduce Motion too, and this page was flicked a
+    // moment ago: what is asked here is that the phone's shaking adds nothing to the glass.)
+    s.check('REDUCED: veryVigSlow 15 s never cracks it and adds no damage', rm.on && rm.cracks === 0 && rm.dMax <= rm.m.d0,
+            'cracks ' + rm.cracks + ', dMax ' + rm.m.d0 + ' before the shake, ' + rm.dMax + ' after');
     s.check('REDUCED: ... the bed never flies, nothing sprays or hops', rm.m.air === 0 && rm.m.spray === 0 && rm.m.hops === 0 && rm.m.steps > 1000,
             JSON.stringify(rm.m));
   }
