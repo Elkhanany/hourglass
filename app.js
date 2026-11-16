@@ -1710,7 +1710,7 @@
    * soft one.
    */
   var KNOCK = { gap: 600, fast: 400 };           // ms
-  var knockAt = 0, knockRun = 0, knockUndo = null;
+  var knockAt = -1e9, knockRun = 0, knockUndo = null;     // (never "quick" for the first tap after the page opens)
   function knock(g) {
     var now = performance.now(), gap = now - knockAt, quick = gap < KNOCK.gap;
     knockAt = now;
