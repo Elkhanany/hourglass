@@ -1274,7 +1274,8 @@
     box: [4000, 4000, 4000, 4000],
     deep: [4000, 7000, 8000, 0]
   };
-  if (!BREATHS[settings.breathPattern]) settings.breathPattern = 'calm';
+  // (a damaged setting may name anything: "constructor" is not a pattern)
+  if (!Object.prototype.hasOwnProperty.call(BREATHS, settings.breathPattern)) settings.breathPattern = 'calm';
   var breathEl = $('breath');
   var breath = { on: false, t0: 0, n: NaN, timer: 0 };   // t0: when this run of breaths began (Date.now())
 
@@ -1456,6 +1457,11 @@
   var toastTimer = 0;
   function toast(msg, ms) {
     toastEl.textContent = msg;
+    // Said while Tune is open, it would lie on the rows it is about: there it
+    // sits in the sheet's head, just above them (and goes when the sheet goes).
+    var y = sheetOpen === sheetSettings ? sheetSettings.offsetTop + sheetSettings.querySelector('.sheet-body').offsetTop - 4 : 0;
+    toastEl.classList.toggle('high', y > 0);
+    toastEl.style.bottom = y > 0 ? 'calc(100% - ' + y + 'px)' : '';
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, ms || 2200);
@@ -1881,6 +1887,7 @@
     if (!el) return;
     sheetOpen = null;
     el.classList.remove('open'); scrim.classList.remove('open');
+    if (toastEl.classList.contains('high')) toastEl.classList.remove('show');   // a toast in Tune's head fades with it
     var done = function () { el.hidden = true; if (!sheetOpen) scrim.hidden = true; };
     if (instant) done(); else setTimeout(done, 560);
     if (sheetOpener && !instant) { try { sheetOpener.focus({ preventScroll: true }); } catch (e) {} }

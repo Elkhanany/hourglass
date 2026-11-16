@@ -7,7 +7,9 @@
  *           4·4·4·4, Deep 4·7·8), one toast on switching on, both saved,
  *           the choice on one line at 360, 390 and 430 px, the main screen
  *           as lean as before; switched on while the sand runs it swells at
- *           once, switched off it eases back before the layer goes
+ *           once, switched off it eases back before the layer goes; the
+ *           toast sits in the sheet's head, clear of the rows, fades there
+ *           when the sheet is closed, and elsewhere keeps its usual place
  *   calm    from the start of the glass: in for 4 s on a sine ease, out for
  *           6 s, again at 10 s; only opacity and scale move, as two
  *           transitions on a compositor layer of its own that is never
@@ -25,7 +27,9 @@
  *   zen     in Full Zen the controls are gone and the glow still breathes
  *           (the frame's own work is noted)
  *   saved   the switch and the pattern survive a reload, a restored running
- *           glass breathes, every sand tints the layer with its own glow
+ *           glass breathes, every sand tints the layer with its own glow,
+ *           in landscape the glow stays a halo round the glass, and a saved
+ *           pattern this version does not know (or a damaged one) is Calm
  *
  *   node tools/test/app-breath.test.js [--root <dir>] [--port <n>] [--only <name>]
  */
@@ -298,11 +302,20 @@ async function tune(s, env) {
   var view = await t.eval(function () {
     var body = document.querySelector('#sheet-settings .sheet-body').getBoundingClientRect();
     var row = document.getElementById('breath-row').getBoundingClientRect();
-    return { top: row.top - body.top, bottom: body.bottom - row.bottom, page: document.scrollingElement.scrollTop + document.getElementById('app').scrollTop };
+    var toast = document.getElementById('toast').getBoundingClientRect(), sheet = document.getElementById('sheet-settings').getBoundingClientRect();
+    return { top: row.top - body.top, bottom: body.bottom - row.bottom, page: document.scrollingElement.scrollTop + document.getElementById('app').scrollTop,
+             toast: [toast.left, toast.top, toast.right, toast.bottom].map(Math.round), rows: Math.round(body.top), sheet: Math.round(sheet.top),
+             title: Math.round(document.getElementById('settings-title').getBoundingClientRect().right),
+             close: Math.round(document.querySelector('#sheet-settings .sheet-close').getBoundingClientRect().left),
+             shown: document.getElementById('toast').classList.contains('show') };
   });
   s.check('TUNE: the choice scrolls into view under the switch (and nothing else scrolls)',
           Math.abs(box.gap) < 1 && view.bottom >= -0.5 && view.top >= 0 && view.page === 0,
           'below the fold before; now ' + view.bottom.toFixed(1) + ' px above the sheet\'s lower edge');
+  s.check('TUNE: the toast sits in the sheet\'s head, between "Tune" and the close button, and covers no row',
+          view.shown && view.toast[3] <= view.rows && view.toast[1] >= view.sheet && view.toast[0] > view.title && view.toast[2] < view.close,
+          'toast x ' + view.toast[0] + ' to ' + view.toast[2] + ', y ' + view.toast[1] + ' to ' + view.toast[3] + '; the sheet begins at y ' + view.sheet +
+          ', its rows at ' + view.rows + '; the title ends at x ' + view.title + ', the close button begins at ' + view.close);
   var st = await settingsOf(t);
   s.check('TUNE: saved with the other settings: breath true, breathPattern "calm"', st.breath === true && st.breathPattern === 'calm',
           JSON.stringify({ breath: st.breath, breathPattern: st.breathPattern }));
@@ -398,6 +411,45 @@ async function tune(s, env) {
           vOff > 0.25 && worstJump(smp, tOff - 100, tOff + 2500) <= 0.03 && late === 'block' && vEnd <= 0.02 &&
           gone2.layer === 'none' && !gone2.on && gone2.state === 'running',
           f2(vOff) + ' when switched off, ' + f3(vEnd) + ' 2.45 s later with the layer still there (' + late + '), then ' + gone2.layer);
+
+  // the toast goes with the sheet: Tune closed while it is up, it fades where it is and does not jump down the screen
+  await t.page.tap('#opt-breath');
+  await sleep(700);
+  await t.eval(function () {
+    var toast = document.getElementById('toast'), w = window.__tw = { on: true, out: [] };
+    (function tick() {
+      if (!w.on) return;
+      w.out.push([toast.getBoundingClientRect().top, +getComputedStyle(toast).opacity]);
+      requestAnimationFrame(tick);
+    })();
+  });
+  await closeTune(t);
+  var tw = await t.eval(function () {
+    window.__tw.on = false;
+    return { out: window.__tw.out, shown: document.getElementById('toast').classList.contains('show'), toasts: window.__toasts.length };
+  });
+  var seen = tw.out.filter(function (x) { return x[1] > 0.02; }), drift = 0;
+  seen.forEach(function (x) { drift = Math.max(drift, Math.abs(x[0] - tw.out[0][0])); });
+  // (8 px is the toast's own way of leaving)
+  s.check('TUNE: Tune closed while the toast is up: the toast fades where it is, with the sheet',
+          tw.toasts === 3 && tw.out[0][1] === 1 && tw.out[0][0] < 100 && drift <= 8.5 && !tw.shown && tw.out[tw.out.length - 1][1] === 0,
+          'at y ' + Math.round(tw.out[0][0]) + ', moved ' + drift.toFixed(1) + ' px while it faded over ' + seen.length + ' frames');
+  // ... and what is said with no sheet open keeps its usual place (here: the Custom sheet's note, as that sheet closes)
+  await t.eval(function () {
+    document.getElementById('pill-custom').click();
+    document.getElementById('wheel-min').scrollTop = 0;
+    document.getElementById('wheel-sec').scrollTop = 5 * 46;
+  });
+  await sleep(700);
+  await t.eval(function () { document.getElementById('custom-set').click(); });
+  await sleep(500);
+  var low = await t.eval(function () {
+    var toast = document.getElementById('toast'), r = toast.getBoundingClientRect();
+    return { text: toast.textContent, shown: toast.classList.contains('show'), up: window.innerHeight - r.bottom, mid: (r.left + r.right) / 2 };
+  });
+  s.check('TUNE: ... and a toast with no Tune under it keeps its usual place, 172 px above the bottom',
+          low.shown && /Shortest glass/.test(low.text) && Math.abs(low.up - 172) < 1 && Math.abs(low.mid - 195) < 1,
+          '"' + low.text + '" ' + low.up.toFixed(1) + ' px above the bottom, centred at x ' + low.mid.toFixed(1));
   s.check('TUNE: no page or console errors', t.errors.length === 0, t.errors.slice(0, 3).join(' | '));
   await t.close();
 }
@@ -822,6 +874,28 @@ async function saved(s, env) {
   s.check('SAVED: each of the six sands tints the layer with its own glow, and with nothing else', bad.length === 0,
           bad.length ? bad.join(', ') + ': ' + tints[bad[0]] : Object.keys(GLOW).join(', '));
 
+  // upright, the swell is as wide as the screen; on its side it follows the height: a halo round the glass, not a band
+  function widths() {
+    return t.eval(function () {
+      var re = /radial-gradient\(([\d.]+)(%|vh|px) /g, bg = getComputedStyle(document.getElementById('breath')).backgroundImage, m, out = [];
+      while ((m = re.exec(bg))) out.push(+m[1] * (m[2] === '%' ? window.innerWidth / 100 : m[2] === 'vh' ? window.innerHeight / 100 : 1));
+      return { r: out, w: window.innerWidth, h: window.innerHeight };
+    });
+  }
+  var up = await widths();
+  await t.page.setViewportSize({ width: 844, height: 390 });
+  await sleep(450);
+  var side = await widths();
+  await t.page.setViewportSize({ width: 390, height: 844 });
+  await sleep(450);
+  // (a gradient is clear from 0.7 of its radius: twice that is how wide the light can be seen)
+  var seenUp = 1.4 * Math.max.apply(null, up.r), seenSide = 1.4 * Math.max.apply(null, side.r);
+  s.check('SAVED: upright the glow\'s three pools are 60, 62 and 70 % of the width; in landscape they follow the height and stay a halo round the glass',
+          up.r.length === 3 && Math.abs(up.r[0] - 0.60 * up.w) < 0.5 && Math.abs(up.r[1] - 0.62 * up.w) < 0.5 && Math.abs(up.r[2] - 0.70 * up.w) < 0.5 &&
+          side.r.length === 3 && side.w === 844 && seenSide < 0.5 * side.w && seenSide > 0.6 * side.h,
+          'upright ' + up.r.map(Math.round).join(', ') + ' px, seen across ' + Math.round(seenUp) + ' of ' + up.w + ' px; on its side ' +
+          side.r.map(Math.round).join(', ') + ' px, seen across ' + Math.round(seenSide) + ' of ' + side.w + ' px');
+
   // a running glass, restored by a reload, breathes again from an in-breath
   await t.eval(function () { window.Hourglass.start(); });
   await sleep(1500);
@@ -838,6 +912,24 @@ async function saved(s, env) {
   var c = await state();
   s.check('SAVED: an unknown saved pattern falls back to Calm', c.sw && c.sel === 'calm', JSON.stringify({ sw: c.sw, sel: c.sel }));
   s.check('SAVED: no page or console errors', t.errors.length === 0, t.errors.slice(0, 3).join(' | '));
+  await t.close();
+
+  // ... and so does a name every object answers to (damaged storage): Calm, breathing, one timer for each part
+  t = await env.open({ storage: seed({ breath: true, breathPattern: 'constructor' }), init: function () {
+    var st = window.setTimeout;
+    window.__steps = 0;
+    window.setTimeout = function (f) { if (/breathStep/.test(String(f))) window.__steps++; return st.apply(window, arguments); };
+  } });
+  await sleep(600);
+  var d = await state();
+  await t.eval(function () { window.Hourglass.start(); });
+  await sleep(1500);
+  var d2 = await t.eval(function () {
+    return { n: window.Hourglass.breath.n, o: +getComputedStyle(document.getElementById('breath')).opacity, steps: window.__steps };
+  });
+  s.check('SAVED: a saved pattern named like a built-in property ("constructor") falls back to Calm too, and breathes',
+          d.sw && d.sel === 'calm' && d2.n === 0 && d2.o > 0.05 && d2.steps === 1 && t.errors.length === 0,
+          JSON.stringify({ sw: d.sw, sel: d.sel, part: d2.n, glow: +d2.o.toFixed(2), timers: d2.steps }) + ' ' + t.errors.slice(0, 2).join(' | '));
   await t.close();
 }
 

@@ -117,13 +117,15 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
    breath (app.js, Breathing pace), so the compositor does the breathing:
    nothing is laid out or painted again. At rest it is clear. (It lies over
    the vignette, which is clear where the glow is: under it, the vignette
-   would need a full-screen layer of its own.) */
+   would need a full-screen layer of its own.) Its widths are --b1 to --b3:
+   on a wide screen they follow the height, so the swell stays a halo round
+   the glass and not a band across the screen. */
 #breath {
   position: absolute; inset: 0; z-index: 1;
   background:
-    radial-gradient(60% 34% at 50% 34%, rgba(var(--glow), calc(var(--glow-a) * 0.6)), transparent 72%),
-    radial-gradient(62% 36% at 50% 64%, rgba(var(--glow), calc(var(--glow-a) * 0.7)), transparent 74%),
-    radial-gradient(70% 52% at 50% 49%, rgba(var(--glow), calc(var(--glow-a) * 0.75)), rgba(var(--glow), calc(var(--glow-a) * 0.3)) 42%, transparent 70%);
+    radial-gradient(var(--b1, 60%) 34% at 50% 34%, rgba(var(--glow), calc(var(--glow-a) * 0.6)), transparent 72%),
+    radial-gradient(var(--b2, 62%) 36% at 50% 64%, rgba(var(--glow), calc(var(--glow-a) * 0.7)), transparent 74%),
+    radial-gradient(var(--b3, 70%) 52% at 50% 49%, rgba(var(--glow), calc(var(--glow-a) * 0.75)), rgba(var(--glow), calc(var(--glow-a) * 0.3)) 42%, transparent 70%);
   opacity: 0;
   transform: scale(0.92);
   transform-origin: 50% 49%;
@@ -131,6 +133,9 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   will-change: opacity, transform;
 }
 #breath.in { opacity: 1; transform: scale(1.12); }
+@media (orientation: landscape) {
+  #breath { --b1: 52vh; --b2: 54vh; --b3: 60vh; }
+}
 
 /* ------------------------------------------------------------------ *
  *  Stage
@@ -645,6 +650,9 @@ input[type="range"]::-moz-range-thumb {
   transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+/* said while Tune is open: in the sheet's head, between its title and its close
+   button (app.js says how high; this keeps it over the sheet in landscape too) */
+#toast.high { left: 50%; }
 
 /* ------------------------------------------------------------------ *
  *  Small / short / wide screens
