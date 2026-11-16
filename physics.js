@@ -172,7 +172,7 @@
    * when these fields first take fractions. So they take their double form
    * here, before anything is compiled, as the slugs' U and Z do.
    */
-  var SIM_DOUBLES = ['angle', 'tilt', 'gx', 'gy', 'mAx', 'mAy', 'mW', 'mAl', 'mLam', 'mGz', 'relCap', 'dMax', '_iz'];
+  var SIM_DOUBLES = ['angle', 'tilt', 'gx', 'gy', 'mAx', 'mAy', 'mW', 'mAl', 'mLam', 'mGz', 'relCap', 'dMax', '_iz', '_lrng', '_layNeed'];
   function asDoubles(o, keys) {
     for (var k = 0; k < keys.length; k++) {
       var v = o[keys[k]];
@@ -260,6 +260,15 @@
     this.topSweeps = 0;       // extra CA sweeps of the upper bulb per step
     this.lag = 0;             // grains the neck still owes the clock
     this.rng = (opts.seed | 0) || 0x2F6E2B1;
+    this.layers = !!opts.layers;   // layered sand: bit 7 of a grain's colour seed is its tone (setLayers)
+    this._lrng = 1;           // the strata's own random stream (never the sand's)
+    this._pourTone = 0; this._pourLeft = 0; this._pourAt = -1e9;   // the layer being poured in
+    this._lb = new Int16Array(W);  // lower heap: each column's surface when the layer being laid began
+    this._lbRaw = new Int16Array(W);
+    this._layN = -1;          // grains below the neck when it began (−1: none begun)
+    this._layNeed = 0;        // ... and how many make the layer
+    this._layWait = 0;        // calm steps to wait before the next one begins
+    this._layUp = 0;          // the tone that stays on top in this layer; the other sifts down
 
     this._buildVessel();
     this._initMotion();
@@ -602,6 +611,8 @@
     this.quiet = 0;
     this.nev = 0;
     this._newGlass();
+    this._layN = -1; this._pourLeft = 0;
+    if (this.layers) this._strata();
   };
 
   /**
@@ -888,6 +899,7 @@
 
     // 3. Free-falling grains.
     if (this.np) this._particles(gx, gy);
+    if (this.layers) this._sift();
 
     // 4. A breached glass leaks, even at rest, and micro-damage slowly arrests.
     if (this.nOpen > 0) this._leak();
@@ -1018,6 +1030,7 @@
 
     // 8. Grains in the air, in the full field.
     if (this.np) this._particlesM();
+    if (this.layers) this._sift();
 
     // 9. A breached glass leaks; shaking breaks the arches that jam it.
     if (this.nOpen > 0) this._leak();
@@ -1637,6 +1650,7 @@
   Sim.prototype.pour = function (n) {
     var W = this.W, g = this.geo, made = 0;
     var y0 = this.topY + 3;
+    var tone = this.layers && n > 0 ? this._pourLayer(n) : -1;
     while (made < n) {
       if (this.total >= this.maxTotal || this.np >= this.PCAP) break;
       var x = g.cx + (this._rand() - 0.5) * 5.5;
@@ -1647,6 +1661,7 @@
       this.pvx[p] = (this._rand() - 0.5) * 30;
       this.pvy[p] = 70 + this._rand() * 70;
       this.pseed[p] = (this._rand() * 256) | 0;
+      if (tone >= 0) this.pseed[p] = (this.pseed[p] & 127) | tone;
       this.pinfo[p] = K_POUR;
       this.total++; this.nTop++;
       made++;
@@ -2063,6 +2078,7 @@
     this.nTop = this.total - this.nTop;
     this.angle = 0;
     this.flipping = false;
+    this._pourLeft = 0; this._layN = -1; // sand poured or falling now lands on another surface
     this.wakeAll();
     this._flipState();
   };
@@ -2144,6 +2160,7 @@
     this._landSlugs();
     this._landAll();
     this._izAt = -1;
+    if (this.layers && this._layN < 0) this._layer();
     var W = this.W, cell = this.cell, seed = this.seed;
     var gy0 = this.gateY, below = (gy0 + 1) * W, moved = 0, guard = 0;
     var span = this.gateX1 - this.gateX0 + 1;
@@ -2170,6 +2187,7 @@
     }
     this.nTop -= moved;
     this.wakeAll();
+    if (this.layers) this._siftAll();
     return moved;
   };
 
@@ -2766,6 +2784,278 @@
   };
 
   /* ---------------------------------------------------------------- *
+   *  Layered sand: two tones that settle into strata
+   *
+   *  A grain's tone is bit 7 of its colour seed, the byte that has always
+   *  travelled with the grain wherever it goes (the automaton, the stream,
+   *  a bed in flight, a flip, a breach, the dune on the desk). So no path
+   *  can leave a tone behind, and the sand itself never looks at it: with
+   *  layers on, the lattice, the grains in the air and the sand's random
+   *  stream evolve exactly as they do without.
+   *
+   *  The start is a fill laid in bands. They are drawn down through the
+   *  neck together, so what falls is a mixture; and as a real mixture of
+   *  two sands does (Makse, Havlin, King and Stanley, Nature 386, 1997),
+   *  it settles into strata by itself. Here that is sifting: in each layer
+   *  freshly laid on the heap, grains of one tone work their way down
+   *  under the other, turn and turn about from layer to layer, so every
+   *  layer freezes as two strata. A sifting grain trades places with a
+   *  neighbour: their seeds trade cells, and the lattice is left as it is.
+   *  Bands, layers and sifting draw on a random stream of their own.
+   * ---------------------------------------------------------------- */
+
+  /** Layered-sand tunables. Change values in place; the object is shared. */
+  var LAY = Sim.LAYERS = {
+    share: 0.4,          // the companion tone's share of sand that has no bands to go by
+    min: 4, span: 8,     // a layer on the heap is min … min + span grains deep (two strata)
+    pSift: 64,           // /256 chance per visit that a grain sifts under the one below it
+    pSide: 128,          // /256 chance per visit that it sifts down sideways instead
+    reach: 32,           // grains above the layer's floor that sifting looks at
+    wait: 30,            // calm steps before a layer begins on sand that was turned or shaken
+    pour: 420            // grains in a poured layer: pour … 2·pour
+  };
+
+  /**
+   * Layered sand on or off. On: the sand in the glass is laid in strata
+   * where it lies. Off: the tones are forgotten (bit 7 is noise again, as
+   * in a glass that never had them).
+   */
+  Sim.prototype.setLayers = function (on) {
+    on = !!on;
+    if (on === this.layers) return;
+    this.layers = on;
+    this._pourLeft = 0;
+    if (on) { this._strata(); return; }
+    var cell = this.cell, seed = this.seed, N = cell.length, salt = glassHash(this.rng ^ 0x3C6EF372), i;
+    for (i = 0; i < N; i++) if (cell[i] >= REST) seed[i] = (seed[i] & 127) | (glassHash(i ^ salt) & 128);
+    for (i = 0; i < this.np; i++) this.pseed[i] = (this.pseed[i] & 127) | (glassHash(~i ^ salt) & 128);
+  };
+
+  Sim.prototype._lrand = function () {
+    var s = this._lrng;
+    s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+    this._lrng = s;
+    return (s >>> 0) / 4294967296;
+  };
+
+  /**
+   * Lay the sand in the glass in strata. Above the neck: five to nine
+   * bands of unequal thickness, their seams gently wavy and a grain or so
+   * ragged, a little different every time, following the surface of the
+   * pile (level in a fresh fill, the crater of a glass part-way through).
+   * The companion tone never makes up most of them: the glass stays the
+   * material it is. Below the neck, whatever lies there is sifted into
+   * the strata a run would have left.
+   */
+  Sim.prototype._strata = function () {
+    var W = this.W, cell = this.cell, seed = this.seed, x0 = this._bx0, x1 = this._bx1;
+    var lo = this.colLo[0], hi = this.colHi[0], edge = [], amp = [], kx = [], ph = [];
+    var x, y, i, k, s, last, deep = 0, n0 = 0, n1 = 0;
+    var salt = this._lrng = glassHash(this.rng ^ 0x51ED270B) || 0x6D2B79F5;
+    // how deep the sand lies: each column from its surface (its first grain that rests on another)
+    for (x = x0; x <= x1; x++) {
+      s = -1; last = -1;
+      for (y = lo[x]; y <= hi[x]; y++) {
+        if (cell[y * W + x] < REST) continue;
+        if (s < 0 && (y === hi[x] || cell[(y + 1) * W + x] >= REST)) s = y;
+        last = y;
+      }
+      if (s >= 0 && last - s + 1 > deep) deep = last - s + 1;
+    }
+    var nb = 5 + ((this._lrand() * 5) | 0), sum = 0, at = 0, t0 = this._lrand() < 0.5 ? 0 : 1;
+    if (nb > deep / 6) nb = Math.max(1, Math.floor(deep / 6));
+    for (k = 0; k < nb; k++) { edge[k] = 0.55 + this._lrand(); sum += edge[k]; }
+    for (k = 0; k < nb; k++) {
+      // seam k lies under band k; it wanders by less than a third of the thinner band beside it
+      var th = edge[k] * deep / sum, a = 1.2 + 1.8 * this._lrand();
+      at += th;
+      edge[k] = at;
+      amp[k] = a < 0.3 * th ? a : 0.3 * th;
+      if (k > 0 && amp[k - 1] > 0.3 * th) amp[k - 1] = 0.3 * th;
+      kx[k] = 2 * Math.PI / (50 + 90 * this._lrand());
+      ph[k] = 2 * Math.PI * this._lrand();
+    }
+    for (x = x0; x <= x1; x++) {
+      s = -1;
+      for (y = lo[x]; y <= hi[x]; y++) {
+        i = y * W + x;
+        if (cell[i] < REST) continue;
+        if (s < 0 && (y === hi[x] || cell[i + W] >= REST)) s = y;
+        var d = (s < 0 ? 0 : y - s) + ((glassHash(i ^ salt) >>> 8) / 16777216 - 0.5) * 1.6;
+        for (k = 0; k < nb - 1; k++) {
+          if (d < edge[k] + amp[k] * (Math.sin(x * kx[k] + ph[k]) + 0.35 * Math.sin(x * kx[k] * 2.7 + 1.9 * ph[k]))) break;
+        }
+        k = (k + t0) & 1;
+        if (k) n1++; else n0++;
+        seed[i] = (seed[i] & 127) | (k << 7);
+      }
+    }
+    if (n1 > n0) {
+      for (x = x0; x <= x1; x++) {
+        for (y = lo[x]; y <= hi[x]; y++) if (cell[y * W + x] >= REST) seed[y * W + x] ^= 128;
+      }
+    }
+    // below the neck and in the air there are no bands to go by
+    var cut = LAY.share * 16777216;
+    lo = this.colLo[1]; hi = this.colHi[1];
+    for (x = x0; x <= x1; x++) {
+      for (y = lo[x]; y <= hi[x]; y++) {
+        i = y * W + x;
+        if (cell[i] >= REST) seed[i] = (seed[i] & 127) | ((glassHash(i ^ salt) >>> 8) < cut ? 128 : 0);
+      }
+      this._lb[x] = hi[x] + 1;                         // all of it counts as freshly laid
+    }
+    for (i = 0; i < this.np; i++) this.pseed[i] = (this.pseed[i] & 127) | ((glassHash(~i ^ salt) >>> 8) < cut ? 128 : 0);
+    this._siftAll();
+  };
+
+  /**
+   * A new layer begins on the lower heap: note where its surface is now
+   * (each column's first grain that rests on another, the floor where there
+   * is none; a pit or a stray grain is not the surface, so each column takes
+   * the median of five) and how much sand makes the layer. Sand above the
+   * noted surface is the fresh layer; the tone that sifts down changes.
+   */
+  Sim.prototype._layer = function () {
+    var W = this.W, cell = this.cell, lb = this._lb, raw = this._lbRaw, lo = this.colLo[1], hi = this.colHi[1];
+    var x0 = this._bx0, x1 = this._bx1, top = this._sandRow(this.gateY + 1, this._botY, 1), wide = 0, x, y, s;
+    if (top < 0) top = this.H;
+    for (x = x0; x <= x1; x++) {
+      s = hi[x] + 1;
+      for (y = lo[x] > top ? lo[x] : top; y <= hi[x]; y++) {
+        if (cell[y * W + x] >= REST && (y === hi[x] || cell[(y + 1) * W + x] >= REST)) { s = y; wide++; break; }
+      }
+      raw[x] = s;
+    }
+    for (x = x0; x <= x1; x++) {
+      // the median of raw[x − 2 … x + 2]: the value with two others at or below it and two at or above
+      var m = raw[x], k, q, lt, le;
+      for (k = -2; k <= 2; k++) {
+        if (x + k < x0 || x + k > x1) continue;
+        var v = raw[x + k];
+        for (q = -2, lt = 0, le = 0; q <= 2; q++) {
+          if (x + q < x0 || x + q > x1) continue;
+          if (raw[x + q] < v) lt++;
+          if (raw[x + q] <= v) le++;
+        }
+        if (lt <= 2 && le >= 3) { m = v; break; }
+      }
+      lb[x] = m > hi[x] + 1 ? hi[x] + 1 : m;
+    }
+    this._layN = this.total - this.nTop;
+    this._layNeed = (LAY.min + LAY.span * this._lrand()) * (wide > 24 ? wide : 24);
+    this._layUp ^= 1;
+  };
+
+  /**
+   * One step of sifting on the lower heap (upright and calm only: a glass
+   * being turned or shaken mixes its sand, and the next layer starts from
+   * wherever that leaves it). Every eighth column is visited, from the
+   * layer's floor up: a grain of the tone that is sinking, lying on one of
+   * the other, may trade places with it, or with the one diagonally below.
+   */
+  Sim.prototype._sift = function () {
+    if (this.flipping || this.gy <= 0.7 || this.agit[1] > 0.05 || this.slug[1].air) {
+      this._layN = -1; this._layWait = LAY.wait;
+      return;
+    }
+    if (this._layN < 0) {
+      if (this._layWait > 0) { this._layWait--; return; }
+      this._layer();
+    } else if (this.total - this.nTop - this._layN >= this._layNeed) this._layer();
+    var W = this.W, cell = this.cell, seed = this.seed, lb = this._lb, x1 = this._bx1;
+    var s = this._lrng, up = this._layUp, pSift = LAY.pSift, pSide = LAY.pSide, reach = LAY.reach;
+    var i, j, n, t, u, v, y, d;
+    for (var x = this._bx0 + (this.steps & 7); x <= x1; x += 8) {
+      y = lb[x] - 1;
+      i = y * W + x;
+      if (cell[i] < REST) continue;
+      t = seed[i];
+      for (n = 0; n < reach; n++, y--) {
+        j = i - W;
+        if (cell[j] < REST) break;
+        u = seed[j];
+        if ((t >> 7) === up) {                         // the grain below stays up: what is on it may sink
+          s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+          if ((u >> 7) !== up) {
+            if ((s & 255) < pSift) { seed[i] = u; seed[j] = t; u = t; }
+          } else if ((s & 255) < pSide) {
+            d = (s & 512) ? 1 : -1;
+            if (y - 1 < lb[x + d] && cell[j + d] >= REST) {
+              v = seed[j + d];
+              if ((v >> 7) !== up) { seed[i] = v; seed[j + d] = t; }
+            }
+          }
+        }
+        i = j; t = u;
+      }
+    }
+    this._lrng = s;
+  };
+
+  /**
+   * Sift all the sand above the noted surface at once, into as many layers
+   * as a run would have laid there (after a fast-forward; when layers are
+   * turned on): within each layer of each column, one tone goes under the
+   * other, turn and turn about. Then the next layer begins.
+   */
+  Sim.prototype._siftAll = function () {
+    var W = this.W, cell = this.cell, seed = this.seed, lb = this._lb, x0 = this._bx0, x1 = this._bx1;
+    var cut = [], tmp = [], x, y, k, n, q, sum = 0, cols = 0;
+    for (x = x0; x <= x1; x++) {
+      for (y = lb[x] - 1, n = 0; cell[y * W + x] >= REST; y--) n++;
+      if (n) { sum += n; cols++; }
+    }
+    var K = cols ? Math.max(1, Math.round(sum / cols / (LAY.min + LAY.span / 2))) : 0, at = 0;
+    for (k = 0, sum = 0; k < K; k++) { cut[k] = 0.55 + this._lrand(); sum += cut[k]; }
+    for (k = 0; k < K; k++) { at += cut[k] / sum; cut[k] = at; }
+    for (x = x0; x <= x1 && K; x++) {
+      for (y = lb[x] - 1, n = 0; cell[y * W + x] >= REST; y--) n++;
+      var yb = lb[x] - 1;                              // each layer runs from yb up to ya
+      for (k = 0; k < K && n; k++) {
+        var ya = k === K - 1 ? lb[x] - n : lb[x] - Math.round(n * cut[k]), dn = (k + this._layUp) & 1;
+        for (y = yb, q = 0; y >= ya; y--) if ((seed[y * W + x] >> 7) === dn) tmp[q++] = seed[y * W + x];
+        for (y = yb; y >= ya; y--) if ((seed[y * W + x] >> 7) !== dn) tmp[q++] = seed[y * W + x];
+        for (y = yb, q = 0; y >= ya; y--) seed[y * W + x] = tmp[q++];
+        yb = ya - 1;
+      }
+    }
+    this._layer();
+  };
+
+  /**
+   * The tone (as bit 7) of the next `n` grains poured in. Sand is poured in
+   * layers of 420 to 840 grains (a held Sand button lays one in about a
+   * second, a few taps make one between them), each in the other tone from
+   * the layer under it: the one just poured, or whatever lies on top of the
+   * pile under the pour.
+   */
+  Sim.prototype._pourLayer = function (n) {
+    if (this._pourLeft <= 0) {
+      var t = this._pourTone;
+      if (this.steps - this._pourAt > 120) {            // the last pour has landed: look at the pile
+        var x = this.geo.cx | 0, W = this.W;
+        for (var y = this.topY; y < this.gateY; y++) {
+          if (this.cell[y * W + x] >= REST) { t = this.seed[y * W + x] >> 7; break; }
+        }
+      }
+      this._pourTone = t ^ 1;
+      this._pourLeft = LAY.pour + ((this._lrand() * LAY.pour) | 0);
+    }
+    this._pourLeft -= n;
+    this._pourAt = this.steps;
+    return this._pourTone << 7;
+  };
+
+  /** Grains of each tone, in the lattice and in the air: [tone 0, tone 1]. */
+  Sim.prototype.tones = function () {
+    var cell = this.cell, seed = this.seed, n = [0, 0], i, N = cell.length;
+    for (i = 0; i < N; i++) if (cell[i] >= REST) n[seed[i] >> 7]++;
+    for (i = 0; i < this.np; i++) n[this.pseed[i] >> 7]++;
+    return n;
+  };
+
+  /* ---------------------------------------------------------------- *
    *  Diagnostics (used by the test-suite; cheap enough to keep)
    * ---------------------------------------------------------------- */
   Sim.prototype.census = function () {
@@ -2791,6 +3081,13 @@
         alt: { p: 0.11, h: 30, s: 0.70, l: 0.54 },       // amber grains
         mica: { p: 0.05, h: 46, s: 0.40, l: 0.90 }       // mica glints
       },
+      // the companion tone of layered sand: a deeper sienna
+      sand2: {
+        h: 21, s: 0.56, l: 0.42, dh: 6, dl: 0.07,
+        dark: { p: 0.05, h: 16, s: 0.50, l: 0.27 },
+        alt: { p: 0.11, h: 26, s: 0.62, l: 0.48 },
+        mica: { p: 0.04, h: 40, s: 0.45, l: 0.80 }
+      },
       glint: [255, 247, 224],
       // how the sand takes the light: surface rim (levels), share of glossy
       // grains and their extra sparkle, highlight tint, soft bloom
@@ -2812,6 +3109,13 @@
         dark: { p: 0.10, h: 240, s: 0.10, l: 0.15 },
         alt: { p: 0.12, h: 262, s: 0.30, l: 0.37 },      // iridescent basalt
         mica: { p: 0.07, h: 44, s: 0.82, l: 0.62 }       // gold flecks
+      },
+      // layered: pumice, a warm ash grey
+      sand2: {
+        h: 28, s: 0.13, l: 0.44, dh: 10, dl: 0.06,
+        dark: { p: 0.08, h: 22, s: 0.11, l: 0.30 },
+        alt: { p: 0.12, h: 34, s: 0.20, l: 0.51 },
+        mica: { p: 0.05, h: 44, s: 0.70, l: 0.64 }
       },
       glint: [255, 226, 150],
       // black sand only reads if it is *lit*: a strong rim on the surface,
@@ -2836,6 +3140,13 @@
         alt: { p: 0.14, h: 208, s: 0.34, l: 0.82 },      // blue adularescence
         mica: { p: 0.06, h: 200, s: 0.20, l: 0.98 }
       },
+      // layered: the stone's blue shadow
+      sand2: {
+        h: 216, s: 0.22, l: 0.60, dh: 10, dl: 0.06,
+        dark: { p: 0.06, h: 224, s: 0.20, l: 0.45 },
+        alt: { p: 0.12, h: 204, s: 0.30, l: 0.68 },
+        mica: { p: 0.06, h: 200, s: 0.24, l: 0.95 }
+      },
       glint: [255, 255, 255],
       light: {
         rim: [3, 1], aoMax: 8, gloss: 0.14, glossBoost: 4, hl: 0.9, tint: [255, 255, 255],
@@ -2855,6 +3166,13 @@
         dark: { p: 0.10, h: 230, s: 0.58, l: 0.24 },    // deep ultramarine
         alt: { p: 0.10, h: 214, s: 0.22, l: 0.66 },      // pale calcite veins
         mica: { p: 0.07, h: 45, s: 0.85, l: 0.62 }       // pyrite: flecks of gold
+      },
+      // layered: seams of old gold
+      sand2: {
+        h: 38, s: 0.42, l: 0.40, dh: 6, dl: 0.06,
+        dark: { p: 0.07, h: 30, s: 0.40, l: 0.28 },
+        alt: { p: 0.10, h: 44, s: 0.50, l: 0.48 },
+        mica: { p: 0.06, h: 50, s: 0.85, l: 0.72 }
       },
       glint: [255, 226, 150],
       // a dark sand, lit like the volcanic one so it reads against the night
@@ -2877,6 +3195,13 @@
         alt: { p: 0.12, h: 12, s: 0.48, l: 0.83 },       // peach
         mica: { p: 0.05, h: 0, s: 0.10, l: 0.97 }
       },
+      // layered: a deeper, dustier rose
+      sand2: {
+        h: 344, s: 0.30, l: 0.61, dh: 8, dl: 0.06,
+        dark: { p: 0.05, h: 338, s: 0.26, l: 0.46 },
+        alt: { p: 0.12, h: 356, s: 0.36, l: 0.66 },
+        mica: { p: 0.05, h: 0, s: 0.12, l: 0.94 }
+      },
       glint: [255, 244, 244],
       light: {
         rim: [3, 1], aoMax: 8, gloss: 0.14, glossBoost: 4, hl: 0.9, tint: [255, 255, 255],
@@ -2896,6 +3221,13 @@
         dark: { p: 0.05, h: 188, s: 0.30, l: 0.50 },     // deeper teal
         alt: { p: 0.12, h: 140, s: 0.28, l: 0.78 },      // pale green
         mica: { p: 0.05, h: 180, s: 0.14, l: 0.96 }
+      },
+      // layered: deep-water teal
+      sand2: {
+        h: 188, s: 0.32, l: 0.49, dh: 10, dl: 0.06,
+        dark: { p: 0.05, h: 196, s: 0.32, l: 0.35 },
+        alt: { p: 0.12, h: 178, s: 0.30, l: 0.56 },
+        mica: { p: 0.05, h: 180, s: 0.16, l: 0.94 }
       },
       glint: [236, 255, 250],
       light: {
@@ -3160,6 +3492,7 @@
       this.bbuf = new Uint32Array(this.bimg.data.buffer);
     }
     this.frame = true;    // caps + posts around the glass
+    this.layers = false;  // layered sand: two tones (setLayers)
     this.glass = null;    // [far wall, near wall] WebGL layers, or null → drawn glass
     this.glassRot = 0;
     this._initGlass();
@@ -3295,22 +3628,29 @@
     }
   };
 
-  /** Per-grain colour table: 256 persistent seeds × 48 light levels. */
+  /**
+   * Per-grain colour table: 256 persistent seeds × 48 light levels. With
+   * layered sand, bit 7 of a seed is the grain's tone (the theme's sand, or
+   * its companion sand2) and the other seven spread over that tone's kinds
+   * of grain.
+   */
   Renderer.prototype._buildLUT = function () {
     var th = this.theme, sd = th.sand, lut = this.lut, li = th.light;
-    var tint = li.tint, em = li.emit;
-    var darkN = Math.round(sd.dark.p * 256);
-    var micaN = Math.round(sd.mica.p * 256);
-    var altN = Math.round(sd.alt.p * 256);
+    var tint = li.tint, em = li.emit, lay = this.layers && th.sand2;
     for (var s = 0; s < 256; s++) {
+      var c = s;
+      if (lay) { sd = s < 128 ? th.sand : th.sand2; c = (s & 127) << 1; }
+      var darkN = Math.round(sd.dark.p * 256);
+      var micaN = Math.round(sd.mica.p * 256);
+      var altN = Math.round(sd.alt.p * 256);
       var u1 = hash01(s * 7 + 1), u2 = hash01(s * 13 + 5), u3 = hash01(s * 29 + 11);
       var base, mica = 0;
-      if (s < darkN) {
+      if (c < darkN) {
         base = hsl(sd.dark.h + (u1 - 0.5) * 10, sd.dark.s, sd.dark.l + (u2 - 0.5) * 0.08);
-      } else if (s >= 256 - micaN) {
+      } else if (c >= 256 - micaN) {
         base = hsl(sd.mica.h + (u1 - 0.5) * 14, sd.mica.s, sd.mica.l - u2 * 0.08);
         mica = 1;
-      } else if (s >= 256 - micaN - altN) {
+      } else if (c >= 256 - micaN - altN) {
         base = hsl(sd.alt.h + (u1 - 0.5) * sd.dh * 2.4, sd.alt.s, sd.alt.l + (u2 - 0.5) * sd.dl);
       } else {
         base = hsl(sd.h + (u1 - 0.5) * 2 * sd.dh,
@@ -3349,6 +3689,12 @@
     this.theme = THEMES[id] || THEMES.sahara;
     this._buildLUT();
     this.drawStatic();
+  };
+
+  /** Layered sand: draw the two tones (Sim.setLayers lays them). */
+  Renderer.prototype.setLayers = function (on) {
+    this.layers = !!on;
+    this._buildLUT();
   };
 
   /**
@@ -4519,6 +4865,7 @@
     this._bx = 0; this._by = 0; this._bw = 0; this._bh = 0;
     this._pal = [];                            // flight colours, 4 by seed, from the sand's own table
     this._palOf = undefined;
+    this._palLay = false;
     this._streak = '';
     this._nb = new Uint16Array(5);             // grains in flight per colour, then where each colour starts
     this._ord = new Int16Array(SPILL_AIR);     // grains in flight in colour order
@@ -4828,6 +5175,7 @@
     v = lut ? lut[(21 << 8) | 136] : SPILL_SAND;
     this._streak = 'rgba(' + (v & 255) + ',' + ((v >>> 8) & 255) + ',' + ((v >>> 16) & 255) + ',0.45)';
     this._palOf = ren ? ren.theme : null;
+    this._palLay = !!(ren && ren.layers);
   };
 
   /**
@@ -4886,7 +5234,7 @@
    */
   Spill.prototype.draw = function () {
     var ren = this.renderer, th = ren ? ren.theme : null;
-    if (th !== this._palOf) {                 // a new material: new sand colours
+    if (th !== this._palOf || !!(ren && ren.layers) !== this._palLay) {   // a new material, or its two tones: new sand colours
       this._palette();
       if (this.ctx) { this._markAll(); this._dirty = true; }
     }
