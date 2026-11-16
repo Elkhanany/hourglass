@@ -44,7 +44,7 @@
  *   - a first hearing: Ocean's audition (12 s from its cue) holds one whole
  *     wave, Drips' (9 s) at least three drops, for five seeds
  *
- *   node tools/test/audio-levels.test.js [port]      (default 8803)
+ *   node tools/test/audio-levels.test.js [port | --port <n>]      (default $PORT, else 8803)
  */
 'use strict';
 var path = require('path');
@@ -53,7 +53,8 @@ var chromium = require('playwright').chromium;
 var Server = require('./lib/static-server.js');
 
 var ROOT = path.resolve(__dirname, '..', '..');
-var PORT = +(process.argv[2] || process.env.PORT || 8803);
+var PORT_AT = process.argv.indexOf('--port');
+var PORT = +((PORT_AT > 0 ? process.argv[PORT_AT + 1] : process.argv[2]) || process.env.PORT || 8803);
 var BASE = 'http://127.0.0.1:' + PORT;
 
 var failures = 0, cases = 0;
