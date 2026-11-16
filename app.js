@@ -478,7 +478,6 @@
     sim.flipping = true;
     sim.wakeAll();
     statusEl.textContent = STATUS.turning;
-    audio.flipStart();
     if (!byHand) buzz(14);           // a hand has already felt the glass engage
   }
 
@@ -527,7 +526,6 @@
     syncMode();
     sim.wakeAll();
     applyBody(0);
-    audio.flipEnd();
     buzz(22);
     setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was, byHand);
   }
@@ -676,10 +674,14 @@
       }
       sim.wakeAll();
     }
-    // the base on the desk (or the frame on the screen's edge), and the glass answering
-    var k = v / 1800;
-    audio.thump(k * k, 0.8 * nx, sim.nTop >= sim.nBottom ? 0 : 1);
-    if (v > 300) { k = (v - 250) / 1700; audio.clack(k * k, 0.8 * nx); }
+    // the base on the desk (or the frame on the screen's edge), and the glass answering:
+    // heard only when the blow is hard enough to mark the glass. Handling it is silent
+    // (taking it, turning it, setting it down); the one sound a finger makes is its tap.
+    if (grade) {
+      var k = v / 1800;
+      audio.thump(k * k, 0.8 * nx, sim.nTop >= sim.nBottom ? 0 : 1);
+      k = (v - 250) / 1700; audio.clack(k * k, 0.8 * nx);
+    }
     if (v > 300) buzz(grade ? 16 : 8);
     lastMotionAt = performance.now();
   }
@@ -2042,7 +2044,6 @@
     if (turning || out) holdTurn(g, x, y);
     else holdMove(g, x, y);
     catching = true;
-    audio.catchThud();
     buzz(10);
   }
   /** The finger moved on with the spin: it takes the glass at the speed it has (no brake). */
@@ -2064,7 +2065,6 @@
     rot = 'held';
     catching = true;
     syncMode();
-    audio.catchThud();
     buzz(10);
   }
   /**

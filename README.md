@@ -211,7 +211,7 @@ decides what happens (on an iPhone; px are CSS pixels on screen):
 
 | What you do | What happens |
 | --- | --- |
-| Set it down, or let it go from under about 60 px | A soft clink, the sand jolts. Never a mark. |
+| Set it down, or let it go from under about 60 px | The sand jolts, without a sound. Never a mark. |
 | Let it go from about 65 to 110 px (it lands at 700 to 920 px/s) | It creaks, keeps about a third of a crack's worth of damage and shows a stress mark. About five such drops in a row crack it. |
 | Let it go from the top of the screen, or bang it on the desk or an edge at 920 px/s or more | It cracks at once: 16 to 24 cells long, longer the harder the blow. |
 | Bang it down at 1,800 px/s or more, or strike a cracked place again | It breaks through, and sand leaks out and gathers on the desk. Each further blow widens the breach. |
@@ -576,7 +576,7 @@ is what the grains land on.
    only the glass in the hand does (a tap, a creak, a crack, a clack).
 5. **Foley**: a pour (the beds again, through a band that wanders on two
    random flutters, never a clock), the slide of sand as the glass turns, the
-   air it cuts as it spins, flip thuds, a small avalanche down the pile every
+   air it cuts as it spins, a small avalanche down the pile every
    few seconds (a soft swell to one side), and a singing-bowl bloom at the end
    (optional).
 6. **The glass in the hand**: shaking is heard as it happens in the physics.
