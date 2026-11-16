@@ -19,6 +19,9 @@
  */
 'use strict';
 var os = require('os');
+var fs = require('fs');
+var path = require('path');
+var vm = require('vm');
 var childProcess = require('child_process');
 var L = require('./load-physics.js');
 var Clock = require('./clock.js');
@@ -49,6 +52,31 @@ function glassAt(o) {
   for (i = 0; i < 240; i++) { sim.beginFrame(); sim.step(); }
   T.state = 'running';
   return { sim: sim, T: T, o: o };
+}
+
+/**
+ * The app's arming gate, as motion.js itself runs it: the 3-D RMS of the
+ * felt acceleration over a third of a second must hold above 1.6 g for
+ * 0.6 s before any shaking can load the glass. The real motion.js is loaded
+ * (in a vm, no sensors) and its own _arm() and CONFIG are used, so the sim
+ * tests arm exactly when the phone would. gate.step(x, y, z, dt) takes the
+ * felt acceleration in g and returns whether damage is armed.
+ */
+var MotionCtor = null;
+function armGate() {
+  if (!MotionCtor) {
+    var win = { addEventListener: function () {}, removeEventListener: function () {}, performance: { now: function () { return 0; } },
+                navigator: { userAgent: '' }, screen: {}, console: console };
+    win.window = win;
+    vm.createContext(win);
+    vm.runInContext(fs.readFileSync(path.join(L.ROOT, 'motion.js'), 'utf8'), win, { filename: 'motion.js' });
+    MotionCtor = win.HourglassMotion;
+  }
+  var m = new MotionCtor({});
+  return {
+    motion: m,
+    step: function (x, y, z, dt) { m._arm(x * x + y * y + z * z, dt); return m.armed; }
+  };
 }
 
 /** The four fills of the physicist's calibration: [duration min, seconds into the run]. */
@@ -85,7 +113,8 @@ function felt(sim, f, out, reduced) {
 /**
  * Drive profile `name` (or opts.fn(t, out)) for opts.dur seconds (default:
  * the profile's), app-like. Options:
- *   armed      sim.damageArmed (default false)
+ *   armed      sim.damageArmed (default false); 'auto': armed as the app arms it, by
+ *              motion.js's own gate on the profile's felt acceleration (armGate)
  *   reduced    sim.reduced, and the app's Reduce Motion input scaling
  *   lam        λ (default 0.08)
  *   quality    sim.quality (default 2)
@@ -109,7 +138,8 @@ function drive(run, name, opts) {
   var lam = opts.lam !== undefined ? opts.lam : LAM;
   var useClock = opts.clock !== false;
   var every = opts.census !== undefined ? opts.census : 30;
-  sim.damageArmed = !!opts.armed;
+  var gate = opts.armed === 'auto' ? armGate() : null;
+  sim.damageArmed = gate ? false : !!opts.armed;
   sim.reduced = !!opts.reduced;
   sim.quality = opts.quality !== undefined ? opts.quality : 2;
   var f = { x: 0, y: 0, z: 0, w: 0, al: 0 }, inp = {};
@@ -119,7 +149,7 @@ function drive(run, name, opts) {
     warnLevelsBeforeCrack: null, dMax: 0, dMaxSeg: -1, censusErr: 0, censusChecks: 0, overRelease: 0,
     conserveErr: 0, maxAir: 0, maxNp: 0, landings: 0, thumps: 0, slams: 0, sprayed: 0, hops: 0,
     released: 0, leakedTop: 0, leakedBottom: 0, lost: 0, holesNearGate: 0, events: [],
-    frameMs: null, retimes: 0, motionSteps: 0, maxLag: 0, poured: 0
+    frameMs: null, retimes: 0, motionSteps: 0, maxLag: 0, poured: 0, armedT: -1
   };
   var total0 = sim.total + sim.lost, poured = 0;
   var lastMotion = -1e9, now = opts.t0Ms || 0, frameAcc = 0, hr = process.hrtime;
@@ -130,6 +160,10 @@ function drive(run, name, opts) {
     else { f.x = f.y = f.z = f.w = f.al = 0; opts.fn(t, f); }
     felt(sim, f, inp, opts.reduced);
     sim.setMotion(inp.ax, inp.ay, inp.w, inp.al, lam, inp.gz);
+    if (gate) {
+      sim.damageArmed = gate.step(f.x || 0, f.y || 0, f.z || 0, DT) && !opts.reduced;
+      if (sim.damageArmed && rec.armedT < 0) rec.armedT = t;
+    }
     var motionRecent = (k - lastMotion) * DT < 2;
     // as in app.js frame(): turns and pours first, then the clock sets the valve
     if (opts.flipEvery && k > 0 && k % opts.flipEvery === 0) {
@@ -395,6 +429,7 @@ module.exports = {
   FILLS: FILLS,
   fillName: fillName,
   glassAt: glassAt,
+  armGate: armGate,
   felt: felt,
   drive: drive,
   Turner: Turner,
