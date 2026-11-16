@@ -61,11 +61,25 @@
     stale: 150,         // ms: with no newer reading, decay…
     fade: 100,          // ms: …to zero over this, so a stale shake never freezes in
     live: 500,          // ms: a reading this recent counts as live
-    rmsWin: 0.25,       // s: window of the arming RMS
-    armOn: 1.5,         // g: armed after the RMS stays at or above this…
+    // s: window of the arming RMS. A whole swing of a 3 Hz shake fits in it, so
+    // its RMS holds steady (over 0.25 s it dipped under the threshold twice a
+    // swing, and a 3 g shake at 3 Hz never armed), while spikes are diluted
+    // further: running peaks at 1.37 g in it, a soft drop at 1.44, a vigorous
+    // shake holds 1.6 to 1.9.
+    rmsWin: 0.34,
+    armOn: 1.6,         // g: armed after the RMS stays at or above this…
     armFor: 0.6,        // s: …for this long
     armOff: 1.2,        // g: disarmed after it stays below this…
     disarmFor: 0.5,     // s: …for this long
+    // The shake counter. A swing is the phone's acceleration, all three axes,
+    // passing swingG the opposite way within swingGap of the last one. A hand
+    // shaking the phone hard does that again and again, whichever way it
+    // shakes; a set-down, a palm tap, a heel strike or a drop is one-sided
+    // and never gets past two. From the swingFrom-th swing of a run on, each
+    // one counts as a blow to the glass (see takeSwings).
+    swingG: 1.8,        // g
+    swingGap: 230,      // ms (a 3 Hz shake swings every 167 ms, give or take the hand and the sampling)
+    swingFrom: 8,
     twistIn: 0.4,       // in-plane gravity above which the heading's rate is trusted
     twistTau: 0.04,     // s: smoothing of that rate
     twistDecay: 0.1,    // s: decay when it cannot be measured
@@ -78,7 +92,7 @@
   };
 
   var RING = 8;         // felt samples kept for interpolation
-  var WIN = 128;        // arming window entries (250 ms at the 4 ms minimum step)
+  var WIN = 128;        // arming window entries (340 ms at the 4 ms minimum step: 85)
 
   function fin(v) { return typeof v === 'number' && v === v && v !== Infinity && v !== -Infinity; }
   function now() {
@@ -144,7 +158,8 @@
     this.seenMotion = false;
     this.seenOrient = false;
     this.armed = false;
-    this.rms = 0;                  // g, 3-D, over the last 250 ms
+    this.rms = 0;                  // g, 3-D, over the last 340 ms
+    this.swings = 0;               // swings in the shake under way (0: none)
     this.started = false;
 
     // ---- calibration (kept across reset) ------------------------------------
@@ -263,6 +278,9 @@
     this.armed = false;
     this.rms = 0;
     this.live = false;
+    this.swings = 0;
+    this._swT = -1e9; this._swX = 0; this._swY = 0; this._swZ = 0;   // the last swing: when, and which way
+    this._swNew = 0;               // swings that count as blows, not yet taken
   };
 
   /* ---------------------------------------------------------------- *
@@ -422,6 +440,18 @@
     var m2 = hasA ? (A.x * A.x + A.y * A.y + A.z * A.z) * K * K : (kx * kx + ky * ky + kz * kz);
     this._arm(m2 / (G0 * G0), dt);
 
+    // ---- the shake counter: swings past swingG, each the opposite way --------
+    if (t - this._swT > C.swingGap) this.swings = 0;
+    var am = Math.sqrt(m2) / G0;
+    if (am >= C.swingG && (hasA || ok)) {
+      var ux = (hasA ? A.x * K : kx) / (am * G0), uy = (hasA ? A.y * K : ky) / (am * G0), uz = (hasA ? A.z * K : kz) / (am * G0);
+      if (!this.swings || ux * this._swX + uy * this._swY + uz * this._swZ <= -0.5) {
+        this.swings++;
+        this._swT = t; this._swX = ux; this._swY = uy; this._swZ = uz;
+        if (this.swings >= C.swingFrom) this._swNew++;
+      }
+    }
+
     // ---- 4. felt, g, device axes; 5. Android drift, learnt while calm --------
     var fx = 0, fy = 0, fz = 0;
     if (ok) {
@@ -482,8 +512,8 @@
   }
 
   /**
-   * The arming gate: a sliding 250 ms RMS of the whole 3-D acceleration.
-   * Only a shake that stays above 1.5 g for 0.6 s arms it; a lone knock or
+   * The arming gate: a sliding 340 ms RMS of the whole 3-D acceleration.
+   * Only a shake that stays above 1.6 g for 0.6 s arms it; a lone knock or
    * a drop is diluted over the window and never does.
    */
   P._arm = function (m2, dt) {
@@ -507,6 +537,18 @@
     this._under = rms < C.armOff ? this._under + dt : 0;
     if (!this.armed) { if (this._over >= C.armFor) this.armed = true; }
     else if (this._under >= C.disarmFor) this.armed = false;
+  };
+
+  /**
+   * How many swings of a sustained hard shake have come since the last call:
+   * each one from the eighth of a run on (see CONFIG.swingFrom). The app
+   * hands them to the glass as blows, so a shake toward and away from the
+   * face, or from the wrist, loads it as one along the screen does.
+   */
+  P.takeSwings = function () {
+    var n = this._swNew;
+    this._swNew = 0;
+    return n;
   };
 
   /* ---------------------------------------------------------------- *

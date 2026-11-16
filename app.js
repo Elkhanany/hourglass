@@ -432,6 +432,8 @@
     joltK: 0.22, joltV0: 170, joltMax: 200,   // a landing throws the bed up at joltK·(v − joltV0), cells/s
     joltSide: 300, joltSideMax: 3,   // a blow from the side pushes the sand at v / joltSide g (cells/s per g), 3 g at most
     catchTau: 0.01,                  // s: a finger stops a moving glass this quickly, where it is
+    rideMs: 80,                      // ms: a finger on a spinning bulb may be the next flick: this long to move on with the spin
+    rideAt: 0.03,                    // rad: ... by at least this much; then the glass is carried along, not stopped
     stopW: 0.02, stopV: 2,           // rad/s, px/s: slow enough to count as stopped under the finger
     pivot: 0.03                      // × its height: this close to the centre a finger's angle does not turn it
   };
@@ -456,6 +458,7 @@
   var rot = 'none';                  // none | held | free | detent | ease | script
   var held = false;                  // a finger holds it by the waist
   var catching = false;              // a finger has just caught it moving and is stopping it
+  var flickPeak = 0;                 // the hardest the sand pressed on the domes during this turn by hand, g
   var inertia0 = 0;                  // the spinning glass's moment of inertia a step ago
   var passBuzzAt = -1e9;
 
@@ -634,6 +637,7 @@
       body.px = body.py = body.vx = body.vy = 0;          // home, to within half a pixel
     }
     if (held && catching && body.vx * body.vx + body.vy * body.vy < BODY.stopV * BODY.stopV) regrip();
+    if (grab && grab.ride && performance.now() > grab.ride) stopRide(grab);     // it was no flick: the finger stops it
     if (rot !== 'none') turnStep(dt);
     syncMode();
   }
@@ -679,6 +683,8 @@
       w += a * dt;
       if (w > wm) w = wm; else if (w < -wm) w = -wm;
       th += w * dt;
+      a = lamNow * w * w * sim.geo.HB / sim.G;        // how hard this presses the sand on the domes, g
+      if (a > flickPeak) flickPeak = a;
     } else if (rot === 'free') {
       // coasting: drag, plus a little dry friction ...
       w += (-w / BODY.tau - (w > 0 ? BODY.mu : -BODY.mu)) * dt;
@@ -1008,8 +1014,10 @@
     // backlog drains as a slightly thicker thread, never as a clump.
     var motionRecent = motionRecentNow = now - lastMotionAt < 2000;
     sim.relCap = motionRecent ?T.rate * DT * (3 + 20 * Math.max(0, 1 - (T.rem - T.tailMs) / 5000)) : 0;
-    // only sustained, very hard real shaking can crack the glass
+    // only sustained, hard real shaking of the phone can crack the glass; its swings count
+    // whichever way it is shaken (motion.js counts them from all three axes)
     sim.damageArmed = grav.on && motion.armed && !reduceMotion;
+    if (grav.on) sim.shake(motion.takeSwings());
     sim.spinArmed = !reduceMotion && (rot === 'free' || rot === 'held' || rot === 'detent');   // spun by hand
     sim.reduced = reduceMotion;
     // the rotational terms at the glass's true size on screen
@@ -1629,6 +1637,7 @@
       kind: 'press',               // press → move | turn; none: only ever a tap
       far: 0,                      // farthest the finger has strayed (px²)
       caught: false, mendable: false,
+      ride: 0, rideD: 0,           // riding a spin that may be flicked on: until when, and how far the finger has turned
       lx: e.clientX, ly: e.clientY,                // where the finger is now
       fx: 0, fy: 0, p0x: 0, p0y: 0, last: 0
     };
@@ -1741,6 +1750,7 @@
     g.kind = 'turn';
     g.last = Math.atan2(y - g.cy, x - g.cx);
     flip.grabAngle = sim.angle;
+    flickPeak = 0;
     rot = 'held';
     syncMode();
   }
@@ -1750,12 +1760,44 @@
    * stopped (regrip), as a turn or a move.
    */
   function catchBody(g, x, y) {
-    var rx = x - g.cx, ry = y - g.cy;
+    var rx = x - g.cx, ry = y - g.cy, out = Math.sqrt(rx * rx + ry * ry) > g.h * BODY.zone;
     var turning = rot === 'free' || rot === 'detent' || rot === 'ease' || body.w > 0.5 || body.w < -0.5;
     g.caught = true;
-    if (turning || Math.sqrt(rx * rx + ry * ry) > g.h * BODY.zone) holdTurn(g, x, y);
+    if (rot === 'free' && out && !reduceMotion) {
+      // A finger on a bulb of a spinning glass may be the next flick. The
+      // glass spins on for a moment: if the finger moves on with the spin it
+      // is carried along (rideOn), so flick on flick builds speed; if not,
+      // the finger stops it as it always did (stopRide).
+      g.kind = 'turn';
+      g.last = Math.atan2(ry, rx);
+      g.ride = performance.now() + BODY.rideMs; g.rideD = 0;
+      return;
+    }
+    if (turning || out) holdTurn(g, x, y);
     else holdMove(g, x, y);
     catching = true;
+    audio.catchThud();
+    buzz(10);
+  }
+  /** The finger moved on with the spin: it takes the glass at the speed it has (no brake). */
+  function rideOn(g) {
+    g.ride = 0;
+    flickPeak = 0;
+    // a hand that turns the glass leads it by 2ζ/ω of its speed: start from there, so nothing jerks
+    flip.grabAngle = sim.angle + body.w * 2 * BODY.tz / BODY.tw;
+    rot = 'held';
+    syncMode();
+    buzz(6);
+  }
+  /** It was no flick (the finger stayed, went the other way or left): the finger stops the glass where it is. */
+  function stopRide(g) {
+    g.ride = 0;
+    if (rot !== 'free' && rot !== 'detent') return;
+    flip.grabAngle = sim.angle;
+    flickPeak = 0;
+    rot = 'held';
+    catching = true;
+    syncMode();
     audio.catchThud();
     buzz(10);
   }
@@ -1778,6 +1820,13 @@
     // a glass caught at its waist stays put under a resting finger.
     var r = Math.sqrt(dx * dx + dy * dy), r0 = BODY.pivot * g.h;
     if (r < 2 * r0) d *= r > r0 ? (r - r0) / r0 : 0;
+    if (g.ride) {
+      // still spinning free under the finger: is this the next flick?
+      g.rideD += d;
+      if (g.rideD * body.w > BODY.rideAt * (body.w < 0 ? -body.w : body.w)) rideOn(g);
+      else if (g.rideD * body.w < -BODY.rideAt * (body.w < 0 ? -body.w : body.w)) stopRide(g);
+      return;
+    }
     flip.grabAngle += d;
   }
   /**
@@ -1795,7 +1844,14 @@
       body.air = !reduceMotion && (body.py < -1 || body.vy < -BODY.bounceMin);
       syncMode();
     }
-    else if (g.kind === 'turn' && rot === 'held') {
+    if (g.ride) { stopRide(g); body.w = 0; catching = false; }   // a touch too brief to tell: it stopped the glass
+    if (g.kind === 'turn' && rot === 'held') {
+      // A flick presses the sand on the domes: the harder it was, the more
+      // the glass keeps of it. (Its peak counts, but no more than half again
+      // what it was let go at: a jerk in the middle of a slow turn is no flick.)
+      var gOut = 1.5 * lamNow * body.w * body.w * sim.geo.HB / sim.G;
+      if (!cancel && sim.flick(flickPeak < gOut ? flickPeak : gOut) > 0) drainDamage(performance.now());
+      flickPeak = 0;
       if (reduceMotion) releaseTurn();
       else if (!cancel && (body.w > BODY.wFree || body.w < -BODY.wFree)) { rot = 'free'; inertia0 = inertia(); }
       else enterDetent();

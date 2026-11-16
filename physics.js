@@ -315,14 +315,21 @@
     nSeg: WALL_BINS,     // wall segments per bulb and side (bins of u; read-only)
     weibull: 20,         // Weibull modulus of the flaw strengths (median 1)
     n: 16,               // stress-corrosion exponent of soda-lime glass
-    vc: 16,              // landing speed v/√(G·cell) of the reference stress (very hard shaking cracks it in ~6 s)
+    vc: 11,              // landing speed v/√(G·cell) of the reference stress (a vigorous shake cracks it in ~3 s)
     xTh: 0.78,           // fatigue limit K_th/K_IC: below it a crack never grows
     A: 0.40,             // damage per reference column landing
     hRef: 40,            // grains in a reference column (h = min(2, n/hRef))
     capCol: 0.5,         // the most one column landing can supply
-    Pmax: 0.15,          // the most one blow can ever do
-    gamTh: 4.6, gamC: 6, nB: 16, tauB: 0.5, capB: 0.02, bendBins: 3,   // the waist bends
+    Pmax: 0.45,          // the most one blow of the sand can ever do
+    gamTh: 2.6, gamC: 3.4, nB: 16, tauB: 0.5, capB: 0.06, bendBins: 3,   // the waist bends
+    // The phone shaken hard in any direction (shake): each swing of a sustained
+    // shake loads the glass by shakeD, unless a landing has loaded it within
+    // shakeQuiet steps (then the sand in the screen's plane is doing the work)
+    shakeD: 0.085, shakeQuiet: 30,
     spinTh: 0.2, spinC: 0.8, spinRate: 0.6, domeBins: 4,              // a hard spin loads the domes (g at the dome)
+    flawCap: 2,          // a flaw counts for at most this much of a steady load (the spin, the bending waist)
+    // one flick by hand, at let-go (flick): its peak g at the dome, from flickG[0] (nothing) to flickG[1] (flickD of damage)
+    flickG: [0.22, 0.40], flickD: 0.4,
     // a knock on the glass (tap or click): a fingertip covers knockBins bins either way, and both
     // sides of the glass when it lands within knockMid of the axis (× the glass's half-width there)
     // (measured with a real finger's scatter: the third knock of a burst, strength 1.0, adds 0.04 at
@@ -334,7 +341,7 @@
     // at once, impL[0] … impL[1] cells long; from impV[2] it breaks through
     // (impL[2] … impL[3] cells by 1.5 × impV[2]).
     impV: [700, 920, 1800], impD: 0.35, impL: [14, 24, 28, 40], impBins: 3,
-    rMax: 0.30,          // 1/s: fastest sub-critical growth (bounded crack velocity)
+    rMax: 0.9,           // 1/s: fastest sub-critical growth (bounded crack velocity)
     tauP: 0.6,           // s: an unabsorbed blow fades
     tauHeal: 8,          // s: micro-damage arrests while no crack is visible
     warn: [0.35, 0.60, 0.80, 0.92],   // creak levels 1–4, crossing upward
@@ -472,6 +479,8 @@
     this._dLo = H; this._dHi = -1;       // rows a flying bed has changed this step
     this._n = 0; this._moved = 0;        // what the last column shift found and moved
     this._landAt = new Float64Array(2);  // step of each bulb's last landing
+    this._loadAt = -1e9;                 // step of the last landing that loaded the glass (_load)
+    this._shakeSeg = -1; this._shakeAt = -1e9;   // where the phone's shaking is wearing on the glass, and since when
     this._thumpN = new Float32Array(2);  // grains landed this frame, per bulb (the thump's pan)
     this._slamN = 0;                     // ... and slammed into the far end
     this._cenAt = -1e9;                  // step the centroids were last measured
@@ -632,6 +641,8 @@
     }
     this.hSlow.fill(0); this.cen.fill(0); this.agit.fill(0); this.sweepAcc.fill(0);
     this._landAt[0] = this._landAt[1] = -1e9;
+    this._loadAt = -1e9;
+    this._shakeSeg = -1; this._shakeAt = -1e9;
     this._cenAt = -1e9;
     this._motionStep = false;
     this._izAt = -1;
@@ -1456,6 +1467,97 @@
     d += this.segP[s];
     this.segP[s] = d > MOT.Pmax ? MOT.Pmax : d;
     this._pendP = true;
+    this._loadAt = this.steps;
+  };
+
+  /**
+   * A flick of the glass by hand has just been let go; gPeak is the most its
+   * spin pressed the sand on the domes while the hand had it (g at the dome,
+   * λ·ω²·HB/G). One dose of damage, written at once on the weakest dome
+   * stretch (or the open crack there): nothing below flickG[0], flickD from
+   * flickG[1], so casual flicks never mark the glass and three hard ones
+   * crack it. The creak or the crack is queued at once, for the app to play
+   * inside the gesture. Returns the dose.
+   */
+  Sim.prototype.flick = function (gPeak) {
+    gPeak = finiteOr0(gPeak);
+    var d = (gPeak - MOT.flickG[0]) / (MOT.flickG[1] - MOT.flickG[0]);
+    if (!(d > 0)) return 0;
+    d = (d > 1 ? 1 : d) * MOT.flickD;
+    var sc = this.segCrack, pick = -1, pickW = 0, open = -1, s, k;
+    for (var q = 0; q < 4; q++) {
+      for (var u = WALL_BINS - MOT.domeBins; u < WALL_BINS; u++) {
+        s = q * WALL_BINS + u;
+        k = sc[s];
+        if (k >= 0) { if (!this.cracks[k].sealed && open < 0) open = s; continue; }     // mended gold holds
+        var w = this.segKt[s] / this.segS[s];
+        if (w > pickW) { pickW = w; pick = s; }
+      }
+    }
+    s = open >= 0 ? open : pick;
+    if (s < 0) return 0;
+    this.segHit[s] += d;
+    k = this.segD[s] + d;
+    this.segD[s] = k > MOT.Dcap ? MOT.Dcap : k;
+    this._pendP = true;
+    this.quiet = 0;
+    if (open < 0 && k >= 1 && this.cracks.length < MOT.maxCracks && this.steps >= this._crackHold) this._initCrack(s, -1);
+    this._scanDamage(true);
+    return d;
+  };
+
+  /**
+   * The phone itself is being shaken hard, in whatever direction: n more
+   * swings of a sustained shake, as motion.js counts them from all three
+   * axes. Across the screen's plane a shake throws no bed that could land
+   * (the lattice is flat), so each swing loads the glass directly: shakeD on
+   * the weakest stretch of wall beside the sand of the fuller bulb, absorbed
+   * like any other load. Only while damage is armed, and not while landings
+   * are loading the glass already. Returns the stretch loaded, or −1.
+   */
+  Sim.prototype.shake = function (n) {
+    if (!(n > 0) || !this.damageArmed || this.reduced) return -1;
+    if (this.steps - this._loadAt < MOT.shakeQuiet) return -1;
+    if (n > 4) n = 4;
+    var b = this.nTop >= this.total - this.nTop ? 0 : 1, best = this._shakeSeg, k;
+    // one shake wears on one place: the stretch chosen as it began, while the swings keep coming
+    if (best >= 0 && this.steps - this._shakeAt < 60) {
+      k = this.segCrack[best];
+      if (k >= 0 && this.cracks[k].sealed) best = -1;
+    } else best = -1;
+    if (best < 0) best = this._shakeSite(b);
+    if (best < 0) return -1;
+    this._shakeSeg = best; this._shakeAt = this.steps;
+    var d = MOT.shakeD * n;
+    this.segHit[best] += d;
+    d += this.segP[best];
+    this.segP[best] = d > MOT.Pmax ? MOT.Pmax : d;
+    this._pendP = true;
+    this.quiet = 0;
+    return best;
+  };
+  /** The weakest stretch of wall beside the sand of bulb b (a mended one never), or −1. */
+  Sim.prototype._shakeSite = function (b) {
+    var g = this.geo, gate = this.gateY, k;
+    var lo = this._sandRow(b ? gate + 1 : 1, b ? this.H - 2 : gate - 1, 1);
+    if (lo < 0) return -1;
+    var hi = this._sandRow(b ? this.H - 2 : gate - 1, lo, -1);
+    var u0 = (lo + 0.5 - g.cy) / g.HB, u1 = (hi + 0.5 - g.cy) / g.HB;
+    if (u0 < 0) u0 = -u0;
+    if (u1 < 0) u1 = -u1;
+    if (u0 > u1) { k = u0; u0 = u1; u1 = k; }
+    var b0 = (u0 * WALL_BINS) | 0, b1 = (u1 * WALL_BINS) | 0, best = -1, bestW = 0;
+    if (b1 > WALL_BINS - 1) b1 = WALL_BINS - 1;
+    for (var side = 0; side < 2; side++) {
+      for (var bin = b0; bin <= b1; bin++) {
+        var s = (b * 2 + side) * WALL_BINS + bin;
+        k = this.segCrack[s];
+        if (k >= 0 && this.cracks[k].sealed) continue;                 // mended gold holds
+        var w = this.segKt[s] / this.segS[s];
+        if (w > bestW) { bestW = w; best = s; }
+      }
+    }
+    return best;
   };
 
   /**
@@ -2376,7 +2478,8 @@
           for (var u = 0; u < MOT.bendBins; u++) {
             s = q * WALL_BINS + u;
             if (sc[s] >= 0 && this.cracks[sc[s]].sealed) continue;
-            d = r * Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
+            d = Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
+            d = r * (d > MOT.flawCap ? MOT.flawCap : d);
             if (d > MOT.capB) d = MOT.capB;
             this.segHit[s] += d;
             p = segP[s] + d;
@@ -2400,7 +2503,8 @@
           for (var u2 = WALL_BINS - MOT.domeBins; u2 < WALL_BINS; u2++) {
             s = q2 * WALL_BINS + u2;
             if (sc[s] >= 0 && this.cracks[sc[s]].sealed) continue;
-            d = rs * Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
+            d = Math.pow(this.segKt[s] / this.segS[s], MOT.nB);
+            d = rs * (d > MOT.flawCap ? MOT.flawCap : d);
             this.segHit[s] += d;
             p = segP[s] + d;
             segP[s] = p > MOT.Pmax ? MOT.Pmax : p;
