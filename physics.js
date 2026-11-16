@@ -323,7 +323,11 @@
     Pmax: 0.15,          // the most one blow can ever do
     gamTh: 4.6, gamC: 6, nB: 16, tauB: 0.5, capB: 0.02, bendBins: 3,   // the waist bends
     spinTh: 0.2, spinC: 0.8, spinRate: 0.6, domeBins: 4,              // a hard spin loads the domes (g at the dome)
-    knockTh: 0.85, knockA: 0.08, knockCap: 0.1,                       // a knock on the glass (tap or click)
+    // a knock on the glass (tap or click): a fingertip covers knockBins bins either way, and both
+    // sides of the glass when it lands within knockMid of the axis (× the glass's half-width there)
+    // (measured with a real finger's scatter: the third knock of a burst, strength 1.0, adds 0.04 at
+    // most, so triple taps stay harmless; the fourth to eighth, 1.2, add 0.23 each: a crack on the eighth)
+    knockTh: 1.0, knockA: 0.08, knockCap: 0.23, knockBins: 3, knockMid: 0.3, knockFlaw: 1.5,
     // The glass itself striking the desk or an edge of the screen (impact):
     // the speed of the blow on screen, px/s. Below impV[0] it only clinks;
     // up to impV[1] it creaks and keeps impD of damage; from there it cracks
@@ -686,35 +690,61 @@
 
   /**
    * A knock on the glass: a tap or a click near (x, y) (lattice cells), `s`
-   * how hard (about 0.55 for an ordinary tap, up to ~1.3 for a quick, hard
-   * burst). The blow lands on the nearest wall and obeys the same fatigue
-   * limit as the sand's blows, so ordinary taps never mark the glass; a
-   * burst of hard knocks creaks, then cracks it where it is struck.
-   * Returns the segment struck, or −1.
+   * how hard (0.6 for an ordinary tap, up to 1.2 for the fourth and later
+   * of a quick burst). A fingertip is broad: the blow lands on every stretch
+   * of wall within knockBins bins of the row it struck, on the side it
+   * struck, and on both sides when it struck near the axis, so knocks that
+   * scatter by a few pixels still add up. It obeys the fatigue limit, so
+   * single, double and triple taps never mark the glass; a blow above it
+   * writes up to knockCap of damage at once (a flaw counts for at most
+   * knockFlaw of it), so a few hard knocks near one place creak, then crack
+   * it there. The creaks and the crack are queued at once, for the app to
+   * play inside the tap. Returns the segment struck, or −1.
    */
   Sim.prototype.knock = function (x, y, s) {
-    if (this.reduced || !(s > 0)) return -1;
-    var W = this.W, H = this.H, seg = -1, yi = Math.round(y), k, sg, yy;
+    if (!(s > 0)) return -1;
+    var W = this.W, H = this.H, seg = -1, yi = Math.round(y), k, sg, yy = 0, row = -1;
     if (yi < 1) yi = 1; else if (yi > H - 2) yi = H - 2;
-    for (k = 0; k < 8 && seg < 0; k++) {               // the nearest row with glass on both sides
-      for (sg = -1; sg <= 1 && seg < 0; sg += 2) {
+    for (k = 0; k < 8 && row < 0; k++) {               // the nearest row with glass on both sides
+      for (sg = -1; sg <= 1 && row < 0; sg += 2) {
         yy = yi + sg * k;
         if (yy < 1 || yy > H - 2 || this.rowMin[yy] > this.rowMax[yy]) continue;
-        seg = this.segOf[yy * W + (x < this.geo.cx ? this.rowMin[yy] - 1 : this.rowMax[yy] + 1)];
+        row = yy;
+      }
+    }
+    if (row < 0) return -1;
+    var x0 = this.rowMin[row], x1 = this.rowMax[row], dx = x - this.geo.cx, half = (x1 - x0 + 1) / 2;
+    var mid = (dx < 0 ? -dx : dx) < MOT.knockMid * half;
+    var sn = Math.pow(s, MOT.nB), th = Math.pow(MOT.knockTh, MOT.nB);
+    var sc = this.segCrack, segD = this.segD, top = -1, topD = 0, any = false;
+    for (sg = -1; sg <= 1; sg += 2) {
+      var s0 = this.segOf[row * W + (sg < 0 ? x0 - 1 : x1 + 1)];
+      if (s0 < 0) continue;
+      if ((sg < 0) === (dx < 0)) seg = s0;             // the side it struck
+      else if (!mid) continue;
+      var b0 = s0 - (s0 % WALL_BINS), lo = s0 - MOT.knockBins, hi = s0 + MOT.knockBins;
+      if (lo < b0) lo = b0;
+      if (hi > b0 + WALL_BINS - 1) hi = b0 + WALL_BINS - 1;
+      for (var q = lo; q <= hi; q++) {
+        k = sc[q];
+        if (k >= 0 && this.cracks[k].sealed) continue;                 // mended gold holds
+        var fl = Math.pow(this.segKt[q] / this.segS[q], MOT.nB);
+        var d = MOT.knockA * (sn * (fl > MOT.knockFlaw ? MOT.knockFlaw : fl) - th);
+        if (d <= 0) continue;
+        if (d > MOT.knockCap) d = MOT.knockCap;
+        this.segHit[q] += d;
+        d += segD[q];
+        segD[q] = d > MOT.Dcap ? MOT.Dcap : d;
+        any = true;
+        if (k < 0 && d >= 1 && d > topD) { topD = d; top = q; }
       }
     }
     if (seg < 0) return -1;
-    var sc = this.segCrack[seg];
-    if (sc >= 0 && this.cracks[sc].sealed) return seg;             // mended gold holds
-    var raw = Math.pow(s * this.segKt[seg] / this.segS[seg], MOT.nB) - Math.pow(MOT.knockTh, MOT.nB);
-    if (raw <= 0) return seg;
-    var d = MOT.knockA * raw;
-    if (d > MOT.knockCap) d = MOT.knockCap;
-    this.segHit[seg] += d;
-    d += this.segP[seg];
-    this.segP[seg] = d > MOT.Pmax ? MOT.Pmax : d;
-    this._pendP = true;
+    if (!any) return seg;
+    this._pendP = true;                                // the next step looks at the glass
     this.quiet = 0;
+    if (top >= 0 && this.cracks.length < MOT.maxCracks && this.steps >= this._crackHold) this._initCrack(top, -1);
+    this._scanDamage(true);
     return seg;
   };
 
