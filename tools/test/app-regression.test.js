@@ -38,7 +38,7 @@ async function testFlow(s, env) {
 
   // duration pills, custom
   await t.page.tap('#durations .pill[data-min="1"]');
-  await sleep(700);
+  await sleep(1400);
   var d1 = await t.eval(function () { return { ms: window.Hourglass.timer.durationMs, rem: window.Hourglass.timer.rem }; });
   s.check('FLOW: the 1 min pill gives a 1 min glass', d1.ms === 60000 && d1.rem === 60000, JSON.stringify(d1));
   await t.page.tap('#pill-custom');
@@ -100,7 +100,7 @@ async function testFlow(s, env) {
 
   // Zen and the end: only the moon button and a pinch change the view
   await t.eval(function () { window.Hourglass.setDuration(10000); });
-  await sleep(900);
+  await sleep(1400);
   var g = await t.glass();
   var zenOn = function () { return t.eval(function () { return document.getElementById('app').classList.contains('zen'); }); };
   await t.touch.tap(g.cx, g.cy, 60);

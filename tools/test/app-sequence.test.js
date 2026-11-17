@@ -250,7 +250,7 @@ async function testUi(s, env) {
   var cases = [[1500000, 300000, 4, '25·5 ×4'], [3000000, 600000, 4, '50·10 ×4'], [90000, 300000, 1, '1:30·5'], [5999000, 3600000, 12, '99:59·60 ×12']];
   for (i = 0; i < cases.length; i++) {
     await t.eval(function (q) { window.Hourglass.setDuration(q[0], q[1], q[2]); }, cases[i]);
-    await sleep(700);
+    await sleep(1400);
     var f = await t.eval(function () {
       var p = document.getElementById('pill-custom').getBoundingClientRect(), d = document.getElementById('durations').getBoundingClientRect();
       var panel = document.querySelector('#hud-bottom .panel').getBoundingClientRect();
@@ -282,7 +282,7 @@ async function testUi(s, env) {
 
   // a preset ends the sequence
   await t.page.tap('#durations .pill[data-min="5"]');
-  await sleep(900);
+  await sleep(1400);
   var p = await t.eval(function (key) {
     var H = window.Hourglass, pc = document.getElementById('pill-custom'), st = JSON.parse(localStorage.getItem(key));
     return { rest: H.seq.rest, rounds: H.seq.rounds, ms: H.timer.durationMs, label: document.getElementById('custom-label').textContent,
@@ -315,7 +315,7 @@ async function testRun(s, env) {
   var t = await env.open({ storage: storage });
   var WORK = 12000, REST = 10000;
   await t.eval(function (a) { window.Hourglass.setDuration(a[0], a[1], 2); }, [WORK, REST]);
-  await sleep(900);
+  await sleep(1400);
   await watch(t);
   var g = await t.glass();
   await t.touch.tap(g.cx, g.cy, 60);
@@ -394,7 +394,7 @@ async function testRun(s, env) {
           again.status === 'Work · 1 of 2' && again.rem > WORK - 900 && again.rem < WORK && Math.abs(again.top - again.want) <= Math.max(3, 0.5 * again.rate) &&
           near(again.rate, r0, 0.03 * r0), JSON.stringify({ state: again.state, phase: again.phase, status: again.status, rem: Math.round(again.rem) }));
   await t.page.tap('#btn-reset');
-  await sleep(800);
+  await sleep(1400);
   var rs = await snap(t);
   s.check('RUN: Reset goes back to the start of the sequence, not started', rs.state === 'idle' && rs.phase === 0 && rs.rem === WORK && rs.gap === 0 &&
           rs.top === rs.total && rs.total === rs.full && rs.status === 'Tap the glass to begin' && rs.rest === REST && rs.rounds === 2,
@@ -409,7 +409,7 @@ async function testPhase(s, env) {
   var t = await env.open({});
   var WORK = 20000, REST = 10000;
   await t.eval(function (a) { window.Hourglass.setDuration(a[0], a[1], 2); }, [WORK, REST]);
-  await sleep(900);
+  await sleep(1400);
   await watch(t);
   await t.page.tap('#btn-play');
   await sleep(3000);
@@ -484,7 +484,7 @@ async function testPhase(s, env) {
 
   // Reset
   await t.page.tap('#btn-reset');
-  await sleep(800);
+  await sleep(1400);
   var r = await snap(t);
   var sess = await t.eval(function (k) { return localStorage.getItem(k); }, SKEY);
   s.check('PHASE: Reset goes back to the start of the sequence, not started', r.state === 'idle' && r.phase === 0 && r.rem === WORK && r.gap === 0 && r.top === r.total &&
@@ -493,7 +493,7 @@ async function testPhase(s, env) {
   await t.page.tap('#btn-play');
   await sleep(600);
   await t.page.tap('#durations .pill[data-min="1"]');
-  await sleep(900);
+  await sleep(1400);
   var e = await snap(t);
   s.check('PHASE: a preset ends the sequence: a plain 1 min glass, "Flowing"', e.rest === 0 && e.rounds === 1 && e.durationMs === 60000 && e.state === 'running' &&
           e.status === 'Flowing' && e.label === 'Custom', JSON.stringify({ rest: e.rest, ms: e.durationMs, state: e.state, status: e.status, label: e.label }));
@@ -507,7 +507,7 @@ async function testClock(s, env) {
   var t = await env.open({ init: skewInit });
   var WORK = 25 * 60000, REST = 5 * 60000;
   await t.eval(function (a) { window.Hourglass.setDuration(a[0], a[1], 3); }, [WORK, REST]);
-  await sleep(900);
+  await sleep(1400);
   await watch(t);
   await t.eval(function () { window.Hourglass.start(); });
   await sleep(1500);
@@ -600,7 +600,7 @@ async function testReload(s, env) {
   var t = await env.open({ init: skewInit });
   var WORK = 25 * 60000, REST = 5 * 60000;
   await t.eval(function (a) { window.Hourglass.setDuration(a[0], a[1], 2); }, [WORK, REST]);
-  await sleep(900);
+  await sleep(1400);
   await t.eval(function () { window.Hourglass.start(); });
   await sleep(1200);
   await t.eval(function () { window.Hourglass.pause(); });
@@ -703,7 +703,7 @@ async function testCalm(s, env) {
   var t = await env.open({ reducedMotion: true, storage: storage });
   var WORK = 10000, REST = 10000;
   await t.eval(function (a) { window.Hourglass.setDuration(a[0], a[1], 1); }, [WORK, REST]);
-  await sleep(900);
+  await sleep(1400);
   await watch(t);
   var g = await t.glass();
   await t.touch.tap(g.cx, g.cy, 60);
@@ -761,7 +761,7 @@ async function testReview(s, env) {
   for (var i = 0; i < delays.length; i++) {
     var t = await env.open({ init: skewInit });
     await t.eval(function (a) { window.Hourglass.setDuration(a[0], a[1], 3); }, [WORK, REST]);
-    await sleep(900);
+    await sleep(1400);
     await watch(t);
     await t.eval(function () { window.Hourglass.start(); });
     await sleep(1200);
@@ -797,7 +797,7 @@ async function testReview(s, env) {
     await sleep(500);
     var plain = await line(u);
     await u.eval(function (a) { window.Hourglass.setDuration(a[0], a[1], 4); }, [WORK, REST]);
-    await sleep(900);
+    await sleep(1400);
     await u.eval(function () { window.Hourglass.start(); });
     await sleep(1200);
     var q = await line(u), name = SHORT[k][0] + '×' + SHORT[k][1];
@@ -812,7 +812,7 @@ async function testReview(s, env) {
               q.position === 'absolute' && q.w <= 1 && q.clip === 'inset(50%)' && q.overflow === 'hidden', JSON.stringify(q));
     }
     await u.eval(function () { window.Hourglass.setDuration(5 * 60000); });
-    await sleep(900);
+    await sleep(1400);
     var back = await line(u);
     s.check('REVIEW ' + name + ': a plain glass again: no status line', back.display === 'none' && !back.seq, JSON.stringify(back));
     s.check('REVIEW ' + name + ': no page or console errors', u.errors.length === 0, u.errors.slice(0, 3).join(' | '));

@@ -2120,7 +2120,11 @@
     };
     // (a finger is held by what it touched anyway; capturing it here could take its click from the haptic label)
     if (e.pointerType !== 'touch') { try { stage.setPointerCapture(e.pointerId); } catch (err) {} }
-    if (!g.inside || sheetOpen || resetting || (flip.active && flip.mode === 'script')) { g.kind = 'none'; return; }
+    if (!g.inside || sheetOpen || resetting || (flip.active && flip.mode === 'script')) {
+      // (while a new glass is being made, a tap is still a tap: for that glass, when its sand is in)
+      g.kind = sweep && g.inside && !sheetOpen ? 'tap' : 'none';
+      return;
+    }
     if (bodyMoving()) catchBody(g, e.clientX, e.clientY);
     else g.mendable = hasOpenCrack();
   });
@@ -2151,7 +2155,8 @@
     if (e.type !== 'pointerup') return;
     // A tap: brief, still, and neither a catch nor (on a cracked glass) a mending hold.
     var dur = performance.now() - g.t;
-    if (g.caught || (g.kind !== 'press' && g.kind !== 'none') || g.far > 196 || dur > 700) return;
+    if (g.caught || (g.kind !== 'press' && g.kind !== 'none' && g.kind !== 'tap') || g.far > 196 || dur > 700) return;
+    if (g.kind === 'tap') { if (!sheetOpen && !flip.active) { audio.tap(); toggle(); } return; }
     if (dur > MEND_WAIT && hasOpenCrack()) return;
     if (g.kind !== 'press' || sheetOpen || !g.inside || flip.active) return;
     audio.tap();                       // fingertip on glass

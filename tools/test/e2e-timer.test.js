@@ -48,7 +48,7 @@ async function realMotionOn(t) {
 /** A glass (60 s unless said) with Real motion on, the phone held still; returns the Date.now() it started at. */
 async function startGlass(t, durMs) {
   await t.eval(function (d) { window.Hourglass.setDuration(d); }, durMs || 60000);
-  await sleep(900);
+  await sleep(1400);
   await realMotionOn(t);
   await t.eval(function () { window.__drive({ profile: 'calm', conv: 'ios' }); });
   await sleep(1500);

@@ -255,7 +255,7 @@ async function testFree(s, env) {
     s.check('FREE: (' + wf + ' rad/s) |ω| ≤ 16 throughout', maxW <= 16 + 1e-9, 'max ' + maxW.toFixed(2) + ' rad/s');
     // back to a full upright idle glass for the next flick
     await t.eval(function () { window.Hourglass.reset(); });
-    await sleep(900);
+    await sleep(1400);
   }
   await H.invariants(s, t, 'FREE');
   await t.close();
@@ -390,7 +390,7 @@ function spyMend(t) {
 }
 async function freshGlass(t) {
   await t.eval(function () { window.Hourglass.reset(); });
-  await sleep(900);
+  await sleep(1400);
 }
 async function testMend(s, env) {
   var t = await env.open({ motionStub: CFG.stub });

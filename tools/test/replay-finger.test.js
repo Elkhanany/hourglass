@@ -373,7 +373,7 @@ async function more(s, env) {
   st = await state(t);
   s.check('a mended glass can crack again, beside the gold', st.cracks.length === 2 && st.cracks[0].sealed && !st.cracks[1].sealed, st.cracks.length + ' cracks; ' + hitsText(log));
   await t.page.tap('#btn-reset');
-  await sleep(1200);
+  await sleep(1400);
   st = await state(t);
   s.check('Reset gives a new glass', st.cracks.length === 0 && st.dMax === 0 && st.lost === 0 && st.spill === 0, st.cracks.length + ' cracks, ' + st.spill + ' grains on the desk');
   await t.close();
@@ -388,7 +388,7 @@ async function more(s, env) {
     shown.push((await t.log()).events.filter(function (e) { return e.k === 'toast' && /cracked/.test(e.v); }).length);
     await sleep(4300);                               // the note has gone
     await t.eval(function () { window.Hourglass.reset(); });
-    await sleep(900);
+    await sleep(1400);
   }
   s.check('the note "The glass cracked · hold it still to mend" shows for the first three cracks, not the fourth', shown.join('') === '1110', 'shown ' + shown.join(', '));
   await t.close();
@@ -406,7 +406,7 @@ async function more(s, env) {
     hard = log.hits.filter(function (h) { return h.ny > 0 && h.held && h.v >= 1100; })[0];
     if (hard || st.cracks.length || tries === 3) break;
     s.note('Reduce Motion slam, take ' + tries, 'only ' + hitsText(log) + ': repeated');
-    await t.page.tap('#btn-reset'); await sleep(1200);
+    await t.page.tap('#btn-reset'); await sleep(1400);
   }
   s.check('Reduce Motion: a glass banged on the desk still cracks', !!hard && st.cracks.length >= 1, hitsText(log));
   await t.close();

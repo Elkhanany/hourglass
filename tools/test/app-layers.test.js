@@ -100,7 +100,7 @@ async function testSwitch(s, env) {
   var p2 = await probe(t);
   s.check('RELOAD: still on, the fill laid in two tones', p2.checked && p2.sim && p2.ren && p2.tones[0] > 0 && p2.tones[1] > 0 && p2.tones[1] <= p2.tones[0], JSON.stringify(p2));
   await t.page.tap('#durations .pill[data-min="1"]');
-  await sleep(900);
+  await sleep(1400);
   var p3 = await probe(t);
   s.check('NEW GLASS: a 1 min glass is filled in two tones', p3.total !== p2.total && p3.tones[0] + p3.tones[1] === p3.total && p3.tones[1] > 0.2 * p3.total && p3.tones[1] <= p3.tones[0], p3.tones.join(' + '));
   await t.page.tap('#btn-play');

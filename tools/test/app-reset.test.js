@@ -10,7 +10,8 @@
  *   KEEP    another duration while the glass runs: it runs on, but only when
  *           the last of the new sand is in (the neck stays shut, the clock
  *           stands at the new time until then)
- *   START   Start tapped during the sweep: the glass starts as the sand is in
+ *   START   Start, or the glass itself, tapped during the sweep: the glass
+ *           starts as the sand is in
  *   AGAIN   another duration chosen while the sand of the last was being
  *           poured: that one's sand and time are what is left
  *   AWAY    the page hidden in the middle: the glass is made at once, and a
@@ -156,6 +157,19 @@ async function run(s, env) {
     for (i = sp.from; i <= sp.to; i++) if (log[i].st === 'running' || (log[i].made > 0 && log[i].rem !== 120000)) early = true;
     s.check('START: tapped during the sweep, the glass starts as the sand is in, not before', sp.from >= 0 && !early && last.st === 'running' && last.rem < 120000 && last.rem > 118000,
             'idle through the sweep: ' + !early + '; ' + last.st + ' with ' + (last.rem / 1000).toFixed(2) + ' s left at the end');
+
+    // … and so does a finger's tap on the glass itself
+    await t.eval(function () { window.Hourglass.pause(); });
+    await sleep(400);
+    await t.eval(function () { window.Hourglass.reset(false); });
+    await sleep(450);
+    g = await t.glass();
+    await t.touch.tap(g.cx, g.cy, 60);
+    var tapMid = await t.eval(function () { return { st: window.Hourglass.timer.state, sw: document.getElementById('app').classList.contains('sweep') }; });
+    await sleep(1300);
+    var tapEnd = await t.eval(function () { return { st: window.Hourglass.timer.state, rem: window.Hourglass.timer.rem, sw: document.getElementById('app').classList.contains('sweep') }; });
+    s.check('START: a finger\'s tap on the glass during the sweep does the same', tapMid.sw && tapMid.st === 'idle' && tapEnd.st === 'running' && !tapEnd.sw && tapEnd.rem < 120000 && tapEnd.rem > 118000,
+            'at the tap: ' + tapMid.st + ', sweeping ' + tapMid.sw + '; 1.3 s later ' + tapEnd.st + ' with ' + (tapEnd.rem / 1000).toFixed(2) + ' s left');
 
     /* ---- AGAIN: another duration during the pour ---------------------------- */
     await t.eval(function () { window.Hourglass.pause(); });

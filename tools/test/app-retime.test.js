@@ -51,7 +51,7 @@ function watchClock(t) {
     } else {
       var t = await env.open({ motionStub: true });
       await t.eval(function () { window.Hourglass.setDuration(60000); });
-      await sleep(900);
+      await sleep(1400);
       await realMotionOn(t);
       await t.eval(function () { __mon.reset(); window.Hourglass.start(); });
       await watchClock(t);
