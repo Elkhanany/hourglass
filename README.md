@@ -50,9 +50,10 @@ deep-water teal.
   at sand's own angle, the stream breathes and wanders, grains bounce off the
   glass.
 - **Layered sand.** Turn it on in **Tune** and each sand gains a companion
-  tone. A new glass is filled in bands; as they run through the neck the two
-  tones settle into fine strata on the heap below, a little different every
-  time.
+  tone. A new glass is filled in a pattern of its own: bands fine or bold,
+  level or leaning, arched, waved or folded. As it runs, the two tones settle
+  into strata on the heap below, and every turn of the glass lets the sand
+  settle into a new pattern. No two are alike.
 - **Real sound.** The soft hush of sand landing, made of thousands of tiny
   grains, the first grains ticking on bare glass, a singing bowl at the end,
   and optional water behind it (a brook, rain, the ocean, a waterfall, or
@@ -120,11 +121,13 @@ five, three quarters for 45.
 - **Material**: Sahara Quartz, Volcanic Black, Moonstone, Lapis Lazuli (gold
   flecks, gold caps), Rose Quartz (copper), Sea Glass (driftwood); **Frame** hides the
   caps and posts so only the glass remains; **Layered sand** gives the sand a
-  second tone. A new glass is filled in five to nine wavy bands, what falls
+  second tone. A new glass is filled in a pattern drawn for it alone (bands
+  fine or bold, level or leaning, arched, waved or folded), what falls
   settles into strata on the heap, and sand added with **Sand** arrives in
   layers of the other tone. It is off by default, and with it off the sand is
-  exactly as it was. Turning the glass over tumbles the sand into an even
-  blend of the two tones; the next run lays it down in strata again.
+  exactly as it was. Turning the glass over tumbles the sand, and within
+  about four seconds it settles into a new pattern, drawn afresh for each
+  bulb at every turn.
 - **Acoustic character** (six voicings) and volume; **Ambience** (None,
   Brook, Rain, Ocean, Waterfall or Drips behind the sand, with its own level;
   the one you tap plays long enough to be heard); **Completion bowl**.
@@ -204,7 +207,10 @@ under your finger, and stays where it stopped until the finger moves it on;
 but a finger that lands on a bulb of a spinning glass and moves on with the
 spin within 80 ms carries it along, so flick on flick builds speed. The sand
 feels all of this at the true scale of the glass on the screen, so a gentle
-drag barely stirs it and a hard spin pins it to both ends.
+drag barely stirs it and a hard spin pins it to both ends. Its own motion it
+keeps: carry the glass off quickly and the sand is left behind for a moment,
+the falling thread with it; stop it dead, or let it strike an edge, and the
+sand surges on, piles against the glass and runs back to its slope.
 
 ### Breaking it
 
@@ -262,6 +268,11 @@ back, as any tap does).
   Landed grains tumble downslope in short hops while the surface is steeper
   than 3:4. Measured in the test harness the slope breathes between about 32°
   and 36° and averages 33° to 34°.
+- **Off the upright.** That rule judges slopes against the lattice, which is
+  right for a glass standing straight. Leaned, turned, carried or shaken, the
+  sand follows a second set of rules that judge them against gravity itself
+  (see *Sand off the upright*). A glass that stands straight and is left alone
+  never reaches them.
 - **A living stream.** The flow rate swings by tens of percent around its mean
   (slow breathing, pulses near 2 Hz, fine flutter) and the stream leaves the
   neck as one thin thread that wanders. The swings average to zero and fade
@@ -316,26 +327,41 @@ larger screens.
   exactly as they do without (`sim-tone` runs the two side by side;
   `sim-identity` ties the plain one to f446085). `sim.tones()` counts the
   grains of each tone.
-- **Bands.** A new glass, and a restored one, is filled in five to nine bands
-  of unequal thickness with gently wavy, slightly ragged seams. They are
-  drawn from a random stream of their own, seeded by a read of the sand's
-  stream that does not advance it. The companion tone is never more than half
-  the sand, so the glass stays the material it is. Turning the switch on
-  part-way lays the sand in strata where it lies, behind the usual
-  cross-fade; turning it off forgets the tones.
-- **Strata.** The crater of the upper bulb cuts across the bands, so what
+- **Patterns.** A new glass, and a restored one, is filled in a pattern drawn
+  for it alone (`_pattern`): one pair of strata 9 to 35 cells thick, more
+  often fine than bold; level, or leaning by up to about 32°; in half the
+  glasses arched or sagging across the bulb; gently waved, or in three
+  glasses out of ten folded; its thickness wandering along the way, its seams
+  slightly ragged. All of it comes from a random stream of the layers' own,
+  seeded by a read of the sand's stream that does not advance it, so the same
+  seed lays the same pattern and no two seeds the same one. The companion
+  tone is never more than half the sand, so the glass stays the material it
+  is. Turning the switch on part-way lays the sand in its pattern where it
+  lies, behind the usual cross-fade; turning it off forgets the tones.
+- **Strata.** The crater of the upper bulb cuts across the pattern, so what
   falls is a mixture. A real mixture of two sands poured on a heap sorts
   itself into strata (Makse, Havlin, King and Stanley, *Nature* 386, 1997).
   Here that is a simple sifting rule rather than a simulation of grain sizes.
-  In each layer freshly laid on the lower heap (4 to 12 grains deep), grains
-  of one tone work their way down under the other by trading places with the
-  grain below or diagonally below, and the two tones take turns from layer to
-  layer. Each layer freezes as two strata that follow the slope. Sifting only
-  trades colour seeds between neighbours, visits every eighth column per
-  step, and costs about 1 µs a step, roughly 1 % of a flowing step. It rests
-  while the glass is turned or shaken; tumbled sand is a blend, and the next
-  run stratifies it again. After a fast-forward, the sand that was moved in
-  bulk is sifted in one go.
+  In each layer freshly laid on the lower heap, grains of one tone work their
+  way down under the other by trading places with the grain below or
+  diagonally below, and the two tones take turns from layer to layer. Each
+  layer freezes as two strata that follow the slope. How deep a layer is, is
+  drawn for each glass and again at each turn: fine (3 to 7 grains), even
+  (4 to 12), bold (7 to 19), or mostly fine with a deep one now and then
+  (3 to 21). Sifting only trades colour seeds between neighbours, visits
+  every eighth column per step, and costs about 1 µs a step, roughly 1 % of a
+  flowing step. It rests while the glass is turned or shaken. After a
+  fast-forward, the sand that was moved in bulk is sifted in one go.
+- **A turn.** Tumbled sand would be an even blend of the two tones. Instead,
+  when the glass has been turned over each bulb draws a new pattern for the
+  share of each tone it holds, and for the next four seconds sand that comes
+  to rest in the wrong tone for its place trades colour seeds with a grain of
+  the right tone that is still moving (`_develop`, up to 36 grains a step in
+  each bulb, every fourth column per step). Only seeds are traded, so each
+  tone keeps its count and the lattice, the sleep map and the sand's random
+  stream are untouched. Afterwards 8 % to 29 % of the grains lie on a grain
+  of the other tone; in the blend it was about 40 %. It costs up to 0.1 ms a
+  step for those four seconds and nothing after.
 - **Pouring.** Added sand arrives in layers of 420 to 840 grains, each in the
   other tone from the one beneath: one layer for about a second of holding
   **Sand**, or a few taps.
@@ -378,6 +404,64 @@ larger screens.
   with each blow of the hand, and a sideways shake bends the thread. Grains in
   flight bounce off the closed neck like glass. The valve stays the only way
   between the bulbs, so both bulbs' counts stay exact.
+
+### Sand off the upright
+
+When the glass leans more than 0.7°, turns, is carried or shaken, and for 3.5
+s after, its sand is stepped by a second automaton (`sim.granular`, on unless
+the Sim is built with `granular: false`, which is the engine as it was). A
+glass that stands straight and has not been touched never reaches it and stays
+bit-identical with f446085.
+
+- **Repose against gravity.** A grain falls along the two lattice directions
+  the field lies between, in the odds that give the field's own direction. It
+  steps sideways only when the slope beyond the step, probed along a true line
+  below the field's horizontal, is steeper than sand can hold: 37° for a grain
+  at rest, 29° for one already moving. Rows sleep at any lean. Held at 5°,
+  10°, 20°, 30° and 45° the free surface settles at 30° to 35° to gravity and
+  the sand is at rest within 1 to 4 s; before, it crept flat and never rested.
+- **Thick avalanches.** A face far steeper than sand can hold fails in depth:
+  the free surface is read as heights across the field, and where it falls
+  more steeply than 40° over eight cells the top grains are carried down to
+  where the slope eases, and run on down to 36°. After the Flip the sand is
+  under 40° within a second and at rest in under 3 s (it stood at 68° for more
+  than 20 s).
+- **Falling sand gathers speed.** Each grain carries a count of the sweeps it
+  has kept moving, as it carries its colour; a fall covers more cells the
+  longer it lasts. Sand let go (the phone turned over) accelerates and
+  stretches instead of sinking as a block.
+- **Inertia.** Each bed has a sideways speed over the glass. It starts when
+  the level push beats static friction (0.65 of the load), is moved across the
+  glass, piles against the wall, and friction (0.5) takes its speed away;
+  while it slides its slopes are judged in a field that leans the way it is
+  going. The push includes the glass's own motion on the screen, in cells
+  (`sim.setCarry`): the sand lives in slow motion and the hand does not, so
+  this is what makes a carried glass that stops leave a slosh. A carry at 150
+  px/s starts nothing. With Reduce Motion there is none. The field the
+  fracture law reads is untouched.
+- **Shaken sand levels.** Above a granular temperature of 0.5 the slopes sand
+  can hold fall with the temperature, so four seconds of hard shaking level a
+  heap (34° to 13°). Walking, a sway or a finger's wiggle stay below it.
+- **In the air.** A grain in the air belongs to the room: it feels the whole
+  of the glass's on-screen acceleration, so the thread is left behind when the
+  glass is carried off. Exactly nothing while the glass keeps its place.
+- **The timer comes first.** Leaned far over, sand rightly lies at rest on the
+  low side of the funnel. A neck that has run short is therefore fed by sweeps
+  of the old automaton, as it always was, so the sand still arrives: leaned
+  30°, 11 of 10,116 grains are still above the neck at 00:00 (1,039 without
+  that feed).
+- **Where it stands back.** Spun faster than 6 rad/s, or below full quality
+  (the governor's lighter levels), a moved glass is stepped as before; a slide
+  in progress ends there.
+- **Sound.** Nothing was added to `audio.js`: the rush of sliding sand follows
+  the slide counts, so an avalanche after a lean or a carry is now heard
+  softly, and the rush after the Flip ends sooner (2.7 s instead of 4.1 s).
+- **Cost** (Node, phone-size glass with the most sand, ms per frame, mean /
+  p95, before → after): a held lean of 30° 0.67 / 0.70 → 0.34 / 1.84 and then
+  nothing once at rest; the Flip and 3 s after 0.78 / 1.84 → 0.67 / 2.20; all
+  the sand let go at once 0.14 / 0.40 → 0.40 / 2.85 for a third of a second; a
+  spin at 5 rad/s 1.24 / 2.50 → 1.48 / 3.77; an upright running glass
+  unchanged.
 
 ### Glass and fracture
 
@@ -786,10 +870,19 @@ node tools/test/app-gestures.test.js     # any single suite
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
   nothing moving, every grain lands exactly as before. `sim-tone` covers
-  layered sand: the fill's bands; each tone's count through an idle run, a
-  flip, a spin, shaking, a cracking tumble, a leaking breach, pours and a
-  fast-forward; the sand falling identically with layers on and off; the heap
-  settling into strata; the colour table with layers off against 7f71786. The
+  layered sand: the fill's pattern, its own for every seed and the same for
+  the same one; each tone's count through an idle run, a flip, a spin,
+  shaking, a cracking tumble, a leaking breach, pours and a fast-forward; the
+  sand falling identically with layers on and off; the heap settling into
+  strata; turned sand settling into a new pattern each time, not a blend; the
+  colour table with layers off against 7f71786. `sim-repose` covers sand off
+  the upright: repose at held leans, the slump after the Flip, falling sand
+  gathering speed, a bed's momentum under a jolt and a finger's carry, the
+  thread in the air, shaking against walking, the timer while leaned and to
+  its end, the census and each tone's count; every case that can is also run
+  with `granular: false`, which must fail it. `sim-identity`'s lean and
+  scripted-flip cases pin the engine with `granular: false`; its upright
+  cases run with it on. The
   others cover cracks, leaks, mending and saving (`p0`), conservation,
   sanity, flight, fracture, spinning, knocking, leak, flip, persistence,
   determinism, the valve, the clock and performance.
