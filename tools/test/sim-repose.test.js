@@ -34,7 +34,7 @@
 'use strict';
 var H = require('./lib/harness.js');
 var P = H.P, Sim = P.Sim, Clock = H.Clock, REST = P.REST, DT = Sim.DT, DT_MS = Clock.DT_MS;
-var DEG = Math.PI / 180, TAU = 2 * Math.PI, WALL = 1;
+var DEG = Math.PI / 180, TAU = 2 * Math.PI, WALL = 1, MOT = Sim.MOTION;
 
 var failures = 0, count = 0;
 function test(name, fn) {
@@ -202,6 +202,48 @@ test('... and without it (granular: false) the same lean creeps and never rests'
 /* ---- thick avalanches ---------------------------------------------------- */
 
 /** The Flip button as app.js turns it, then `secs` at rest. Returns when the new upper bulb first lay under 40°, and more. */
+/* ---- a slow tilt -------------------------------------------------------- */
+
+/**
+ * Tilt the glass steadily from 1° to `to` degrees at `rate` degrees a second,
+ * as a hand tilts a phone, and say how evenly its sand followed: the shift of
+ * the two beds (their centroids, in bulb half-widths) in each tenth of a second.
+ */
+function tiltSlowly(sim, rate, to) {
+  var R = sim.geo.R, at = function () { return [bed(sim, 0).x / R, bed(sim, 1).x / R]; };
+  sim.tilt = 1 * DEG; sim.wakeAll();
+  steps(sim, 360);                                 // (the hand-over to these rules is not part of it)
+  var N = Math.round((to - 1) / rate * 120), d = [], last = at(), k;
+  for (k = 0; k < N; k++) {
+    sim.tilt = (1 + (to - 1) * k / N) * DEG;
+    if (k % 4 === 0) sim.wakeAll();
+    if ((k & 1) === 0) sim.beginFrame();
+    sim.step();
+    if (k % 12 === 11) { var c = at(); d.push(Math.abs(c[0] - last[0]) + Math.abs(c[1] - last[1])); last = c; }
+  }
+  var sum = 0, sd = 0, still = 0, top = 0, sorted = d.slice().sort(function (p, q) { return q - p; });
+  for (k = 0; k < d.length; k++) sum += d[k];
+  var mean = sum / d.length;
+  for (k = 0; k < d.length; k++) { sd += (d[k] - mean) * (d[k] - mean); if (d[k] < 0.15 * mean) still++; }
+  for (k = 0; k < Math.ceil(d.length / 5); k++) top += sorted[k];
+  return { uneven: Math.sqrt(sd / d.length) / mean, top: top / sum, still: still / d.length, shift: sum, census: censusOk(sim) };
+}
+test('tilted slowly and steadily, the sand follows the tilt as it comes: it flows, it does not wait and go', function () {
+  var r = tiltSlowly(grown(0.5), 5, 40);
+  // The sand as it was first shipped: it held to 37° and, once moving, ran down to 29°; its thick
+  // avalanche began at 40°, ran to 36°, and took a grain to the foot of the slope at once.
+  var keep = {}, was = { thS: 37, thD: 29, slUp: 3, slStop: 36, slHop: 0 }, k;
+  for (k in was) { keep[k] = MOT[k]; MOT[k] = was[k]; }
+  var r0;
+  try { r0 = tiltSlowly(grown(0.5), 5, 40); } finally { for (k in was) MOT[k] = keep[k]; }
+  var say = function (q) { return 'still ' + (q.still * 100).toFixed(0) + ' % of the time, the busiest fifth ' + (q.top * 100).toFixed(0) + ' % of the shift, unevenness ' + q.uneven.toFixed(2); };
+  ok(r.census && r0.census, 'census broke');
+  ok(r.shift > 0.12, 'the beds shifted by only ' + r.shift.toFixed(2) + ' half-widths');
+  ok(r.still < 0.10 && r.top < 0.38 && r.uneven < 0.60, say(r) + ' (want under 10 %, 38 % and 0.60)');
+  ok(r0.still > r.still + 0.05 && r0.uneven > r.uneven + 0.12, 'this suite could not tell: as it was, ' + say(r0) + '; now ' + say(r));
+  return say(r) + '; as it was: ' + say(r0);
+});
+
 function flipAndWatch(sim, secs) {
   var tn = new H.Turner(sim, H.LAM), k = 0, after = 0, r = { below40: -1, rest: -1, at: {}, census: true, during: 0 };
   tn.flip();

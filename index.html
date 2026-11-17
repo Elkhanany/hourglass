@@ -63,6 +63,9 @@
         <span class="swatch" aria-hidden="true"></span><span id="theme-name">Sahara Quartz</span>
       </button>
       <div class="top-actions">
+      <button id="btn-motion" class="icon-btn" type="button" aria-label="Allow real motion this time" hidden>
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="8.2" y="4.6" width="7.6" height="14.8" rx="1.8" transform="rotate(20 12 12)"/><path d="M4.4 9.2a8.6 8.6 0 0 1 2-3.4M19.6 14.8a8.6 8.6 0 0 1-2 3.4"/></svg>
+      </button>
       <button id="btn-zen" class="icon-btn" type="button" aria-label="Zen: let the glass fill the screen">
         <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.2 14.6A7.8 7.8 0 0 1 9.4 4.8a7.8 7.8 0 1 0 9.8 9.8z"/></svg>
       </button>
@@ -171,6 +174,16 @@
           <span><b>Layered sand</b><small>Two tones that settle into strata as they fall</small></span>
           <input id="opt-layers" class="switch" type="checkbox" role="switch">
         </label>
+        <div class="row" id="grain-row">
+          <span><b>Grain</b><small>Finer sand is more grains, and more work for the phone</small></span>
+        </div>
+        <div class="sub">
+          <div id="grains" class="segmented" role="radiogroup" aria-label="Sand grain">
+            <button type="button" role="radio" aria-checked="true" data-grain="0" aria-label="Classic: the sand as it has been">Classic</button>
+            <button type="button" role="radio" aria-checked="false" data-grain="1" aria-label="Fine: twice the grains">Fine <i>×2</i></button>
+            <button type="button" role="radio" aria-checked="false" data-grain="2" aria-label="Finest: four times the grains">Finest <i>×4</i></button>
+          </div>
+        </div>
       </div>
 
       <h3>Acoustic character</h3>

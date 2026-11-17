@@ -4,8 +4,10 @@
  *   (b) declined → the switch turns off and says so
  *   (c) granted but no data for 2.5 s → off, 'No motion data from this device'
  *   (d) orientation but no motion → stays on; shaking is disabled
- *   (e) reloaded with Real motion on → still on, nothing asked at start-up,
- *       and the first tap on the glass asks exactly once
+ *   (e) reloaded with Real motion on → still on, nothing asked at start-up
+ *       or by a tap on the glass; a tilt button waits in the top bar and a
+ *       tap on it asks exactly once; where the readings arrive unasked it
+ *       never shows
  *
  *   node tools/test/app-permission.test.js [--root <dir>] [--port <n>] [--real]
  *
@@ -143,23 +145,46 @@ async function caseE(s, env) {
   s.check('(e) reloaded with Real motion on: the switch stays checked', e1.checked && e1.on, JSON.stringify({ checked: e1.checked, on: e1.on }));
   s.check('(e) ... nothing is asked at start-up', e1.perms.motion === 0 && e1.perms.orient === 0 && (REAL || e1.requests === 0),
           'counts ' + e1.perms.motion + '/' + e1.perms.orient + (REAL ? '' : ', request() ' + e1.requests));
+  var shown = function () { return t.eval(function () { return !document.getElementById('btn-motion').hidden; }); };
+  var st0 = await t.eval(function () { return window.Hourglass.timer.state; });
+  s.check('(e) ... a tilt button waits in the top bar', await shown());
   var g = await t.glass();
   await t.touch.tap(g.cx, g.cy, 60);
+  await sleep(400);
+  var e2 = await state(t), st1 = await t.eval(function () { return window.Hourglass.timer.state; });
+  s.check('(e) a tap on the glass asks nothing: it starts the glass, as a tap does', e2.perms.motion === 0 && e2.perms.orient === 0 && (REAL || e2.requests === 0) &&
+          st0 === 'idle' && st1 === 'running' && (await shown()), 'counts ' + e2.perms.motion + '/' + e2.perms.orient + ', ' + st0 + ' → ' + st1);
+  var c = await t.eval(function () { var r = document.getElementById('btn-motion').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await t.touch.tap(c.x, c.y, 60);
   await sleep(300);
   await feed(t, 'both');                                   // access granted: the events start
-  var e2 = await state(t);
+  var e3 = await state(t);
+  s.check('(e) a tap on the tilt button asks once', e3.perms.motion === 1 && e3.perms.orient === 1 && (REAL || e3.requests === 1),
+          'counts ' + e3.perms.motion + '/' + e3.perms.orient + (REAL ? '' : ', request() ' + e3.requests) +
+          ', isActive ' + e3.perms.motionActive[0] + ', in ' + e3.perms.motionIn[0]);
+  s.check('(e) ... with user activation', e3.perms.motionActive[0] === true);
+  s.check('(e) ... and the button is gone', !(await shown()));
   await t.touch.tap(g.cx, g.cy, 60);
   await sleep(300);
-  var e3 = await state(t);
-  s.check('(e) the first tap on the glass asks once', e2.perms.motion === 1 && e2.perms.orient === 1 && (REAL || e2.requests === 1),
-          'counts ' + e2.perms.motion + '/' + e2.perms.orient + (REAL ? '' : ', request() ' + e2.requests) +
-          ', isActive ' + e2.perms.motionActive[0] + ', in ' + e2.perms.motionIn[0]);
-  s.check('(e) ... with user activation', e2.perms.motionActive[0] === true);
-  s.check('(e) ... and only once', e3.perms.motion === 1 && (REAL || e3.requests === 1), 'after a second tap: ' + e3.perms.motion);
+  var e3b = await state(t);
+  s.check('(e) ... and nothing asks again', e3b.perms.motion === 1 && (REAL || e3b.requests === 1), 'after another tap: ' + e3b.perms.motion);
   await sleep(2600);
   var e4 = await state(t);
   s.check('(e) ... and Real motion stays on once data flows', e4.checked && e4.on);
   await H.invariants(s, t, '(e)');
+  await t.close();
+
+  // allowed already (the same session, a reload): the readings arrive unasked, and the button never shows
+  t = await env.open({
+    motionStub: !REAL, storage: stored,
+    init: function () { window.__motion = { seenOrient: false, seenMotion: false }; }
+  });
+  await sleep(400);
+  await feed(t, 'both');
+  await sleep(1600);
+  var e5 = await state(t), hid = await t.eval(function () { return document.getElementById('btn-motion').hidden; });
+  s.check('(e) where the readings arrive unasked, the tilt button never shows and nothing is asked', hid && e5.on && e5.perms.motion === 0 && (REAL || e5.requests === 0),
+          'hidden ' + hid + ', counts ' + e5.perms.motion + '/' + e5.perms.orient);
   await t.close();
 }
 

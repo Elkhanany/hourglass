@@ -45,7 +45,9 @@
     motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
     mendNotes: 0,                    // how often the "hold it still to mend" note was shown (the first three cracks)
     hintCrack: false,                // the one-time "the glass can crack" note was shown
-    hintZen: 0                       // how often the way back out of Zen has been said (three times at most)
+    hintZen: 0,                      // how often the way back out of Zen has been said (three times at most)
+    grain: 0,                        // the sand's grain: 0 classic, 1 fine (twice the grains), 2 finest (four times)
+    hintMotion: 0                    // how often the tilt icon has been pointed out (three times at most)
   };
   try {
     var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -59,6 +61,7 @@
   } catch (e) { /* private mode: run with defaults */ }
   if (!P.THEMES[settings.theme]) settings.theme = 'sahara';
   if (settings.motionSign !== 1 && settings.motionSign !== -1) settings.motionSign = 0;
+  if (settings.grain !== 1 && settings.grain !== 2) settings.grain = 0;
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts
   var qt = /[?&]t=(\d{1,5})(?:&|$)/.exec(location.search);
   if (qt) { settings.durationMs = +qt[1] * 1000; settings.restMs = 0; }
@@ -74,7 +77,14 @@
    * ==================================================================== */
   // More grains where there is room (and horsepower) to show them.
   var roomy = Math.min(window.innerWidth, window.innerHeight) >= 700;
-  var sim = new P.Sim({ scale: roomy ? 1.3 : 1.08, seed: (Date.now() & 0x7fffffff) | 1 });
+  // Finer sand (Tune): the same glass at √2 or 2 times the scale, so twice or
+  // four times the grains, each smaller. The simulation keeps pace, so the
+  // finer sand moves on screen as the classic sand does (Sim.setPace), and
+  // what is counted in grains here is scaled by fine2: the pour, what the
+  // ear and the desk are given, the last grains of the tail.
+  var fine = P.Sim.setPace ? [1, Math.SQRT2, 2][settings.grain] : 1, fine2 = fine * fine;
+  if (fine > 1) P.Sim.setPace(fine);
+  var sim = new P.Sim({ scale: (roomy ? 1.3 : 1.08) * fine, seed: (Date.now() & 0x7fffffff) | 1 });
   var renderer = new P.Renderer(sim, {
     back: $('c-back'), sand: $('c-sand'), bloom: $('c-bloom'), front: $('c-front'), light: lightCanvas,
     glBack: $('c-glass-back'), glFront: $('c-glass-front')
@@ -143,7 +153,7 @@
     N = Math.max(8, N === undefined ? sim.total : N);
     T.tailMs = Math.min(2600, Math.max(500, d * 0.04));
     var rate = N / (d / 1000);
-    T.tailGrains = Math.max(3, Math.min(30, Math.floor(rate * T.tailMs / 1000 / TAIL_P)));
+    T.tailGrains = Math.max(3, Math.min(Math.round(30 * fine2), Math.floor(rate * T.tailMs / 1000 / TAIL_P)));
     T.mpg = (d - T.tailMs) / (N - T.tailGrains);
     T.mpg0 = T.mpg;
     T.rate = 1000 / T.mpg;
@@ -923,7 +933,7 @@
   /* ======================================================================
    *  Pour (+ Sand)
    * ==================================================================== */
-  var POUR_RATE = 620;               // grains per second while held
+  var POUR_RATE = 620 * fine2;       // grains per second while held
   var pour = { held: false, until: 0, acc: 0, warned: false, active: false };
 
   function handlePour(now, dtMs) {
@@ -961,12 +971,11 @@
     return a;
   }
 
-  var motionWatch = 0, rearmTimer = 0, rearm = null, askSeq = 0;
-  var REARM_EVENTS = ['pointerup', 'touchend', 'keydown'];
+  var motionWatch = 0, waitTimer = 0, askSeq = 0, btnMotion = $('btn-motion');
 
   function motionOff(msg) {
     askSeq++;                                     // an answer still on its way no longer counts
-    clearTimeout(motionWatch); clearTimeout(rearmTimer); disarmRequest();
+    clearTimeout(motionWatch); clearTimeout(waitTimer); btnMotion.hidden = true;
     motion.stop();
     grav.on = false; grav.target = 0; grav.seen = false;
     settings.tilt = false; optTilt.checked = false; save();
@@ -990,7 +999,7 @@
     try { req = motion.request(); } catch (e) { motionOff('Motion access is unavailable'); return; }
     req.then(function (r) {
       if (my !== askSeq) return;                 // switched off (or asked again) meanwhile
-      if (r === 'granted') { motionGo(); watchMotion(true); }
+      if (r === 'granted') { btnMotion.hidden = true; motionGo(); watchMotion(true); }
       else if (r === 'denied') motionOff('Motion access was declined. Allow it in Settings to use this.');
       else motionOff('Motion is not available on this device');
     }, function () {
@@ -998,29 +1007,39 @@
     });
   }
   /**
-   * Real motion was left on, but this browser asks again after a reload and
-   * a prompt needs a tap: ask on the next one (pointerup and touchend count
-   * as a tap on a touch screen; pointerdown does not). If the site was
-   * already allowed, the answer comes back without a prompt.
+   * Real motion was left on. An iPhone forgets the permission whenever the
+   * app is closed, and only a tap may ask for it again. The app does not
+   * spring that question on the first tap that comes along: a small tilt
+   * button waits in the top bar and asks when it is tapped. Left alone, the
+   * glass simply stands still this time, and Real motion stays switched on
+   * for the next. Where the site is still allowed (the same session, a
+   * reload) the readings arrive unasked and the button never shows.
    */
-  function armRequest() {
-    if (rearm) return;
-    rearm = function () {
-      disarmRequest();
-      if (grav.on && !motion.seenOrient && !motion.seenMotion) askMotion();
-    };
-    for (var i = 0; i < REARM_EVENTS.length; i++) window.addEventListener(REARM_EVENTS[i], rearm, true);
+  function awaitMotion() {
+    if (!grav.on || motion.seenOrient || motion.seenMotion) return;
+    btnMotion.hidden = false;
+    if ((settings.hintMotion | 0) < 3) {
+      settings.hintMotion = (settings.hintMotion | 0) + 1; save();
+      toast('Real motion: tap the tilt icon to allow it', 4200);
+    }
   }
-  function disarmRequest() {
-    if (!rearm) return;
-    for (var i = 0; i < REARM_EVENTS.length; i++) window.removeEventListener(REARM_EVENTS[i], rearm, true);
-    rearm = null;
+  // The question must go out from inside a real tap. The button's click may reach it by way
+  // of its haptic label, so the lifting finger is listened for as well (once a tap).
+  var motionTapAt = 0;
+  function motionTap(e) {
+    if (btnMotion.hidden || !e.target || !btnMotion.contains(e.target)) return;
+    var now = performance.now();
+    if (now - motionTapAt < 700) return;
+    motionTapAt = now;
+    askMotion();
+    buzz(8);
   }
+  ['pointerup', 'touchend', 'click'].forEach(function (t) { window.addEventListener(t, motionTap, true); });
 
   /** The Real motion switch. fromUser: inside the switch's click, where a prompt may be shown. */
   function setMotion(on, fromUser) {
     askSeq++;
-    clearTimeout(motionWatch); clearTimeout(rearmTimer); disarmRequest();
+    clearTimeout(motionWatch); clearTimeout(waitTimer); btnMotion.hidden = true;
     if (!on) { motionOff(''); return; }
     if (!window.DeviceMotionEvent && !window.DeviceOrientationEvent) {
       motionOff(fromUser ? 'Motion is not available on this device' : '');
@@ -1034,9 +1053,7 @@
     // At start-up with the switch left on: listen without asking (and keep the switch on).
     motionGo();
     if (motion.needsPermission) {
-      rearmTimer = setTimeout(function () {
-        if (grav.on && !motion.seenOrient && !motion.seenMotion) armRequest();
-      }, 1000);
+      waitTimer = setTimeout(awaitMotion, 1000);
     } else watchMotion(false);
   }
 
@@ -1054,6 +1071,7 @@
 
   var tiltOver = 0;
   function stepGravity(dtMs, now) {
+    if (!btnMotion.hidden && (motion.seenOrient || motion.seenMotion)) btnMotion.hidden = true;   // allowed already: nothing to ask
     var want = grav.on ? grav.target : 0;
     if (want > -0.045 && want < 0.045) want = 0;          // standing straight: let the sand sleep
     // follows the sensor briskly while it reports, eases over otherwise; never snaps
@@ -1153,7 +1171,7 @@
     sim.gateOpen = running || draining;
     sim.deepRelease = draining || (running && T.rem <= 0);
     sim.targetTop = target;
-    sim.topSweeps = running ? Math.min(6, Math.floor(T.rate / 260)) : 0;
+    sim.topSweeps = running ? Math.min(6, Math.floor(T.rate / fine2 / 260)) : 0;
     // Shaken, the neck stutters and falls behind. While that is recent, a
     // backlog drains as a slightly thicker thread, never as a clump.
     var motionRecent = motionRecentNow = now - lastMotionAt < 2000;
@@ -1343,6 +1361,7 @@
    * Grains that left the glass fall into the room: from the breach, at the
    * glass's place, turn and speed on screen, onto the desk below it.
    */
+  var escShare = 0;
   function drainEscapes() {
     var n = sim.escN;
     if (!n) return;
@@ -1351,6 +1370,8 @@
     var ox = 0.85 * R0.width + body.px / zk, oy = 0.5 * R0.height + body.py / zk;
     var bvx = body.vx / zk, bvy = body.vy / zk;
     for (var k = 0; k < n; k++) {
+      // (finer sand: the desk is given the classic glass's share, so the dune is the dune it was)
+      if (fine2 > 1) { escShare += 1 / fine2; if (escShare < 1) continue; escShare -= 1; }
       var x0 = (sim.escX[k] - g.cx) * s, y0 = (sim.escY[k] - g.cy) * s;
       var qx = x0 * c - y0 * sn, qy = x0 * sn + y0 * c;
       var vx0 = sim.escVX[k] * s, vy0 = sim.escVY[k] * s;
@@ -1420,13 +1441,14 @@
   var leakRate = 0, landBuzzAt = -1e9;
   function feedAudio(dt, active, running, landed) {
     var f = sim.frame, kf = Math.min(1, dt * 7);
-    var rel = active ? f.released / dt : 0;
-    var imp = active ? (f.impSand + f.impGlass) / dt : 0;
-    var sl = active ? f.slides / dt : 0;
+    // (finer sand: the ear is given the classic glass's counts: grains by fine2, their slides by fine³)
+    var rel = active ? f.released / dt / fine2 : 0;
+    var imp = active ? (f.impSand + f.impGlass) / dt / fine2 : 0;
+    var sl = active ? f.slides / dt / (fine2 * fine) : 0;
     S.flow += (rel - S.flow) * kf;
     S.imp += (imp - S.imp) * kf;
     S.slides += (sl - S.slides) * Math.min(1, dt * 10);
-    leakRate += ((active ? f.leaked / dt : 0) - leakRate) * (1 - Math.exp(-dt / 0.3));
+    leakRate += ((active ? f.leaked / dt / fine2 : 0) - leakRate) * (1 - Math.exp(-dt / 0.3));
     var bulk = running && sim.nTop > T.tailGrains;
     // the slosh moves between the ears with the fuller bulb's field
     var b = sim.nTop >= sim.nBottom ? 0 : 2, rho = sim.angle + grav.base;
@@ -1434,11 +1456,11 @@
     var pan = -0.6 * fxp / sim.G;
     if (pan > 0.65) pan = 0.65; else if (pan < -0.65) pan = -0.65;
     AU.dt = dt;
-    AU.flow = bulk ? Math.max(S.flow, T.rate * 0.5) : S.flow;
+    AU.flow = bulk ? Math.max(S.flow, T.rate * 0.5 / fine2) : S.flow;
     AU.impacts = S.imp;
     AU.tail = sim.nTop >= T.tailGrains ? 1 : Math.pow(sim.nTop / T.tailGrains, 1.2);
     AU.fill = sim.nBottom / sim.capacity;
-    AU.bottom = sim.nBottom;
+    AU.bottom = sim.nBottom / fine2;
     AU.slides = S.slides;
     AU.pouring = pour.active;
     AU.running = running;
@@ -1446,6 +1468,14 @@
     AU.flipping = flip.active;
     AU.spin = Math.abs(body.w);
     AU.angle = sim.angle;
+    if (fine2 > 1 && active && sim.nev) {
+      // … and of the single landings it hears, one in fine2
+      var keep = 0;
+      for (var ev = 0; ev < sim.nev; ev++) {
+        if (Math.random() * fine2 < 1) { sim.evX[keep] = sim.evX[ev]; sim.evV[keep] = sim.evV[ev]; sim.evK[keep] = sim.evK[ev]; keep++; }
+      }
+      sim.nev = keep;
+    }
     AU.sim = active ? sim : null;
     AU.thump = active ? f.thump : null;  // beds landing [E0, x0, E1, x1]
     AU.slam = active ? f.slam : null;    // beds slammed into the far end [E, x]
@@ -1885,7 +1915,19 @@
     if (!s || s.v !== 1 || qt) return false;
     var away = Date.now() - s.at;
     if (!(away >= 0) || away > 6 * 3600000 + (seq.rest ? seq.rounds * (T.durationMs + seq.rest) : 0)) return false;   // (a sequence may run long)
-    if (s.durationMs !== T.durationMs || s.scale !== sim.geo.q) return false;   // a different glass
+    if (s.durationMs !== T.durationMs) return false;   // a different glass
+    if (s.scale !== sim.geo.q) {
+      // The same glass in another grain (Tune), or on a screen that has changed its size class:
+      // its sand is counted anew. A crack is kept cell by cell, so this glass comes back whole.
+      var r2 = sim.geo.q / s.scale;
+      r2 *= r2;
+      if (!(r2 > 0.05 && r2 < 20)) return false;
+      s.total = Math.min(sim.maxTotal, Math.round(s.total * r2));
+      s.top = Math.round(s.top * r2);
+      s.mpg /= r2; s.mpg0 /= r2;
+      s.tailGrains = Math.max(3, Math.round(s.tailGrains * r2));
+      delete s.damage;
+    }
     if (!(s.total > 0) || s.total > sim.maxTotal || !(s.mpg > 0) || !(s.tailMs > 0)) return false;
     var q = Array.isArray(s.seq) ? s.seq : [0, 1, 0];
     if (q[0] !== seq.rest || q[1] !== seq.rounds) return false;                  // a different sequence
@@ -2466,6 +2508,26 @@
     settings.zenFull = e.target.checked; save();
     app.classList.toggle('zen-full', settings.zenFull);
   });
+  /*
+   * Grain: the same glass in finer sand. Another grain is another lattice,
+   * so the page builds the glass afresh; the running time is kept (the
+   * session is saved, and restored by its time), a crack is not.
+   */
+  function syncGrains() {
+    var bs = $('grains').querySelectorAll('[data-grain]');
+    for (var i = 0; i < bs.length; i++) bs[i].setAttribute('aria-checked', +bs[i].dataset.grain === settings.grain ? 'true' : 'false');
+  }
+  $('grains').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-grain]') : null;
+    if (!b) return;
+    var g = +b.dataset.grain;
+    if (g === settings.grain) return;
+    settings.grain = g; save(); syncGrains();
+    buzz(8);
+    saveSession();
+    app.classList.add('regrain');                    // the glass fades, and comes back made anew
+    setTimeout(function () { location.reload(); }, 320);
+  });
   $('opt-haptics').addEventListener('change', function (e) {
     settings.haptics = e.target.checked; save();
     buzz(12);
@@ -2824,6 +2886,7 @@
   $('opt-layers').checked = settings.layers;
   $('opt-zen').checked = settings.zenFull;
   $('opt-haptics').checked = settings.haptics;
+  syncGrains();
   showVolume();
   showAmbience();
   showBreath();

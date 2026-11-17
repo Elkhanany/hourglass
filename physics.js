@@ -38,12 +38,15 @@
 
   var STEP_HZ = 120;            // fixed physics rate
   var DT = 1 / STEP_HZ;
+  // Finer sand (Sim.setPace, below the layers' table): how much more a finer
+  // glass does each step, and how many more grains it holds. 1 unless set.
+  var PACE = 1, PACE2 = 1, FEEDK = 1;
 
   // Particle kinds (upper bits of pinfo); lower two bits count bounces.
   var K_STREAM = 0, K_POUR = 4, K_SPLASH = 8, K_MASK = 12;
 
   var EV_CAP = 48;              // audio impact events kept per frame
-  var SL_BINS = 1024;           // bins across the field for the thick avalanche (_slump): any glass, any lean
+  var SL_BINS = 2048;           // bins across the field for the thick avalanche (_slump): any glass, any lean, any grain
 
   /* ======================================================================
    *  Vessel geometry — shared by the simulation and the renderer
@@ -200,7 +203,7 @@
     this.topY = 0;                       // first interior row of upper bulb
 
     // ballistic particles
-    var PC = this.PCAP = 6144;
+    var PC = this.PCAP = Math.round(6144 * PACE2);
     this.px = new Float32Array(PC);
     this.py = new Float32Array(PC);
     this.pvx = new Float32Array(PC);
@@ -229,7 +232,7 @@
     };
 
     // tunables -----------------------------------------------------------
-    this.G = 3300;            // gravity, cells / s²  (slow-motion scale so the
+    this.G = 3300 * PACE;     // gravity, cells / s²  (slow-motion scale so the
                               // stream reads as individual accelerating grains)
     this.pDiag = 150;         // /256 chance per step of a 45° slide (also the
                               //   lateral diffusion of voids → drain funnel)
@@ -259,6 +262,9 @@
     this.steps = 0;
     this.quiet = 0;           // consecutive steps with nothing moving
     this.topSweeps = 0;       // extra CA sweeps of the upper bulb per step
+    this._paceAcc = 0;        // finer sand: the automaton's pattern is repeated PACE times a step, on average
+    this._reps = 1;           // … this many times in the step being taken
+    this._slAcc = 0; this._slN = 0;   // … and its thick avalanches likewise
     this.lag = 0;             // grains the neck still owes the clock
     this.rng = (opts.seed | 0) || 0x2F6E2B1;
     this.granular = opts.granular !== false;   // sand off the upright: slopes judged against gravity itself (_caM)
@@ -381,7 +387,8 @@
     leakLinger: 120,     // steps a leak keeps the sim awake
     // Sand off the upright (sim.granular): slopes are judged against the
     // field itself, in degrees below its horizontal
-    thS: 37, thD: 29,    // a grain at rest lets go above thS (maximum stability); one already moving runs on above thD
+    thS: 35, thD: 32,    // a grain at rest lets go above thS (maximum stability); one already moving runs on above thD
+                         // (three degrees apart, as in dry sand: under a slow tilt it trickles, it does not wait and go)
     nS: 8, nD: 3,        // cells of the slope probed beyond the step
     kinA: 0.21, kFall: 8, kSlide: 12, // a kinetic sweep: a fall covers 1 + kinA·run cells (at most kFall), a slide runs on up to kSlide
     pLet: 205,           // /256 chance a sweep that a grain at rest, the sand under it gone, lets go (so a hanging mass loosens from its face)
@@ -398,7 +405,7 @@
     airK: 1,             // how much of the glass's own on-screen motion a grain in the air feels (1: it stays where it was in the room)
     slipShifts: 2,       // cells a step a sliding bed is moved at most
     slipStop: 0.02,      // a shift that moves less than this share of the bed's grains has met the glass: the slide ends
-    slB: 8, slUp: 3, slStop: 36, slMax: 96, slEvery: 2, slRun: 64, slDeep: 6, slW: 3,
+    slB: 8, slUp: 1, slStop: 33, slMax: 96, slEvery: 2, slRun: 64, slDeep: 6, slW: 3, slHop: 2, slGain: 6,
     spinW: 6,            // rad/s: spun faster than this the sand is stepped by the old automaton
     maxSweepsG: 2,       // most sweeps a step for a bulb (maxSweeps without granular)
     offSweeps: 1,        // sweeps a step while turned or laid over (2 without granular: there a grain moves one cell a sweep)
@@ -1056,6 +1063,14 @@
     // grain for grain, as it did before any of this existed.
     var lim = MOT.idleA * this.G, ax = this.mAx, ay = this.mAy, w = this.mW, al = this.mAl;
     var a = this.agit, sl = this.slug;
+    // Finer sand: the automaton's pattern is repeated PACE times a step, and the thick avalanche,
+    // which lowers a face a grain at a time, is called PACE² times as often (both on average).
+    var reps = 1, slN = this.steps % MOT.slEvery === 0 ? 1 : 0;
+    if (PACE !== 1) {
+      var pacc = this._paceAcc + PACE; reps = pacc | 0; this._paceAcc = pacc - reps;
+      pacc = this._slAcc + PACE2 / MOT.slEvery; slN = pacc | 0; this._slAcc = pacc - slN;
+    }
+    this._reps = reps; this._slN = slN;
     if (ax * ax + ay * ay >= lim * lim || w >= MOT.idleW || w <= -MOT.idleW ||
         al >= MOT.idleAl || al <= -MOT.idleAl || this.mGz >= MOT.idleGz ||
         a[0] >= MOT.idleT || a[1] >= MOT.idleT ||
@@ -1082,7 +1097,7 @@
     if (this.gateOpen && !this.flipping && gy > 0.7) {
       var need = this.nTop - this.targetTop;
       if (need > 0) {
-        var rows = this.deepRelease ? (this.gateY - this.topY) : 3 + Math.min(need >> 3, 36);
+        var rows = this.deepRelease ? (this.gateY - this.topY) : Math.round(3 * PACE) + Math.min(need >> 3, Math.round(36 * PACE));
         // Inserted for motion: for a moment after the glass was shaken the
         // app caps the release (relCap > 0), so the backlog the shaking left
         // drains as a thicker thread, never as a clump. 0 changes nothing.
@@ -1107,33 +1122,36 @@
       if (off) this._offAt = this.steps;
       else off = this.steps - this._offAt < MOT.handBack;
     }
-    if (off) {
-      if (this.steps % MOT.slEvery === 0 && (this.quiet < 24 || this._aval[0] || this._aval[1])) {
-        this._slump(0, gx, gy, 0); this._slump(1, gx, gy, 0);
+    for (var rep = 0; rep < reps; rep++) {
+      if (off) {
+        // (the step's thick avalanches, shared among its repetitions: one, at the first, unless setPace)
+        for (var sk = ((rep + 1) * slN / reps | 0) - (rep * slN / reps | 0); sk > 0; sk--) {
+          if (this.quiet < 24 || this._aval[0] || this._aval[1]) { this._slump(0, gx, gy, 0); this._slump(1, gx, gy, 0); }
+        }
+        this._caM(gx, gy, 1, H - 1, false, 1, 0);
+        if (this.flipping || gy < 0.7) { if (MOT.offSweeps > 1) this._caM(gx, gy, 1, H - 1, false, 0, 0); }
+        else {
+          var extraM = this.topSweeps;
+          while (extraM-- > 0) this._caM(gx, gy, 1, this.gateY, false, 0, 0);
+          // A neck that has run short is fed as it always was. Leaned far over, sand may
+          // rightly lie at rest on the low side of the funnel, but the glass is a timer and
+          // owes the clock its sand: these sweeps let it creep on down to the neck.
+          extraM = ((lag > 10 ? 1 : 0) + (lag > 60 ? 3 : 0)) * FEEDK;
+          while (extraM-- > 0) this._ca(gx, gy, 1, this.gateY);
+        }
+      } else if (this.flipping || gy < 0.7) {
+        this._ca(gx, gy, 1, H - 1);
+        this._ca(gx, gy, 1, H - 1);
+      } else {
+        this._ca(gx, gy, 1, H - 1);
+        var extra = this.topSweeps + ((lag > 10 ? 1 : 0) + (lag > 60 ? 2 : 0)) * FEEDK;
+        while (extra-- > 0) this._ca(gx, gy, 1, this.gateY);
       }
-      this._caM(gx, gy, 1, H - 1, false, 1, 0);
-      if (this.flipping || gy < 0.7) { if (MOT.offSweeps > 1) this._caM(gx, gy, 1, H - 1, false, 0, 0); }
-      else {
-        var extraM = this.topSweeps;
-        while (extraM-- > 0) this._caM(gx, gy, 1, this.gateY, false, 0, 0);
-        // A neck that has run short is fed as it always was. Leaned far over, sand may
-        // rightly lie at rest on the low side of the funnel, but the glass is a timer and
-        // owes the clock its sand: these sweeps let it creep on down to the neck.
-        extraM = (lag > 10 ? 1 : 0) + (lag > 60 ? 3 : 0);
-        while (extraM-- > 0) this._ca(gx, gy, 1, this.gateY);
-      }
-    } else if (this.flipping || gy < 0.7) {
-      this._ca(gx, gy, 1, H - 1);
-      this._ca(gx, gy, 1, H - 1);
-    } else {
-      this._ca(gx, gy, 1, H - 1);
-      var extra = this.topSweeps + (lag > 10 ? 1 : 0) + (lag > 60 ? 2 : 0);
-      while (extra-- > 0) this._ca(gx, gy, 1, this.gateY);
     }
 
     // 3. Free-falling grains.
     if (this.np) this._particles(gx, gy);
-    if (this.layers) { this._sift(); if (this._dev > 0) this._develop(); }
+    if (this.layers) { for (rep = 0; rep < reps; rep++) this._sift(); if (this._dev > 0) this._develop(); }
 
     // 4. A breached glass leaks, even at rest, and micro-damage slowly arrests.
     if (this.nOpen > 0) this._leak();
@@ -1245,7 +1263,7 @@
       var need = this.nTop - this.targetTop;
       if (need > 0) {
         if (!slug[0].air && slug[0].seat > 0 && Fy > MOT.neckPress * G) {
-          var rows = this.deepRelease ? (gate - this.topY) : 3 + Math.min(need >> 3, 36);
+          var rows = this.deepRelease ? (gate - this.topY) : Math.round(3 * PACE) + Math.min(need >> 3, Math.round(36 * PACE));
           var give = need;
           if (this.relCap > 0) {
             n = Math.ceil(this.relCap);
@@ -1289,7 +1307,7 @@
       // (those go by the old automaton, _caBulb's feed: sand at rest on the low side of a
       // leaned funnel still creeps down to a neck that has run short)
       var feed = 0;
-      if (b === 0 && !this.flipping && gy >= 0.7) { n += this.topSweeps; feed = (starved > 10 ? 1 : 0) + (starved > 60 ? (granCA ? 3 : 2) : 0); }
+      if (b === 0 && !this.flipping && gy >= 0.7) { n += this.topSweeps; feed = ((starved > 10 ? 1 : 0) + (starved > 60 ? (granCA ? 3 : 2) : 0)) * FEEDK; }
       if (!granCA) { n += feed; feed = 0; }
       if (gran && this.slip[b] !== 0) {
         // the bed is moved over the glass by what it has slid (while its rows lie near the level)
@@ -1317,7 +1335,7 @@
 
     // 8. Grains in the air, in the full field.
     if (this.np) this._particlesM();
-    if (this.layers) { this._sift(); if (this._dev > 0) this._develop(); }
+    if (this.layers) { for (var rs = this._reps; rs > 0; rs--) this._sift(); if (this._dev > 0) this._develop(); }
 
     // 9. A breached glass leaks; shaking breaks the arches that jam it.
     if (this.nOpen > 0) this._leak();
@@ -1390,25 +1408,30 @@
       this.pWake = Math.ceil(w0 + (MOT.pWakeMax - w0) * s);
       this.pDiag = Math.ceil(d0 + (MOT.pDiagMax - d0) * s);
     }
-    var k, a, z;
+    var k, a, z, rep, reps = this._reps, slN = this._slN;
     if (this._granCA) {
       // the first sweep is kinetic and can carry sand kq rows
       var kq = MOT.kinA > 0 ? MOT.kFall + 2 : 1;
       var hot = (T - MOT.hotT0) / (MOT.hotT1 - MOT.hotT0);
       hot = hot > 0 ? (hot > 1 ? 1 : hot) : 0;
       // (a fast spin throws the sand: there is no avalanche to work out)
-      if (this.steps % MOT.slEvery === 0 && this.mW < MOT.slW && this.mW > -MOT.slW) this._slump(b, ux, uy, hot);
-      for (k = 0; k < n; k++) {
-        a = lo - (k + 1) * kq; z = hi + 1 + (k + 1) * kq;
-        this._caM(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full, k === 0 ? 1 : 0, hot);
+      // (finer sand repeats the pattern: reps is 1 unless setPace)
+      for (rep = 0; rep < reps; rep++) {
+        for (var sk = ((rep + 1) * slN / reps | 0) - (rep * slN / reps | 0); sk > 0; sk--) {
+          if (this.mW < MOT.slW && this.mW > -MOT.slW) this._slump(b, ux, uy, hot);
+        }
+        for (k = 0; k < n; k++) {
+          a = lo - (rep * n + k + 1) * kq; z = hi + 1 + (rep * n + k + 1) * kq;
+          this._caM(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full, k === 0 ? 1 : 0, hot);
+        }
       }
       // feed: sweeps of the old automaton for a neck that has run short (see step)
-      for (k = 0; k < feed; k++) {
-        a = lo - (n + 1) * kq - k; z = hi + 1 + (n + 1) * kq + k;
+      for (k = 0; k < feed * reps; k++) {
+        a = lo - (reps * n + 1) * kq - k; z = hi + 1 + (reps * n + 1) * kq + k;
         this._ca(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full);
       }
-    } else for (k = 0; k < n; k++) {
-      a = lo - k; z = hi + 1 + k;                     // rows a … z − 1
+    } else for (rep = 0; rep < reps; rep++) for (k = 0; k < n; k++) {
+      a = lo - (rep * n + k); z = hi + 1 + rep * n + k;                     // rows a … z − 1
       this._ca(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full);
     }
     this.pCreep = c0; this.pSlide = s0; this.pWake = w0; this.pDiag = d0;
@@ -1873,7 +1896,7 @@
       }
       var top = ly < gateY;
       var bounces = info & 3;
-      if (sp > 45 && bounces === 0) {
+      if (sp > 45 * PACE && bounces === 0) {
         if (top) f.impTop++;
         else if (onGlass) f.impGlass++;
         else f.impSand++;
@@ -1905,11 +1928,11 @@
           vx += (q2 - 0.5) * sp * 0.18;
         }
         bounces++;
-        if (bounces > 3 || sp < 70) settle = true;
-      } else if (bounces < 2 && sp > 190 && q1 < 0.55) {
+        if (bounces > 3 || sp < 70 * PACE) settle = true;
+      } else if (bounces < 2 && sp > 190 * PACE && q1 < 0.55) {
         // kinetic splash: a short hop off the sand before settling
         var hop = sp * (0.06 + q2 * 0.15);
-        if (hop > 235) hop = 235;
+        if (hop > 235 * PACE) hop = 235 * PACE;
         s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
         var lat = ((s & 1023) / 511.5 - 1) * hop * 1.15;
         vx = -ugx * hop + ugy * lat;
@@ -2029,8 +2052,8 @@
     // rain across the whole orifice.
     var t = this.steps * DT;
     var mid = (this.gateX0 + this.gateX1 + 1) * 0.5;
-    var wob = Math.sin(t * 2.1 + 1.9 * Math.sin(t * 0.53)) * 1.2 + Math.sin(t * 5.3 + 0.7) * 0.35;
-    var fx = mid + wob + (this._rand() + this._rand() - 1) * 1.05;
+    var wob = (Math.sin(t * 2.1 + 1.9 * Math.sin(t * 0.53)) * 1.2 + Math.sin(t * 5.3 + 0.7) * 0.35) * PACE;
+    var fx = mid + wob + (this._rand() + this._rand() - 1) * 1.05 * PACE;
     if (fx < this.gateX0 + 0.15) fx = this.gateX0 + 0.15;
     if (fx > this.gateX1 + 0.85) fx = this.gateX1 + 0.85;
     var y = this.gateY + 1;
@@ -2038,8 +2061,8 @@
     var p = this.np++;
     this.px[p] = fx;
     this.py[p] = y + 0.05 + this._rand() * 0.6;
-    this.pvx[p] = (this._rand() - 0.5) * 16;
-    this.pvy[p] = 118 + this._rand() * 64;
+    this.pvx[p] = (this._rand() - 0.5) * 16 * PACE;
+    this.pvy[p] = (118 + this._rand() * 64) * PACE;
     this.pseed[p] = sd;
     this.pinfo[p] = K_STREAM;
     return true;
@@ -2054,13 +2077,13 @@
     var tone = this.layers && n > 0 ? this._pourLayer(n) : -1;
     while (made < n) {
       if (this.total >= this.maxTotal || this.np >= this.PCAP) break;
-      var x = g.cx + (this._rand() - 0.5) * 5.5;
+      var x = g.cx + (this._rand() - 0.5) * 5.5 * PACE;
       var y = y0 + this._rand() * 3;
       if (this.cell[(y | 0) * W + (x | 0)] !== EMPTY) break;    // bulb is brim-full
       var p = this.np++;
       this.px[p] = x; this.py[p] = y;
-      this.pvx[p] = (this._rand() - 0.5) * 30;
-      this.pvy[p] = 70 + this._rand() * 70;
+      this.pvx[p] = (this._rand() - 0.5) * 30 * PACE;
+      this.pvy[p] = (70 + this._rand() * 70) * PACE;
       this.pseed[p] = (this._rand() * 256) | 0;
       if (tone >= 0) this.pseed[p] = (this.pseed[p] & 127) | tone;
       this.pinfo[p] = K_POUR;
@@ -2504,7 +2527,10 @@
     if (top === null) {
       top = this._slTop = new Float32Array(NB); topI = this._slI = new Int32Array(NB);
       flo = this._slFlo = new Float32Array(NB); floI = this._slFloI = new Int32Array(NB);
+      this._slGot = new Int32Array(NB); this._slId = 0;
     }
+    // (a creeping grain is carried once a call: see below)
+    var got = this._slGot, id = this._slId = (this._slId + 1) | 0;
     var x, y, i, s, h, s0 = NB, s1 = -1, x0, x1, sRow, hRow;
 
     // the glass under every bin: the lowest cell of the bulb's rim that falls in it
@@ -2555,7 +2581,7 @@
     var up2 = DX[(kU + 1) & 7] + DY[(kU + 1) & 7] * W, up3 = DX[(kU + 7) & 7] + DY[(kU + 7) & 7] * W;
     var gate = this.gateY * W, isTop = b === 0, rs = this.rng | 0;
     rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5;
-    var dirFirst = (rs & 1) ? 1 : -1, step1 = tStop / B * 0.5, deep = MOT.slDeep, reach = MOT.slRun;
+    var dirFirst = (rs & 1) ? 1 : -1, step1 = tStop / B * 0.5, deep = MOT.slDeep, reach = MOT.slRun, hop = MOT.slHop | 0, gain = MOT.slGain;
     var pass, dir, reps, t, drop, nx, far, j, d, e;
     for (pass = 0; pass < 2 && moved < budget; pass++) {
       dir = pass ? -dirFirst : dirFirst;                // downhill toward +s, then toward −s (the order alternates)
@@ -2567,9 +2593,21 @@
           if (i < 0 || cell[i] < REST) break;           // (a bin's next grain may have left with a neighbour's)
           drop = top[s] - top[t];
           if (drop <= need) break;
-          // it runs on down the slope while the slope still falls away (to the foot, or slRun bins)
-          nx = t + dir; far = s + dir * reach;
-          while (nx >= s0 && nx <= s1 && nx !== far && top[nx] <= top[t] - step1) { t = nx; nx += dir; }
+          far = hop > 0 ? hop + ((drop - need) * gain | 0) : reach;
+          if (far < B) {
+            // A slope a little too steep creeps: its top grain goes a few bins down, the farther
+            // the steeper, and is left moving, to be carried on at the next call if the slope
+            // still asks (a bin that was given a grain in this call gives none on). Seen from
+            // outside the sand flows, a layer at a time, and follows a slow tilt as it comes.
+            // (From slB bins on, the cliff's rule below takes over.)
+            if (got[s] === id) break;
+            t = s + dir * far;
+            if (top[t] > top[s] - 1) break;
+          } else {
+            // a cliff: it runs on down the slope while the slope still falls away (to the foot, or slRun bins)
+            nx = t + dir; far = s + dir * reach;
+            while (nx >= s0 && nx <= s1 && nx !== far && top[nx] <= top[t] - step1) { t = nx; nx += dir; }
+          }
           j = topI[t];
           if (j >= 0) {
             if (cell[j] < REST) break;
@@ -2582,7 +2620,7 @@
           if ((d < gate) !== isTop) break;
           cell[d] = MOVE; seed[d] = seed[i]; cell[i] = EMPTY;
           run[d] = 0; run[i] = 0;
-          topI[t] = d; top[t] = j < 0 ? flo[t] : top[t] + 1;
+          topI[t] = d; top[t] = j < 0 ? flo[t] : top[t] + 1; got[t] = id;
           // the high bin's next grain: the one under it along the field
           e = i - up;
           if (cell[e] < REST) { e = i - up2; if (cell[e] < REST) e = i - up3; }
@@ -2636,8 +2674,8 @@
         vx += (-(x - cx) * focus * 3.2 - vx * 1.6) * DT;
       }
       // aerodynamic micro-jitter
-      vx += ((s & 1023) - 511.5) * 0.011;
-      vy += (((s >>> 10) & 1023) - 511.5) * 0.004;
+      vx += ((s & 1023) - 511.5) * 0.011 * PACE;
+      vy += (((s >>> 10) & 1023) - 511.5) * 0.004 * PACE;
 
       var ddx = vx * DT, ddy = vy * DT;
       var adx = ddx < 0 ? -ddx : ddx, ady = ddy < 0 ? -ddy : ddy;
@@ -2667,7 +2705,7 @@
       }
       var top = ly < gateY;
       var bounces = info & 3;
-      if (sp > 45 && bounces === 0) {
+      if (sp > 45 * PACE && bounces === 0) {
         if (top) f.impTop++;
         else if (onGlass) f.impGlass++;
         else f.impSand++;
@@ -2695,11 +2733,11 @@
           vx += (r2 - 0.5) * sp * 0.18;
         }
         bounces++;
-        if (bounces > 3 || sp < 70) settle = true;
-      } else if (bounces < 2 && sp > 190 && r1 < 0.55) {
+        if (bounces > 3 || sp < 70 * PACE) settle = true;
+      } else if (bounces < 2 && sp > 190 * PACE && r1 < 0.55) {
         // kinetic splash: a 2–5 cell hop off the sand before settling
         var hop = sp * (0.06 + r2 * 0.15);
-        if (hop > 235) hop = 235;
+        if (hop > 235 * PACE) hop = 235 * PACE;
         s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
         var lat = ((s & 1023) / 511.5 - 1) * hop * 1.15;
         vx = -gx * hop + gy * lat;
@@ -2734,7 +2772,7 @@
             var side = gy * vx - gx * vy;                  // lateral velocity
             var dir = (rollL && rollR) ? (side < 0 ? -1 : (side > 0 ? 1 : (r1 < 0.5 ? -1 : 1)))
                                        : (rollL ? -1 : 1);
-            var run = 70 + r1 * 95, lift = 22 + r2 * 46;
+            var run = (70 + r1 * 95) * PACE, lift = (22 + r2 * 46) * PACE;
             vx = gy * run * dir - gx * lift;
             vy = -gx * run * dir - gy * lift;
             if (bounces < 1) bounces = 1;
@@ -3601,6 +3639,68 @@
     pour: 420            // grains in a poured layer: pour … 2·pour
   };
 
+  /*
+   * Finer sand. A glass built at p times the scale holds p² times the
+   * grains, each 1/p the size. Left to itself it would also run in slow
+   * motion: a grain moves a cell a sweep, and there are p times the cells
+   * to cross. setPace(p) makes the finer sand behave on screen as the sand
+   * it replaces. Gravity is p times as many cells a second²; the
+   * automaton's pattern of sweeps is repeated p times a step (step,
+   * _caBulb); and what is measured in cells (speeds, crack lengths, layer
+   * depths) or in grains (pours, leaks, caps) is scaled here to match.
+   * Time is untouched: seconds, rates, and every threshold in g stay as
+   * they are. What belongs to a grain stays a grain's: the slope probes,
+   * the width a breach jams at, the raggedness of a seam.
+   *
+   * One pace for the page, as the tables above are one for the page: call
+   * it before the Sim is built, with the factor the Sim's scale was raised
+   * by. setPace(1) puts everything back exactly.
+   */
+  var MOT0 = null, LAY0 = null;
+  Sim.setPace = function (p) {
+    var k;
+    p = p > 1 ? +p : 1;
+    if (!MOT0) {
+      MOT0 = {}; LAY0 = {};
+      for (k in MOT) MOT0[k] = MOT[k] instanceof Array ? MOT[k].slice() : MOT[k];
+      for (k in LAY) LAY0[k] = LAY[k];
+    }
+    for (k in MOT0) MOT[k] = MOT0[k] instanceof Array ? MOT0[k].slice() : MOT0[k];
+    for (k in LAY0) LAY[k] = LAY0[k];
+    PACE = p; PACE2 = p * p; FEEDK = Math.ceil(p);
+    if (p === 1) return;
+    // cells a second, and cells
+    var lin = ['sprayV', 'hopV0', 'hopV', 'retryV', 'vMax', 'escV', 'escVr', 'escTan', 'slipMax', 'jitX', 'jitY',
+               'growK', 'hRef', 'hopK', 'leakT'];
+    for (k = 0; k < lin.length; k++) MOT[lin[k]] = MOT0[lin[k]] * p;
+    // (whole cells: a crack's length is saved to a tenth and checked against these)
+    var whole = ['L0', 'growL', 'growStep', 'Lmax', 'Lhole', 'slRun'];
+    for (k = 0; k < whole.length; k++) MOT[whole[k]] = Math.round(MOT0[whole[k]] * p);
+    MOT.impL = MOT0.impL.map(function (x) { return x * p; });
+    MOT.slipShifts = Math.ceil(MOT0.slipShifts * p);
+    MOT.gateGuard = Math.round(MOT0.gateGuard * p);
+    MOT.slDeep = Math.round(MOT0.slDeep * p);
+    // (a creeping slope is asked p² times as often, so each step is shorter: the flow keeps its speed on screen)
+    MOT.slHop = Math.max(1, Math.round(MOT0.slHop / p));
+    MOT.slGain = MOT0.slGain / Math.sqrt(p);
+    // a breach as wide on screen is p times the cells, and widens in p times the steps
+    MOT.wMax = Math.round(MOT0.wMax * p);
+    MOT.widen = MOT0.widen / p;
+    // grains
+    MOT.softCap = Math.round(MOT0.softCap * p * p);
+    MOT.slMax = Math.round(MOT0.slMax * p * p);
+    MOT.leakCap = MOT0.leakCap * p * p;
+    // a fall is g·t: the same on screen is 1/p as much a sweep, there being p sweeps
+    MOT.kinA = MOT0.kinA / p;
+    // the reference stress is a landing speed over √(G·cell)
+    MOT.vc = MOT0.vc * Math.sqrt(p);
+    LAY.reach = Math.round(LAY0.reach * p);
+    LAY.lay = Math.round(LAY0.lay * p * p);
+    LAY.pour = Math.round(LAY0.pour * p * p);
+  };
+  /** The pace the page's sand keeps (1: the sand as it always was). */
+  Sim.pace = function () { return PACE; };
+
   /**
    * Layered sand on or off. On: the sand in the glass is laid in strata
    * where it lies. Off: the tones are forgotten (bit 7 is noise again, as
@@ -3633,10 +3733,10 @@
    */
   Sim.prototype._pattern = function (b) {
     var self = this, u = function () { return self._lrand(); };
-    var P = 9 + 26 * Math.pow(u(), 1.6);                       // one pair of strata, in cells: fine more often than bold
+    var P = (9 + 26 * Math.pow(u(), 1.6)) * PACE;                       // one pair of strata, in cells: fine more often than bold
     var lean = u() < 0.55 ? 0.14 : 0.62;                       // level, or leaning (up to about 32 degrees)
     var fold = u() < 0.3 ? 0.35 + 0.75 * u() : 0.3 * u();      // waves, in pairs of strata: gentle, or folded
-    var k = 2 * Math.PI / (40 + 110 * u());
+    var k = 2 * Math.PI / ((40 + 110 * u()) * PACE);
     return {
       y0: b ? this.gateY + 1 : this.topY, cx: this.geo.cx, hw: (this._bx1 - this._bx0) / 2 || 1, P: P,
       tilt: lean * (2 * u() - 1),
@@ -3658,7 +3758,7 @@
   /** How deep the heap's next layers will be: fine, even, bold, or fine with a thick one now and then. */
   Sim.prototype._style = function () {
     var k = (this._lrand() * 4) | 0;
-    this._layMin = [3, 4, 7, 3][k]; this._laySpan = [4, 8, 12, 18][k]; this._layPow = k === 3 ? 2.5 : 1;
+    this._layMin = [3, 4, 7, 3][k] * PACE; this._laySpan = [4, 8, 12, 18][k] * PACE; this._layPow = k === 3 ? 2.5 : 1;
   };
 
   /**
@@ -3704,7 +3804,9 @@
     for (b = 0; b < 2; b++) {
       var lo = this.colLo[b], hi = this.colHi[b], at = this._wantAt[b], R = this._rec[b], duty = this._duty[b];
       var need = this._devNeed, mov = this._devMov, nn = [0, 0], nm = [0, 0];
-      for (x = x0 + ((this.steps + b) & 3); x <= x1; x += 4) {
+      // (a quarter of the columns a step; on finer sand, where less of it is on the move at once, more of them)
+      var stride = PACE2 >= 4 ? 1 : (PACE2 >= 2 ? 2 : 4);
+      for (x = x0 + (this.steps + b) % stride; x <= x1; x += stride) {
         if (at[x] !== id) {
           for (y = lo[x]; y <= hi[x]; y++) want[y * W + x] = this._phase(R, x, y) < duty ? 1 : 0;
           at[x] = id;
@@ -3808,7 +3910,7 @@
       lb[x] = m > hi[x] + 1 ? hi[x] + 1 : m;
     }
     this._layN = this.total - this.nTop;
-    this._layNeed = (this._layMin + this._laySpan * Math.pow(this._lrand(), this._layPow)) * (wide > 24 ? wide : 24);
+    this._layNeed = (this._layMin + this._laySpan * Math.pow(this._lrand(), this._layPow)) * (wide > 24 * PACE ? wide : 24 * PACE);
     this._layUp ^= 1;
   };
 

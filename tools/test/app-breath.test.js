@@ -245,8 +245,8 @@ async function tune(s, env) {
       on: window.Hourglass.breath.on
     };
   });
-  s.check('TUNE: the main screen has the same buttons (3 top, 12 bottom); Tune has its row (8 in all, with Layered sand)',
-          ui.top === 3 && ui.bottom === 12 && ui.rows === 8, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
+  s.check('TUNE: the main screen has the same buttons (4 top, one of them hidden; 12 bottom); Tune has its row (9 in all, with Layered sand and Grain)',
+          ui.top === 4 && ui.bottom === 12 && ui.rows === 9, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
   s.check('TUNE: "Breathing pace" follows Full Zen, its choice sits directly under it, then Haptics',
           ui.before === 'Full Zen' && ui.then === 'breath-row' && ui.after === 'Haptics' && ui.name === 'Breathing pace',
           ui.before + ' / ' + ui.name + ' / #' + ui.then + ' / ' + ui.after);
@@ -561,7 +561,7 @@ async function calm(s, env) {
           end.bt.calls >= 2 && end.bt.calls <= 6 && end.bt.max < 2,
           end.bt.calls + ' timer callbacks in 12.8 s, ' + end.bt.ms.toFixed(2) + ' ms in all, the longest ' + end.bt.max.toFixed(2) + ' ms');
   s.check('CALM: nothing else changes: no text cue, no new control, no haptics after the tap\'s own',
-          end.status === 'Flowing' && end.top === 3 && end.bottom === 12 && end.vib === began.vib,
+          end.status === 'Flowing' && end.top === 4 && end.bottom === 12 && end.vib === began.vib,
           '"' + end.status + '", ' + end.top + ' + ' + end.bottom + ' buttons, vibrate calls ' + began.vib + ' → ' + end.vib);
   await H.invariants(s, t, 'CALM');
   await t.close();
