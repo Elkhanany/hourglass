@@ -388,9 +388,10 @@
     // its field leans by muK of the load plus slipC (1/s) of its speed; never faster than slipMax cells/s
     muS: 0.65, muK: 0.5, slipK: 0.6, slipC: 6, slipMax: 1200,
     airK: 1,             // how much of the glass's own on-screen motion a grain in the air feels (1: it stays where it was in the room)
-    slipShifts: 2,       // cells a step a sliding bed is moved at most
+    slipShifts: 2,       // cells a step a sliding bed is moved at most (1 at quality 0)
     slipStop: 0.02,      // a shift that moves less than this share of the bed's grains has met the glass: the slide ends
     slB: 8, slUp: 3, slStop: 36, slMax: 96, slEvery: 2, slRun: 64, slDeep: 6, slW: 3,
+    spinW: 6,            // rad/s: spun faster than this the sand is stepped by the old automaton
     maxSweepsG: 2,       // most sweeps a step for a bulb (maxSweeps without granular)
     offSweeps: 1,        // sweeps a step while turned or laid over (2 without granular: there a grain moves one cell a sweep)
     offLean: 0.012,      // sin of the lean from which the glass counts as off the upright (0.7°)
@@ -487,6 +488,7 @@
     this._lnOff = new Int32Array(128);
     this._aval = [0, 0];                 // a thick avalanche is running in this bulb (_slump)
     this._slideN = 0;                    // grains the last _slide looked at
+    this._granCA = false;                // this step of the motion path uses _caM (granular, and not spun fast)
     this.mKx = 0; this.mKy = 0;          // what the sand feels of the glass's own motion on the screen, cells/s² (setCarry)
     this.slip = new Float32Array(2);     // each bed's sideways speed over the glass, cells/s along the level (its momentum)
     this.lean = new Float32Array(4);     // the field each bed's automaton runs in while it slides [x0, y0, x1, y1]
@@ -1247,9 +1249,12 @@
     // 6. Packed and sliding sand, bulb by bulb along its own field. Free
     //    fall goes as 1/√g, so the sweeps go as √|f|; hot sand runs faster.
     var before = f.moved;
-    var base = (this.flipping || gy < 0.7) ? (this.granular ? MOT.offSweeps : 2) : 1, qual = this.quality;
+    // (a glass spun fast flings its sand about: there the automaton that judges slopes against the
+    // field has nothing to add and costs more, so above spinW the sand is stepped as it always was)
+    var granCA = this._granCA = gran && w < MOT.spinW && w > -MOT.spinW;
+    var base = (this.flipping || gy < 0.7) ? (granCA ? MOT.offSweeps : 2) : 1, qual = this.quality;
     var maxS = qual >= 2 ? MOT.maxSweeps : (qual === 1 ? (MOT.maxSweeps < 2 ? MOT.maxSweeps : 2) : 1);
-    if (this.granular && maxS > MOT.maxSweepsG) maxS = MOT.maxSweepsG;   // (its first sweep carries a moving grain several cells)
+    if (granCA && maxS > MOT.maxSweepsG) maxS = MOT.maxSweepsG;         // (its first sweep carries a moving grain several cells)
     var spin = w > 0.3 || w < -0.3;
     for (b = 0; b < 2; b++) {
       if (slug[b].air) continue;                      // in flight the bed is weightless in its own frame
@@ -1268,7 +1273,8 @@
         // the bed is moved over the glass by what it has slid (while its rows lie near the level)
         if (gy >= 0.7 || gy <= -0.7) {
           var acS = this.slipAcc[b] + this.slip[b] * lvx * DT, shifts = 0, got;
-          while ((acS >= 1 || acS <= -1) && shifts < MOT.slipShifts) {
+          var maxSh = qual >= 1 ? MOT.slipShifts : 1;
+          while ((acS >= 1 || acS <= -1) && shifts < maxSh) {
             got = this._slide(b, acS > 0 ? 1 : -1);
             acS += acS > 0 ? -1 : 1; shifts++;
             if (got < MOT.slipStop * this._slideN) { this.slip[b] = 0; acS = 0; break; }   // packed against the glass: the wall has its momentum
@@ -1364,13 +1370,14 @@
       this.pDiag = Math.ceil(d0 + (MOT.pDiagMax - d0) * s);
     }
     var k, a, z;
-    if (this.granular) {
+    if (this._granCA) {
       // the first sweep is kinetic and can carry sand kq rows
       var kq = MOT.kinA > 0 ? MOT.kFall + 2 : 1;
       var hot = (T - MOT.hotT0) / (MOT.hotT1 - MOT.hotT0);
       hot = hot > 0 ? (hot > 1 ? 1 : hot) : 0;
       // (a fast spin throws the sand: there is no avalanche to work out)
-      if (this.steps % MOT.slEvery === 0 && this.mW < MOT.slW && this.mW > -MOT.slW) this._slump(b, ux, uy, hot);
+      // (at the lighter quality levels half as often)
+      if (this.steps % (this.quality >= 2 ? MOT.slEvery : 2 * MOT.slEvery) === 0 && this.mW < MOT.slW && this.mW > -MOT.slW) this._slump(b, ux, uy, hot);
       for (k = 0; k < n; k++) {
         a = lo - (k + 1) * kq; z = hi + 1 + (k + 1) * kq;
         this._caM(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full, k === 0 ? 1 : 0, hot);
