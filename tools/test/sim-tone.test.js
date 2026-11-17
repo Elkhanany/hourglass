@@ -127,48 +127,45 @@ function strata(s) {
 }
 
 /* ---- the fill ---- */
-test('the fill is laid in five to nine bands of unequal thickness; the companion tone is never most of it', function () {
-  var seen = {}, lo = 99, hi = 0, shares = [], ratio = 99;
+test('every fill is laid in strata, its own way; the companion tone is never most of it', function () {
+  var shares = [], counts = {}, worst = 0, lo = 99, hi = 0;
   for (var k = 1; k <= 16; k++) {
-    var s = layered(k * 7919), b = bands(s), t = s.tones(), share = t[1] / s.total;
-    ok(b.length >= 5 && b.length <= 9, 'seed ' + k * 7919 + ': ' + b.length + ' bands (' + b.join(', ') + ')');
+    var s = layered(k * 7919), b = bands(s), t = s.tones(), share = t[1] / s.total, u = unlike(s, 0);
     ok(t[0] > 0 && t[1] > 0 && share <= 0.5, 'seed ' + k * 7919 + ': the companion is ' + (share * 100).toFixed(0) + ' %');
     ok(share >= 0.2, 'seed ' + k * 7919 + ': only ' + (share * 100).toFixed(0) + ' % companion');
-    var mn = Math.min.apply(null, b), mx = Math.max.apply(null, b);
-    ok(mn >= 3, 'seed ' + k * 7919 + ': a band ' + mn + ' rows thin');
-    if (mx / mn < ratio) ratio = mx / mn;
-    seen[b.length] = 1; shares.push(share);
+    // strata, not a blend: in a blend about half of all grains lie on one of the other tone
+    ok(u < 0.32, 'seed ' + k * 7919 + ': ' + (u * 100).toFixed(0) + ' % of grains lie on the other tone');
+    ok(b.length >= 2, 'seed ' + k * 7919 + ': ' + b.length + ' strata down the axis');
+    counts[b.length] = 1; shares.push(share);
+    if (u > worst) worst = u;
     if (b.length < lo) lo = b.length;
     if (b.length > hi) hi = b.length;
     same(s, t, 'fill');
     census(s);
   }
-  ok(Object.keys(seen).length >= 3, 'every fill has ' + Object.keys(seen).join(' or ') + ' bands');
-  ok(ratio >= 1.25, 'bands of equal thickness (thickest / thinnest ' + ratio.toFixed(2) + ')');
-  return '16 fills: ' + lo + ' to ' + hi + ' bands, thickest / thinnest ≥ ' + ratio.toFixed(1) + ', companion ' +
+  ok(Object.keys(counts).length >= 5, 'the fills are too alike: ' + Object.keys(counts).join(', ') + ' strata down the axis');
+  return '16 fills: ' + lo + ' to ' + hi + ' strata down the axis (' + Object.keys(counts).length + ' different counts), at most ' +
+    (worst * 100).toFixed(0) + ' % of grains on the other tone, companion ' +
     (Math.min.apply(null, shares) * 100).toFixed(0) + '–' + (Math.max.apply(null, shares) * 100).toFixed(0) + ' %';
 });
 
-test('the same seed lays the same bands, another seed different ones; the seams are wavy', function () {
-  var a = layered(4242), b = layered(4242), c = layered(4243), i, diff = 0, N = a.seed.length;
+test('the same seed lays the same pattern; no two seeds lay the same one', function () {
+  var a = layered(4242), b = layered(4242), i, N = a.seed.length, fills = [], least = 1;
   for (i = 0; i < N; i++) ok(a.seed[i] === b.seed[i], 'the same seed gave another fill at cell ' + i);
-  for (i = 0; i < N; i++) if (a.cell[i] >= REST && c.cell[i] >= REST && ((a.seed[i] ^ c.seed[i]) & 128)) diff++;
-  ok(diff > a.total * 0.1, 'another seed changed only ' + diff + ' tones');
-  // a seam's height differs from column to column, gently: its range across the glass is 2 to 12 rows
-  var W = a.W, cx = a.geo.cx | 0, ys = [], x, y;
-  for (x = cx - 40; x <= cx + 40; x += 4) {
-    var first = -1, t0 = -1;
-    for (y = a.topY; y < a.gateY && first < 0; y++) {
-      if (a.cell[y * W + x] < REST) continue;
-      // the first seam: where three grains in a row are no longer the top band's tone
-      if (t0 < 0) t0 = a.seed[y * W + x] >> 7;
-      else if ((a.seed[y * W + x] >> 7) !== t0 && (a.seed[(y + 1) * W + x] >> 7) !== t0 && (a.seed[(y + 2) * W + x] >> 7) !== t0) first = y;
+  for (var k = 0; k < 10; k++) fills.push(layered(4243 + k * 31));
+  for (var p = 0; p < fills.length; p++) {
+    for (var q = p + 1; q < fills.length; q++) {
+      var diff = 0, n = 0;
+      for (i = 0; i < N; i++) {
+        if (fills[p].cell[i] < REST || fills[q].cell[i] < REST) continue;
+        n++;
+        if ((fills[p].seed[i] ^ fills[q].seed[i]) & 128) diff++;
+      }
+      ok(diff > n * 0.15, 'seeds ' + (4243 + p * 31) + ' and ' + (4243 + q * 31) + ' differ in only ' + diff + ' of ' + n + ' grains');
+      if (diff / n < least) least = diff / n;
     }
-    if (first >= 0) ys.push(first);
   }
-  var range = Math.max.apply(null, ys) - Math.min.apply(null, ys);
-  ok(ys.length >= 15 && range >= 2 && range <= 12, 'the first seam wanders ' + range + ' rows over ' + ys.length + ' columns');
-  return 'identical for one seed, ' + diff + ' grains differ for the next; the first seam wanders ' + range + ' rows across the glass';
+  return 'identical for one seed; of 10 others, every pair differs in at least ' + (least * 100).toFixed(0) + ' % of its grains';
 });
 
 /* ---- every grain keeps its tone ---- */
@@ -204,6 +201,46 @@ test('the Flip button and a flicked spin keep each tone\'s count', function () {
   same(s, t0, 'after the spin');
   census(s);
   return 'one Flip, then a spin of ' + (tn.swaps - 1) + ' half turns: ' + t0.join(' + ') + ' throughout';
+});
+
+test('turned over, the sand settles into a new pattern each time, not a blend; each tone keeps its count', function () {
+  function run(seed, settle) {
+    var keep = Sim.LAYERS.settle, out = [];
+    Sim.LAYERS.settle = settle;
+    try {
+      var s = layered(seed, 120000), T = new Clock(s, 120000), t0 = s.tones(), tn, k;
+      T.start();
+      flow(s, T, 4800, 0);
+      tn = new H.Turner(s);
+      for (var turn = 0; turn < 2; turn++) {
+        tn.flip();
+        for (k = 0; tn.busy() && k < 4000; k++) { if ((k & 1) === 0) s.beginFrame(); tn.step(); s.step(); }
+        flow(s, T, 840, 4800 + turn * 2000);
+        same(s, t0, 'settled after turn ' + (turn + 1));
+        census(s);
+        out.push({ top: unlike(s, 0), bottom: unlike(s, 1), P: s._rec[0] ? s._rec[0].P : 0, tilt: s._rec[0] ? s._rec[0].tilt : 0 });
+      }
+    } finally { Sim.LAYERS.settle = keep; }
+    return out;
+  }
+  var worst = 0, seeds = [11, 22, 33], pats = [];
+  seeds.forEach(function (seed) {
+    run(seed, Sim.LAYERS.settle).forEach(function (r, n) {
+      ok(r.top < 0.34 && r.bottom < 0.34, 'seed ' + seed + ', turn ' + (n + 1) + ': a blend (' + (r.top * 100).toFixed(0) + ' % above, ' +
+        (r.bottom * 100).toFixed(0) + ' % below lie on the other tone)');
+      if (r.top > worst) worst = r.top;
+      if (r.bottom > worst) worst = r.bottom;
+      pats.push(r.P.toFixed(2) + '/' + r.tilt.toFixed(3));
+    });
+  });
+  var distinct = {};
+  pats.forEach(function (p) { distinct[p] = 1; });
+  ok(Object.keys(distinct).length === pats.length, 'two turns drew the same pattern: ' + pats.join(', '));
+  // the control: without it the turned sand stays a blend
+  var blend = run(11, 0);
+  ok(blend[0].top > 0.38 && blend[1].top > 0.38, 'without it the turned sand is no blend: ' + blend[0].top.toFixed(2) + ', ' + blend[1].top.toFixed(2));
+  return 'six turns of three glasses: at most ' + (worst * 100).toFixed(0) + ' % of grains lie on the other tone (a blend: ' +
+    (blend[0].top * 100).toFixed(0) + ' %); six different patterns';
 });
 
 test('shaking keeps each tone\'s count (beds in flight, spray and hops)', function () {

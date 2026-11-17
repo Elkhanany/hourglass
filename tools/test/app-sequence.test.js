@@ -322,6 +322,7 @@ async function testRun(s, env) {
   await sleep(600);
   var first = await snap(t);
   s.check('RUN: a tap starts the first glass: "Work · 1 of 2"', first.state === 'running' && first.phase === 0 && first.status === 'Work · 1 of 2', first.state + ' / ' + first.status);
+  await t.page.tap('#btn-zen');                              // (Zen comes by the moon button or a pinch, never by itself)
   await waitFor(t, function () { return window.Hourglass.timer.state === 'done'; }, 70000);
   await sleep(400);
   var w = await seen(t), end = await snap(t);
@@ -374,14 +375,17 @@ async function testRun(s, env) {
   s.check('RUN: the status line names each phase, quietly', said.join('|') === want.join('|'), said.join(' | '));
   var live = await t.eval(function () { return document.getElementById('status').getAttribute('aria-live'); });
   s.check('RUN: ... in the polite live region screen readers already follow', live === 'polite', live);
-  s.check('RUN: the controls dim 4 s after the start and stay dim through every turn (Full Zen: gone)',
+  s.check('RUN: in Zen (the moon button) the controls stay dim through every turn (Full Zen: gone)',
           w.zenAt > 0 && w.zenLost === 0 && w.gaps.every(function (q) { return q.zen && q.hud >= 0 && q.hud < 0.02; }),
           'zen lost on ' + w.zenLost + ' frames; controls\' opacity after each turn ' + w.gaps.map(function (q) { return q.hud; }).join(', '));
   s.check('RUN: the last phase ends as any glass does: 00:00, "Time", done', end.state === 'done' && end.main === '00:00' && /^Time/.test(end.status) &&
           end.top === 0 && end.phase === 4, JSON.stringify({ state: end.state, main: end.main, status: end.status, top: end.top, phase: end.phase }));
 
   // started again, it begins from its first glass
-  await sleep(4200);                              // (the quiet ending holds, then the controls rise)
+  await sleep(1200);
+  var gz = await t.glass();
+  await t.touch.pinch(gz.cx, gz.cy, 230, 90, 260);   // (the end leaves Zen as it is: two fingers bring the controls back)
+  await sleep(700);
   await t.page.tap('#btn-play');
   await waitFor(t, function () { return window.Hourglass.timer.state === 'running' && !window.Hourglass.flip.active; }, 9000);
   await sleep(300);
@@ -704,6 +708,7 @@ async function testCalm(s, env) {
   var g = await t.glass();
   await t.touch.tap(g.cx, g.cy, 60);
   await sleep(500);
+  await t.page.tap('#btn-zen');                              // (Zen comes by the moon button or a pinch, never by itself)
   var a = await snap(t);
   var rm = await t.eval(function () { return window.Hourglass.reduceMotion; });
   s.check('CALM: Reduce Motion is on; one round reads "Work", without a count', rm === true && a.status === 'Work' && a.state === 'running', rm + ' / ' + a.status);
@@ -732,7 +737,7 @@ async function testCalm(s, env) {
           'faded to ' + fd.min.toFixed(2) + ', ' + fd.atSwap.toFixed(2) + ' when the sand was laid above; top ' + p.top + ' / ' + p.total);
   s.check('CALM: ... in the same time as a turn, and the rest then runs its full length', near(gp.end - gp.at, GAP, 120) && p.phase === 1 && near(p.rem, REST, 40) &&
           p.status === 'Rest' && near(w.doneAt - p.t, REST, 60), 'gap ' + (gp.end - gp.at) + ' ms, rest ' + (w.doneAt - p.t) + ' ms, "' + p.status + '"');
-  s.check('CALM: the controls stay dim through it', w.zenAt > 0 && w.zenLost === 0 && gp.zen === true, 'zen lost on ' + w.zenLost + ' frames');
+  s.check('CALM: in Zen the controls stay dim through it', w.zenAt > 0 && w.zenLost === 0 && gp.zen === true, 'zen lost on ' + w.zenLost + ' frames');
   var bells = w.bells.filter(function (b) { return near(b.f0, 349.23, 0.01); });
   s.check('CALM: with the Completion bowl off there is no bowl, between the phases or at the end', bells.length === 0 && e.state === 'done',
           bells.length + ' bowls sounded (' + w.chimes.length + ' asked for; audio ' + (w.audio ? 'running' : 'not running') + ')');

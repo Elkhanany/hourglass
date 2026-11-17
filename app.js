@@ -44,7 +44,8 @@
     restMs: 0, rounds: 1,            // a work and rest sequence: the rest after each glass (0: none), and how often
     motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
     mendNotes: 0,                    // how often the "hold it still to mend" note was shown (the first three cracks)
-    hintCrack: false                 // the one-time "the glass can crack" note was shown
+    hintCrack: false,                // the one-time "the glass can crack" note was shown
+    hintZen: 0                       // how often the way back out of Zen has been said (three times at most)
   };
   try {
     var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -221,7 +222,6 @@
     done: 'Time · flip to begin again',
     turning: 'Turning'
   };
-  var lastInput = performance.now();
   var sheetOpen = null, sheetOpener = null;
   var dirty = true, acc = 0, lastFrame = performance.now();
   var resetting = false;
@@ -232,12 +232,7 @@
   // controls dimmed (cx, cy), and how far the controls' return moves it (dx, dy)
   var R0 = { width: 0, height: 0, scale: 1, cx: 0, cy: 0, dx: 0, dy: 0 };
 
-  /**
-   * `quiet`: the glass was turned by hand or by the phone, not started from
-   * the controls, so the controls are not given their four seconds again
-   * (playing with the glass never brings them back).
-   */
-  function setState(s, quiet) {
+  function setState(s) {
     var was = T.state;
     T.state = s;
     app.dataset.state = s;
@@ -245,7 +240,6 @@
     btnPlay.setAttribute('aria-label', s === 'running' ? 'Pause' : (s === 'done' ? 'Flip and start again' : 'Start'));
     if (s === 'running') {
       if (was !== 'running') T.lastTick = Date.now();   // (a glass that was running keeps its time)
-      if (!quiet) lastInput = performance.now();
     }
     syncWakeLock();
     saveSession();
@@ -282,12 +276,6 @@
     audio.end(0.75);                 // the stream flows on to the bowl, then recedes under it
     buzz([16, 110, 16, 110, 42]);
     setTimeout(syncWakeLock, END_AWAKE + 100);
-    // Dimmed and watched: hold still through the last grains and the bowl, then rise slowly.
-    if (app.classList.contains('zen') && !document.hidden && !back && performance.now() - lastFrame < 250) {
-      var bowl = settings.chime && !settings.muted && settings.volume > 0 && audio.isRunning();
-      endHoldUntil = performance.now() + (bowl ? END_HOLD : END_HOLD_QUIET);
-      zenForced = false;             // the hold keeps them dim; the end releases the moon, as before
-    } else wake();
   }
 
   /* ---- reset / duration -------------------------------------------- */
@@ -405,7 +393,7 @@
     applyBody(0);
     if (T.rem <= 0) { T.rem = 0; finish(); return; }
     if (at[1] < 10000 && !(rung && at[2] === 1)) audio.chime(0, true);
-    setState('running', true);
+    setState('running');
   }
   /**
    * Where the wall clock puts a sequence `over` ms after phase i ran out with
@@ -443,7 +431,7 @@
     if (t < SEQ_TURN) return;
     turnedUnseen(1);
     beginPhase(seq.phase + 1);
-    setState('running', true);
+    setState('running');
   }
   /**
    * The glass has been turned over: by the sequence itself, a hand, the Flip
@@ -528,7 +516,7 @@
     sim.wakeAll();
     applyBody(0);
     buzz(22);
-    setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was, byHand);
+    setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was);
   }
   /** Turning a glass over starts it, unless you had paused it. */
   function stateAfterSwap(was, auto) {
@@ -924,6 +912,12 @@
     wPrev = w;
     var al = alLP > 300 ? 300 : (alLP < -300 ? -300 : alLP);
     sim.setMotion(G * (fx * c + fy * s), G * (-fx * s + fy * c), w, al, lamNow, mz);
+    // The sand was moving across the screen with the glass and keeps that speed when the
+    // glass is stopped or snatched away: its beds slide on (physics.js setCarry). In the
+    // glass's own cells, not as a g-ratio: the sand lives in slow motion, the hand does not.
+    // (while it falls freely its sand is weightless already, above: not twice)
+    var kx = reduceMotion ? 0 : -body.ax / room.px, ky = reduceMotion || body.air ? 0 : -body.ay / room.px;
+    sim.setCarry(kx * c + ky * s, -kx * s + ky * c);
   }
 
   /* ======================================================================
@@ -1055,7 +1049,7 @@
     T.rem = there;
     applyBody(0);
     buzz(18);
-    setState(seqSwapped(stateAfterSwap(was, false)), true);   // the phone turned over: not a touch
+    setState(seqSwapped(stateAfterSwap(was, false)));
   }
 
   var tiltOver = 0;
@@ -1485,62 +1479,63 @@
   }
 
   /* ======================================================================
-   *  Zen HUD
+   *  Zen
+   *
+   *  The controls dim and the glass takes the whole screen. Only three
+   *  things change that. Two fingers spreading on the screen bring it, and
+   *  so does the moon button; two fingers pinching together leave it, as
+   *  Escape does for a keyboard. Nothing else: not a tap, not playing with
+   *  the glass, not the passing of time, not the end of a glass.
    * ==================================================================== */
-  var zenForced = false, zenSince = 0;
-  var END_HOLD = 3000, END_HOLD_QUIET = 1500, END_AWAKE = 12000;
-  var endHoldUntil = 0, endWall = -1e9, slowTimer = 0;
-  function wake() {
-    lastInput = performance.now();
-    zenForced = false;
-    endHoldUntil = 0;
-    clearTimeout(slowTimer);
-    app.classList.remove('slow', 'zen-deep');
-    if (app.classList.contains('zen')) { app.classList.remove('zen'); applyZoom(); }
-  }
-  /** The end of a glass: the controls rise and the glass settles back, slowly. */
-  function rise() {
-    var dim = app.classList.contains('zen');
-    wake();
-    if (dim) {
-      app.classList.add('slow');
-      slowTimer = setTimeout(function () { app.classList.remove('slow'); }, 2600);
+  var ZEN_SETTLE = 1500;             // ms: the fade into Zen (styles.css), after which the dim controls take no taps
+  var END_AWAKE = 12000, endWall = -1e9;
+  var zenSince = 0, zenFs = false;
+  /** Enter or leave Zen. True if that changed anything. */
+  function setZen(on) {
+    if (on === app.classList.contains('zen')) return false;
+    zoom.style.transition = '';                       // even within the launch's first moments: settle softly
+    app.classList.toggle('zen', on);
+    if (!on) app.classList.remove('zen-deep');
+    applyZoom();
+    var inFs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (on) {
+      // where the browser allows, hide its chrome too
+      var el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req && !inFs) {
+        try {
+          var p = req.call(el, { navigationUI: 'hide' });
+          zenFs = true;
+          if (p && p.catch) p.catch(function () { zenFs = false; });
+        } catch (e) { zenFs = false; }
+      }
+    } else if (zenFs) {
+      zenFs = false;
+      var exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit && inFs) {
+        try { var q = exit.call(document); if (q && q.catch) q.catch(function () {}); } catch (e2) {}
+      }
     }
+    return true;
   }
+  // the browser's own way out of full screen (Escape, a swipe) leaves Zen too
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (t) {
+    document.addEventListener(t, function () {
+      if (zenFs && !(document.fullscreenElement || document.webkitFullscreenElement)) { zenFs = false; setZen(false); }
+    });
+  });
   function updateZen(now) {
-    var hold = false;
-    if (endHoldUntil) {
-      if (T.state !== 'done' || flip.active) endHoldUntil = 0;   // turned over: it runs again, like any start
-      else if (now < endHoldUntil) hold = true;
-      else rise();
-    }
-    // Playing with the glass never brings the controls back; only the Flip
-    // button's turn (which a tap on the button started) does. A sequence's
-    // own turn between two phases does not either.
-    var zen = hold || zenForced || (T.state === 'running' && !sheetOpen && !pour.held &&
-              !(flip.active && flip.mode === 'script' && !seq.gap) && now - lastInput > 4000);
-    if (zen !== app.classList.contains('zen')) { app.classList.toggle('zen', zen); applyZoom(); }
     // settled: once fully dim, stop re-blurring the panel and stop taking taps on the controls
-    var on = app.classList.contains('zen');          // read the class: the moon button sets it directly
+    var on = app.classList.contains('zen');
     if (!on) zenSince = 0; else if (!zenSince) zenSince = now;
-    var deep = on && now - zenSince > 2900;
+    var deep = on && now - zenSince > ZEN_SETTLE;
     if (deep !== app.classList.contains('zen-deep')) app.classList.toggle('zen-deep', deep);
   }
-  /** Dim the controls right away; where the browser allows, hide its chrome too. */
-  function zenNow() {
-    zoom.style.transition = '';                       // even within the launch's first moments: settle slowly
-    zenForced = true;
-    app.classList.add('zen');
-    applyZoom();
-    var el = document.documentElement;
-    var req = el.requestFullscreen || el.webkitRequestFullscreen;
-    var inFs = document.fullscreenElement || document.webkitFullscreenElement;
-    if (req && !inFs) {
-      try {
-        var p = req.call(el, { navigationUI: 'hide' });
-        if (p && p.catch) p.catch(function () {});
-      } catch (e) {}
-    }
+  /** The moon button leads where no control shows the way back: say it, the first three times. */
+  function zenHint() {
+    var n = settings.hintZen | 0;
+    if (n >= 3) return;
+    settings.hintZen = n + 1; save();
+    toast(window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 'Pinch in to come back' : 'Esc to come back', 3600);
   }
 
   /* ======================================================================
@@ -1702,27 +1697,51 @@
   /* ======================================================================
    *  Feedback helpers
    * ==================================================================== */
+  /*
+   * Haptics. Android vibrates (navigator.vibrate). An iPhone has no such
+   * call, but since iOS 18 a switch control taps the Taptic Engine when it
+   * flips. Until iOS 26.4 a hidden switch could be flipped from script;
+   * since 26.5 only a finger that really lands on a switch, or on its
+   * label, is answered. So on an iPhone every control, and the glass
+   * itself, carries a transparent label over a hidden switch (hapticMount).
+   * The finger lands on that label; the tap is passed on to the control as
+   * before; and if the control asked for a tap (buzz), the switch is left
+   * to flip and the phone ticks. One tick a tap. What happens without a
+   * tap cannot tick there: the end of a glass, a landing, a crack from
+   * shaking, anything while a finger drags (on iOS 18 to 26.4 the hidden
+   * switch still answers as that finger lifts).
+   */
+  var HAPTIC_TAPS = !navigator.vibrate && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  var gestureUntil = 0, tickWanted = 0;
+  var tapOn = null, tapX = 0, tapY = 0, tapAt = 0;   // the label under the finger of a tap in the making
   function buzz(pattern) {
     if (!settings.haptics) return;
     if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) {} return; }
-    // iOS taps only from inside the end of a touch or a click; a tap wanted
-    // while the finger was down (a catch, a half turn) plays as it lifts.
-    if (performance.now() < gestureUntil) iosTick(); else tickWanted = performance.now();
+    var now = performance.now();
+    if (tapOn && now - tapAt < 1000) { tickWanted = now; return; }   // the tap's own switch answers, at its click
+    // otherwise: only from inside the end of a touch; a tap wanted while
+    // the finger was down (a catch, a half turn) plays as it lifts
+    if (now < gestureUntil) iosTick(); else tickWanted = now;
   }
-  var gestureUntil = 0, tickWanted = 0;
+  window.addEventListener('pointerdown', function (e) {
+    tapOn = e.target && e.target.closest ? e.target.closest('.haptic') : null;
+    tapX = e.clientX; tapY = e.clientY; tapAt = performance.now();
+  }, { capture: true, passive: true });
+  window.addEventListener('pointermove', function (e) {
+    if (!tapOn) return;
+    var dx = e.clientX - tapX, dy = e.clientY - tapY;
+    if (dx * dx + dy * dy > 144) tapOn = null;       // it has strayed: no click comes of it
+  }, { capture: true, passive: true });
+  window.addEventListener('pointercancel', function () { tapOn = null; }, { capture: true, passive: true });
   ['touchend', 'pointerup', 'click'].forEach(function (t) {
-    window.addEventListener(t, function () {
+    window.addEventListener(t, function (e) {
+      if (tapOn || (t === 'click' && e.target && e.target.closest && e.target.closest('.haptic'))) return;   // (see hapticClick)
       var now = performance.now();
       gestureUntil = now + 60;
       if (tickWanted && now - tickWanted < 1500) { tickWanted = 0; iosTick(); }
     }, { capture: true, passive: true });
   });
-  /*
-   * iPhones have no vibration API, but since iOS 18 a switch control taps the
-   * Taptic Engine whenever it flips. A hidden one, flipped from inside a
-   * touch, gives a light, real tap: on the catch, the flick, each half turn.
-   * (It cannot fire from timers or sensors, so shaking stays silent here.)
-   */
+  /** iOS 18 to 26.4: a hidden switch, flipped from inside a touch, gives a light, real tap. */
   var hapticAt = 0;
   function iosTick() {
     var now = performance.now();
@@ -1735,9 +1754,51 @@
       input.type = 'checkbox'; input.setAttribute('switch', '');
       label.appendChild(input);
       document.head.appendChild(label);
-      label.click();                     // the switch flips: iOS 18+ taps the Taptic Engine
+      label.click();
       document.head.removeChild(label);
     } catch (e) {}
+  }
+  /** Lay the transparent label and its hidden switch over a control (or over the stage, for taps on the glass). */
+  function hapticMount(host) {
+    if (host._haptic) return;
+    var label = document.createElement('label'), input = document.createElement('input');
+    label.className = 'haptic';
+    label.setAttribute('aria-hidden', 'true');
+    label.style.cssText = 'all:unset;position:absolute;inset:0;border-radius:inherit;';
+    input.type = 'checkbox'; input.setAttribute('switch', ''); input.setAttribute('form', '');
+    input.tabIndex = -1;
+    input.style.cssText = 'position:absolute;width:1px;height:1px;margin:0;visibility:hidden;';   // never under the finger itself
+    label.appendChild(input);
+    label.addEventListener('click', hapticClick);
+    label.addEventListener('input', hapticMute);
+    label.addEventListener('change', hapticMute);
+    host._haptic = label; label._host = host;
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+    host.appendChild(label);
+  }
+  function hapticMute(e) { e.stopPropagation(); }
+  function hapticClick(e) {
+    var label = e.currentTarget, host = label._host;
+    e.stopPropagation();
+    if (e.target !== label) return;                  // the switch's own click, on its way back up
+    if (host.disabled) { tapOn = null; e.preventDefault(); return; }
+    tapOn = label; tapAt = performance.now();        // while the control hears it, a buzz belongs to this tap
+    // the control hears the tap as it always did (the glass has heard it already, as the finger lifted)
+    if (host !== stage) {
+      host.dispatchEvent(new MouseEvent('click', {
+        bubbles: true, cancelable: true, composed: true, view: window, detail: e.detail,
+        screenX: e.screenX, screenY: e.screenY, clientX: e.clientX, clientY: e.clientY
+      }));
+    }
+    // asked for a tap: the switch is left to flip, and the phone ticks. Not asked: it stays as it is.
+    if (tickWanted && performance.now() - tickWanted < 1000) tickWanted = 0; else e.preventDefault();
+    tapOn = null;
+  }
+  function hapticMountAll() {
+    if (!HAPTIC_TAPS) return;
+    var hosts = document.querySelectorAll('button, label.row, #readout');
+    for (var i = 0; i < hosts.length; i++) hapticMount(hosts[i]);
+    hapticMount(stage);
   }
 
   var toastTimer = 0;
@@ -1872,34 +1933,78 @@
     window.addEventListener(t, onGesture, { capture: true, passive: true });
   });
 
-  /** Inside the glass's own box (as today: 4 % in from its sides, 1 % from its ends). */
-  function onGlass(x, y) {
-    var r = assembly.getBoundingClientRect();
-    var padX = r.width * 0.04, padY = r.height * 0.01;
-    return !(x < r.left + padX || x > r.right - padX || y < r.top + padY || y > r.bottom - padY);
+  /*
+   * Two fingers. Spreading them brings Zen and pinching them together
+   * leaves it, from anywhere on the screen. A finger that was only resting
+   * on the glass gives it up to the pinch; a glass already being carried or
+   * turned is not let go for one (there the second finger is ignored, as it
+   * always was). The fingers must travel: a fifth of the gap between them,
+   * and 36 px at least. Turning back within the same pinch undoes it.
+   */
+  var pinch = { on: false, pts: {}, n: 0, ref: 0, dir: 0 };
+  function pinchGap() {
+    var k = Object.keys(pinch.pts), a = pinch.pts[k[0]], b = pinch.pts[k[1]];
+    var dx = a.x - b.x, dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
   }
-  // A press on the glass while the controls are dimmed may be play (a drag,
-  // a catch, a mend): it brings them back only if it turns out to be a tap.
-  // Anywhere else, a press wakes them at once.
-  var pressZen = false, pressDefer = false;
   window.addEventListener('pointerdown', function (e) {
-    pressZen = app.classList.contains('zen');
-    pressDefer = pressZen && stage.contains(e.target) && onGlass(e.clientX, e.clientY);
-    if (!pressDefer) wake();
+    if (e.pointerType !== 'touch') return;
+    if (!pinch.pts[e.pointerId]) pinch.n++;
+    pinch.pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (pinch.n !== 2) return;
+    if (!pinch.on) {
+      if (sheetOpen || (grab && (grab.kind === 'move' || grab.kind === 'turn'))) return;
+      pinch.on = true;
+      cancelGesture();                 // the first finger was no tap, catch or mend after all
+    }
+    pinch.ref = pinchGap(); pinch.dir = 0;
   }, { capture: true, passive: true });
+  window.addEventListener('pointermove', function (e) {
+    var p = pinch.pts[e.pointerId];
+    if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    if (!pinch.on || pinch.n !== 2) return;
+    var d = pinchGap(), r = pinch.ref, dir = pinch.dir;
+    var out = d > r * 1.2 && d - r > 36, inn = d < r / 1.2 && r - d > 36;
+    if (dir >= 0 && inn) { pinch.dir = -1; pinch.ref = d; setZen(false); }
+    else if (dir <= 0 && out) { pinch.dir = 1; pinch.ref = d; setZen(true); }
+    else if ((dir > 0 && d > r) || (dir < 0 && d < r)) pinch.ref = d;   // the farthest it went: turning back is measured from there
+  }, { capture: true, passive: true });
+  function pinchEnd(e) {
+    if (!pinch.pts[e.pointerId]) return;
+    delete pinch.pts[e.pointerId];
+    if (--pinch.n <= 0) { pinch.n = 0; pinch.on = false; }
+  }
+  window.addEventListener('pointerup', pinchEnd, { capture: true, passive: true });
+  window.addEventListener('pointercancel', pinchEnd, { capture: true, passive: true });
+  // A trackpad's pinch: a wheel with ctrl held in most browsers, Safari's own gesture on a Mac.
+  var wheelSum = 0, wheelAt = 0;
+  window.addEventListener('wheel', function (e) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();                // not the page's own zoom
+    if (sheetOpen) return;
+    var now = performance.now();
+    if (now - wheelAt > 400) wheelSum = 0;
+    wheelAt = now;
+    wheelSum -= e.deltaY;              // spreading the fingers turns the wheel "up"
+    if (wheelSum > 40) { wheelSum = 0; setZen(true); } else if (wheelSum < -40) { wheelSum = 0; setZen(false); }
+  }, { passive: false });
+  document.addEventListener('gesturechange', function (e) {
+    if (pinch.n || sheetOpen || typeof e.scale !== 'number') return;      // (a phone's fingers are followed above)
+    if (e.scale > 1.2) setZen(true); else if (e.scale < 1 / 1.2) setZen(false);
+  });
 
   // The glass itself. Tap it to pause / resume. Take it by the waist and
   // move it, by a bulb and turn it; flick it and it spins on; touch it
   // while it moves and it stops; hold a finger still on a cracked glass to
-  // mend it. One finger: a second one is ignored.
+  // mend it. One finger: a second one is a pinch, or is ignored.
   var grab = null;
   stage.addEventListener('pointerdown', function (e) {
-    if (e.button || grab) return;
+    if (e.button || grab || pinch.on) return;
     var r = assembly.getBoundingClientRect();
     var padX = r.width * 0.04, padY = r.height * 0.01;
     var g = grab = {
       id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(),
-      zen: pressZen, defer: pressDefer,
       inside: !(e.clientX < r.left + padX || e.clientX > r.right - padX ||
                 e.clientY < r.top + padY || e.clientY > r.bottom - padY),
       cx: r.left + r.width / 2, cy: r.top + r.height / 2, h: r.height,   // where it is now, offset included
@@ -1910,7 +2015,8 @@
       lx: e.clientX, ly: e.clientY,                // where the finger is now
       fx: 0, fy: 0, p0x: 0, p0y: 0, last: 0
     };
-    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    // (a finger is held by what it touched anyway; capturing it here could take its click from the haptic label)
+    if (e.pointerType !== 'touch') { try { stage.setPointerCapture(e.pointerId); } catch (err) {} }
     if (!g.inside || sheetOpen || resetting || (flip.active && flip.mode === 'script')) { g.kind = 'none'; return; }
     if (bodyMoving()) catchBody(g, e.clientX, e.clientY);
     else g.mendable = hasOpenCrack();
@@ -1944,14 +2050,7 @@
     var dur = performance.now() - g.t;
     if (g.caught || (g.kind !== 'press' && g.kind !== 'none') || g.far > 196 || dur > 700) return;
     if (dur > MEND_WAIT && hasOpenCrack()) return;
-    if (g.defer) {
-      // dimmed: a tap brings the controls back and never starts or pauses,
-      // but the glass still feels it as a knock
-      wake();
-      if (g.kind === 'press' && !sheetOpen && !flip.active) { audio.tap(); knock(g); }
-      return;
-    }
-    if (g.zen || g.kind !== 'press' || sheetOpen || !g.inside || flip.active) return;
+    if (g.kind !== 'press' || sheetOpen || !g.inside || flip.active) return;
     audio.tap();                       // fingertip on glass
     if (knock(g)) return;              // one of a quick burst: a knock, not a start or pause
     knockUndo = T.state;
@@ -1991,8 +2090,8 @@
   /** The tap that began a burst of knocks started or paused the glass: quietly take that back. */
   function untoggle(was) {
     if (flip.active || resetting || T.state === was) return;
-    if (was === 'running' && T.state === 'paused') setState('running', true);
-    else if ((was === 'paused' || was === 'idle') && T.state === 'running') { setState(was, true); audio.hush(); }
+    if (was === 'running' && T.state === 'paused') setState('running');
+    else if ((was === 'paused' || was === 'idle') && T.state === 'running') { setState(was); audio.hush(); }
   }
   stage.addEventListener('pointerup', stageRelease);
   stage.addEventListener('pointercancel', stageRelease);
@@ -2171,23 +2270,28 @@
     btnMute.setAttribute('aria-label', m ? 'Unmute sound' : 'Mute sound');
   }
   btnMute.addEventListener('click', function () { setMuted(!settings.muted); buzz(8); });
-  btnZen.addEventListener('click', function () { buzz(8); zenNow(); });
+  btnZen.addEventListener('click', function () { buzz(8); if (setZen(true)) zenHint(); });
 
   var THEME_ORDER = ['sahara', 'volcanic', 'moonstone', 'lapis', 'rosequartz', 'seaglass'];
   /**
    * Change something about the instrument behind a slow cross-fade. What is
-   * asked for while the fade comes in waits with it: all of it happens, in
-   * the order asked, once the instrument is out of sight.
+   * asked for while the fade comes in waits with it and happens once the
+   * instrument is out of sight: every `kind` of change asked for (the
+   * material, the frame, the layers), and of one kind only the last, so the
+   * chip tapped quickly through four materials sets one, not four (each
+   * rebuilds the renderer's picture of the sand and the glass).
    */
   var softTimer = 0, softQueue = [];
-  function softSwap(fn) {
-    softQueue.push(fn);
+  function softSwap(kind, fn) {
+    var k = 0;
+    while (k < softQueue.length && softQueue[k].kind !== kind) k++;
+    softQueue[k] = { kind: kind, fn: fn };                // a newer one of its kind takes the older one's place
     if (softTimer) return;
     assembly.classList.add('fade');
     softTimer = setTimeout(function () {
       var q = softQueue;
       softTimer = 0; softQueue = [];
-      for (var i = 0; i < q.length; i++) q[i]();
+      for (var i = 0; i < q.length; i++) q[i].fn();
       dirty = true;
       requestAnimationFrame(function () { if (!softTimer) assembly.classList.remove('fade'); });   // (unless the next one has begun)
     }, 380);
@@ -2196,7 +2300,7 @@
     settings.theme = id; save();
     document.documentElement.dataset.theme = id;
     themeName.textContent = P.THEMES[id].short;
-    if (soft) softSwap(function () { renderer.setTheme(id); });
+    if (soft) softSwap('theme', function () { renderer.setTheme(id); });
     else renderer.setTheme(id);
     dirty = true;
     var cards = document.querySelectorAll('#themes .card');
@@ -2270,7 +2374,6 @@
     var done = function () { el.hidden = true; if (!sheetOpen) scrim.hidden = true; };
     if (instant) done(); else setTimeout(done, 560);
     if (sheetOpener && !instant) { try { sheetOpener.focus({ preventScroll: true }); } catch (e) {} }
-    lastInput = performance.now();
   }
   scrim.addEventListener('click', function () { closeSheet(); });
   var closers = document.querySelectorAll('.sheet-close');
@@ -2343,7 +2446,7 @@
   });
   $('opt-frame').addEventListener('change', function (e) {
     settings.frame = e.target.checked; save();
-    softSwap(function () {
+    softSwap('frame', function () {
       renderer.setFrame(settings.frame);
       layout();                                        // the bare glass can sit larger
     });
@@ -2352,7 +2455,7 @@
   // goes back to one tone), behind the same slow cross-fade as a new material.
   $('opt-layers').addEventListener('change', function (e) {
     settings.layers = e.target.checked; save();
-    softSwap(function () {
+    softSwap('layers', function () {
       sim.setLayers(settings.layers);
       renderer.setLayers(settings.layers);
     });
@@ -2366,6 +2469,10 @@
   $('opt-haptics').addEventListener('change', function (e) {
     settings.haptics = e.target.checked; save();
     buzz(12);
+  });
+  // every switch in Tune is felt as it flips (where its own handler asks too, it is still one tap)
+  sheetSettings.addEventListener('change', function (e) {
+    if (e.target && e.target.classList && e.target.classList.contains('switch')) buzz(8);
   });
   // breathing pace: the switch, and under it the pattern (hidden while it is off)
   var optBreath = $('opt-breath'), breathRow = $('breath-row'), breathHide = 0;
@@ -2529,10 +2636,9 @@
   /* ---- keyboard ----------------------------------------------------- */
   window.addEventListener('keydown', function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === 'Escape') { if (sheetOpen) closeSheet(); return; }
+    if (e.key === 'Escape') { if (sheetOpen) closeSheet(); else setZen(false); return; }
     var tag = e.target && e.target.tagName;
     if (sheetOpen || tag === 'INPUT' || tag === 'BUTTON') return;
-    wake();
     var key = e.key.toLowerCase();
     if (key === ' ') { e.preventDefault(); toggle(); }
     else if (key === 'f') startFlip(false);
@@ -2544,7 +2650,7 @@
   app.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
   document.addEventListener('touchmove', function (e) {
-    if (e.touches && e.touches.length > 1) e.preventDefault();
+    if (e.touches && e.touches.length > 1 && e.cancelable) e.preventDefault();   // (a scroll already under way cannot be stopped: let it be)
   }, { passive: false });
 
   /* ======================================================================
@@ -2586,7 +2692,6 @@
     if (!document.hidden) back = true;   // before tickClock: an end found on return is not held
     tickClock();
     if (document.hidden) {
-      if (endHoldUntil) wake();        // away during the ending: the controls are up on return
       backgroundHold();
       pourEnd();
       cancelGesture();                 // a hand on the glass lets go
@@ -2726,6 +2831,7 @@
   setMuted(settings.muted);
   setCharacter(settings.character);
   syncPills();
+  hapticMountAll();
   zoom.style.transition = 'none';                     // arrive in place, not shrinking from the Zen size
   layout();
   void zoom.offsetWidth;

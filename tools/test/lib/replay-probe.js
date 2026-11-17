@@ -182,6 +182,10 @@
       if (this.tagName === 'LABEL' && this.querySelector('input[switch]')) P.ev('haptic');
       return click.apply(this, arguments);
     };
+    // ... and the only way since iOS 26.5: the switch under a control's transparent label, flipped by the finger's own tap
+    document.addEventListener('change', function (e) {
+      if (e.target && e.target.matches && e.target.matches('label.haptic > input[switch]')) P.ev('haptic');
+    }, true);
   }
   function tick(now) {
     hook();

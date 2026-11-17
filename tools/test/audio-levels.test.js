@@ -275,17 +275,22 @@ async function main() {
       }
       function seeded(s) { return A._synth.mulberry32(s); }
 
-      // 1. alone, at the default level and volume
-      var LEN = { brook: 35, rain: 35, ocean: 66, waterfall: 35, drips: 125 }, id;
+      // 1. alone, at the default level and volume. The loops start at the same places every run:
+      // left to chance, the level over these windows moves by up to 0.27 dB for the ocean and the
+      // drips (a wave, or a loud drop, in or out of the window), which is the whole tolerance below.
+      // The ocean is measured over one whole loop of its waves in front (61.3 s).
+      var LEN = { brook: 35, rain: 35, ocean: 66.3, waterfall: 35, drips: 125 }, id;
+      var realRandom = Math.random;
       for (id in LEN) {
+        Math.random = seeded(7);
         var o1 = await play(id, LEN[id], {});
+        Math.random = realRandom;
         out.alone[id] = M(o1, 5, LEN[id]);
         out.alone[id].rates = o1.info.rates;
       }
 
       // 2. the low-rate fallback: the same render with and without it, from the same random numbers
       out.fallback = {};
-      var realRandom = Math.random;
       for (id in { ocean: 1, waterfall: 1, drips: 1 }) {
         Math.random = seeded(7);                       // the room, the sand and where the loops start: alike in both
         var fa = await play(id, 12, {});

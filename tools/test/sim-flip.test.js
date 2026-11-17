@@ -153,8 +153,8 @@ var BASE = L.baseline();                 // f446085, before motion, in its own v
  * a stream and a fresh lower pile. Nothing here touches the motion inputs,
  * so the sim stays on its idle path and comes out exactly as f446085's does.
  */
-function quietGlass(Pk, seed, durMs, startMs) {
-  var s = new Pk.Sim({ scale: 1.08, seed: seed }), i;
+function quietGlass(Pk, seed, durMs, startMs, granular) {
+  var s = new Pk.Sim(granular === false ? { scale: 1.08, seed: seed, granular: false } : { scale: 1.08, seed: seed }), i;
   s.reset(H.Clock.grainsFor(s, durMs));
   for (i = 0; i < 300; i++) { s.beginFrame(); s.step(); }
   var T = new H.Clock(s, durMs);
@@ -256,31 +256,45 @@ test('the Flip button\'s turn leaves the sand calm: T < 0.05, no hops, no spray'
     ' (' + at + '); 0 hops, 0 spray, census exact';
 });
 
-test('after the Flip the sand lies as it did in f446085: same grains per bulb, same surfaces', function () {
-  var dAng = 0, dCen = 0, notes = [];
+// Until sand off the upright (sim.granular; tools/test/sim-repose.test.js) this case
+// read "after the Flip the sand lies as it did in f446085: same grains per bulb, same
+// surfaces", and what it pinned was the fault: f446085 leaves the turned sand standing
+// against the glass at about 68°. Both halves are kept. Without granular the motion
+// path's turn must still leave the sand as f446085's did, to 3° and 3 cells; with it
+// (the engine as shipped) the same grains are in each bulb and they lie at the angle
+// of repose, which f446085's do not.
+test('after the Flip: the same grains per bulb as in f446085; without granular the same surfaces too, with it the sand lies at its angle of repose', function () {
+  var dAng = 0, dCen = 0, notes = [], worst = 0;
   FLIP_FILLS.forEach(function (fl) {
-    var angN = [0, 0], angO = [0, 0];
+    var angN = [0, 0], angO = [0, 0], angG = [0, 0];
     [11, 22, 33].forEach(function (seed) {
-      var a = quietGlass(P, seed, fl[0], fl[1]), b = quietGlass(BASE, seed, fl[0], fl[1]);
-      for (var i = 0; i < a.cell.length; i++) if (a.cell[i] !== b.cell[i]) throw new Error('the glasses differ before the turn at cell ' + i);
+      var a = quietGlass(P, seed, fl[0], fl[1], false), b = quietGlass(BASE, seed, fl[0], fl[1]), c = quietGlass(P, seed, fl[0], fl[1]);
+      for (var i = 0; i < a.cell.length; i++) if (a.cell[i] !== b.cell[i] || c.cell[i] !== b.cell[i]) throw new Error('the glasses differ before the turn at cell ' + i);
       flipNow(a, H.LAM, watcher());
+      flipNow(c, H.LAM, watcher());
       flipThen(b);
       ok(a.nTop === b.nTop && a.total === b.total, fl[2] + ' seed ' + seed + ': nTop ' + a.nTop + ' vs ' + b.nTop);
-      var la = lie(a), lb = lie(b);
+      ok(c.nTop === b.nTop && c.total === b.total, fl[2] + ' seed ' + seed + ' (granular): nTop ' + c.nTop + ' vs ' + b.nTop);
+      var la = lie(a), lb = lie(b), lc = lie(c);
       for (var k = 0; k < 2; k++) {
-        ok(la[k].n === lb[k].n, 'grains in bulb ' + k);
+        ok(la[k].n === lb[k].n && lc[k].n === lb[k].n, 'grains in bulb ' + k);
         var da = Math.abs(la[k].ang - lb[k].ang), dc = Math.hypot(la[k].cx - lb[k].cx, la[k].cy - lb[k].cy);
-        ok(da <= 3, fl[2] + ' seed ' + seed + ' bulb ' + k + ': surface at ' + la[k].ang.toFixed(1) + '° vs ' + lb[k].ang.toFixed(1) + '°');
-        ok(dc <= 3, fl[2] + ' seed ' + seed + ' bulb ' + k + ': centroid ' + dc.toFixed(1) + ' cells from f446085\'s');
+        ok(da <= 3, fl[2] + ' seed ' + seed + ' bulb ' + k + ' (without granular): surface at ' + la[k].ang.toFixed(1) + '° vs ' + lb[k].ang.toFixed(1) + '°');
+        ok(dc <= 3, fl[2] + ' seed ' + seed + ' bulb ' + k + ' (without granular): centroid ' + dc.toFixed(1) + ' cells from f446085\'s');
+        var g = Math.abs(lc[k].ang);
+        ok(g <= 38, fl[2] + ' seed ' + seed + ' bulb ' + k + ': the sand lies at ' + g.toFixed(1) + '° 2 s after the Flip (want at most 38)');
         if (da > dAng) dAng = da;
         if (dc > dCen) dCen = dc;
-        angN[k] += la[k].ang / 3; angO[k] += lb[k].ang / 3;
+        if (g > worst) worst = g;
+        angN[k] += la[k].ang / 3; angO[k] += lb[k].ang / 3; angG[k] += lc[k].ang / 3;
       }
     });
-    notes.push(fl[2] + ' surfaces ' + angN[0].toFixed(1) + '°/' + angN[1].toFixed(1) + '° vs ' + angO[0].toFixed(1) + '°/' + angO[1].toFixed(1) + '°');
+    ok(Math.abs(angO[0]) > 45, fl[2] + ': f446085 leaves the upper sand at ' + angO[0].toFixed(1) + '°: nothing to mend?');
+    notes.push(fl[2] + ' surfaces ' + angG[0].toFixed(1) + '°/' + angG[1].toFixed(1) + '° (without granular ' + angN[0].toFixed(1) + '°/' + angN[1].toFixed(1) +
+      '°, f446085 ' + angO[0].toFixed(1) + '°/' + angO[1].toFixed(1) + '°)');
   });
-  return '9 glasses: grains per bulb identical; surfaces within ' + dAng.toFixed(1) + '°, centroids within ' + dCen.toFixed(1) +
-    ' cells (allowed 3° and 3 cells); ' + notes.join('; ');
+  return '9 glasses: grains per bulb identical; with granular no surface steeper than ' + worst.toFixed(1) + '° (allowed 38); without it surfaces within ' + dAng.toFixed(1) +
+    '° and centroids within ' + dCen.toFixed(1) + ' cells of f446085\'s (allowed 3° and 3 cells); ' + notes.join('; ');
 });
 
 test('a lean of the phone and a steady turn do not heat the sand', function () {

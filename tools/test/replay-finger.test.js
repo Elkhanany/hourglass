@@ -20,7 +20,8 @@
  * mending shows for the first three cracks; a second blow on a crack opens
  * it and sand spills; holding it mends it and Reset gives a new glass;
  * with Reduce Motion a glass let go glides home but a slam still counts;
- * knocks reach a dimmed glass and leave the timer alone.
+ * knocks reach a glass in Zen, which stays in Zen, and leave the timer as
+ * they found it.
  *
  * A take whose INPUT came out wrong on a busy machine (touch events arrive
  * late and in clumps here: a slam that never reached 1,100 px/s, a knock
@@ -40,7 +41,8 @@ var FLICKS = { casual: { dist: 140, ms: 180 }, hard: { dist: 260, ms: 100 } };
 async function fresh(env, o) {
   o = o || {};
   var t = await env.open(o);
-  if (!o.idle) { await t.page.tap('#btn-play'); await sleep(o.zen ? 7500 : 1200); }
+  if (!o.idle) { await t.page.tap('#btn-play'); await sleep(1200); }
+  if (o.zen) { await t.page.tap('#btn-zen'); await sleep(2200); }      // (Zen comes by the moon button or a pinch, never by itself)
   if (o.sandBelow) {
     // two minutes into its run and paused: sand in the lower bulb, and the controls stay up
     await t.eval(function () { window.Hourglass.timer.rem -= 120000; });
@@ -421,7 +423,7 @@ async function more(s, env) {
   s.check('Reduce Motion: eight quick knocks still crack it', st.cracks.length === 1, 'strengths ' + log.knocks.map(function (q) { return q.s; }).join(' ') + (tries > 1 ? ' (take ' + tries + ')' : ''));
   await t.close();
 
-  // knocks reach a dimmed glass, and leave the timer alone
+  // knocks reach a glass in Zen: it stays in Zen, and the burst leaves the timer as it found it
   for (tries = 1; tries <= 3; tries++) {
     t = await fresh(env, { zen: true });
     g = await t.glass();
@@ -433,9 +435,9 @@ async function more(s, env) {
     if ((z0.zen && log.knocks.length === 8 && worstGap(log) < 380) || tries === 3) break;
     await t.close();
   }
-  s.check('knocks reach a dimmed glass: eight crack it, the first wakes the controls, the timer runs on',
-    z0.zen && st.cracks.length === 1 && !st.zen && st.state === 'running' && I.count(log, 'state') === 0,
-    'dimmed ' + z0.zen + ' → ' + st.zen + '; ' + st.cracks.length + ' crack; ' + z0.state + ' → ' + st.state + ' with ' + I.count(log, 'state') + ' changes' + (tries > 1 ? ' (take ' + tries + ')' : ''));
+  s.check('knocks reach a glass in Zen: eight crack it, Zen stays, the timer runs on (the first tap\'s pause is taken back)',
+    z0.zen && st.cracks.length === 1 && st.zen && st.state === 'running' && I.count(log, 'state') === 2,
+    'Zen ' + z0.zen + ' → ' + st.zen + '; ' + st.cracks.length + ' crack; ' + z0.state + ' → ' + st.state + ' with ' + I.count(log, 'state') + ' changes' + (tries > 1 ? ' (take ' + tries + ')' : ''));
   await t.close();
 
   // a glass thrown at the edge of the screen

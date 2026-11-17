@@ -75,6 +75,29 @@ function makeFinger(cdp) {
       return cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [f.pt(x, y)] });
     },
     up: function () { return cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); },
+    /** Several fingers at once: type 'touchStart' | 'touchMove', pts [[x, y], ...] (ids 1, 2, ...). up() lifts them all. */
+    fingers: function (type, pts) {
+      return cdp.send('Input.dispatchTouchEvent', { type: type, touchPoints: pts.map(function (q, i) {
+        return { x: q[0], y: q[1], id: i + 1, radiusX: 22, radiusY: 22, force: 0 };
+      }) });
+    },
+    /**
+     * Two fingers on a level line through (cx, cy), the gap between them
+     * going from `from` to `to` px over ms (one touchmove every 8 ms), then
+     * lifted; hold: they stay down.
+     */
+    pinch: async function (cx, cy, from, to, ms, hold) {
+      var two = function (gap) { return [[cx - gap / 2, cy], [cx + gap / 2, cy]]; };
+      await f.fingers('touchStart', two(from));
+      var t0 = Date.now();
+      for (;;) {
+        var u = Math.min(1, (Date.now() - t0) / (ms || 260));
+        await f.fingers('touchMove', two(from + (to - from) * u));
+        if (u >= 1) break;
+        await sleep(8);
+      }
+      if (!hold) await f.up();
+    },
     /** A tap: down, a short contact (60 to 90 ms for a quick fingertip tap), up. */
     tap: async function (x, y, holdMs) {
       await f.down(x, y);
@@ -180,13 +203,13 @@ async function open(env, o) {
         };
       });
     },
-    /** Tune > Real motion, switched on by a real tap on the switch (the only way a person can). */
+    /** Tune > Real motion, switched on by a real tap on its row (the only way a person can; the row's haptic label lies over the switch). */
     realMotionOn: async function () {
       await page.tap('#btn-settings');
       await sleep(700);
       await page.$eval('#opt-tilt', function (el) { el.scrollIntoView({ block: 'center' }); });
       await sleep(200);
-      await page.tap('#opt-tilt');
+      await page.tap('label[for="opt-tilt"]');
       await sleep(300);
       await page.tap('#sheet-settings .sheet-close');
       await sleep(700);

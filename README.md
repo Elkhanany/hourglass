@@ -50,15 +50,18 @@ deep-water teal.
   at sand's own angle, the stream breathes and wanders, grains bounce off the
   glass.
 - **Layered sand.** Turn it on in **Tune** and each sand gains a companion
-  tone. A new glass is filled in bands; as they run through the neck the two
-  tones settle into fine strata on the heap below, a little different every
-  time.
+  tone. A new glass is filled in a pattern of its own: bands fine or bold,
+  level or leaning, arched, waved or folded. As it runs, the two tones settle
+  into strata on the heap below, and every turn of the glass lets the sand
+  settle into a new pattern. No two are alike.
 - **Real sound.** The soft hush of sand landing, made of thousands of tiny
   grains, the first grains ticking on bare glass, a singing bowl at the end,
   and optional water behind it (a brook, rain, the ocean, a waterfall, or
   drips in a grotto), all synthesised, nothing recorded.
-- **Zen.** Four seconds after you let it run, the controls fade and the glass
-  fills the screen; the end of a glass is quiet and slow.
+- **Zen.** Spread two fingers on the screen, or tap the moon, and the controls
+  fade while the glass grows to fill the screen. Pinch them together to come
+  back. Nothing else changes the view: not a tap, not playing with the glass,
+  not time.
 - **Breathing pace.** If you like, the glow behind the glass swells as you
   breathe in and fades as you breathe out, for as long as the sand runs.
 - **A glass you can hold.** Drag it by the waist, turn it by a bulb, flick it
@@ -90,18 +93,26 @@ deep-water teal.
 | Reset | **Reset** | `R` |
 | Duration | Pills `1 5 10 15 30 60` min, **Custom**, or tap the time (10 s to 99:59) | |
 | Work and rest | **Custom** (or tap the time): *Then rest* 1 to 60 min, *Rounds* 1 to 12 | |
-| Dim the controls now | Moon icon | |
+| Zen: the glass fills the screen | Spread two fingers, or the moon icon | |
+| Back from Zen | Pinch two fingers together | `Esc` |
 | Mute | Speaker icon | `M` |
 | Material, frame, sound, motion, breathing, screen | **Tune** | |
 
-After four seconds of running without a touch the controls fade slowly, over
-about three seconds, to 12 % (or disappear entirely with *Full Zen*) as the
-glass grows to fill the screen; while they are dimmed the tenths rest. While
-they are still visibly fading they answer a tap as usual; once dim, the first
-tap only brings them back. Playing with the glass (moving, turning, spinning,
-catching or mending it) keeps them dim; only a tap brings them back. The moon
-icon starts the same fade at once and, where the browser allows it, goes full
-screen. With *Reduce Motion* turned on in the system settings, all of this
+Zen is yours to enter and to leave. Spread two fingers anywhere on the
+screen, or tap the moon icon, and the controls fade over about a second and a
+half to 12 % (or disappear entirely with *Full Zen*) as the glass grows to
+fill the screen; while they are dimmed the tenths rest. Pinch two fingers
+together and they come back at once (`Esc` on a keyboard; a trackpad's pinch
+works both ways too). Nothing else changes the view. A tap on the glass
+starts or pauses it in Zen as it does at home; playing with the glass
+(moving, turning, spinning, catching, mending, knocking) leaves the view as
+it is; the controls do not fade by themselves however long the sand runs;
+and the end of a glass leaves Zen as it is. The fingers must travel a little
+(a fifth of the gap between them, and 36 px at least), a glass that is
+already being carried or turned is not let go for a second finger, and
+turning back within the same pinch undoes it. The first three times, the
+moon icon says how to come back. Where the browser allows it, Zen also goes
+full screen. With *Reduce Motion* turned on in the system settings, all of this
 happens at once instead. With *Reduce Motion* a glass that is let go glides
 home instead of falling, nothing flashes and the phone's shaking cannot crack
 the glass; what a finger does to it (a slam on the desk, knocks, hard spins)
@@ -120,11 +131,13 @@ five, three quarters for 45.
 - **Material**: Sahara Quartz, Volcanic Black, Moonstone, Lapis Lazuli (gold
   flecks, gold caps), Rose Quartz (copper), Sea Glass (driftwood); **Frame** hides the
   caps and posts so only the glass remains; **Layered sand** gives the sand a
-  second tone. A new glass is filled in five to nine wavy bands, what falls
+  second tone. A new glass is filled in a pattern drawn for it alone (bands
+  fine or bold, level or leaning, arched, waved or folded), what falls
   settles into strata on the heap, and sand added with **Sand** arrives in
   layers of the other tone. It is off by default, and with it off the sand is
-  exactly as it was. Turning the glass over tumbles the sand into an even
-  blend of the two tones; the next run lays it down in strata again.
+  exactly as it was. Turning the glass over tumbles the sand, and within
+  about four seconds it settles into a new pattern, drawn afresh for each
+  bulb at every turn.
 - **Acoustic character** (six voicings) and volume; **Ambience** (None,
   Brook, Rain, Ocean, Waterfall or Drips behind the sand, with its own level;
   the one you tap plays long enough to be heard); **Completion bowl**.
@@ -166,8 +179,8 @@ bowl, lighter and shorter, and only with *Completion bowl* on), the glass
 turns itself over with the Flip button's unhurried half turn, and the next
 phase starts as the turn ends. It is the same sand, timed to the new length:
 through a 5 minute rest it runs five times as fast as through the 25 minutes
-before it. The last phase ends as any glass does. The turn never brings
-dimmed controls back, in Zen or Full Zen. With *Reduce Motion* the glass does
+before it. The last phase ends as any glass does. The turn leaves the view
+as it is, in Zen or out of it. With *Reduce Motion* the glass does
 not turn: the sand fades away below and returns above, in the same time.
 
 Pause and resume work inside a phase; paused between two phases, the turn
@@ -204,7 +217,10 @@ under your finger, and stays where it stopped until the finger moves it on;
 but a finger that lands on a bulb of a spinning glass and moves on with the
 spin within 80 ms carries it along, so flick on flick builds speed. The sand
 feels all of this at the true scale of the glass on the screen, so a gentle
-drag barely stirs it and a hard spin pins it to both ends.
+drag barely stirs it and a hard spin pins it to both ends. Its own motion it
+keeps: carry the glass off quickly and the sand is left behind for a moment,
+the falling thread with it; stop it dead, or let it strike an edge, and the
+sand surges on, piles against the glass and runs back to its slope.
 
 ### Breaking it
 
@@ -262,6 +278,11 @@ back, as any tap does).
   Landed grains tumble downslope in short hops while the surface is steeper
   than 3:4. Measured in the test harness the slope breathes between about 32°
   and 36° and averages 33° to 34°.
+- **Off the upright.** That rule judges slopes against the lattice, which is
+  right for a glass standing straight. Leaned, turned, carried or shaken, the
+  sand follows a second set of rules that judge them against gravity itself
+  (see *Sand off the upright*). A glass that stands straight and is left alone
+  never reaches them.
 - **A living stream.** The flow rate swings by tens of percent around its mean
   (slow breathing, pulses near 2 Hz, fine flutter) and the stream leaves the
   neck as one thin thread that wanders. The swings average to zero and fade
@@ -316,26 +337,41 @@ larger screens.
   exactly as they do without (`sim-tone` runs the two side by side;
   `sim-identity` ties the plain one to f446085). `sim.tones()` counts the
   grains of each tone.
-- **Bands.** A new glass, and a restored one, is filled in five to nine bands
-  of unequal thickness with gently wavy, slightly ragged seams. They are
-  drawn from a random stream of their own, seeded by a read of the sand's
-  stream that does not advance it. The companion tone is never more than half
-  the sand, so the glass stays the material it is. Turning the switch on
-  part-way lays the sand in strata where it lies, behind the usual
-  cross-fade; turning it off forgets the tones.
-- **Strata.** The crater of the upper bulb cuts across the bands, so what
+- **Patterns.** A new glass, and a restored one, is filled in a pattern drawn
+  for it alone (`_pattern`): one pair of strata 9 to 35 cells thick, more
+  often fine than bold; level, or leaning by up to about 32°; in half the
+  glasses arched or sagging across the bulb; gently waved, or in three
+  glasses out of ten folded; its thickness wandering along the way, its seams
+  slightly ragged. All of it comes from a random stream of the layers' own,
+  seeded by a read of the sand's stream that does not advance it, so the same
+  seed lays the same pattern and no two seeds the same one. The companion
+  tone is never more than half the sand, so the glass stays the material it
+  is. Turning the switch on part-way lays the sand in its pattern where it
+  lies, behind the usual cross-fade; turning it off forgets the tones.
+- **Strata.** The crater of the upper bulb cuts across the pattern, so what
   falls is a mixture. A real mixture of two sands poured on a heap sorts
   itself into strata (Makse, Havlin, King and Stanley, *Nature* 386, 1997).
   Here that is a simple sifting rule rather than a simulation of grain sizes.
-  In each layer freshly laid on the lower heap (4 to 12 grains deep), grains
-  of one tone work their way down under the other by trading places with the
-  grain below or diagonally below, and the two tones take turns from layer to
-  layer. Each layer freezes as two strata that follow the slope. Sifting only
-  trades colour seeds between neighbours, visits every eighth column per
-  step, and costs about 1 µs a step, roughly 1 % of a flowing step. It rests
-  while the glass is turned or shaken; tumbled sand is a blend, and the next
-  run stratifies it again. After a fast-forward, the sand that was moved in
-  bulk is sifted in one go.
+  In each layer freshly laid on the lower heap, grains of one tone work their
+  way down under the other by trading places with the grain below or
+  diagonally below, and the two tones take turns from layer to layer. Each
+  layer freezes as two strata that follow the slope. How deep a layer is, is
+  drawn for each glass and again at each turn: fine (3 to 7 grains), even
+  (4 to 12), bold (7 to 19), or mostly fine with a deep one now and then
+  (3 to 21). Sifting only trades colour seeds between neighbours, visits
+  every eighth column per step, and costs about 1 µs a step, roughly 1 % of a
+  flowing step. It rests while the glass is turned or shaken. After a
+  fast-forward, the sand that was moved in bulk is sifted in one go.
+- **A turn.** Tumbled sand would be an even blend of the two tones. Instead,
+  when the glass has been turned over each bulb draws a new pattern for the
+  share of each tone it holds, and for the next four seconds sand that comes
+  to rest in the wrong tone for its place trades colour seeds with a grain of
+  the right tone that is still moving (`_develop`, up to 36 grains a step in
+  each bulb, every fourth column per step). Only seeds are traded, so each
+  tone keeps its count and the lattice, the sleep map and the sand's random
+  stream are untouched. Afterwards 8 % to 29 % of the grains lie on a grain
+  of the other tone; in the blend it was about 40 %. It costs up to 0.1 ms a
+  step for those four seconds and nothing after.
 - **Pouring.** Added sand arrives in layers of 420 to 840 grains, each in the
   other tone from the one beneath: one layer for about a second of holding
   **Sand**, or a few taps.
@@ -378,6 +414,64 @@ larger screens.
   with each blow of the hand, and a sideways shake bends the thread. Grains in
   flight bounce off the closed neck like glass. The valve stays the only way
   between the bulbs, so both bulbs' counts stay exact.
+
+### Sand off the upright
+
+When the glass leans more than 0.7°, turns, is carried or shaken, and for 3.5
+s after, its sand is stepped by a second automaton (`sim.granular`, on unless
+the Sim is built with `granular: false`, which is the engine as it was). A
+glass that stands straight and has not been touched never reaches it and stays
+bit-identical with f446085.
+
+- **Repose against gravity.** A grain falls along the two lattice directions
+  the field lies between, in the odds that give the field's own direction. It
+  steps sideways only when the slope beyond the step, probed along a true line
+  below the field's horizontal, is steeper than sand can hold: 37° for a grain
+  at rest, 29° for one already moving. Rows sleep at any lean. Held at 5°,
+  10°, 20°, 30° and 45° the free surface settles at 30° to 35° to gravity and
+  the sand is at rest within 1 to 4 s; before, it crept flat and never rested.
+- **Thick avalanches.** A face far steeper than sand can hold fails in depth:
+  the free surface is read as heights across the field, and where it falls
+  more steeply than 40° over eight cells the top grains are carried down to
+  where the slope eases, and run on down to 36°. After the Flip the sand is
+  under 40° within a second and at rest in under 3 s (it stood at 68° for more
+  than 20 s).
+- **Falling sand gathers speed.** Each grain carries a count of the sweeps it
+  has kept moving, as it carries its colour; a fall covers more cells the
+  longer it lasts. Sand let go (the phone turned over) accelerates and
+  stretches instead of sinking as a block.
+- **Inertia.** Each bed has a sideways speed over the glass. It starts when
+  the level push beats static friction (0.65 of the load), is moved across the
+  glass, piles against the wall, and friction (0.5) takes its speed away;
+  while it slides its slopes are judged in a field that leans the way it is
+  going. The push includes the glass's own motion on the screen, in cells
+  (`sim.setCarry`): the sand lives in slow motion and the hand does not, so
+  this is what makes a carried glass that stops leave a slosh. A carry at 150
+  px/s starts nothing. With Reduce Motion there is none. The field the
+  fracture law reads is untouched.
+- **Shaken sand levels.** Above a granular temperature of 0.5 the slopes sand
+  can hold fall with the temperature, so four seconds of hard shaking level a
+  heap (34° to 13°). Walking, a sway or a finger's wiggle stay below it.
+- **In the air.** A grain in the air belongs to the room: it feels the whole
+  of the glass's on-screen acceleration, so the thread is left behind when the
+  glass is carried off. Exactly nothing while the glass keeps its place.
+- **The timer comes first.** Leaned far over, sand rightly lies at rest on the
+  low side of the funnel. A neck that has run short is therefore fed by sweeps
+  of the old automaton, as it always was, so the sand still arrives: leaned
+  30°, 11 of 10,116 grains are still above the neck at 00:00 (1,039 without
+  that feed).
+- **Where it stands back.** Spun faster than 6 rad/s, or below full quality
+  (the governor's lighter levels), a moved glass is stepped as before; a slide
+  in progress ends there.
+- **Sound.** Nothing was added to `audio.js`: the rush of sliding sand follows
+  the slide counts, so an avalanche after a lean or a carry is now heard
+  softly, and the rush after the Flip ends sooner (2.7 s instead of 4.1 s).
+- **Cost** (Node, phone-size glass with the most sand, ms per frame, mean /
+  p95, before → after): a held lean of 30° 0.67 / 0.70 → 0.34 / 1.84 and then
+  nothing once at rest; the Flip and 3 s after 0.78 / 1.84 → 0.67 / 2.20; all
+  the sand let go at once 0.14 / 0.40 → 0.40 / 2.85 for a third of a second; a
+  spin at 5 rad/s 1.24 / 2.50 → 1.48 / 3.77; an upright running glass
+  unchanged.
 
 ### Glass and fracture
 
@@ -641,7 +735,7 @@ recedes under the bowl.
 - *Waterfall*: a small fall from a few metres away. A coloured rush (weight from 160 Hz to 1 kHz, then 3 dB less per octave; the ears share its lows, not its highs) that spits and splashes in short bursts of band-passed noise, over a plunge pool that gurgles with low bubbles. Three loops (12.1, 13.9 and 31.3 s) that line up again after six days.
 - *Drips*: drops falling one at a time into a still pool in a small stone grotto. A drop is the bubble it drags under: a short tone that curls upward as it closes, a plop if the drop was big, a plink if small, often with a second, smaller bubble after it. The stone gives every drop back as about 800 dulled copies a second, fading over 1.6 s, so the room rings on at the drop's own pitch. Ten drops on three loops (21.7, 18.5 and 15.3 s) that meet differently every time round, over a faint trickle far off. It is quiet by nature: its loudest drops peak where the brook does, but its level over time is about 13 dB lower.
 
-All are synthesised into seamless loops in short steps, the saved one while the page settles after loading, another the first time it is chosen. The ocean, the waterfall and the drips are made in slices of a few milliseconds (40 to 80 of them, 0.1 to 0.25 s of work spread over one to three seconds); the brook and the rain in a dozen longer ones. Only the chosen ambience holds any sound: at most 8 MB of PCM, kept small by giving each loop no higher a sample rate than its sound needs (8 to 24 kHz for the new ones). Choosing another lets the previous one go once it has faded. Where a browser makes no buffer below 22.05 kHz (WebKit before iOS 14.5), those loops are drawn out to a whole multiple of their rate, which plays as the same sound and costs up to twice the memory. Chosen in Tune, an ambience plays long enough to be heard, counted from the moment it sounds: five seconds of brook, rain or waterfall; one whole wave of the ocean (twelve seconds, from where its swell comes up); nine seconds of drips, at least three drops.
+All are synthesised into seamless loops in short steps, the saved one while the page settles after loading, another the first time it is chosen. The ocean, the waterfall and the drips are made in slices of a few milliseconds (40 to 80 of them, 0.1 to 0.25 s of work spread over one to three seconds); the brook and the rain in a dozen longer ones. Only the chosen ambience holds any sound: at most 8 MB of PCM, kept small by giving each loop no higher a sample rate than its sound needs (8 to 24 kHz for the new ones). Choosing another lets the previous one go once it has faded. Where a browser makes no buffer below 22.05 kHz (WebKit before iOS 14.5), those loops are drawn out to a whole multiple of their rate, which plays as the same sound and costs about twice the memory (a little more for the ocean). Chosen in Tune, an ambience plays long enough to be heard, counted from the moment it sounds: five seconds of brook, rain or waterfall; one whole wave of the ocean (twelve seconds, from where its swell comes up); nine seconds of drips, at least three drops.
 
 The sand was built against recordings of falling sand and grit (a continuous
 pour of fine sand, fine sugar poured close to the microphone, a rainstick,
@@ -786,10 +880,19 @@ node tools/test/app-gestures.test.js     # any single suite
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
   nothing moving, every grain lands exactly as before. `sim-tone` covers
-  layered sand: the fill's bands; each tone's count through an idle run, a
-  flip, a spin, shaking, a cracking tumble, a leaking breach, pours and a
-  fast-forward; the sand falling identically with layers on and off; the heap
-  settling into strata; the colour table with layers off against 7f71786. The
+  layered sand: the fill's pattern, its own for every seed and the same for
+  the same one; each tone's count through an idle run, a flip, a spin,
+  shaking, a cracking tumble, a leaking breach, pours and a fast-forward; the
+  sand falling identically with layers on and off; the heap settling into
+  strata; turned sand settling into a new pattern each time, not a blend; the
+  colour table with layers off against 7f71786. `sim-repose` covers sand off
+  the upright: repose at held leans, the slump after the Flip, falling sand
+  gathering speed, a bed's momentum under a jolt and a finger's carry, the
+  thread in the air, shaking against walking, the timer while leaned and to
+  its end, the census and each tone's count; every case that can is also run
+  with `granular: false`, which must fail it. `sim-identity`'s lean and
+  scripted-flip cases pin the engine with `granular: false`; its upright
+  cases run with it on. The
   others cover cracks, leaks, mending and saving (`p0`), conservation,
   sanity, flight, fracture, spinning, knocking, leak, flip, persistence,
   determinism, the valve, the clock and performance.
@@ -817,6 +920,13 @@ node tools/test/app-gestures.test.js     # any single suite
   pour, flip, a restored session and Reduce Motion. `app-ambience` covers the six
   ambience cards: the radio group as a screen reader meets it, two rows of
   three from 320 to 430 px and in landscape, choosing, saving and restoring.
+  `app-gestures` also covers Zen: none by itself, in by spreading two fingers
+  or the moon icon, out by pinching or `Esc`, and unchanged by taps, by
+  playing with the glass, by a second finger while it is carried, and by a
+  pinch while a sheet is open. `app-haptics` covers the iPhone's taps: a
+  label over a hidden switch on every control and on the stage, the switch
+  flipping exactly when the app asked for a tap, every control still doing
+  its work once, and scrolling, pouring, carrying and pinching unchanged.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
@@ -869,12 +979,19 @@ never flashes white before its first frame.
 - A web app cannot hide the iPhone status bar or silence notifications. On
   Android the installed app runs full screen; in desktop and Android browsers
   the moon icon enters full screen.
-- Haptics use `navigator.vibrate` on Android. iOS has no vibration API; on
-  iOS 18 and later a hidden switch control is flipped instead, which taps the
-  Taptic Engine lightly. iOS allows that only as a finger lifts or taps, so
-  a tap wanted while the finger is down (a catch, a half turn, the creak of
-  a glass banged on the desk) plays as it lifts; a glass that lands after it
-  was let go, timers and shaking cannot tap at all.
+- Haptics use `navigator.vibrate` on Android. An iPhone has no vibration
+  API. Since iOS 18 a switch control taps the Taptic Engine when it flips,
+  and since iOS 26.5 only when a finger really lands on it or on its label.
+  So on an iPhone every control, and the glass itself, carries a transparent
+  label over a hidden switch, and a tap that the app wants felt lets that
+  switch flip: one light tick a tap, on buttons, pills, cards, switches, and
+  a tap or a knock on the glass. What happens without a tap cannot tick on
+  an iPhone: the end of a glass, a landing, a crack from shaking, a catch or
+  a half turn while the finger drags (on iOS 18 to 26.4 those still tick as
+  the finger lifts). *System Haptics* must be on in the iPhone's Sounds &
+  Haptics settings. This is tested in a browser shaped like an iPhone
+  (`app-haptics`), which has no Taptic Engine: whether the phone ticks can
+  only be felt on a phone.
 - The completion sound can only play in a hidden tab if the browser keeps the
   page's audio running; on a locked phone it generally will not.
 

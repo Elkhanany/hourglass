@@ -94,6 +94,45 @@ function timeSpin(scale, seed) {
   return { spin: spin, swap: swap, swaps: tn.swaps };
 }
 
+/**
+ * Sand off the upright: the Flip button's turn (H.Turner) with the 3 s in
+ * which the turned sand slumps, and a lean of 30° held for 13 s. Frames of
+ * two steps, the clock standing still.
+ */
+function timeFlip(scale, seed) {
+  if (!SIMS[scale]) SIMS[scale] = new H.P.Sim({ scale: scale, seed: 4242 });
+  var run = H.glassAt({ durMs: 300000, startMs: 150000, seed: seed, scale: scale, sim: SIMS[scale] });
+  var sim = run.sim, tn = new H.Turner(sim, H.LAM), acc = 0, out = [], after = 0;
+  sim.gateOpen = false;
+  tn.flip();
+  for (var k = 0; tn.busy() || after < 360; k++) {
+    if ((k & 1) === 0) { sim.beginFrame(); acc = 0; }
+    var t0 = now();
+    if (tn.busy()) tn.step(); else { after++; sim.setMotion(0, 0, 0, 0, H.LAM, 0); }
+    sim.step();
+    acc += now() - t0;
+    if (k & 1) out.push(acc);
+  }
+  return out;
+}
+function timeLean(scale, seed, deg) {
+  if (!SIMS[scale]) SIMS[scale] = new H.P.Sim({ scale: scale, seed: 4242 });
+  var run = H.glassAt({ durMs: 300000, startMs: 150000, seed: seed, scale: scale, sim: SIMS[scale] });
+  var sim = run.sim, acc = 0, first = [], rest = [], restAt = -1;
+  sim.gateOpen = false;
+  sim.tilt = deg * Math.PI / 180; sim.wakeAll();
+  for (var k = 0; k < 13 * 120; k++) {
+    if ((k & 1) === 0) { sim.beginFrame(); acc = 0; }
+    var t0 = now();
+    sim.step();
+    acc += now() - t0;
+    if (restAt < 0 && sim.quiet >= 24) restAt = (k + 1) / 120;
+    if (k & 1) (k < 360 ? first : (k >= 600 ? rest : [])).push(acc);
+  }
+  sim.tilt = 0; sim.wakeAll();
+  return { first: first, rest: rest, restAt: restAt };
+}
+
 function stats(fr) {
   var a = Array.prototype.slice.call(fr.wall), s = a.slice().sort(function (x, y) { return x - y; });
   var over6 = 0, preempted = 0, lateMax = 0;
@@ -139,6 +178,30 @@ timeSpin(1.08, 1); timeSpin(1.08, 2);
   report(best.p95 <= 3.0 && best.swMax <= 6, 'free spin at q 1.08 (flicked to 16 rad/s, λ 0.08, ' + best.swaps + ' half turns): per-frame p95 ' +
     best.p95.toFixed(2) + ' ms (≤ 3.0; p50 ' + best.p50.toFixed(2) + ', max ' + best.max.toFixed(2) + ' over ' + best.n + ' frames); ' +
     'frames with a completeFlip at most ' + best.swMax.toFixed(2) + ' ms (≤ 6)' + (best.swPre ? '; ' + best.swPre + ' preempted by the OS' : ''));
+})();
+
+// sand off the upright: a Flip with its slump, and a held lean, which must come to rest and then cost next to nothing
+(function () {
+  function p95of(a) { var q = a.slice().sort(function (x, y) { return x - y; }); return q[Math.floor(q.length * 0.95)]; }
+  timeFlip(1.08, 3); timeLean(1.08, 3, 30);
+  var bestF = null, bestL = null, t, f, l;
+  for (t = 0; t < TRIES; t++) {
+    f = timeFlip(1.08, 21 + t);
+    var o = { p95: p95of(f), mean: H.mean(f), max: Math.max.apply(null, f), n: f.length };
+    if (!bestF || o.p95 < bestF.p95) bestF = o;
+    if (bestF.p95 <= 3.0) break;
+  }
+  report(bestF.p95 <= 3.0, 'the Flip button\'s turn and 3 s after at q 1.08: per-frame p95 ' + bestF.p95.toFixed(2) + ' ms (≤ 3.0; mean ' + bestF.mean.toFixed(2) +
+    ', max ' + bestF.max.toFixed(2) + ' over ' + bestF.n + ' frames)');
+  for (t = 0; t < TRIES; t++) {
+    l = timeLean(1.08, 31 + t, 30);
+    var q = { p95: p95of(l.first), rest: H.mean(l.rest), restAt: l.restAt };
+    if (!bestL || q.p95 + 10 * q.rest < bestL.p95 + 10 * bestL.rest) bestL = q;
+    if (bestL.p95 <= 3.0 && bestL.rest <= 0.1) break;
+  }
+  report(bestL.p95 <= 3.0 && bestL.rest <= 0.1 && bestL.restAt > 0 && bestL.restAt <= 5,
+    'a lean of 30° held at q 1.08: per-frame p95 ' + bestL.p95.toFixed(2) + ' ms over the first 3 s (≤ 3.0); at rest after ' + bestL.restAt.toFixed(1) +
+    ' s (≤ 5), and from 5 s on ' + bestL.rest.toFixed(3) + ' ms a frame (≤ 0.1: sand that has found its slope sleeps)');
 })();
 
 [[1.08, 3.0], [1.3, 4.0]].forEach(function (c) {
