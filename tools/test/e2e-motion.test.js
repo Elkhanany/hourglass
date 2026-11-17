@@ -272,8 +272,12 @@ async function e3(s, env) {
   await t.eval(function () { window.Hourglass.sim.sealCracks(); });
   await sleep(6500);                                 // (the mend's own bell rings for five seconds)
   var after2 = await liveNodes(t);
-  s.check('E14 veryVigSlow: live AudioNodes back to baseline ± 10 once the leak has stopped and the mend bell has rung out',
-          Math.abs(after2 - w.base) <= 10, 'baseline ' + w.base + ', after ' + after2);
+  // As above, only more nodes would be a leak. The count also came back 9 to 19 under the
+  // baseline in four of five runs with the sand off the upright, and 11 under in one of three
+  // on the version before it, while the engine's own rates (events, ticks, bed) read the same
+  // before the shake and after the mend in both. So that side is held to 30 here too.
+  s.check('E14 veryVigSlow: live AudioNodes back to the baseline (+10 at most) once the leak has stopped and the mend bell has rung out',
+          after2 - w.base <= 10 && w.base - after2 <= 30, 'baseline ' + w.base + ', after ' + after2);
   await t.eval(function () { window.__driveStop(); });
   await H.invariants(s, t, 'E3 veryVigSlow');
   await t.close();
