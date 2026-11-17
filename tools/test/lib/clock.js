@@ -20,7 +20,11 @@
 var TAIL_P = 1.7;                    // app.js: the final grains thin into single drops
 var DT_MS = 1000 / 120;              // one physics step
 
-/** How much sand a glass of this length holds (app.js grainsFor). */
+/**
+ * How much sand a test glass of this length holds: a third of a bulb for a minute, three quarters
+ * for 45. (This was app.js's own rule until the amount followed the square root of the time; the
+ * engine suites were written for these fills and keep them. The app's rule is tested in the app.)
+ */
 function grainsFor(sim, ms) {
   var f = 0.36 + 0.40 * Math.log(ms / 60000) / Math.log(45);
   return Math.round(sim.capacity * Math.max(0.17, Math.min(0.78, f)));

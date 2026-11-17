@@ -136,8 +136,11 @@ through the last grains and the bowl, then the controls return slowly. A
 touch brings them back at once. The app itself opens by fading up from dark,
 with the glass already in its place.
 
-A longer glass holds more sand: about a third full for one minute, half for
-five, three quarters for 45.
+The amount of sand shows the time. An hour is the full glass, and a shorter
+glass holds less by the square root of its time: four times the time is twice
+the sand. A minute is a tenth of a bulb, five a good fifth, ten a third,
+fifteen two fifths, thirty over half. (Strictly in proportion, a minute would
+be a pinch and every glass would run with the thin thread of the hour glass.)
 
 **Tune** holds the rest:
 

@@ -7,6 +7,8 @@
  *           last), the glass is made new once, in between, and the new sand
  *           rises to the full bed, nothing below the neck; no time passes
  *           meanwhile, and the glass ends idle, full, its census exact
+ *   AMOUNT  the sand shows the time: an hour is the full glass, a shorter one
+ *           holds less by the square root of its time
  *   KEEP    another duration while the glass runs: it runs on, but only when
  *           the last of the new sand is in (the neck stays shut, the clock
  *           stands at the new time until then)
@@ -49,11 +51,14 @@ function watch(t, ms, act, hideAt) {
       }
       setTimeout(function () { (new Function('H', a.act))(H); }, 200);
       (function frame() {
-        var d = g.getImageData(0, 0, c.width, c.height).data, n = 0, up = 0, half = (c.height >> 1) * c.width * 4;
-        for (var i = 3; i < d.length; i += 4) if (d[i] > 0) { n++; if (i < half) up++; }
+        var d = g.getImageData(0, 0, c.width, c.height).data, n = 0, up = 0, bed = 0, half = (c.height >> 1) * c.width * 4, w = c.width, mid = w >> 1, x;
+        for (var i = 3; i < d.length; i += 4) if (d[i] > 0) {
+          n++;
+          if (i < half) { up++; x = ((i - 3) >> 2) % w; if (x < mid - 8 || x > mid + 8) bed++; }   // (bed: clear of the thread on the axis)
+        }
         log.push({ t: performance.now() - t0, st: H.timer.state, rem: H.timer.rem, top: H.sim.nTop, tot: H.sim.total,
                    sw: document.getElementById('app').classList.contains('sweep'), swap: document.getElementById('app').classList.contains('swap'),
-                   px: n, up: up, made: made });
+                   px: n, up: up, bed: bed, made: made });
         if (performance.now() - t0 < a.ms) requestAnimationFrame(frame);
         else { H.sim.reset = r0; done(log); }
       })();
@@ -106,9 +111,10 @@ async function run(s, env) {
             fell && upGone > sp.from && upGone < turn && log[upGone].px - log[upGone].up > 0.02 * a.px && log[turn].px <= 0.01 * a.px,
             a.px + ' px of sand; the upper bed gone ' + (upGone < 0 ? 'never' : Math.round(log[upGone].t - a.t) + ' ms in, with ' + (log[upGone].px - log[upGone].up) + ' px still below') +
             '; ' + log[turn].px + ' px as the glass is made new');
+    // (the bed is read clear of the axis: the thread that falls there flickers, and ends before the bed is level)
     var rose = true, below = 0, full = last.px;
     for (i = turn + 1; i <= sp.to; i++) {
-      if (log[i].px < log[i - 1].px - 0.02 * full) rose = false;
+      if (log[i].bed < log[i - 1].bed - 0.02 * last.bed) rose = false;
       if (log[i].px - log[i].up > below) below = log[i].px - log[i].up;
     }
     var mid = log[Math.round((turn + sp.to) / 2)];
@@ -128,6 +134,21 @@ async function run(s, env) {
     s.check('SWEEP: the glass ends idle and full, at its whole time, its census exact',
             last.st === 'idle' && last.rem === 60000 && last.top === want && last.tot === want && !last.sw && await censusOk(t),
             last.st + ', ' + (last.rem / 1000).toFixed(1) + ' s, ' + last.top + ' of ' + last.tot + ' grains above the neck');
+
+    /* ---- AMOUNT: the sand shows the time ----------------------------------- */
+    var am = await t.eval(function () {
+      var H = window.Hourglass, cap = H.sim.capacity, f = function (min) { return H.grainsFor(min * 60000) / cap; };
+      return { m1: f(1), m4: f(4), m5: f(5), m10: f(10), m15: f(15), m16: f(16), m30: f(30), m60: f(60), m64: f(64), m99: f(99), s10: f(1 / 6), held: H.sim.total / cap };
+    });
+    var near = function (a, b) { return Math.abs(a - b) < 0.002; };
+    s.check('AMOUNT: an hour is the full glass, and a shorter one holds less by the square root of its time',
+            near(am.m60, 0.78) && near(am.m1, 0.78 * Math.sqrt(1 / 60)) && near(am.m5, 0.78 * Math.sqrt(5 / 60)) && near(am.m10, 0.78 * Math.sqrt(10 / 60)) &&
+            near(am.m15, 0.39) && near(am.m30, 0.78 * Math.sqrt(0.5)) && near(am.held, am.m1),
+            'of a bulb: 1 min ' + am.m1.toFixed(3) + ', 5 min ' + am.m5.toFixed(3) + ', 10 min ' + am.m10.toFixed(3) + ', 15 min ' + am.m15.toFixed(3) +
+            ', 30 min ' + am.m30.toFixed(3) + ', 60 min ' + am.m60.toFixed(3) + '; the one-minute glass in hand ' + am.held.toFixed(3));
+    s.check('AMOUNT: four times the time is twice the sand; over an hour the glass stays full; ten seconds is still a glass',
+            near(am.m4 / am.m1, 2) && near(am.m16 / am.m4, 2) && near(am.m64, 0.78) && near(am.m99, 0.78) && am.s10 > 0.03 && am.s10 < 0.05,
+            '4 min / 1 min ' + (am.m4 / am.m1).toFixed(3) + ', 16 / 4 ' + (am.m16 / am.m4).toFixed(3) + ', 64 min ' + am.m64.toFixed(3) + ', 99 min ' + am.m99.toFixed(3) + ', 10 s ' + am.s10.toFixed(3));
 
     /* ---- KEEP: another duration while it runs ------------------------------ */
     var g = await t.glass();
