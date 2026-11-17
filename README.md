@@ -1030,9 +1030,10 @@ node tools/test/app-gestures.test.js     # any single suite
   registered shape, the classic teardrop first as the reference, what the
   sand needs of the lattice at every size the app builds, the clock of a
   one-minute glass upright, leaned 12 degrees and on Finest sand, the fullest
-  glass fitting under the neck, the Flip, a pour, layered sand, and a hard
-  shake that must never write sand into the glass; and that glasses the sand
-  cannot use are refused by name and by rule.
+  glass fitting under the neck, the Flip, pours that fill it to exactly its
+  cap, layered sand, a hard shake that must never write sand into the glass,
+  and going quiet after hard jerks; and that glasses the sand cannot use are
+  refused by name, each by its own rule.
   (`HOURGLASS_SHAPE=cone node tools/test/sim-clock.test.js` runs any `sim-*`
   suite on another shape; many state what the teardrop does, so some of
   their cases then fail without anything being wrong.) The

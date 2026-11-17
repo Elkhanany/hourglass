@@ -106,13 +106,22 @@
   var SHAPE_EQ = {};
   function shapeEquator(s) {
     if (SHAPE_EQ[s.id] !== undefined && SHAPE_EQ[s.id].f === s.f) return SHAPE_EQ[s.id].u;
-    var N = 4096, k, v, m = -1, a = 0, b = 0;
+    var N = 4096, k, v, m = -1, a = -1, b = 0, u, lo, hi, x, y;
     for (k = 0; k < N; k++) { v = s.f(k / N); if (v > m) m = v; }
     for (k = 0; k < N; k++) {
-      if (s.f(k / N) >= m - 1e-9) { if (!b) a = k; b = k; }
+      if (s.f(k / N) >= m - 1e-9) { if (a < 0) a = k; b = k; }
     }
-    SHAPE_EQ[s.id] = { f: s.f, u: (a + b) / (2 * N) };
-    return SHAPE_EQ[s.id].u;
+    u = (a + b) / (2 * N);
+    // The top may lie between two samples: a glass that is widest at a corner
+    // has it nowhere else. Close in on it; a plateau gives nothing higher.
+    lo = Math.max(0, (a - 1) / N); hi = Math.min(1, (b + 1) / N);
+    for (k = 0; k < 60; k++) {
+      x = lo + (hi - lo) / 3; y = hi - (hi - lo) / 3;
+      if (s.f(x) < s.f(y)) lo = x; else hi = y;
+    }
+    if (s.f((lo + hi) / 2) > m + 1e-9) u = (lo + hi) / 2;
+    SHAPE_EQ[s.id] = { f: s.f, u: u };
+    return u;
   }
 
   /**
@@ -559,12 +568,15 @@
 
     // The classic teardrop is done: it takes 0.78 of its capacity from the
     // clock and 0.86 from pours with room to spare, as it always has. Another
-    // shape is checked first, then held to what fits under its neck: the
-    // clock's fullest glass leaves the thread 30 rows to fall, a pour 6.
+    // shape is checked first, then held to what it can take. Pours stop at
+    // what fits under its neck with 6 rows left for the thread to fall, or
+    // at what they can pile up under its end if that is less (a wide, flat
+    // end leaves its corners empty). The clock's fullest glass leaves the
+    // thread 30 rows, and never asks for more than pours could make.
     if (g.shape) {
       this._checkShape();
-      this.fillMax = Math.min(0.78, this._heapMax(Math.round(30 * PACE)) / cap);
-      this.maxTotal = Math.round(cap * Math.min(0.86, this._heapMax(Math.round(6 * PACE)) / cap));
+      this.maxTotal = Math.round(cap * Math.min(0.86, this._heapMax(Math.round(6 * PACE)) / cap, this._pileMax() / cap));
+      this.fillMax = Math.min(0.78, this._heapMax(Math.round(30 * PACE)) / cap, this.maxTotal / cap);
       this.defaultGrains = Math.round(cap * Math.min(0.62, this.fillMax));
     }
   };
@@ -580,6 +592,21 @@
       var y = gate + d, w = this.rowMax[y] - this.rowMin[y] + 1;
       if (w <= 0) break;
       sum += Math.min(w, span + 2 * (d - 1 - clear) / Math.tan(34 * Math.PI / 180));
+    }
+    return sum;
+  };
+
+  /**
+   * How many grains pours can put in the upper bulb: they fall in three rows
+   * under its end, 5.5 cells across (pour()), and lie as a pile of 34 degrees
+   * under that point. When the pile's top is back in those rows the bulb is
+   * full, whatever room is left beside it.
+   */
+  Sim.prototype._pileMax = function () {
+    var y0 = this.topY + 3, sum = 0;
+    for (var y = y0; y < this.gateY; y++) {
+      var w = this.rowMax[y] - this.rowMin[y] + 1;
+      if (w > 0) sum += Math.min(w, 5.5 * PACE + 2 * (y - y0) / Math.tan(34 * Math.PI / 180));
     }
     return sum;
   };
@@ -2935,7 +2962,10 @@
           if (li >= 0) { lx = (li % W) + 0.5; ly = ((li / W) | 0) + 0.5; }
         }
         if (li < 0) {
-          vx = 0; vy = 0;                                  // buried: wait
+          vx = 0; vy = 0;                                  // buried: rise, and look again
+          ci = (ly | 0) * W + (lx | 0);
+          k = this._climb(ci, oM, oL, oR);
+          if (k !== ci) { lx = (k % W) + 0.5; ly = ((k / W) | 0) + 0.5; }
         } else {
           var rollL = cell[li + oSL] === EMPTY &&
             (cell[li + oL] === EMPTY || (cell[li + oSL + oL] === EMPTY && cell[li + oSL + oL + oL] === EMPTY &&
@@ -2968,12 +2998,34 @@
           }
           continue;
         }
-        vx = 0; vy = 0;                                   // retry next step
+        vx = 0; vy = 0;                                   // nowhere to settle: rise if buried, and retry next step
+        ci = (ly | 0) * W + (lx | 0);
+        k = this._climb(ci, oM, oL, oR);
+        if (k !== ci) { lx = (k % W) + 0.5; ly = ((k / W) | 0) + 0.5; }
       }
       px[p] = lx; py[p] = ly; pvx[p] = vx; pvy[p] = vy;
       pinfo[p] = (info & K_MASK) | (bounces > 3 ? 3 : bounces);
     }
     this.rng = s || 0x9E3779B9;
+  };
+
+  /**
+   * A flying grain with sand all round it: a bed came down on it, deeper
+   * than _freeNear reaches. From cell i it goes up through the sand (against
+   * gravity: lattice offsets m, l, r as _particles has them), 14 cells at
+   * most, and tries again from there on the next step. Left to wait where it
+   * was, it waited for ever, and the glass never went quiet. Sand only: it
+   * cannot pass the glass, nor the closed neck.
+   */
+  Sim.prototype._climb = function (i, m, l, r) {
+    var cell = this.cell;
+    for (var k = 0; k < 14; k++) {
+      if (cell[i - m] >= REST) i -= m;
+      else if (cell[i - l] >= REST) i -= l;
+      else if (cell[i - r] >= REST) i -= r;
+      else break;
+    }
+    return i;
   };
 
   /** Hand a ballistic grain back to the lattice as a moving grain. */

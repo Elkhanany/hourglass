@@ -19,7 +19,11 @@
  *                          widest row within R, a funnel that opens by at most
  *                          a cell a row, an end wide enough to pour into, the
  *                          two bulbs mirror images; capacity 0.65 to 1.25 of
- *                          the classic; fillMax and maxTotal as specified
+ *                          the classic; the pour cap (maxTotal) is what fits
+ *                          under the neck with 6 rows of fall or what pours
+ *                          can pile up under the end, whichever is less
+ *                          (0.86 at most); fillMax is what fits with 30 rows
+ *                          of fall (0.78 at most), never above the pour cap
  *   every size             the same rules at the six sizes the app builds
  *                          (phone and tablet, classic, Fine and Finest sand)
  *   one minute             a one-minute glass run through its clock: census
@@ -31,17 +35,26 @@
  *                          keeps up; then all of it passed through
  *                          (fastForward): the heap's top stays 20 rows or
  *                          more under the neck
- *   leaned 12 degrees      for the whole one-minute run: at most 15 grains
- *                          above the neck at 00:00 (the classic leaves 1)
+ *   leaned 12 degrees      for the whole one-minute run: the neck never more
+ *                          than 40 grains behind, at most 15 grains above
+ *                          the neck at 00:00 (the classic leaves 1)
  *   the Flip               the button's turn at half run: census exact, and
  *                          the glass comes to rest
  *   a pour                 pour(300) into a 45-minute glass adds grains and
- *                          conserves them; a glass filled to its cap
- *                          (maxTotal) still passes all of it through the neck
+ *                          conserves them; pours fill the glass to exactly
+ *                          its cap (maxTotal), from a 45-minute glass and
+ *                          from a one-minute one (the sand then lies as a
+ *                          pile under the end), on several seeds each; filled
+ *                          to its cap either way, all of it still passes the
+ *                          neck
  *   a hard shake           3 s of 'veryVigorous' (lib/profiles.js), beds in
  *                          flight: census exact every step, and no cell of
  *                          glass ever becomes sand or sand glass (against the
  *                          wall map taken when the glass was built)
+ *   hard jerks             5 s of 'hardJerks' near the end of a run, then
+ *                          left alone: the glass goes quiet (a flying grain
+ *                          that a bed came down on climbs out of the sand;
+ *                          it used to wait under it for ever)
  *   layered sand           each tone's count kept through a run, the Flip, a
  *                          shake, a pour and a fast-forward
  *   Finest sand            the one-minute glass again at pace 2, scale 2.16
@@ -50,14 +63,35 @@
  *
  * and the controls:
  *
- *   refused                glasses the engine must not accept (two bulges, a
- *                          shallow funnel, a pinched end, an open neck, wider
- *                          than R) are refused by name and by rule
+ *   refused                a glass for each rule of the engine's check, and
+ *                          no other rule of it: an open neck, no bulb, a
+ *                          pinched row beside the neck, a waist before the
+ *                          widest part, two bulges, wider than R, a step at
+ *                          the neck, a flat shoulder, a funnel of 1.2 cells a
+ *                          row, a ledge in the funnel, a pinched end, bulbs
+ *                          that differ (and a shallow saucer, which breaks
+ *                          two). Each is refused by name, in that rule's own
+ *                          words
  *   the suite can tell     the two-bulge glass, let through unchecked and
  *                          shaken, has sand written into its glass
  *   a small glass          where less than 0.78 fits under the neck, fillMax
- *                          says so and the clock's fullest glass obeys it
+ *                          says so, the clock's fullest glass and a new
+ *                          Sim's own fill obey it, with Finest sand too (the
+ *                          fall left is 30 rows of it); the classic glass
+ *                          keeps 0.78 where that rule would give it less
+ *   a flat end             where pours cannot fill the corners beside their
+ *                          pile, the pour cap is the pile, the clock asks
+ *                          for no more, and pours reach exactly that (held to
+ *                          0.86 instead, they run dry short of it)
+ *   a bead                 a glass so small that 6 rows of fall bind its cap
  *   HOURGLASS_SHAPE        the test library's switch gives every Sim the shape
+ *
+ * What the running cases cannot see (so nobody loosens a lattice rule on their
+ * word): a flat shoulder right at the neck, and an end 7 cells wide. Let
+ * through unchecked, both keep their clock upright and leaned and pass every
+ * case here: the valve lifts grains off a shoulder across the whole row. Only
+ * the lattice rule holds them (see 'refused'). A funnel of 1.2 cells a row is
+ * seen by one case only, the leaned one: there the neck falls 62 grains behind.
  *
  *   node tools/test/sim-shape.test.js        exits 0 when every case passes
  */
@@ -121,6 +155,31 @@ function heapMax(sim, clear) {
     sum += Math.min(w, span + 2 * (y - sim.gateY - 1 - clear) / Math.tan(34 * Math.PI / 180));
   }
   return sum;
+}
+
+/** What pours can pile up under the end of the upper bulb, at 34 degrees from the three rows they fall in, in grains. */
+function pileMax(sim, pace) {
+  var sum = 0, y0 = sim.topY + 3;
+  for (var y = y0; y < sim.gateY; y++) {
+    var w = sim.rowMax[y] - sim.rowMin[y] + 1;
+    if (w > 0) sum += Math.min(w, 5.5 * pace + 2 * (y - y0) / Math.tan(34 * Math.PI / 180));
+  }
+  return sum;
+}
+/** The pour cap and the fill limit a glass that is not the classic one must have, from this suite's own sums. */
+function limits(sim, pace) {
+  var cap = sim.capacity;
+  var max = Math.round(cap * Math.min(0.86, heapMax(sim, Math.round(6 * pace)) / cap, pileMax(sim, pace) / cap));
+  return { maxTotal: max, fillMax: Math.min(0.78, heapMax(sim, Math.round(30 * pace)) / cap, max / cap) };
+}
+/** Pours of 300 grains until the glass is at its cap, or until 40 in a row, a good half second apart, have made nothing. */
+function pourFull(sim) {
+  var dry = 0;
+  while (sim.total < sim.maxTotal && dry < 40) {
+    if (sim.pour(300)) dry = 0; else { dry++; steps(sim, 60); }
+    steps(sim, 12);
+  }
+  steps(sim, 600);
 }
 
 /**
@@ -205,26 +264,57 @@ function clockRun(sim, durMs, lean, secs) {
   return r;
 }
 
-/** Shapes this suite makes up are registered only while fn runs. */
-function withShape(rec, fn) {
-  P.SHAPES[rec.id] = rec;
-  try { return fn(); } finally { delete P.SHAPES[rec.id]; }
+/** Shapes this suite makes up are registered only while fn runs (in PP, another copy of physics.js, when given). */
+function withShape(rec, fn, PP) {
+  (PP || P).SHAPES[rec.id] = rec;
+  try { return fn(); } finally { delete (PP || P).SHAPES[rec.id]; }
 }
 function dome(u, c, n) { var w = (u - c) / (1 - c); return w <= 0 ? 1 : Math.sqrt(Math.max(0, 1 - Math.pow(w, n))); }
+function cone(u, c) { return Math.min(1, u / c); }
+var asked = 2;                        // the u x-twist was last asked for
+// Each breaks one rule of the engine's check and no other (apart from x-beads,
+// whose funnel also opens too fast at the neck: the bulge rule comes first;
+// and from x-saucer, shallow all the way up: the row at the neck comes first).
+// The pattern is that rule's own wording, so no other rule can stand in for it.
 var BAD = [
-  [{ id: 'x-beads', name: 'two bulges', kR: 1, kH: 1,
-     f: function (u) { return Math.min(1, u / 0.25) * (1 - 0.45 * Math.exp(-Math.pow((u - 0.55) / 0.07, 2))) * dome(u, 0.85, 2.2); } }, /one bulge only/],
-  [{ id: 'x-saucer', name: 'a shallow funnel', kR: 1.1, kH: 0.72,
-     f: function (u) { return u <= 0.3 ? u / 0.3 : dome(u, 0.3, 2); } }, /funnel opens by \d+ cells/],
-  [{ id: 'x-pinch', name: 'an end pinched shut', kR: 1, kH: 1,
-     f: function (u) { return u <= 0.6 ? u / 0.6 : Math.max(0, (0.97 - u) / 0.37); } }, /too pointed to pour into/],
   [{ id: 'x-open', name: 'an open neck', kR: 1, kH: 1,
-     f: function (u) { return 0.1 + 0.9 * Math.min(1, u / 0.7) * dome(u, 0.8, 2); } }, /its neck is \d+ cells wide/],
+     f: function (u) { return 0.1 + 0.9 * cone(u, 0.7) * dome(u, 0.8, 2); } }, /its neck is 25 cells wide, not 7/],
+  [{ id: 'x-tube', name: 'no bulb', kR: 1, kH: 1,
+     f: function (u) { return u < 0.01 ? 0 : -1; } }, /it has no bulb/],
+  [{ id: 'x-collar', name: 'a pinched row beside the neck', kR: 1, kH: 1,
+     f: function (u) { return u > 0 && u < 0.006 ? -0.02 : cone(u, 0.6) * dome(u, 0.8, 2.2); } }, /the rows beside the neck are narrower than the neck/],
+  [{ id: 'x-waist', name: 'a waist before the widest part', kR: 1, kH: 1,
+     f: function (u) { return cone(u, 0.9) * (1 - 0.2 * Math.exp(-Math.pow((u - 0.4) / 0.066, 2))) * dome(u, 0.9, 2); } }, /it narrows again between the neck and its widest row/],
+  [{ id: 'x-beads', name: 'two bulges', kR: 1, kH: 1,
+     f: function (u) { return cone(u, 0.25) * (1 - 0.45 * Math.exp(-Math.pow((u - 0.55) / 0.07, 2))) * dome(u, 0.85, 2.2); } }, /it widens again beyond its widest row/],
   [{ id: 'x-fat', name: 'wider than R', kR: 1, kH: 1,
-     f: function (u) { return 1.05 * Math.min(1, u / 0.7) * dome(u, 0.8, 2); } }, /wider than R/]
+     f: function (u) { return 1.05 * cone(u, 0.7) * dome(u, 0.8, 2); } }, /its widest row is 199 cells, wider than R = 95 allows/],
+  [{ id: 'x-step', name: 'a step at the neck', kR: 1, kH: 1,
+     f: function (u) { return u <= 0 ? 0 : Math.min(1, 0.03 + u / 0.6) * dome(u, 0.8, 2.2); } }, /its funnel opens by 3 cells in one row at the neck/],
+  [{ id: 'x-shoulder', name: 'a flat shoulder', kR: 0.8, kH: 1,
+     f: function (u) { return u < 0.004 ? 0 : dome(u, 0.8, 2.2); } }, /its funnel opens by 72 cells in one row at the neck/],
+  // (R 76 and HB 222 at this scale: 1.2 cells a row is f' = 1.2 * 222 / 72.5; legal in the row at the neck)
+  [{ id: 'x-funnel12', name: 'a funnel of 1.2 cells a row', kR: 0.8, kH: 1,
+     f: function (u) { return cone(u, 72.5 / (1.2 * 222)) * dome(u, 0.8, 2.2); } }, /its funnel opens by 2 cells in one row \(row 223;/],
+  [{ id: 'x-ledge', name: 'a ledge in the funnel', kR: 1, kH: 1,
+     f: function (u) { return (u < 0.3 ? u / 0.6 : Math.min(1, 0.5 + 3 / 91.5 + (u - 0.3) / 0.6)) * dome(u, 0.7, 2.2); } }, /its funnel opens by 4 cells in one row \(row 159;/],
+  [{ id: 'x-saucer', name: 'a shallow saucer', kR: 1.1, kH: 0.72,
+     f: function (u) { return u <= 0.3 ? u / 0.3 : dome(u, 0.3, 2); } }, /its funnel opens by 2 cells in one row at the neck/],
+  [{ id: 'x-pinch', name: 'an end pinched shut', kR: 1, kH: 1,
+     f: function (u) { return u <= 0.6 ? u / 0.6 : Math.max(0, (0.97 - u) / 0.37); } }, /its end is 7 cells wide 3 rows in, too pointed to pour into/],
+  // (an f that is not a function of u alone: 3 % narrower whenever u has gone up since it was last asked, as it does down the lower bulb)
+  [{ id: 'x-twist', name: 'bulbs that differ', kR: 1, kH: 1,
+     f: function (u) { var up = u > asked; asked = u; return cone(u, 0.6) * dome(u, 0.8, 2.2) * (up ? 0.97 : 1); } }, /its two bulbs are not mirror images/]
 ];
+function bad(id) { return BAD.filter(function (b) { return b[0].id === id; })[0][0]; }
 // a low, stubby glass that passes: at a small scale less than 0.78 of it fits under the neck
 var STUB = { id: 'x-stub', name: 'a stub', kR: 0.9, kH: 0.62, f: function (u) { return u <= 0.72 ? u / 0.72 : dome(u, 0.72, 2.2); } };
+// a cone that ends flat at its widest: pours leave the corners beside their pile empty
+var FLAT = { id: 'x-flat', name: 'a flat end', kR: 1, kH: 0.8, f: function (u) { return cone(u, 0.8); } };
+// two cones base to base, to be built very small: a funnel of a cell a row, and all of it within reach of a pile
+var BEAD = { id: 'x-bead', name: 'a bead', kR: 0.76, kH: 0.6, f: function (u) { return u <= 0.5 ? u / 0.5 : 1 - 0.75 * (u - 0.5) / 0.5; } };
+// widest at a corner, u = 0.6, which no even run of samples of f lands on
+var KITE = { id: 'x-kite', name: 'a kite', kR: 1, kH: 1, f: function (u) { return u <= 0.6 ? u / 0.6 : (1 - u) / 0.4; } };
 
 /* ---- the classic glass, and the registry ----------------------------------- */
 
@@ -259,13 +349,15 @@ test('the classic glass: makeGeometry(1.08) and profile() give the numbers they 
 
 test('the classic glass: its lattice, capacity, pour cap and fill limit are untouched, at every pace', function () {
   var out = [];
-  [1.08, 1.3].forEach(function (q) {
+  // (0.5: a glass half the phone's size, where the rule for other shapes would give 0.7495, not 0.78)
+  [0.5, 1.08, 1.3].forEach(function (q) {
     var a = new Sim({ scale: q, seed: 3, shape: 'classic' }), b = new base.Sim({ scale: q, seed: 3 }), c = new Sim({ scale: q, seed: 3, shape: null }), i;
     ok(a.W === b.W && a.H === b.H, 'grid ' + a.W + 'x' + a.H + ', f446085 has ' + b.W + 'x' + b.H);
     for (i = 0; i < a.cell.length; i++) ok(a.cell[i] === b.cell[i] && c.cell[i] === b.cell[i] && a.seed[i] === b.seed[i], 'cell ' + i + ' differs from f446085 at scale ' + q);
     ok(a.rng === b.rng, 'the random stream differs from f446085 after the fill');
     ok(a.capacity === b.capacity && a.maxTotal === b.maxTotal && a.defaultGrains === b.defaultGrains, 'capacity, maxTotal or defaultGrains differ from f446085 at scale ' + q);
-    ok(a.fillMax === 0.78 && a.geo.shape === null, 'fillMax ' + a.fillMax);
+    ok(a.fillMax === 0.78 && c.fillMax === 0.78 && a.geo.shape === null, 'fillMax ' + a.fillMax + ' at scale ' + q);
+    if (q === 0.5) ok(heapMax(a, 30) / a.capacity < 0.76, 'at scale 0.5 the heap rule gives the classic glass ' + f3(heapMax(a, 30) / a.capacity) + ': this size no longer tells the constant from the rule');
     [60000, 300000, 2700000, 7200000].forEach(function (ms) {
       ok(Clock.grainsFor(a, ms) === Clock.grainsFor(b, ms), 'grainsFor(' + ms + ') is ' + Clock.grainsFor(a, ms) + ', f446085 gets ' + Clock.grainsFor(b, ms));
     });
@@ -276,14 +368,15 @@ test('the classic glass: its lattice, capacity, pour cap and fill limit are unto
   [Math.SQRT2, 1.414, 2].forEach(function (p) {
     var PP = L.loadIsolated(SRC, 'physics.js');
     PP.Sim.setPace(p);
-    [1.08, 1.3].forEach(function (q) {
+    [0.5, 1.08, 1.3].forEach(function (q) {
       var s = new PP.Sim({ scale: q * p, seed: 3 });
       ok(s.maxTotal === Math.round(s.capacity * 0.86) && s.defaultGrains === Math.round(s.capacity * 0.62) && s.fillMax === 0.78,
         'pace ' + p + ', scale ' + q + ': maxTotal ' + s.maxTotal + ', defaultGrains ' + s.defaultGrains + ', fillMax ' + s.fillMax);
+      if (q === 0.5) ok(heapMax(s, Math.round(30 * p)) / s.capacity < 0.77, 'pace ' + p + ', scale 0.5: the heap rule gives ' + f3(heapMax(s, Math.round(30 * p)) / s.capacity) + ': this size no longer tells');
       ok(latticeFault(s, p) === '', 'pace ' + p + ', scale ' + q + ': ' + latticeFault(s, p));
     });
   });
-  return out.join('; ') + '; fillMax 0.78; the same at paces 1.414 and 2';
+  return out.join('; ') + '; fillMax 0.78 at each, also where the heap rule would give less; the same at paces 1.414 and 2';
 });
 
 test('the registry: every record is whole, its f pure, 0 at the neck and 1 at its widest; an unknown id is refused', function () {
@@ -305,7 +398,16 @@ test('the registry: every record is whole, its f pure, 0 at the neck and 1 at it
     ok(g.shape === s && g.R === Math.round(88 * Q * s.kR) && g.HB === Math.round(206 * Q * s.kH), id + ': R ' + g.R + ', HB ' + g.HB);
     ok(g.W === 2 * (g.R + 8) + 1 && g.H === 2 * (g.HB + 4) + 1 && g.RN === 3.5 && g.gateY === (g.H - 1) / 2, id + ': grid ' + g.W + 'x' + g.H);
     ok(s.f(g.equator) > 1 - 1e-6, id + ': equator ' + g.equator + ' is not where f is largest (' + at + ')');
+    // ... and the middle of it, where the widest part is a plateau
+    var lo = -1, hi = -1;
+    for (k = 0; k <= 5000; k++) if (s.f(k / 5000) >= m - 1e-9) { if (lo < 0) lo = k; hi = k; }
+    ok(Math.abs(g.equator - (lo + hi) / 10000) <= 5e-4, id + ': equator ' + g.equator + ' is not the middle of its widest part, u = ' + lo / 5000 + ' to ' + hi / 5000);
     ok(P.profile(0, g) === g.RN && P.profile(1, g) === 0 && P.profile(-1, g) === g.RN && P.profile(g.equator, g) > g.R - 1e-4, id + ': profile at the neck, the end or the equator');
+  });
+  // a glass widest at a corner has its equator there, though no sample of f falls on it
+  withShape(KITE, function () {
+    var e = P.makeGeometry(Q, KITE.id).equator;
+    ok(Math.abs(e - 0.6) < 1e-9 && KITE.f(e) > 1 - 1e-6 && P.makeGeometry(1.3, KITE.id).equator === e, 'the kite\'s equator is ' + e + ' (f there: ' + KITE.f(e) + '), its corner is at 0.6');
   });
   var threw = 0;
   ['nope', 'Classic', '', 'toString', 7].forEach(function (id) {
@@ -333,28 +435,35 @@ IDS.forEach(function (id) {
     ok(fault === '', fault);
     if (classic) classicCap = cap;
     ok(classicCap > 0 && cap >= 0.65 * classicCap && cap <= 1.25 * classicCap, 'capacity ' + cap + ' is ' + f3(cap / classicCap) + ' of the classic glass (0.65 to 1.25)');
-    var share = heapMax(sim, 30) / cap, share6 = heapMax(sim, 6) / cap;
-    ok(sim.fillMax === Math.min(0.78, share), 'fillMax is ' + sim.fillMax + ', ' + f3(share) + ' of it fits under the neck with 30 rows of fall');
-    ok(sim.maxTotal === Math.round(cap * Math.min(0.86, share6)), 'maxTotal is ' + sim.maxTotal + ', ' + f3(share6) + ' of ' + cap + ' fits with 6 rows of fall');
-    if (classic) ok(sim.fillMax === 0.78 && sim.maxTotal === Math.round(cap * 0.86), 'the classic glass: fillMax ' + sim.fillMax + ', maxTotal ' + sim.maxTotal);
+    var share = heapMax(sim, 30) / cap, share6 = heapMax(sim, 6) / cap, pile = pileMax(sim, 1) / cap;
+    var want = classic ? { fillMax: 0.78, maxTotal: Math.round(cap * 0.86) } : limits(sim, 1);
+    ok(sim.maxTotal === want.maxTotal, 'maxTotal is ' + sim.maxTotal + ' of ' + cap + ': ' + f3(share6) + ' of it fits under the neck with 6 rows of fall, pours pile up ' + f3(pile));
+    ok(sim.fillMax === want.fillMax, 'fillMax is ' + sim.fillMax + ': ' + f3(share) + ' fits under the neck with 30 rows of fall, the pour cap is ' + f3(sim.maxTotal / cap));
     ok(sim.defaultGrains === Math.round(cap * Math.min(0.62, sim.fillMax)) && sim.total === sim.defaultGrains, 'defaultGrains ' + sim.defaultGrains + ', filled with ' + sim.total);
+    // the clock's fullest glass is laid whole (reset holds a fill to the pour cap), and what fits under the neck is not exceeded by either
+    var full = Clock.grainsFor(sim, 4 * 3600000);
+    sim.reset(full);
+    ok(full === Math.round(cap * sim.fillMax) && sim.total === full && full <= sim.maxTotal, 'a four-hour glass asks for ' + full + ' grains, ' + sim.total + ' were laid, the pour cap is ' + sim.maxTotal);
+    ok(sim.fillMax <= share && sim.maxTotal <= Math.round(cap * share6), 'fillMax ' + sim.fillMax + ' or maxTotal ' + sim.maxTotal + ' is more than fits under the neck (' + f3(share) + ', ' + f3(share6) + ')');
     return sim.W + 'x' + sim.H + ', ' + cap + ' cells (' + f3(cap / classicCap) + ' of the classic), widest at u = ' + sim.geo.equator.toFixed(2) + '; ' + f3(share) +
-      ' fits under the neck with 30 rows of fall: fillMax ' + sim.fillMax + ', maxTotal ' + sim.maxTotal;
+      ' fits under the neck with 30 rows of fall, pours pile up ' + f3(pile) + ': fillMax ' + sim.fillMax + ', maxTotal ' + sim.maxTotal + ' (' + f3(sim.maxTotal / cap) + ')';
   });
 
   test(id + ': the same rules hold at every size the app builds', function () {
-    var n = 0;
+    var n = 0, out = [];
     [1, Math.SQRT2, 2].forEach(function (p) {
       var PP = p > 1 ? finer(p) : P;
       [1.08, 1.3].forEach(function (q) {
         var sim = glass(id, 1, PP, q * p), fault = latticeFault(sim, p);
         ok(fault === '', 'scale ' + q + ', pace ' + p.toFixed(3) + ': ' + fault);
-        ok(sim.fillMax === Math.min(0.78, heapMax(sim, Math.round(30 * p)) / sim.capacity) && sim.maxTotal === Math.round(sim.capacity * Math.min(0.86, heapMax(sim, Math.round(6 * p)) / sim.capacity)),
-          'scale ' + q + ', pace ' + p.toFixed(3) + ': fillMax ' + sim.fillMax + ', maxTotal ' + sim.maxTotal);
+        var want = classic ? { fillMax: 0.78, maxTotal: Math.round(sim.capacity * 0.86) } : limits(sim, p);
+        ok(sim.fillMax === want.fillMax && sim.maxTotal === want.maxTotal,
+          'scale ' + q + ', pace ' + p.toFixed(3) + ': fillMax ' + sim.fillMax + ', maxTotal ' + sim.maxTotal + ' (this suite\'s sums give ' + want.fillMax + ' and ' + want.maxTotal + ')');
+        out.push(f3(sim.maxTotal / sim.capacity));
         n++;
       });
     });
-    return n + ' sizes';
+    return n + ' sizes; the pour cap is ' + out.join(', ') + ' of capacity';
   });
 
   test(id + ': a one-minute glass keeps its clock', function () {
@@ -382,6 +491,7 @@ IDS.forEach(function (id) {
   test(id + ': leaned 12 degrees for the whole minute, it still empties on time', function () {
     var sim = glass(id, 99), r = clockRun(sim, 60000, 12);
     ok(r.censusBad === 0, 'the census was wrong ' + r.censusBad + ' times');
+    ok(r.maxLag <= 40, 'leaned, the neck fell ' + r.maxLag + ' grains behind the clock (at most 40; the classic glass reads 0, a funnel of 1.2 cells a row 62)');
     ok(r.left >= 0 && r.left <= 15, r.left + ' grains above the neck at 00:00 (at most 15; the classic glass leaves 1)');
     return r.left + ' above the neck at 00:00, the neck at most ' + r.maxLag + ' behind';
   });
@@ -423,19 +533,29 @@ IDS.forEach(function (id) {
       if (k % 30 === 29 && !censusOk(sim)) bad++;
     }
     ok(bad === 0 && sim.np === 0 && sim.total === total + made, 'the census was wrong ' + bad + ' times; ' + sim.np + ' grains still in the air after 5 s');
-    // to the cap, in pours, then all of it through the neck
-    var guard = 0;
-    while (sim.total < sim.maxTotal && guard++ < 400) {
-      if (!sim.pour(300)) steps(sim, 60);
-      steps(sim, 12);
-    }
-    steps(sim, 600);
+    // to the cap, in pours
+    pourFull(sim);
     ok(sim.total === sim.maxTotal && sim.np === 0 && censusOk(sim), 'pours filled it to ' + sim.total + ' of ' + sim.maxTotal + ' grains (' + sim.np + ' in the air)');
     ok(sim.pour(300) === 0, 'a pour into a glass at its cap made grains');
-    var above = sim.nTop, moved = sim.fastForward(above);
-    steps(sim, 600);
-    ok(moved === above && sim.nTop === 0 && censusOk(sim), 'filled to its cap, only ' + moved + ' of ' + above + ' grains passed the neck');
-    return 'pour(300) made ' + made + '; filled to its cap of ' + sim.maxTotal + ' by pours, all of it passes: the heap ends ' + heapTop(sim) + ' rows under the neck';
+    // and on other seeds, and from a one-minute glass: the sand then lies as a pile under the end, with room beside it
+    var pile = null, runs = 1;
+    [[2, 2700000], [4, 2700000], [1, 60000], [2, 60000], [3, 60000], [4, 60000]].forEach(function (c) {
+      var s = glass(id, c[0]);
+      s.reset(Clock.grainsFor(s, c[1]));
+      steps(s, 300);
+      pourFull(s);
+      ok(s.total === s.maxTotal && s.np === 0 && censusOk(s), 'seed ' + c[0] + ', from a ' + c[1] / 60000 + '-minute glass: pours stopped at ' + s.total + ' of ' + s.maxTotal + ' grains (' + (s.maxTotal - s.total) + ' short)');
+      runs++;
+      if (!pile && c[1] === 60000) pile = s;
+    });
+    // all of it through the neck, from the level fill and from the pile
+    var tops = [sim, pile].map(function (s) {
+      var above = s.nTop, moved = s.fastForward(above);
+      steps(s, 600);
+      ok(moved === above && s.nTop === 0 && censusOk(s), 'filled to its cap, only ' + moved + ' of ' + above + ' grains passed the neck');
+      return heapTop(s);
+    });
+    return 'pour(300) made ' + made + '; pours filled it to its cap of ' + sim.maxTotal + ' exactly in ' + runs + ' runs (45-minute and one-minute glasses, seeds 1 to 4); all of it passes: the heap ends ' + tops.join(' and ') + ' rows under the neck';
   });
 
   test(id + ': shaken hard for 3 s, no sand is lost and none is written into the glass', function () {
@@ -453,6 +573,28 @@ IDS.forEach(function (id) {
     steps(sim, 600);
     ok(censusOk(sim), 'the census is wrong after the shake');
     return sim.total + ' grains, up to ' + rec.maxAir + ' columns in the air, ' + rec.thumps + ' landings heard, ' + rec.slams + ' slams; census exact at every step, the glass untouched';
+  });
+
+  test(id + ': after hard jerks near the end of its run, left alone, the glass goes quiet', function () {
+    // (seeds on which the classic glass, and the slim one, kept a grain waiting under a landed bed for ever)
+    var out = [], flew = 0;
+    [4, 9, 10, 31].forEach(function (seed) {
+      var sim = glass(id, seed), run = H.glassAt({ sim: sim, durMs: 300000, startMs: 270000 }), k, rest = -1;
+      var rec = H.drive(run, 'hardJerks', { dur: 5, armed: false, census: 30 });
+      flew += rec.maxAir;
+      sim.setMotion(0, 0, 0, 0, H.LAM, 0); sim.gateOpen = false;
+      for (k = 0; k < 1200; k++) {
+        if ((k & 1) === 0) sim.beginFrame();
+        sim.step();
+        if (rest < 0 && sim.np === 0 && sim.quiet >= 24) rest = (k + 1) * DT;
+      }
+      ok(rec.censusErr === 0 && rec.conserveErr === 0 && censusOk(sim), 'seed ' + seed + ': the census was off by ' + rec.censusErr + ' in the jerks, or is wrong after them');
+      ok(rest >= 0 && !sim.isActive(), 'seed ' + seed + ': not quiet 10 s after the jerks: ' + sim.np + ' grains in the air' +
+        (sim.np ? ', one at rest inside the sand at ' + sim.px[0].toFixed(1) + ', ' + sim.py[0].toFixed(1) + ' (the floor is row ' + (sim.H - 6) + ')' : ''));
+      out.push(rest.toFixed(2));
+    });
+    ok(flew > 200, 'the beds never left the glass in the jerks (' + flew + ' columns in the air): this case could not tell');
+    return 'quiet ' + out.join(', ') + ' s after the jerks (seeds 4, 9, 10, 31), census exact';
   });
 
   test(id + ': layered sand keeps each tone\'s count through a run, the Flip, a shake, a pour and a fast-forward', function () {
@@ -530,7 +672,7 @@ test('glasses the sand cannot use are refused, by name and by rule', function ()
 });
 
 test('the suite can tell: a two-bulge glass, let through unchecked and shaken, has sand written into its glass', function () {
-  var rec0 = BAD[0][0], saved = Sim.prototype._checkShape;
+  var rec0 = bad('x-beads'), saved = Sim.prototype._checkShape;
   return withShape(rec0, function () {
     var sim;
     Sim.prototype._checkShape = function () {};
@@ -548,19 +690,18 @@ test('the suite can tell: a two-bulge glass, let through unchecked and shaken, h
   });
 });
 
-test('a small glass that fits less than 0.78 under its neck says so, and the clock\'s fullest glass obeys', function () {
-  return withShape(STUB, function () {
+test('a small glass that fits less than 0.78 under its neck says so, and the clock\'s fullest glass obeys; with Finest sand too', function () {
+  var out = withShape(STUB, function () {
     var sim = new Sim({ scale: 0.6, seed: 5, shape: STUB.id }), cap = sim.capacity, share = heapMax(sim, 30) / cap;
     ok(latticeFault(sim, 1) === '', latticeFault(sim, 1));
-    ok(share < 0.75, 'the stub fits ' + f3(share) + ' under its neck: it no longer tells');
+    ok(share < 0.62, 'the stub fits ' + f3(share) + ' under its neck: it no longer tells');
     ok(sim.fillMax === share, 'fillMax is ' + sim.fillMax + ', ' + share + ' fits');
-    ok(sim.maxTotal === Math.round(cap * Math.min(0.86, heapMax(sim, 6) / cap)), 'maxTotal ' + sim.maxTotal);
+    ok(sim.maxTotal === limits(sim, 1).maxTotal && sim.maxTotal > Math.round(cap * share), 'maxTotal ' + sim.maxTotal);
+    // the fill a new Sim is laid with is held to it too (0.62 of capacity otherwise)
+    ok(sim.defaultGrains === Math.round(cap * share) && sim.total === sim.defaultGrains, 'a new Sim holds ' + sim.total + ' grains, defaultGrains is ' + sim.defaultGrains + ', ' + Math.round(cap * share) + ' fit');
     var n = Clock.grainsFor(sim, 4 * 3600000);
     ok(n === Math.round(cap * share), 'a four-hour glass takes ' + n + ' grains, ' + Math.round(cap * share) + ' fit');
     ok(Clock.grainsFor(sim, 60000) === Math.round(cap * 0.36), 'a one-minute glass takes ' + Clock.grainsFor(sim, 60000));
-    // the classic glass of that size is held to 0.78 as it always was
-    var c = new Sim({ scale: 0.6, seed: 5, shape: 'classic' });
-    ok(c.fillMax === 0.78 && Clock.grainsFor(c, 4 * 3600000) === Math.round(c.capacity * 0.78), 'the classic glass at scale 0.6: fillMax ' + c.fillMax);
     sim.reset(n);
     steps(sim, 300);
     var moved = sim.fastForward(sim.nTop);
@@ -568,8 +709,80 @@ test('a small glass that fits less than 0.78 under its neck says so, and the clo
     var top = heapTop(sim);
     ok(moved === n && sim.nTop === 0 && censusOk(sim), 'only ' + moved + ' of ' + n + ' grains passed the neck');
     ok(top >= 20, 'its fullest glass ends ' + top + ' rows under the neck (at least 20)');
-    return 'scale 0.6, ' + cap + ' cells: fillMax ' + f3(sim.fillMax) + '; its fullest glass, ' + n + ' grains, ends ' + top + ' rows under the neck';
+    return 'scale 0.6, ' + cap + ' cells: fillMax ' + f3(sim.fillMax) + ', a new Sim holds ' + sim.defaultGrains + '; its fullest glass, ' + n + ' grains, ends ' + top + ' rows under the neck';
   });
+  // Finest sand: the fall left is 30 rows of it, 60 cells. The same glass, twice the cells across.
+  var PP = finer(2);
+  out += withShape(STUB, function () {
+    var s = new PP.Sim({ scale: 1.2, seed: 5, shape: STUB.id }), cap = s.capacity, share = heapMax(s, 60) / cap;
+    ok(latticeFault(s, 2) === '', latticeFault(s, 2));
+    ok(share < 0.62 && heapMax(s, 30) / cap > 0.8, 'at pace 2 the stub fits ' + f3(share) + ' with 60 cells of fall, ' + f3(heapMax(s, 30) / cap) + ' with 30: it no longer tells them apart');
+    ok(s.fillMax === share, 'pace 2: fillMax is ' + s.fillMax + ', ' + share + ' fits with 60 cells of fall');
+    ok(s.maxTotal === limits(s, 2).maxTotal, 'pace 2: maxTotal ' + s.maxTotal);
+    ok(s.defaultGrains === Math.round(cap * share) && s.total === s.defaultGrains, 'pace 2: a new Sim holds ' + s.total + ' grains, ' + Math.round(cap * share) + ' fit');
+    return '; with Finest sand (pace 2, scale 1.2, ' + cap + ' cells) fillMax ' + f3(s.fillMax);
+  }, PP);
+  // the classic glass is held to 0.78 as it always was, also where this rule would give it less (0.7495 at scale 0.5)
+  base = base || L.baseline();
+  [0.5, 0.6].forEach(function (q) {
+    var c = new Sim({ scale: q, seed: 5, shape: 'classic' }), b = new base.Sim({ scale: q, seed: 5 }), ms = 4 * 3600000;
+    ok(c.fillMax === 0.78 && Clock.grainsFor(c, ms) === Math.round(c.capacity * 0.78) && Clock.grainsFor(c, ms) === Clock.grainsFor(b, ms) && c.maxTotal === b.maxTotal && c.total === b.total,
+      'the classic glass at scale ' + q + ': fillMax ' + c.fillMax + ', a four-hour glass ' + Clock.grainsFor(c, ms) + ' grains (f446085: ' + Clock.grainsFor(b, ms) + ')');
+  });
+  return out + '; the classic glass keeps 0.78 at scales 0.5 and 0.6';
+});
+
+test('a flat-ended glass is held to what pours can pile up under its end, and the clock asks for no more', function () {
+  return withShape(FLAT, function () {
+    var sim = new Sim({ scale: Q, seed: 5, shape: FLAT.id }), cap = sim.capacity;
+    var pile = pileMax(sim, 1) / cap, share = heapMax(sim, 30) / cap, share6 = heapMax(sim, 6) / cap;
+    ok(latticeFault(sim, 1) === '', latticeFault(sim, 1));
+    ok(pile < 0.75 && share > 0.8 && share6 > 0.9, 'pours pile up ' + f3(pile) + ' of it, ' + f3(share) + ' and ' + f3(share6) + ' fit under its neck: it no longer tells');
+    ok(sim.maxTotal === Math.round(cap * pile), 'maxTotal is ' + sim.maxTotal + ', pours pile up ' + Math.round(cap * pile));
+    ok(sim.fillMax === sim.maxTotal / cap, 'fillMax is ' + sim.fillMax + ', the pour cap is ' + sim.maxTotal / cap + ' of capacity');
+    // the clock's fullest glass is the pour cap, laid whole, and takes no more
+    var n = Clock.grainsFor(sim, 4 * 3600000);
+    sim.reset(n);
+    steps(sim, 300);
+    ok(n === sim.maxTotal && sim.total === n && sim.pour(300) === 0, 'a four-hour glass asks for ' + n + ' grains, ' + sim.total + ' were laid, the cap is ' + sim.maxTotal);
+    // pours reach it from a one-minute glass, exactly, and all of it passes the neck
+    [1, 2, 3].forEach(function (seed) {
+      var s = new Sim({ scale: Q, seed: seed, shape: FLAT.id });
+      s.reset(Clock.grainsFor(s, 60000));
+      steps(s, 300);
+      pourFull(s);
+      ok(s.total === s.maxTotal && s.np === 0 && censusOk(s), 'seed ' + seed + ': pours stopped at ' + s.total + ' of ' + s.maxTotal + ' grains');
+      var above = s.nTop, moved = s.fastForward(above);
+      steps(s, 600);
+      ok(moved === above && s.nTop === 0 && censusOk(s), 'seed ' + seed + ': only ' + moved + ' of ' + above + ' grains passed the neck');
+    });
+    // and this glass tells: held to 0.86 of its capacity, as the classic glass is, the pours run dry short of it
+    var old = new Sim({ scale: Q, seed: 1, shape: FLAT.id });
+    old.maxTotal = Math.round(cap * 0.86);
+    old.reset(Clock.grainsFor(old, 60000));
+    steps(old, 300);
+    pourFull(old);
+    ok(old.total < old.maxTotal - 0.05 * cap && old.total >= sim.maxTotal && censusOk(old), 'held to 0.86, the pours stopped at ' + old.total + ' of ' + old.maxTotal + ': this glass could not tell');
+    return cap + ' cells: pours pile up ' + f3(pile) + ' of it: maxTotal ' + sim.maxTotal + ', fillMax ' + f3(sim.fillMax) + '; pours from a one-minute glass reach it exactly (3 seeds); held to 0.86 they run dry ' +
+      (old.maxTotal - old.total) + ' grains short, at ' + f3(old.total / cap);
+  });
+});
+
+test('a bead of a glass is held to what fits under its neck with 6 rows of fall, of the sand it holds', function () {
+  var out = [];
+  [1, 2].forEach(function (p) {
+    var PP = p > 1 ? finer(p) : P;
+    withShape(BEAD, function () {
+      var s = new PP.Sim({ scale: 0.3 * p, seed: 5, shape: BEAD.id }), cap = s.capacity;
+      var share = heapMax(s, Math.round(6 * p)) / cap, pile = pileMax(s, p) / cap;
+      ok(latticeFault(s, p) === '', 'pace ' + p + ': ' + latticeFault(s, p));
+      ok(share < 0.85 && pile > 0.86 && (p === 1 || heapMax(s, 6) / cap > 0.86), 'pace ' + p + ': ' + f3(share) + ' fits under its neck with ' + Math.round(6 * p) + ' cells of fall, pours pile up ' + f3(pile) + ': it no longer tells');
+      ok(s.maxTotal === Math.round(cap * share), 'pace ' + p + ': maxTotal is ' + s.maxTotal + ', ' + Math.round(cap * share) + ' fit under the neck');
+      ok(s.fillMax === limits(s, p).fillMax && Math.round(cap * s.fillMax) <= s.maxTotal, 'pace ' + p + ': fillMax ' + s.fillMax);
+      out.push('pace ' + p + ', scale ' + 0.3 * p + ', ' + cap + ' cells: ' + f3(share) + ' fits, maxTotal ' + s.maxTotal);
+    }, PP);
+  });
+  return out.join('; ');
 });
 
 test('HOURGLASS_SHAPE gives every Sim of a suite the shape, unless the suite names one', function () {
