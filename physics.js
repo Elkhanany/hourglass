@@ -66,41 +66,149 @@
    * no second waist (a bed in flight moves whole columns), and an end wide
    * enough to pour into. f must be a pure function of u.
    */
+  // What the shapes below are drawn with. A funnel and a closing curve meet
+  // in a rounded corner (shMin); a curve built that way is then scaled so its
+  // widest point is exactly 1 (shUnit).
+  /** The smaller of two positive numbers, with the corner where they cross rounded off (k large: a tight corner). */
+  function shMin(a, b, k) {
+    if (a <= 0 || b <= 0) return 0;
+    return Math.pow(Math.pow(a, -k) + Math.pow(b, -k), -1 / k);
+  }
+  /**
+   * The curve g scaled so that its largest value is 1, and 0 at both ends.
+   * Its largest value is looked for once, the first time the shape is asked
+   * for: a page that never shows the glass never pays for it.
+   */
+  function shUnit(g) {
+    var m = 0;
+    return function (u) {
+      if (u <= 0) return 0;
+      if (u >= 1) return 0;
+      if (!m) {
+        for (var k = 1, N = 20000, v; k < N; k++) { v = g(k / N); if (v > m) m = v; }
+      }
+      var x = g(u) / m;
+      return x > 1 ? 1 : (x < 0 ? 0 : x);
+    };
+  }
+  /** The closing curve of a bulb: 1 until u = c, 0 at u = 1; n shapes the shoulder, e the end (1/2: an ellipse). */
+  function shClose(u, c, n, e) {
+    if (u <= c) return 1;
+    var w = (u - c) / (1 - c);
+    if (w >= 1) return 0;
+    return Math.pow(1 - Math.pow(w, n), e);
+  }
+  /** A funnel that leaves the neck with slope a and arrives level at t = 1 (a cubic). */
+  function shSwell(t, a) { return t * (a + t * ((3 - 2 * a) + t * (a - 2))); }
+  /** The rounded end: 1 until late, then a quarter round to 0 at w = 1 (m large: later and tighter). */
+  function shTip(w, m) { return w >= 1 ? 0 : Math.sqrt(1 - Math.pow(w, m)); }
+  /**
+   * An ogee: 1 at w = 0, a round shoulder, then a hollow sweep down to k.
+   * p moves the turn; a < 1 stops the sweep while it is still falling.
+   */
+  function shOgee(w, k, p, a) {
+    if (w <= 0) return 1;
+    if (w >= 1) return k;
+    a = a || 1;
+    var lo = Math.cos(Math.PI * a);
+    return k + (1 - k) * (Math.cos(Math.PI * a * Math.pow(w, p)) - lo) / (1 - lo);
+  }
+  /**
+   * A funnel drawn as its slope: knots [u, slope] from the neck to the widest
+   * point, the slope eased from knot to knot (straight where a knot's third
+   * entry is 1). The curve is the slope summed up, scaled to reach 1 at the
+   * last knot; 1 beyond it.
+   */
+  function shRise(k) {
+    var acc = [0], i;
+    for (i = 1; i < k.length; i++) acc[i] = acc[i - 1] + (k[i][0] - k[i - 1][0]) * (k[i][1] + k[i - 1][1]) / 2;
+    var tot = acc[k.length - 1];
+    return function (u) {
+      if (u <= k[0][0]) return 0;
+      for (var j = 1; j < k.length; j++) if (u <= k[j][0]) {
+        var d = k[j][0] - k[j - 1][0], t = (u - k[j - 1][0]) / d, s0 = k[j - 1][1], s1 = k[j][1];
+        var part = k[j][2] ? s0 * t + (s1 - s0) * t * t / 2 : s0 * t + (s1 - s0) * (t * t * t - t * t * t * t / 2);
+        return (acc[j - 1] + d * part) / tot;
+      }
+      return 1;
+    };
+  }
+  /** A blown flask: a funnel (shRise) to u = c, full width to c2, then a round end ((1 - w^p)^q; p 2, q 1/2: an ellipse). */
+  function shFlask(c, knots, p, q, c2) {
+    var F = shRise(knots);
+    c2 = c2 || c;
+    return function (u) {
+      if (u <= c) return F(u);
+      if (u <= c2) return 1;
+      var w = (u - c2) / (1 - c2);
+      return w <= 0 ? 1 : w >= 1 ? 0 : Math.pow(1 - Math.pow(w, p), q || 0.5);
+    };
+  }
+
   var SHAPES = {
     classic: null,
-    // a straight cone under a round shoulder
-    cone: {
-      id: 'cone', name: 'Cone', kR: 0.95, kH: 1.0,
-      f: function (u) {
-        var c = 0.74;
-        if (u <= c) return u / c;
-        var w = (u - c) / (1 - c);
-        return Math.sqrt(Math.max(0, 1 - Math.pow(w, 2.6)));
-      }
+    // two cones base to base: straight flanks, a softened girdle half way, small rounded points
+    lozenge: {
+      id: 'lozenge', name: 'Lozenge', kR: 0.92, kH: 1.08,
+      f: shUnit(function (u) {
+        var c = 0.50, t = u / c, up = t * (1 + 0.07 * (1 - t)), d = 1 - u, m = 1 / (1 - c);
+        var down = Math.sqrt(m * m * d * d + 0.34 * d) / Math.sqrt(1 + 0.34 * (1 - c));   // a straight flank into a round point
+        return shMin(up, down, 7);
+      })
     },
-    // slim and tall: a short funnel, a long straight tube, a round end
-    slim: {
-      id: 'slim', name: 'Slim', kR: 0.68, kH: 1.10,
-      f: function (u) {
-        var c = 0.46, d = 0.80, w;
-        if (u <= c) return Math.sin(Math.PI * 0.5 * Math.pow(u / c, 1.1));
-        if (u <= d) return 1;
-        w = (u - d) / (1 - d);
-        return Math.sqrt(Math.max(0, 1 - Math.pow(w, 2.4)));
-      }
+    // the hourglass of the pictogram: two wide, nearly straight cones on low rounded bases
+    delta: {
+      id: 'delta', name: 'Delta', kR: 1.10, kH: 0.86,
+      f: shUnit(function (u) {
+        return shMin(Math.pow(u / 0.845, 1.04), shClose(u, 0.80, 2.2, 0.5), 10);
+      })
     },
-    // wide and low: a broad cone, barely bowed, under a flat dome
-    wide: {
-      id: 'wide', name: 'Wide', kR: 1.12, kH: 0.90,
-      f: function (u) {
-        var c = 0.70, w;
-        if (u <= c) { w = u / c; return w * (1.12 - 0.12 * w); }
-        w = (u - c) / (1 - c);
-        return Math.sqrt(Math.max(0, 1 - Math.pow(w, 2.2)));
-      }
+    // the apothecary's ampoule: a short shoulder, a long body that barely bows, a round end
+    ampoule: {
+      id: 'ampoule', name: 'Ampoule', kR: 0.70, kH: 1.08,
+      f: shFlask(0.63, [[0, 0.4], [0.04, 1], [0.24, 1], [0.38, 0.10], [0.63, 0, 1]], 2.0, 0.5, 0.72)
+    },
+    // two horns, bells outward: a slim neck that flares late to a wide lip
+    trumpet: {
+      id: 'trumpet', name: 'Trumpet', kR: 1.00, kH: 1.10,
+      f: shUnit(function (u) {
+        return shMin(Math.pow(u / 0.87, 1.9), shClose(u, 0.78, 2.2, 0.5), 9);
+      })
+    },
+    // the Florence flask: a slender drawn neck, a steep shoulder, a full globe
+    florence: {
+      id: 'florence', name: 'Florence', kR: 0.84, kH: 1.08,
+      f: shFlask(0.70, [[0, 0.20], [0.11, 0.24], [0.34, 1], [0.46, 1], [0.70, 0, 1]], 2.0)
+    },
+    // the onion dome: a broad low swell, hollow shoulders, a small finial
+    onion: {
+      id: 'onion', name: 'Onion', kR: 1.05, kH: 1.10,
+      f: shUnit(function (u) {
+        var c = 0.50, w = Math.max(0, (u - c) / (1 - c));
+        return shMin(u / 0.49, shOgee(w, 0.15, 1.12, 0.9) * shTip(w, 12), 6);
+      })
+    },
+    // a bell: a round crown at the neck, a slow waist, a lip that flares to the rim
+    bell: {
+      id: 'bell', name: 'Bell', kR: 0.84, kH: 1.00,
+      f: shUnit(function (u) {
+        var c = 0.78, crown = 0.52 * (1 - Math.exp(-u / 0.24)), flare = u > 0.27 ? 0.48 * Math.pow((u - 0.27) / 0.51, 2.5) : 0;
+        var w = Math.max(0, (u - c) / (1 - c)), dome = 1.02 * Math.pow(Math.max(0, 1 - Math.pow(w, 1.9)), 0.62);
+        return shMin(crown + flare, dome, 5);
+      })
+    },
+    // the bottle gourd: a round body that draws in, without a second waist, to a smaller lobe
+    gourd: {
+      id: 'gourd', name: 'Gourd', kR: 0.90, kH: 1.10,
+      f: shUnit(function (u) {
+        var c = 0.535;
+        if (u <= c) return shSwell(u / c, 1.3);
+        var w = (u - c) / (1 - c), k = 0.56;
+        return (k + (1 - k) * 0.5 * (1 + Math.cos(Math.PI * Math.min(1, w / 0.66)))) * shTip(w, 4.5);
+      })
     }
   };
-  var SHAPE_ORDER = ['classic', 'cone', 'slim', 'wide'];
+  var SHAPE_ORDER = ['classic', 'lozenge', 'delta', 'ampoule', 'trumpet', 'florence', 'onion', 'bell', 'gourd'];
 
   /** Where a shape is widest: the u of its largest f, the middle of a plateau. */
   var SHAPE_EQ = {};
@@ -4750,7 +4858,9 @@
   Renderer.prototype._initGlass = function () {
     var els = this.els, self = this;
     this.glass = null;
-    if (els.glBack && els.glFront) {
+    // (the shader knows the teardrop only: any other glass is drawn, so that
+    // the glass seen is always the glass the sand is in)
+    if (els.glBack && els.glFront && !this.sim.geo.shape) {
       var a = makeGlass(els.glBack, 0), b = a && makeGlass(els.glFront, 1);
       if (a && b) {
         this.glass = [a, b];
@@ -5149,6 +5259,9 @@
     }
     if (st.n === 0 || sim.gy <= 0) return;
     var p = this.sweepP, fr = this.frameNo;
+    // another glass than the classic may have a long narrow neck or a pointed top, where the thread
+    // and its spray run along the wall: there each of their pixels is asked for (_dab)
+    var shaped = !!sim.geo.shape;
     var v = (p - 0.08) / 0.78; v = v < 0 ? 0 : (v > 1 ? 1 : v);     // the share of the sand that has come
     var want = v * st.n, slope = 0.62 * Math.sqrt(1 - v);           // heaped under the thread (32°), level at the end
     // the apex row of the heap that holds `want` grains (bisection: a few dozen rows a time)
@@ -5204,7 +5317,7 @@
         if (x < rowMin[y] || x > rowMax[y]) continue;
         bi = (y * SUB + ((h >>> 9) & 1)) * BW + x * SUB + ((h >>> 8) & 1);
         c = lut[((22 + ((h >>> 28) & 3)) << 8) | st.pal[(h >>> 16) & 31]];
-        buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = c;
+        if (shaped) this._dab(bi, c); else buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = c;
       }
     }
     // … and a little spray where it lands
@@ -5219,8 +5332,17 @@
         bi = (y * SUB) * BW + x * SUB;
         if (buf[bi] !== 0) continue;
         c = lut[((24 + ((h >>> 28) & 3)) << 8) | st.pal[(h >>> 20) & 31]];
-        buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = c;
+        if (shaped) this._dab(bi, c); else buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = c;
       }
+    }
+  };
+
+  /** A grain of the sweep at buffer index bi: of its four pixels, those that lie inside the glass. */
+  Renderer.prototype._dab = function (bi, c) {
+    var BW = this.BW, W = this.sim.W, edge = this.edgeMask, buf = this.buf, x = bi % BW, y = (bi - x) / BW, k, X, Y;
+    for (k = 0; k < 4; k++) {
+      X = x + (k & 1); Y = y + (k >> 1);
+      if ((edge[(Y >> 1) * W + (X >> 1)] >> (((Y & 1) << 1) | (X & 1))) & 1) buf[Y * BW + X] = c;
     }
   };
 
@@ -5252,17 +5374,126 @@
    * ---------------------------------------------------------------- */
 
   /**
+   * What the drawn glass needs to know of a shape that is not the classic
+   * one (SHAPES), found once per geometry and kept on it. The teardrop's
+   * lights, collar and cracks are placed by fixed numbers (a crescent from
+   * u = 0.26 to 0.93, a collar 0.62 R wide ...). On another shape each sits
+   * where that shape's own wall is as far out as the teardrop's is there,
+   * counted from its own widest point.
+   *   us      the u of the outline's points, end to neck: close together
+   *           where the wall turns fast, far apart where it runs straight;
+   *           rs, nx, ny: the bore's half-width at each, and the way
+   *           straight out of the glass there (the wall is as thick all along)
+   *   colW    half the collar's width: it covers the end of the glass
+   *   lit     per bulb [upper, lower]: the u the sheen and the window
+   *           glint sit at
+   *   cres, bounce, arc   the u each of those strokes runs between
+   *   caus    the caustic on the lower bulb's floor: [u, x, radius]
+   *   hoop, star          a crack starting below / above this u is one
+   */
+  function shapeMarks(g) {
+    if (g.marks) return g.marks;
+    var N = 2048, k, eq = g.equator, R = g.R, HB = g.HB, q = g.q;
+    var r = new Float64Array(N + 1), ke = Math.round(eq * N);
+    for (k = 0; k <= N; k++) r[k] = profile(k / N, g);
+    // the u where the bore is `share` of R, on the way out of the neck (to < 0) or on toward the end
+    function at(share, to) {
+      var v = share * R, i;
+      if (to < 0) {
+        for (i = 1; i <= ke; i++) if (r[i] >= v) return (i - 1 + (v - r[i - 1]) / (r[i] - r[i - 1])) / N;
+        return eq;
+      }
+      for (i = ke + 1; i <= N; i++) if (r[i] < v) return (i - 1 + (r[i - 1] - v) / (r[i - 1] - r[i])) / N;
+      return 1;
+    }
+    // The outline: halve every stretch until the wall leaves its chord by less
+    // than a thirtieth of a cell (or the stretch is a twentieth of a row).
+    var us = [1];
+    function span(ua, ra, ub, rb, depth) {
+      var um = (ua + ub) / 2, rm = profile(um, g);
+      var dx = rb - ra, dy = (ub - ua) * HB, off = Math.abs((rm - ra) * dy - (um - ua) * HB * dx) / Math.sqrt(dx * dx + dy * dy);
+      if (depth < 8 && (off > 0.03 || depth < 1)) { span(ua, ra, um, rm, depth + 1); span(um, rm, ub, rb, depth + 1); }
+      else us.push(ub);
+    }
+    for (k = 64; k > 0; k--) span(k / 64, k === 64 ? 0 : profile(k / 64, g), (k - 1) / 64, profile((k - 1) / 64, g), 0);
+    // ... and at each point the bore's half-width and the way straight out of
+    // the glass there (x, and y toward the end). The teardrop's outer surface
+    // is its bore pushed sideways on a bulb stretched by the wall; on a wall
+    // that flares late or ends low and flat that leaves hardly any glass.
+    var n = us.length, rs = new Float64Array(n), nx = new Float64Array(n), ny = new Float64Array(n), ua, ub, sl;
+    ny[0] = 1;
+    for (k = 1; k < n; k++) {
+      ua = Math.max(0, us[k] - 0.002); ub = Math.min(1, us[k] + 0.002);
+      sl = (profile(ub, g) - profile(ua, g)) / ((ub - ua) * HB);
+      rs[k] = profile(us[k], g);
+      nx[k] = 1 / Math.sqrt(1 + sl * sl); ny[k] = -sl * nx[k];
+    }
+    // The end: what the outer wall measures across where the collar begins.
+    var endHalf = 0, yc = HB - 3.5 * q, x0 = 0, y0 = HB + g.wall, x1, y1;
+    for (k = 1; k < n; k++) {
+      x1 = rs[k] + g.wall * nx[k]; y1 = us[k] * HB + g.wall * ny[k];
+      if (y1 < yc) { endHalf = Math.max(endHalf, x0 + (x1 - x0) * (y0 - yc) / (y0 - y1)); break; }
+      endHalf = Math.max(endHalf, x1);
+      x0 = x1; y0 = y1;
+    }
+    // Sheen and glint: 0.16 and 0.20 of the bulb above its widest point, as on
+    // the teardrop, but never nearer the end or the neck than the glass is
+    // half open, and the glint (a window, 5 by 14 cells) whole within the bore.
+    var lo = at(0.5, -1), hi = at(0.5, 1), lit = [], b, ug;
+    function held(u) { return u < lo ? lo : (u > hi ? hi : u); }
+    function fits(u) {
+      var x = 0.61 * profile(u, g) + 4.5 * q, d = 8 * q / HB;
+      return u + d < 1 && profile(u - d, g) >= x && profile(u + d, g) >= x;
+    }
+    for (b = -1; b <= 1; b += 2) {
+      ug = held(eq - b * 0.20);
+      for (k = 0; k < 50 && !fits(ug); k++) ug += b * 0.004;    // back toward the widest point
+      lit.push({ sheen: held(eq - b * 0.16), glint: ug });
+    }
+    var uc = Math.min(0.93, at(0.5, 1)), rc = profile(uc, g);
+    var a1 = Math.min(0.97, at(0.437, 1));
+    g.marks = {
+      us: us, rs: rs, nx: nx, ny: ny,
+      colW: Math.max(0.40 * R, endHalf + 1.5 * q),
+      lit: lit,
+      cres: [at(0.502, -1), Math.min(0.93, at(0.641, 1))],
+      bounce: [at(0.657, -1), Math.min(0.90, at(0.877, 1))],
+      arc: [Math.max(eq, a1 - 0.17), a1],
+      caus: [uc, 0.3125 * rc, Math.min(0.75 * R, 1.17 * rc)],
+      hoop: eq * 0.3 / 0.66,
+      star: eq + (1 - eq) * 0.09 / 0.34
+    };
+    return g.marks;
+  }
+
+  /**
    * Closed outline of the whole vessel, pushed outward by `grow` cells.
    * `path` is a Path2D or a 2D context (call beginPath() first).
    */
   function tracePathTo(path, g, grow) {
     var n = 200, k, u, r, a, pts = [];
     var ky = (g.HB + grow) / g.HB;
-    for (k = 0; k <= n; k++) {                       // right side, tip → neck
-      a = k / n;
-      u = 1 - (0.45 * a * (2 - a) + 0.55 * a);       // denser near the dome tip
-      r = profile(u, g) + grow;
-      pts.push([r, -u * g.HB * ky]);
+    if (g.shape) {
+      // another glass: the points lie where its own wall turns, each pushed
+      // straight out of the glass by `grow` (shapeMarks)
+      var mk = shapeMarks(g), y;
+      for (k = 0; k < mk.us.length; k++) {
+        r = mk.rs[k] + grow * mk.nx[k]; y = mk.us[k] * g.HB + grow * mk.ny[k];
+        if (y < 0) {                                 // beside the waist the two bulbs' walls meet
+          a = pts[pts.length - 1];
+          pts.push([a[0] + (r - a[0]) * a[1] / (a[1] + y), 0]);
+          break;
+        }
+        pts.push([r, -y]);
+      }
+      n = pts.length - 1;
+    } else {
+      for (k = 0; k <= n; k++) {                     // right side, tip → neck
+        a = k / n;
+        u = 1 - (0.45 * a * (2 - a) + 0.55 * a);     // denser near the dome tip
+        r = profile(u, g) + grow;
+        pts.push([r, -u * g.HB * ky]);
+      }
     }
     for (k = n - 1; k >= 0; k--) pts.push([pts[k][0], -pts[k][1]]);
     path.moveTo(pts[0][0], pts[0][1]);
@@ -5429,7 +5660,7 @@
       ctx.save();
       if (side) ctx.rotate(Math.PI);
       var yC = -(g.HB + 3 * q);                        // collar top
-      var colW = g.R * 0.62;
+      var colW = g.shape ? shapeMarks(g).colW : g.R * 0.62;
       // collar seating the dome
       ctx.fillStyle = metalGradient(ctx, -colW, colW, cap, false);
       roundRect(ctx, -colW, yC, colW * 2, g.collarH + 1.5 * q, 1.6 * q);
@@ -5493,22 +5724,31 @@
     var outer = new Path2D(); tracePathTo(outer, g, g.wall);
 
     var drawn = !this.glass;                          // rendered glass brings its own highlights
+    // Another glass than the classic: every light below sits where this
+    // shape's wall is (shapeMarks); the classic keeps its own numbers.
+    var mk = g.shape ? shapeMarks(g) : null, lit;
     ctx.save();
     ctx.clip(outer);
     for (var b = -1; b <= 1 && drawn; b += 2) {       // -1 upper bulb, +1 lower
       var cyB = b * g.HB * g.equator;
+      var shX = -g.R * 0.46, shY = cyB - g.HB * 0.16, shT = cyB - g.HB * 0.7, glX = g.R * 0.52, glY = cyB - g.HB * 0.20;
+      if (mk) {
+        lit = mk.lit[b < 0 ? 0 : 1];
+        shX = -0.51 * profile(lit.sheen, g); shY = b * lit.sheen * g.HB; shT = shY - g.HB * 0.54;
+        glX = 0.61 * profile(lit.glint, g); glY = b * lit.glint * g.HB;
+      }
 
       // broad soft sheen from a key light up and to the left
-      var sh = ctx.createRadialGradient(-g.R * 0.46, cyB - g.HB * 0.16, 0,
-                                        -g.R * 0.46, cyB - g.HB * 0.16, g.R * 0.95);
+      var sh = ctx.createRadialGradient(shX, shY, 0, shX, shY, g.R * 0.95);
       sh.addColorStop(0, 'rgba(255,255,255,0.105)');
       sh.addColorStop(0.5, 'rgba(255,255,255,0.03)');
       sh.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = sh;
-      ctx.fillRect(-g.R - 8, cyB - g.HB * 0.7, g.R * 2 + 16, g.HB * 1.3);
+      ctx.fillRect(-g.R - 8, shT, g.R * 2 + 16, g.HB * 1.3);
 
       // long specular crescent hugging the left wall
       var uA = 0.26, uB = 0.93, n = 30;
+      if (mk) { uA = mk.cres[0]; uB = mk.cres[1]; n = 60; }
       ctx.beginPath();
       for (k = 0; k <= n; k++) {
         u = uA + (uB - uA) * k / n;
@@ -5531,8 +5771,9 @@
 
       // thin bounce light on the right wall
       ctx.beginPath();
+      var uC = mk ? mk.bounce[0] : 0.34, uD = mk ? mk.bounce[1] - mk.bounce[0] : 0.5;
       for (k = 0; k <= n; k++) {
-        u = 0.34 + 0.5 * k / n;
+        u = uC + uD * k / n;
         var xr = profile(u, g) * 0.95;
         if (k) ctx.lineTo(xr, b * u * g.HB); else ctx.moveTo(xr, b * u * g.HB);
       }
@@ -5542,7 +5783,7 @@
 
       // window glint, upper right
       ctx.save();
-      ctx.translate(g.R * 0.52, cyB - g.HB * 0.20);
+      ctx.translate(glX, glY);
       ctx.rotate(0.42);
       var wg = ctx.createLinearGradient(0, -7 * q, 0, 7 * q);
       wg.addColorStop(0, 'rgba(255,255,255,0.26)');
@@ -5555,17 +5796,20 @@
 
     // caustic: light focused through the lower bulb onto its floor
     ctx.globalCompositeOperation = 'lighter';
-    var ca = ctx.createRadialGradient(g.R * 0.20, g.HB * 0.93, 0, g.R * 0.20, g.HB * 0.93, g.R * 0.75);
+    var caX = g.R * 0.20, caY = g.HB * 0.93, caR = g.R * 0.75, caT = g.HB * 0.6, caH = g.HB * 0.45;
+    if (mk) { caX = mk.caus[1]; caY = mk.caus[0] * g.HB; caR = mk.caus[2]; caT = caY - caR; caH = g.HB * 1.05 - caT; }
+    var ca = ctx.createRadialGradient(caX, caY, 0, caX, caY, caR);
     ca.addColorStop(0, rgba(glow, drawn ? 0.20 : 0.13));
     ca.addColorStop(0.4, rgba(glow, drawn ? 0.07 : 0.045));
     ca.addColorStop(1, rgba(glow, 0));
     ctx.fillStyle = ca;
-    ctx.fillRect(-g.R, g.HB * 0.6, g.R * 2, g.HB * 0.45);
+    ctx.fillRect(-g.R, caT, g.R * 2, caH);
     if (drawn) {
     // refracted arc following the dome
+    var uE = mk ? mk.arc[0] : 0.80, uF = mk ? mk.arc[1] - mk.arc[0] : 0.17;
     ctx.beginPath();
     for (k = 0; k <= 26; k++) {
-      u = 0.80 + 0.17 * k / 26;
+      u = uE + uF * k / 26;
       var xa = profile(u, g) * 0.93;
       if (k) ctx.lineTo(xa, u * g.HB); else ctx.moveTo(xa, u * g.HB);
     }
@@ -5709,6 +5953,11 @@
       var r = profile(u, g);
       if (r < 1.5) r = 1.5;
       var u1 = u + CRACK_STEP * Math.cos(th) / g.HB, p1 = phi + CRACK_STEP * Math.sin(th) / r;
+      if (g.shape) {
+        // another glass may end low and flat: a step is its length along the glass, not along the axis
+        var sl = (profile(u + 0.002, g) - profile(u - 0.002, g)) / (0.004 * g.HB);
+        u1 = u + CRACK_STEP * Math.cos(th) / (g.HB * Math.sqrt(1 + sl * sl));
+      }
       // it runs out of sight round the back, under the far cap, or toward the waist
       if (u1 < uLo || u1 > 0.995 || p1 <= -HALF_PI || p1 >= HALF_PI) break;
       if (spawn > 0 && crackRand() < 0.04) {
@@ -5753,6 +6002,7 @@
     if (uLo > u0) uLo = u0;                      // a crack right by it never comes nearer
     var phi0 = HALF_PI - 0.06;                   // just inside the silhouette, where the hole is
     var star = u0 > 0.75, hoop = u0 < 0.3;
+    if (g.shape) { star = u0 > shapeMarks(g).star; hoop = u0 < shapeMarks(g).hoop; }   // its own dome and shoulder
     crackStream(seed, -1, -1);
     var nArms = star ? 3 + Math.floor(crackRand() * 3) : 1;
     if (!hoop) {

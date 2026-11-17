@@ -1039,7 +1039,7 @@ node tools/test/app-gestures.test.js     # any single suite
   cap, layered sand, a hard shake that must never write sand into the glass,
   and going quiet after hard jerks; and that glasses the sand cannot use are
   refused by name, each by its own rule.
-  (`HOURGLASS_SHAPE=cone node tools/test/sim-clock.test.js` runs any `sim-*`
+  (`HOURGLASS_SHAPE=delta node tools/test/sim-clock.test.js` runs any `sim-*`
   suite on another shape; many state what the teardrop does, so some of
   their cases then fail without anything being wrong.) The
   others cover cracks, leaks, mending and saving (`p0`), conservation,
@@ -1048,6 +1048,11 @@ node tools/test/app-gestures.test.js     # any single suite
 - `render-*`: the crack paths, their redraw and the spilled sand's physics in
   Node; cracks, their glint, kintsugi and the spill in the real app; and,
   with no cracks, the picture against f446085, pixel for pixel.
+  `render-shape` draws every glass shape as the app would and reads the
+  layers back: no pixel of sand outside the glass, mid-run and through the
+  Reset sweep; the drawn glass's wall on the shape's own curve, and as thick
+  all along; the collars covering the ends; the layers their own half turn;
+  the lights on the glass; cracks on it.
 - `motion-*` and `audio-*`: the sensor pipeline (against a model of a phone
   being shaken, in each browser's sign convention) and its permission, and
   the sound engine's calls and levels, and the water ambiences: that each

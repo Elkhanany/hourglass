@@ -46,7 +46,9 @@
  *                          from a one-minute one (the sand then lies as a
  *                          pile under the end), on several seeds each; filled
  *                          to its cap either way, all of it still passes the
- *                          neck
+ *                          neck. (A glass whose 45-minute fill is already its
+ *                          cap, the delta: that glass takes no pour, and the
+ *                          rest is done from a 20-minute one)
  *   a hard shake           3 s of 'veryVigorous' (lib/profiles.js), beds in
  *                          flight: census exact every step, and no cell of
  *                          glass ever becomes sand or sand glass (against the
@@ -521,10 +523,20 @@ IDS.forEach(function (id) {
   });
 
   test(id + ': a pour adds sand and conserves it; a glass filled to its cap still passes all of it', function () {
-    var sim = glass(id, 3);
-    sim.reset(Clock.grainsFor(sim, 2700000));
+    var sim = glass(id, 3), ms = 2700000, k, bad = 0;
+    // (a glass that takes less by pours than 45 minutes ask for, the delta's, is laid at its cap by the clock
+    // and has no room for a pour: there the 45-minute glass must say so, and the pour is tried on a 20-minute one)
+    if (Clock.grainsFor(sim, ms) >= sim.maxTotal) {
+      ok(!classic && sim.fillMax < 0.78, 'a 45-minute glass asks for ' + Clock.grainsFor(sim, ms) + ' grains, the pour cap is ' + sim.maxTotal + ', yet fillMax is ' + sim.fillMax);
+      sim.reset(Clock.grainsFor(sim, ms));
+      steps(sim, 300);
+      ok(sim.total === sim.maxTotal && sim.pour(300) === 0 && sim.total === sim.maxTotal, 'the 45-minute glass, laid at its cap of ' + sim.maxTotal + ', holds ' + sim.total + ' or took a pour');
+      ms = 1200000;
+      ok(Clock.grainsFor(sim, ms) < sim.maxTotal - 600, 'a 20-minute glass leaves no room for a pour either');
+    }
+    sim.reset(Clock.grainsFor(sim, ms));
     steps(sim, 300);
-    var total = sim.total, top = sim.nTop, made = sim.pour(300), k, bad = 0;
+    var total = sim.total, top = sim.nTop, made = sim.pour(300);
     ok(made > 0 && made <= 300, 'pour(300) made ' + made + ' grains');
     ok(sim.total === total + made && sim.nTop === top + made, 'the pour of ' + made + ' took the glass from ' + total + ' to ' + sim.total + ' grains');
     for (k = 0; k < 600; k++) {
@@ -539,7 +551,7 @@ IDS.forEach(function (id) {
     ok(sim.pour(300) === 0, 'a pour into a glass at its cap made grains');
     // and on other seeds, and from a one-minute glass: the sand then lies as a pile under the end, with room beside it
     var pile = null, runs = 1;
-    [[2, 2700000], [4, 2700000], [1, 60000], [2, 60000], [3, 60000], [4, 60000]].forEach(function (c) {
+    [[2, ms], [4, ms], [1, 60000], [2, 60000], [3, 60000], [4, 60000]].forEach(function (c) {
       var s = glass(id, c[0]);
       s.reset(Clock.grainsFor(s, c[1]));
       steps(s, 300);
@@ -555,7 +567,8 @@ IDS.forEach(function (id) {
       ok(moved === above && s.nTop === 0 && censusOk(s), 'filled to its cap, only ' + moved + ' of ' + above + ' grains passed the neck');
       return heapTop(s);
     });
-    return 'pour(300) made ' + made + '; pours filled it to its cap of ' + sim.maxTotal + ' exactly in ' + runs + ' runs (45-minute and one-minute glasses, seeds 1 to 4); all of it passes: the heap ends ' + tops.join(' and ') + ' rows under the neck';
+    return 'pour(300) made ' + made + '; pours filled it to its cap of ' + sim.maxTotal + ' exactly in ' + runs + ' runs (' + ms / 60000 + '-minute and one-minute glasses, seeds 1 to 4)' +
+      (ms < 2700000 ? ' (its 45-minute glass is its cap, and takes no pour)' : '') + '; all of it passes: the heap ends ' + tops.join(' and ') + ' rows under the neck';
   });
 
   test(id + ': shaken hard for 3 s, no sand is lost and none is written into the glass', function () {
@@ -576,7 +589,7 @@ IDS.forEach(function (id) {
   });
 
   test(id + ': after hard jerks near the end of its run, left alone, the glass goes quiet', function () {
-    // (seeds on which the classic glass, and the slim one, kept a grain waiting under a landed bed for ever)
+    // (seeds on which the classic glass kept a grain waiting under a landed bed for ever)
     var out = [], flew = 0;
     [4, 9, 10, 31].forEach(function (seed) {
       var sim = glass(id, seed), run = H.glassAt({ sim: sim, durMs: 300000, startMs: 270000 }), k, rest = -1;
