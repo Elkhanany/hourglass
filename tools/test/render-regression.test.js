@@ -29,10 +29,13 @@ var BASE = process.env.HOURGLASS_BASELINE ? fs.readFileSync(process.env.HOURGLAS
 var failures = 0, count = 0;
 function ok(cond, msg) { if (!cond) throw new Error(msg); }
 
-/* A running glass (the gate open, the stream in the air, avalanches below), and a Renderer on it. */
+/* A running glass (the gate open, the stream in the air, avalanches below), and a Renderer on it.
+ * This suite compares the renderer, so both builds must draw the same sand: the scenes that turn
+ * the glass take the engine without sand off the upright (granular: false, which f446085 does not
+ * know), where a turned glass still steps as it did then; what granular changes is sim-repose's. */
 var SETUP = [
   'function runGlass(P, cfg) {',
-  '  var sim = new P.Sim({ scale: 1.08, seed: cfg.seed }), t, i;',
+  '  var sim = new P.Sim({ scale: 1.08, seed: cfg.seed, granular: false }), t, i;',
   '  sim.reset(Math.round(sim.capacity * cfg.fill));',
   '  sim.gateOpen = true; t = sim.nTop;',
   '  for (i = 0; i < cfg.steps; i++) { sim.beginFrame(); t -= cfg.rate; sim.targetTop = Math.max(0, Math.ceil(t)); sim.step(); }',

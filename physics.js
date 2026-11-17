@@ -43,6 +43,7 @@
   var K_STREAM = 0, K_POUR = 4, K_SPLASH = 8, K_MASK = 12;
 
   var EV_CAP = 48;              // audio impact events kept per frame
+  var SL_BINS = 1024;           // bins across the field for the thick avalanche (_slump): any glass, any lean
 
   /* ======================================================================
    *  Vessel geometry — shared by the simulation and the renderer
@@ -172,7 +173,7 @@
    * when these fields first take fractions. So they take their double form
    * here, before anything is compiled, as the slugs' U and Z do.
    */
-  var SIM_DOUBLES = ['angle', 'tilt', 'gx', 'gy', 'mAx', 'mAy', 'mW', 'mAl', 'mLam', 'mGz', 'relCap', 'dMax', '_iz', '_lrng', '_layNeed'];
+  var SIM_DOUBLES = ['angle', 'tilt', 'gx', 'gy', 'mAx', 'mAy', 'mW', 'mAl', 'mLam', 'mGz', 'mKx', 'mKy', 'relCap', 'dMax', '_iz', '_lrng', '_layNeed'];
   function asDoubles(o, keys) {
     for (var k = 0; k < keys.length; k++) {
       var v = o[keys[k]];
@@ -260,6 +261,7 @@
     this.topSweeps = 0;       // extra CA sweeps of the upper bulb per step
     this.lag = 0;             // grains the neck still owes the clock
     this.rng = (opts.seed | 0) || 0x2F6E2B1;
+    this.granular = opts.granular !== false;   // sand off the upright: slopes judged against gravity itself (_caM)
     this.layers = !!opts.layers;   // layered sand: bit 7 of a grain's colour seed is its tone (setLayers)
     this._lrng = 1;           // the strata's own random stream (never the sand's)
     this._pourTone = 0; this._pourLeft = 0; this._pourAt = -1e9;   // the layer being poured in
@@ -368,7 +370,32 @@
     leakT: 12,           // grains/s per cell of breach while shaken (T = 1)
     leakCap: 3,          // credit cap, grains
     escV: 40, escVr: 30, escTan: 10,  // escape speed: 40 + 30·U out, N(0, 10) along, cells/s
-    leakLinger: 120      // steps a leak keeps the sim awake
+    leakLinger: 120,     // steps a leak keeps the sim awake
+    // Sand off the upright (sim.granular): slopes are judged against the
+    // field itself, in degrees below its horizontal
+    thS: 37, thD: 29,    // a grain at rest lets go above thS (maximum stability); one already moving runs on above thD
+    nS: 8, nD: 3,        // cells of the slope probed beyond the step
+    kinA: 0.21, kFall: 8, kSlide: 12, // a kinetic sweep: a fall covers 1 + kinA·run cells (at most kFall), a slide runs on up to kSlide
+    pLet: 205,           // /256 chance a sweep that a grain at rest, the sand under it gone, lets go (so a hanging mass loosens from its face)
+    // Shaken sand loses the slopes it can hold: all of them × (1 − thHot·s), s rising from 0 at a
+    // temperature of hotT0 to 1 at hotT1. Below hotT0 (walking, a sway, a finger's wiggle) nothing changes.
+    thHot: 0.55, hotT0: 0.5, hotT1: 1.5,
+    // the thick avalanche (_slump): the slope over slB bins; it starts above thS + slUp and runs on down to slStop;
+    // at most slMax grains a call (fewer at the lighter quality levels), a call every slEvery steps, a grain runs
+    // on at most slRun bins, and a cliff gives up to slDeep grains from one bin; not while the glass spins past slW
+    // each bed's sideways momentum (slip): it starts when the level push beats muS of the load, friction muK
+    // takes it away again; slipK of the glass's own on-screen motion counts as push (setCarry); while it slides
+    // its field leans by muK of the load plus slipC (1/s) of its speed; never faster than slipMax cells/s
+    muS: 0.65, muK: 0.5, slipK: 0.6, slipC: 6, slipMax: 1200,
+    airK: 1,             // how much of the glass's own on-screen motion a grain in the air feels (1: it stays where it was in the room)
+    slipShifts: 2,       // cells a step a sliding bed is moved at most
+    slipStop: 0.02,      // a shift that moves less than this share of the bed's grains has met the glass: the slide ends
+    slB: 8, slUp: 3, slStop: 36, slMax: 96, slEvery: 2, slRun: 64, slDeep: 6, slW: 3,
+    spinW: 6,            // rad/s: spun faster than this the sand is stepped by the old automaton
+    maxSweepsG: 2,       // most sweeps a step for a bulb (maxSweeps without granular)
+    offSweeps: 1,        // sweeps a step while turned or laid over (2 without granular: there a grain moves one cell a sweep)
+    offLean: 0.012,      // sin of the lean from which the glass counts as off the upright (0.7°)
+    handBack: 420        // steps the upright glass keeps these rules after the last lean, turn or motion (3.5 s)
   };
 
   /** Damage events, as sim.frame.dmgType. */
@@ -451,6 +478,22 @@
     this.relCap = 0;                     // most grains the neck may release per step (0: no cap)
     this.reduced = false;                // Reduce Motion: gentler physics; the phone's own shaking cannot crack the glass
     this.quality = 2;                    // 2 full, 1 lighter, 0 lightest (set by the app)
+
+    // Sand off the upright (see _caM). sim.granular (opts.granular, on unless
+    // false) only ever acts on a glass that is leaned, turning or moved, or
+    // was a moment ago; false is the engine as it was at every lean.
+    this.run = new Uint8Array(N);        // sweeps a grain has kept falling or sliding (its speed), carried with it
+    this._offAt = -1e9;                  // the last step the glass was leaned, turning or moved
+    this._lnKey = [2, 2, -1];            // the slope probes in _lnOff are for this field and heat
+    this._lnOff = new Int32Array(128);
+    this._aval = [0, 0];                 // a thick avalanche is running in this bulb (_slump)
+    this._slideN = 0;                    // grains the last _slide looked at
+    this._granCA = false;                // this step of the motion path uses _caM (granular, and not spun fast)
+    this.mKx = 0; this.mKy = 0;          // what the sand feels of the glass's own motion on the screen, cells/s² (setCarry)
+    this.slip = new Float32Array(2);     // each bed's sideways speed over the glass, cells/s along the level (its momentum)
+    this.lean = new Float32Array(4);     // the field each bed's automaton runs in while it slides [x0, y0, x1, y1]
+    this.slipAcc = new Float32Array(2);  // cells each sliding bed has still to be moved
+    this._slTop = null; this._slI = null; this._slFlo = null; this._slFloI = null;   // its scratch, made at the first lean
 
     // Each bulb's bed: the field it feels, the slow mean of that field
     // without gravity (what heats the sand is a change in it), centroid and heat.
@@ -657,6 +700,10 @@
     this._cenAt = -1e9;
     this._motionStep = false;
     this._izAt = -1;
+    this.run.fill(0);
+    this._offAt = -1e9;
+    this._aval[0] = this._aval[1] = 0;
+    this.slip[0] = this.slip[1] = 0; this.slipAcc[0] = this.slipAcc[1] = 0;
     this._clearDamage();
     this.glassSeed = this.rng >>> 0;
     this.glassFlip = 0;
@@ -896,6 +943,20 @@
     gz = finiteOr0(gz); this.mGz = gz < 0 ? -gz : gz;
   };
 
+  /**
+   * The glass's own motion on the screen, for the coming steps: what its
+   * sand feels of it, in the vessel frame, cells/s² (minus the glass's
+   * on-screen acceleration, in cells). The sand lives in slow motion and
+   * the hand in real time, so a carried glass that stops dead barely
+   * registers as a g-ratio (setMotion); but its sand was moving across the
+   * screen with it and keeps that speed, and this is what gives each bed
+   * its sideways momentum (slip). Zero while the glass keeps its place.
+   */
+  Sim.prototype.setCarry = function (kx, ky) {
+    if (!this.granular) return;                        // (the engine as it was never hears of it)
+    this.mKx = finiteOr0(kx); this.mKy = finiteOr0(ky);
+  };
+
   /** True when the last step took the motion path. */
   Sim.prototype.motionActive = function () {
     return this._motionStep;
@@ -990,7 +1051,8 @@
     if (ax * ax + ay * ay >= lim * lim || w >= MOT.idleW || w <= -MOT.idleW ||
         al >= MOT.idleAl || al <= -MOT.idleAl || this.mGz >= MOT.idleGz ||
         a[0] >= MOT.idleT || a[1] >= MOT.idleT ||
-        sl[0].air || sl[1].air || sl[0].seat < 0 || sl[1].seat < 0) {
+        sl[0].air || sl[1].air || sl[0].seat < 0 || sl[1].seat < 0 ||
+        this.mKx * this.mKx + this.mKy * this.mKy >= lim * lim || this.slip[0] !== 0 || this.slip[1] !== 0) {
       this._stepMotion();
       return;
     }
@@ -1027,7 +1089,32 @@
     //    timers get extra sweeps of the upper bulb to keep the neck fed.
     var before = this.frame.moved;
     var H = this.H;
-    if (this.flipping || gy < 0.7) {
+    // Inserted for sand off the upright (sim.granular): leaned or turning,
+    // and for a moment after, the slopes are judged against gravity itself
+    // (_caM). A glass that stands straight and has been left alone never
+    // comes here, and steps exactly as it always did.
+    var off = false;
+    if (this.granular) {
+      off = this.flipping || gx > MOT.offLean || gx < -MOT.offLean || gy < 0;
+      if (off) this._offAt = this.steps;
+      else off = this.steps - this._offAt < MOT.handBack;
+    }
+    if (off) {
+      if (this.steps % MOT.slEvery === 0 && (this.quiet < 24 || this._aval[0] || this._aval[1])) {
+        this._slump(0, gx, gy, 0); this._slump(1, gx, gy, 0);
+      }
+      this._caM(gx, gy, 1, H - 1, false, 1, 0);
+      if (this.flipping || gy < 0.7) { if (MOT.offSweeps > 1) this._caM(gx, gy, 1, H - 1, false, 0, 0); }
+      else {
+        var extraM = this.topSweeps;
+        while (extraM-- > 0) this._caM(gx, gy, 1, this.gateY, false, 0, 0);
+        // A neck that has run short is fed as it always was. Leaned far over, sand may
+        // rightly lie at rest on the low side of the funnel, but the glass is a timer and
+        // owes the clock its sand: these sweeps let it creep on down to the neck.
+        extraM = (lag > 10 ? 1 : 0) + (lag > 60 ? 3 : 0);
+        while (extraM-- > 0) this._ca(gx, gy, 1, this.gateY);
+      }
+    } else if (this.flipping || gy < 0.7) {
       this._ca(gx, gy, 1, H - 1);
       this._ca(gx, gy, 1, H - 1);
     } else {
@@ -1070,6 +1157,7 @@
     var bf = this.bf, hs = this.hSlow, cen = this.cen, agit = this.agit, slug = this.slug;
     var entry = !this._motionStep, b, T, n;
     this._motionStep = true;
+    if (this.granular) this._offAt = this.steps;
 
     // 1. The heading. The clock, the valve's upright test, tiltSwap and the
     //    shading read only this quasi-static ĝ, so a shake never pauses the
@@ -1094,6 +1182,11 @@
     var Fx = G * gx + Ax, Fy = G * gy + Ay;                 // the neck (r = 0) feels just this
     var kS = 1 - Math.exp(-DT / MOT.tauSlow), kT = 1 - Math.exp(-DT / MOT.tauT);
     var gzD = MOT.gzK * this.mGz;
+    // (below full quality, which the app's governor sets on a device that cannot keep up, a moved
+    // glass is stepped as it always was: the old automaton, no thick avalanches, no bed momentum)
+    var gran = this.granular && this.quality >= 2, lvx = gy, lvy = -gx;  // the level, across gravity
+    // (a slide the lighter level cut short ends there: nothing below would ever stop it, and the step would never idle)
+    if (!gran) { this.slip[0] = this.slip[1] = 0; this.slipAcc[0] = this.slipAcc[1] = 0; }
     for (b = 0; b < 2; b++) {
       var rx = cen[2 * b], ry = cen[2 * b + 1];
       var hx = Ax + w2 * rx + la * ry, hy = Ay + w2 * ry - la * rx;
@@ -1109,6 +1202,29 @@
       if (D > 3) D = 3;
       T = agit[b] + (D - agit[b]) * kT;
       agit[b] = T > 3 ? 3 : T;
+      if (gran) {
+        // A bed pushed sideways harder than friction holds it slides, and keeps sliding
+        // until friction has taken its speed: sand has inertia. The push is the level
+        // part of what the bed feels, and of the glass's own motion on the screen
+        // (setCarry). While it slides, its automaton and its avalanches run in a field
+        // that leans the way it is still going (lean); bf, which the flying bed and the
+        // glass's damage read, is left as it is.
+        var aH = hx * lvx + hy * lvy + (this.mKx * lvx + this.mKy * lvy) * MOT.slipK;
+        var aN = G + hx * gx + hy * gy;
+        if (aN < 0) aN = 0;
+        var sp = this.slip[b], fK = MOT.muK * aN, nsp;
+        if (this.reduced || slug[b].air) sp = 0;
+        else if (sp === 0) {
+          if (aH > MOT.muS * aN) sp = (aH - fK) * DT; else if (aH < -MOT.muS * aN) sp = (aH + fK) * DT;
+        } else {
+          nsp = sp + (aH - (sp > 0 ? fK : -fK)) * DT;
+          sp = (nsp > 0) === (sp > 0) ? nsp : 0;
+        }
+        if (sp > MOT.slipMax) sp = MOT.slipMax; else if (sp < -MOT.slipMax) sp = -MOT.slipMax;
+        this.slip[b] = sp;
+        var add = sp === 0 ? 0 : (sp > 0 ? fK + sp * MOT.slipC : -fK + sp * MOT.slipC);
+        this.lean[2 * b] = bf[2 * b] + add * lvx; this.lean[2 * b + 1] = bf[2 * b + 1] + add * lvy;
+      }
     }
 
     // 4. The neck valve releases what the clock owes, but only while the
@@ -1143,8 +1259,12 @@
     // 6. Packed and sliding sand, bulb by bulb along its own field. Free
     //    fall goes as 1/√g, so the sweeps go as √|f|; hot sand runs faster.
     var before = f.moved;
-    var base = (this.flipping || gy < 0.7) ? 2 : 1, qual = this.quality;
+    // (a glass spun fast flings its sand about: there the automaton that judges slopes against the
+    // field has nothing to add and costs more, so above spinW the sand is stepped as it always was)
+    var granCA = this._granCA = gran && w < MOT.spinW && w > -MOT.spinW;
+    var base = (this.flipping || gy < 0.7) ? (granCA ? MOT.offSweeps : 2) : 1, qual = this.quality;
     var maxS = qual >= 2 ? MOT.maxSweeps : (qual === 1 ? (MOT.maxSweeps < 2 ? MOT.maxSweeps : 2) : 1);
+    if (granCA && maxS > MOT.maxSweepsG) maxS = MOT.maxSweepsG;         // (its first sweep carries a moving grain several cells)
     var spin = w > 0.3 || w < -0.3;
     for (b = 0; b < 2; b++) {
       if (slug[b].air) continue;                      // in flight the bed is weightless in its own frame
@@ -1158,8 +1278,28 @@
       // The upper bulb keeps the neck fed, as on the idle path: extra sweeps
       // when the neck ran short. (Sand the valve held back, because the bed
       // was in the air or relCap, is not a starved neck: sweeping cannot help.)
-      if (b === 0 && !this.flipping && gy >= 0.7) n += this.topSweeps + (starved > 10 ? 1 : 0) + (starved > 60 ? 2 : 0);
-      if (n > 0) this._caBulb(b, bx / mag, by / mag, n, T > 0.05 || spin || this.steps - this._landAt[b] < 8, T);
+      // (those go by the old automaton, _caBulb's feed: sand at rest on the low side of a
+      // leaned funnel still creeps down to a neck that has run short)
+      var feed = 0;
+      if (b === 0 && !this.flipping && gy >= 0.7) { n += this.topSweeps; feed = (starved > 10 ? 1 : 0) + (starved > 60 ? (granCA ? 3 : 2) : 0); }
+      if (!granCA) { n += feed; feed = 0; }
+      if (gran && this.slip[b] !== 0) {
+        // the bed is moved over the glass by what it has slid (while its rows lie near the level)
+        if (gy >= 0.7 || gy <= -0.7) {
+          var acS = this.slipAcc[b] + this.slip[b] * lvx * DT, shifts = 0, got;
+          while ((acS >= 1 || acS <= -1) && shifts < MOT.slipShifts) {
+            got = this._slide(b, acS > 0 ? 1 : -1);
+            acS += acS > 0 ? -1 : 1; shifts++;
+            if (got < MOT.slipStop * this._slideN) { this.slip[b] = 0; acS = 0; break; }   // packed against the glass: the wall has its momentum
+          }
+          if (acS > 1) acS = 1; else if (acS < -1) acS = -1;
+          this.slipAcc[b] = acS;
+        }
+      } else if (gran) this.slipAcc[b] = 0;
+      if (n + feed > 0 && gran && this.slip[b] !== 0) {
+        var ex = this.lean[2 * b], ey = this.lean[2 * b + 1], em = Math.sqrt(ex * ex + ey * ey) || 1;
+        this._caBulb(b, ex / em, ey / em, n, true, T, feed);
+      } else if (n + feed > 0) this._caBulb(b, bx / mag, by / mag, n, T > 0.05 || spin || this.steps - this._landAt[b] < 8, T, feed);
     }
 
     // 7. A hot surface boils: grains hop off it.
@@ -1225,7 +1365,7 @@
    * for empty rows are saved. It helps most when a bulb holds little sand,
    * or a spin has flung its bed toward the far end.
    */
-  Sim.prototype._caBulb = function (b, ux, uy, n, full, T) {
+  Sim.prototype._caBulb = function (b, ux, uy, n, full, T, feed) {
     var yLo = b ? this.gateY + 1 : 1, yHi = b ? this.H - 1 : this.gateY;
     var lo = this._sandRow(yLo, yHi - 1, 1);
     if (lo < 0) return;                               // no sand in this bulb
@@ -1242,8 +1382,25 @@
       this.pWake = Math.ceil(w0 + (MOT.pWakeMax - w0) * s);
       this.pDiag = Math.ceil(d0 + (MOT.pDiagMax - d0) * s);
     }
-    for (var k = 0; k < n; k++) {
-      var a = lo - k, z = hi + 1 + k;                 // rows a … z − 1
+    var k, a, z;
+    if (this._granCA) {
+      // the first sweep is kinetic and can carry sand kq rows
+      var kq = MOT.kinA > 0 ? MOT.kFall + 2 : 1;
+      var hot = (T - MOT.hotT0) / (MOT.hotT1 - MOT.hotT0);
+      hot = hot > 0 ? (hot > 1 ? 1 : hot) : 0;
+      // (a fast spin throws the sand: there is no avalanche to work out)
+      if (this.steps % MOT.slEvery === 0 && this.mW < MOT.slW && this.mW > -MOT.slW) this._slump(b, ux, uy, hot);
+      for (k = 0; k < n; k++) {
+        a = lo - (k + 1) * kq; z = hi + 1 + (k + 1) * kq;
+        this._caM(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full, k === 0 ? 1 : 0, hot);
+      }
+      // feed: sweeps of the old automaton for a neck that has run short (see step)
+      for (k = 0; k < feed; k++) {
+        a = lo - (n + 1) * kq - k; z = hi + 1 + (n + 1) * kq + k;
+        this._ca(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full);
+      }
+    } else for (k = 0; k < n; k++) {
+      a = lo - k; z = hi + 1 + k;                     // rows a … z − 1
       this._ca(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full);
     }
     this.pCreep = c0; this.pSlide = s0; this.pWake = w0; this.pDiag = d0;
@@ -1638,12 +1795,18 @@
     var G = this.G, cx = g.cx, cy = g.cy, gateY = this.gateY, f = this.frame;
     var lam = this.mLam, w = this.mW, w2 = lam * w * w, la = lam * this.mAl;
     var Ax = this.mAx, Ay = this.mAy, Fx = G * this.gx + Ax, Fy = G * this.gy + Ay;
+    // A grain in the air belongs to the room, not to the glass: when the glass is carried
+    // off or stopped (setCarry) the grain keeps the speed it had, so in the glass's frame
+    // it feels all of the glass's own acceleration, in cells. Exactly nothing while the
+    // glass keeps its place.
+    var Kx = this.granular ? this.mKx * MOT.airK : 0, Ky = this.granular ? this.mKy * MOT.airK : 0;
+    Fx += Kx; Fy += Ky;
     // Coriolis, −2Ω×v = 2ω(v_y, −v_x), at √λ (sim speeds are slow-motion
     // real speeds), applied as an exact-norm Cayley rotation by c = √λ·ω·Δt:
     // explicit Euler would gain about 2 % of speed per step at 4π rad/s.
     var c = Math.sqrt(lam) * w * DT, cn = 1 / (1 + c * c), cA = (1 - c * c) * cn, cB = 2 * c * cn;
     var aLim = 0.02 * G;
-    var calm = Ax * Ax + Ay * Ay < aLim * aLim && w < 0.2 && w > -0.2;
+    var calm = Ax * Ax + Ay * Ay < aLim * aLim && Kx * Kx + Ky * Ky < aLim * aLim && w < 0.2 && w > -0.2;
     var focus = calm && !this.flipping && this.gy > 0.9 ? this.focus : 0;
     var jx = MOT.jitX, jy = MOT.jitY, vMax = MOT.vMax, rV = MOT.retryV;
     var s = this.rng | 0;
@@ -2053,6 +2216,383 @@
   };
 
   /* ---------------------------------------------------------------- *
+   *  The automaton off the upright (sim.granular). _ca judges every
+   *  slope in the lattice's own frame and dithers between two frames 45°
+   *  apart, which is right for a glass standing straight and wrong for
+   *  any other: leaned, its sand has no angle of repose and creeps flat
+   *  like a slow liquid. Here the grains, the odds and the stick-slip
+   *  are the same, but every slope is judged against the field itself:
+   *    - a grain falls along the two lattice directions the field lies
+   *      between, in the odds that give the field's own direction;
+   *    - it steps sideways only when the slope beyond the step, probed
+   *      along a true line below the field's horizontal, is steeper than
+   *      sand can hold: thS for a grain at rest, thD for one already
+   *      moving (the line's phase is dithered, so the threshold is not
+   *      quantised to the lattice);
+   *    - rows sleep at any lean, so sand that has found its slope costs
+   *      nothing and the glass comes to rest.
+   *  kin: a kinetic sweep (the first of a step). A grain that keeps
+   *  moving gathers speed (run, carried with it as its seed is): a fall
+   *  covers 1 + kinA·run cells, which is g·t, and a slide runs on.
+   *  hot (0 … 1): shaken sand holds shallower slopes (thHot).
+   * ---------------------------------------------------------------- */
+  Sim.prototype._caM = function (gx, gy, yLo, yHi, forceFull, kin, hot) {
+    var W = this.W;
+    var cell = this.cell, seed = this.seed, stamp = this.stamp, run = this.run;
+    var rowMin = this.rowMin, rowMax = this.rowMax;
+    var tick = this.tick = (this.tick % 250) + 1;
+    var s = this.rng | 0;
+    var pDiag = this.pDiag, pSlide = this.pSlide, pWake = this.pWake, pCreep = this.pCreep;
+    var RD = Math.PI / 180;
+
+    var gm = Math.sqrt(gx * gx + gy * gy) || 1, ux = gx / gm, uy = gy / gm;
+    var a8 = Math.atan2(ux, uy) / (Math.PI / 4);
+    var k0 = Math.floor(a8), frac = a8 - k0;
+    if (frac > 0.998) { k0 += 1; frac = 0; } else if (frac < 0.002) frac = 0;
+    var kA = ((k0 % 8) + 8) % 8, kB = (kA + 1) & 7;
+    var phi = frac * 45;                                  // the field's angle from A toward B, degrees
+    // the odds of B that make the mean step point along the field (A is an axis when kA is even)
+    var pB = frac === 0 ? 0 : Math.round(((kA & 1) ? 1 - Math.tan((45 - phi) * RD) : Math.tan(phi * RD)) * 256);
+    var dA = DX[kA] + DY[kA] * W, dB = DX[kB] + DY[kB] * W;
+    var aDA = 90 - phi, aDB = 45 + phi;                   // how steeply each descends below the field's horizontal
+
+    var cool = hot > 0 ? 1 - MOT.thHot * (hot > 1 ? 1 : hot) : 1;
+    var thS = MOT.thS * cool, thD = MOT.thD * cool, nS = MOT.nS, nD = MOT.nD;
+
+    // The steps to either side, steepest first. A: toward lower k; B: toward higher k.
+    var kq;
+    kq = (kA + 7) & 7; var cA1 = DX[kq] + DY[kq] * W, aA1 = 45 - phi;
+    kq = (kA + 6) & 7; var cA2 = phi <= 22.5 ? DX[kq] + DY[kq] * W : 0;
+    kq = (kB + 1) & 7; var cB1 = DX[kq] + DY[kq] * W, aB1 = phi;
+    kq = (kB + 2) & 7; var cB2 = phi >= 22.5 ? DX[kq] + DY[kq] * W : 0;
+
+    // True-line probes beyond a step: side (A 0, B 1) × class (at rest 0, moving 1) × 4 phases × 8 cells.
+    var LN = this._lnOff, key = this._lnKey;
+    var side, cls, ph, j, hx, hy, th, dx, dy, sh, q;
+    if (key[0] !== ux || key[1] !== uy || key[2] !== cool) {
+      key[0] = ux; key[1] = uy; key[2] = cool;
+      for (side = 0; side < 2; side++) {
+        hx = side ? uy : -uy; hy = side ? -ux : ux;       // the field's horizontal toward this side
+        for (cls = 0; cls < 2; cls++) {
+          th = (cls ? thD : thS) * RD;
+          dx = Math.cos(th) * hx + Math.sin(th) * ux; dy = Math.cos(th) * hy + Math.sin(th) * uy;
+          for (ph = 0; ph < 4; ph++) {
+            sh = (ph + 0.5) / 4 - 0.5;
+            q = ((side * 2 + cls) * 4 + ph) * 8;
+            for (j = 1; j <= 8; j++) LN[q + j - 1] = Math.round(j * dx + sh * ux) + Math.round(j * dy + sh * uy) * W;
+          }
+        }
+      }
+    }
+
+    var y, yEnd, yStep;
+    if (uy >= 0) { y = yHi - 1; yEnd = yLo - 1; yStep = -1; }
+    else { y = yLo; yEnd = yHi; yStep = 1; }
+    var fixedX = ux > 0.35 ? -1 : (ux < -0.35 ? 1 : 0);
+
+    var kinA = kin ? Math.round(MOT.kinA * 256) : 0, kFall = MOT.kFall, kS = kin ? MOT.kSlide : 1, pLet = MOT.pLet;
+    var moved = 0, slides = 0, pending = 0, mark, k;
+    var i, i0, c, cN, x, n, xs, base, x0, x1, p, t, tA, tB, lA, lB, o, a, r, K, nm, fall, prim, oth, aOth, wall, thr, np2, ok, d;
+
+    var act = this.rowAct;
+    var full = forceFull === true || (this.steps & 63) === 0;
+    var Hm = this.H - 1;
+
+    for (; y !== yEnd; y += yStep) {
+      x0 = rowMin[y]; x1 = rowMax[y];
+      if (x0 > x1) continue;
+      if (!full) {
+        if (act[y] === 0) continue;
+        act[y]--;
+      }
+      mark = moved + pending;
+      xs = fixedX;
+      if (xs === 0) {
+        s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+        xs = (s & 4) ? 1 : -1;
+      }
+      x = xs > 0 ? x0 : x1;
+      base = y * W;
+      for (n = x1 - x0 + 1; n > 0; n--, x += xs) {
+        i = base + x;
+        c = cell[i];
+        if (c < REST) continue;
+        if (stamp[i] === tick) continue;
+
+        // packed in on every side it could go: nothing to decide (most grains, most of the time)
+        if (cell[i + dA] !== EMPTY && cell[i + dB] !== EMPTY && cell[i + cA1] !== EMPTY && cell[i + cB1] !== EMPTY &&
+            (cA2 === 0 || cell[i + cA2] !== EMPTY) && (cB2 === 0 || cell[i + cB2] !== EMPTY)) {
+          if (c === MOVE) cell[i] = REST;
+          if (run[i] !== 0) run[i] = 0;
+          continue;
+        }
+        // The grain is carried in the hand until it has finished moving (cell[i0] still
+        // reads as sand meanwhile, so it cannot step back to where it started); cN is
+        // the state it is left in.
+        i0 = i; r = run[i]; nm = 0; cN = c;
+        K = 1 + ((r * kinA) >> 8);
+        if (K > kFall) K = kFall;
+        for (;;) {
+          s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+          // --- fall along the field ------------------------------------------
+          if (pB !== 0 && (s & 255) < pB) { prim = dB; oth = dA; aOth = aDA; }
+          else { prim = dA; oth = dB; aOth = aDB; }
+          fall = 0;
+          if (cell[i + prim] === EMPTY) { t = prim; fall = 1; }
+          else if (aOth >= 67.5 && cell[i + oth] === EMPTY) { t = oth; fall = 1; }
+          if (fall === 1) {
+            // packed sand does not drop as one block: a grain at rest takes a moment to let go
+            if (c === REST && ((s >>> 16) & 255) >= pLet) { cN = MOVE; pending++; break; }
+          } else {
+            // --- a step to the side, if the slope beyond it is too steep -------
+            wall = cell[i + dA] === WALL || cell[i + dB] === WALL;
+            cls = (c === MOVE || wall) ? 1 : 0;
+            thr = cls ? thD : thS; np2 = cls ? nD : nS;
+            ph = Math.imul(i, 0x9E3779B1) >>> 30;         // the line's phase, by place: a grain is stable or it is not, whenever it is asked
+            tA = 0; lA = 0; tB = 0; lB = 0;
+            // side A
+            q = (cls * 4 + ph) * 8;
+            if (oth === dA && aOth < 67.5 && cell[i + dA] === EMPTY) tA = dA;
+            if (tA === 0 && cell[i + cA1] === EMPTY) {
+              if (aA1 >= thr) tA = cA1;
+              else {
+                o = i + cA1; ok = 1;
+                for (j = 0; j < np2; j++) if (cell[o + LN[q + j]] !== EMPTY) { ok = 0; break; }
+                if (ok) { tA = cA1; lA = 1; }
+              }
+            }
+            if (tA === 0 && cA2 !== 0 && cell[i + cA2] === EMPTY) {
+              o = i + cA2; ok = 1;
+              for (j = 0; j < np2; j++) if (cell[o + LN[q + j]] !== EMPTY) { ok = 0; break; }
+              if (ok) { tA = cA2; lA = 1; }
+            }
+            // side B
+            q = ((2 + cls) * 4 + ph) * 8;
+            if (oth === dB && aOth < 67.5 && cell[i + dB] === EMPTY) tB = dB;
+            if (tB === 0 && cell[i + cB1] === EMPTY) {
+              if (aB1 >= thr) tB = cB1;
+              else {
+                o = i + cB1; ok = 1;
+                for (j = 0; j < np2; j++) if (cell[o + LN[q + j]] !== EMPTY) { ok = 0; break; }
+                if (ok) { tB = cB1; lB = 1; }
+              }
+            }
+            if (tB === 0 && cB2 !== 0 && cell[i + cB2] === EMPTY) {
+              o = i + cB2; ok = 1;
+              for (j = 0; j < np2; j++) if (cell[o + LN[q + j]] !== EMPTY) { ok = 0; break; }
+              if (ok) { tB = cB2; lB = 1; }
+            }
+            if (tA === 0 && tB === 0) { cN = REST; break; }
+            if (tA !== 0 && tB !== 0) { if (s & 1024) { t = tA; a = lA; } else { t = tB; a = lB; } }
+            else if (tA !== 0) { t = tA; a = lA; }
+            else { t = tB; a = lB; }
+            p = a === 0 ? pDiag : (wall ? 256 : (c === MOVE ? pSlide : pCreep));
+            if (((s >>> 12) & 255) >= p) {
+              // could have gone: look again (a steep step keeps the grain awake, a slope lets it rest)
+              cN = a === 0 ? MOVE : REST;
+              pending++;
+              break;
+            }
+            slides++;
+          }
+          // --- move ------------------------------------------------------------
+          d = i + t;
+          if (fall === 0 && ((s >>> 20) & 255) < pWake) {
+            // an avalanche spreads: what leaned on this grain, and what it lands on
+            if (cell[i - dA] === REST) cell[i - dA] = MOVE;
+            if (cell[i - dB] === REST) cell[i - dB] = MOVE;
+            if (cell[i - t] === REST) cell[i - t] = MOVE;
+            if (cell[d + dA] === REST) cell[d + dA] = MOVE;
+          }
+          i = d; c = cN = MOVE; nm++;
+          if (fall ? nm >= K : nm >= kS) break;
+        }
+        if (nm > 0) {
+          cell[i] = cN; seed[i] = seed[i0]; cell[i0] = EMPTY;
+          moved++;
+          stamp[i] = tick;
+          run[i0] = 0;
+          run[i] = kin ? (r < 255 ? r + 1 : 255) : r;
+          if (nm > 1) {                                   // a long move: wake where it went
+            k = ((i / W) | 0) - 3; if (k < 0) k = 0;
+            t = k + 6; if (t > Hm) t = Hm;
+            for (; k <= t; k++) act[k] = 2;
+          }
+        } else {
+          if (cN !== cell[i0]) cell[i0] = cN;
+          if (r !== 0) run[i0] = 0;
+        }
+      }
+      if (moved + pending !== mark) {
+        k = y - 3; if (k < 0) k = 0;
+        n = y + 3; if (n > Hm) n = Hm;
+        for (; k <= n; k++) act[k] = 2;
+      }
+    }
+    this.rng = s || 0x9E3779B9;
+    this.frame.moved += moved;
+    this.frame.slides += slides;
+  };
+
+  /**
+   * Move bulb b's bed one cell across the glass, toward dx (±1): every grain
+   * that has room beside it steps over, row by row, so each row is pushed up
+   * against the glass in order and stops there (a grain keeps its row, its
+   * seed and its state, and the bed does not light up as sliding sand).
+   * Returns the grains moved; _slideN is the grains it looked at.
+   */
+  Sim.prototype._slide = function (b, dx) {
+    var W = this.W, cell = this.cell, seed = this.seed, run = this.run, rowMin = this.rowMin, rowMax = this.rowMax;
+    var yLo = b ? this.gateY + 1 : 1, yHi = b ? this.H - 1 : this.gateY;
+    var lo = this._sandRow(yLo, yHi - 1, 1);
+    this._slideN = 0;
+    if (lo < 0) return 0;
+    var hi = this._sandRow(yHi - 1, lo, -1), act = this.rowAct;
+    var moved = 0, n = 0, y, i, e, c;
+    for (y = lo; y <= hi; y++) {
+      // from the side it moves toward: a run of grains with room ahead moves up as one
+      i = y * W + (dx > 0 ? rowMax[y] : rowMin[y]);
+      e = y * W + (dx > 0 ? rowMin[y] : rowMax[y]);
+      for (; i !== e; i -= dx) {
+        c = cell[i - dx];
+        if (c < REST) continue;
+        n++;
+        if (cell[i] !== EMPTY) continue;
+        cell[i] = c; seed[i] = seed[i - dx]; run[i] = run[i - dx];
+        cell[i - dx] = EMPTY; run[i - dx] = 0;
+        moved++;
+      }
+      act[y] = 2;
+    }
+    this._slideN = n;
+    if (moved > 0) this.frame.moved++;                 // the sand is not at rest (but a bed that slides is not grains sliding: no more than that)
+    return moved;
+  };
+
+  /* ---------------------------------------------------------------- *
+   *  A thick avalanche (sim.granular). The automaton moves one layer of
+   *  grains a cell at a time, so a face far too steep (the sand after a
+   *  flip stands at 76°) would take ten seconds and more to give way. Real
+   *  sand fails in depth. Here the free surface of bulb b is read as
+   *  heights across the field (one bin per cell; an empty bin's floor is
+   *  the glass), and wherever it falls more steeply than sand can hold
+   *  over slB bins, the top grain of the high bin is carried down to
+   *  where the slope eases: started above thS + slUp, kept going down to
+   *  slStop (an avalanche, once running, runs on to the angle of repose),
+   *  at most slMax grains a call and slDeep from one bin, where the face
+   *  is a cliff. Every move is one grain, with its seed, into one empty
+   *  cell of the same bulb: nothing crosses the neck. The automaton still
+   *  does the fine work. Returns the grains moved.
+   * ---------------------------------------------------------------- */
+  Sim.prototype._slump = function (b, gx, gy, hot) {
+    var W = this.W, cell = this.cell, seed = this.seed, run = this.run, rowMin = this.rowMin, rowMax = this.rowMax;
+    var yLo = b ? this.gateY + 1 : 1, yHi = b ? this.H - 1 : this.gateY;
+    var lo = this._sandRow(yLo, yHi - 1, 1);
+    if (lo < 0) { this._aval[b] = 0; return 0; }
+    var hi = this._sandRow(yHi - 1, lo, -1);
+    var gm = Math.sqrt(gx * gx + gy * gy) || 1, ux = gx / gm, uy = gy / gm, hx = uy, hy = -ux;
+    var NB = SL_BINS, OFF = SL_BINS / 2 + 0.5, cx = this.geo.cx, cy = this.geo.cy;
+    var top = this._slTop, topI = this._slI, flo = this._slFlo, floI = this._slFloI;
+    if (top === null) {
+      top = this._slTop = new Float32Array(NB); topI = this._slI = new Int32Array(NB);
+      flo = this._slFlo = new Float32Array(NB); floI = this._slFloI = new Int32Array(NB);
+    }
+    var x, y, i, s, h, s0 = NB, s1 = -1, x0, x1, sRow, hRow;
+
+    // the glass under every bin: the lowest cell of the bulb's rim that falls in it
+    flo.fill(1e9); floI.fill(-1);
+    var cLo = this.colLo[b], cHi = this.colHi[b], k;
+    for (y = yLo; y < yHi; y++) {
+      x0 = rowMin[y]; x1 = rowMax[y];
+      if (x0 > x1) continue;
+      sRow = (y + 0.5 - cy) * hy + OFF; hRow = -(y + 0.5 - cy) * uy;
+      for (k = 0; k < 2; k++) {
+        x = k ? x1 : x0;
+        s = ((x + 0.5 - cx) * hx + sRow) | 0; h = hRow - (x + 0.5 - cx) * ux;
+        if (h < flo[s]) { flo[s] = h; floI[s] = y * W + x; }
+      }
+    }
+    for (x = this._bx0; x <= this._bx1; x++) {
+      if (cLo[x] > cHi[x]) continue;
+      for (k = 0; k < 2; k++) {
+        y = k ? cHi[x] : cLo[x];
+        s = ((x + 0.5 - cx) * hx + (y + 0.5 - cy) * hy + OFF) | 0; h = -(y + 0.5 - cy) * uy - (x + 0.5 - cx) * ux;
+        if (h < flo[s]) { flo[s] = h; floI[s] = y * W + x; }
+      }
+    }
+    for (s = 0; s < NB; s++) if (floI[s] >= 0) { if (s < s0) s0 = s; s1 = s; }
+    for (s = s0; s <= s1; s++) {
+      if (floI[s] < 0) flo[s] = flo[s - 1];             // (a bin the rim skipped: as its neighbour, and no cell to set a grain on)
+      top[s] = flo[s] - 1; topI[s] = -1;
+    }
+
+    // the free surface: the highest grain of every bin
+    for (y = lo; y <= hi; y++) {
+      x0 = rowMin[y]; x1 = rowMax[y];
+      sRow = (x0 + 0.5 - cx) * hx + (y + 0.5 - cy) * hy + OFF; hRow = -(y + 0.5 - cy) * uy - (x0 + 0.5 - cx) * ux;
+      for (i = y * W + x0, k = y * W + x1; i <= k; i++, sRow += hx, hRow -= ux) {
+        if (cell[i] < REST) continue;
+        s = sRow | 0;
+        if (hRow > top[s]) { top[s] = hRow; topI[s] = i; }
+      }
+    }
+
+    var RD = Math.PI / 180, cool = hot > 0 ? 1 - MOT.thHot * (hot > 1 ? 1 : hot) : 1;
+    var B = MOT.slB, running = this._aval[b] > 0;
+    var tStart = B * Math.tan((MOT.thS + MOT.slUp) * cool * RD), tStop = B * Math.tan(MOT.slStop * cool * RD);
+    var need = running ? tStop : tStart, moved = 0, q = this.quality;
+    var budget = q >= 2 ? MOT.slMax : (q === 1 ? (MOT.slMax * 0.6) | 0 : (MOT.slMax * 0.35) | 0);
+    // the lattice steps that climb against the field (to set a grain on top of a bin)
+    var kU = dir8(-ux, -uy), up = DX[kU] + DY[kU] * W;
+    var up2 = DX[(kU + 1) & 7] + DY[(kU + 1) & 7] * W, up3 = DX[(kU + 7) & 7] + DY[(kU + 7) & 7] * W;
+    var gate = this.gateY * W, isTop = b === 0, rs = this.rng | 0;
+    rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5;
+    var dirFirst = (rs & 1) ? 1 : -1, step1 = tStop / B * 0.5, deep = MOT.slDeep, reach = MOT.slRun;
+    var pass, dir, reps, t, drop, nx, far, j, d, e;
+    for (pass = 0; pass < 2 && moved < budget; pass++) {
+      dir = pass ? -dirFirst : dirFirst;                // downhill toward +s, then toward −s (the order alternates)
+      for (s = dir > 0 ? s0 : s1; s >= s0 && s <= s1 && moved < budget; s += dir) {
+        for (reps = 0; reps < deep && moved < budget; reps++) {
+          t = s + dir * B;
+          if (t < s0 || t > s1) break;
+          i = topI[s];
+          if (i < 0 || cell[i] < REST) break;           // (a bin's next grain may have left with a neighbour's)
+          drop = top[s] - top[t];
+          if (drop <= need) break;
+          // it runs on down the slope while the slope still falls away (to the foot, or slRun bins)
+          nx = t + dir; far = s + dir * reach;
+          while (nx >= s0 && nx <= s1 && nx !== far && top[nx] <= top[t] - step1) { t = nx; nx += dir; }
+          j = topI[t];
+          if (j >= 0) {
+            if (cell[j] < REST) break;
+            d = j + up;
+            if (cell[d] !== EMPTY) { d = j + up2; if (cell[d] !== EMPTY) { d = j + up3; if (cell[d] !== EMPTY) break; } }
+          } else {                                      // an empty bin: onto the glass
+            d = floI[t];
+            if (d < 0 || cell[d] !== EMPTY) break;
+          }
+          if ((d < gate) !== isTop) break;
+          cell[d] = MOVE; seed[d] = seed[i]; cell[i] = EMPTY;
+          run[d] = 0; run[i] = 0;
+          topI[t] = d; top[t] = j < 0 ? flo[t] : top[t] + 1;
+          // the high bin's next grain: the one under it along the field
+          e = i - up;
+          if (cell[e] < REST) { e = i - up2; if (cell[e] < REST) e = i - up3; }
+          if (cell[e] >= REST) { topI[s] = e; top[s] -= 1; if (cell[e] === REST) cell[e] = MOVE; }
+          else { topI[s] = -1; top[s] = flo[s] - 1; }
+          moved++;
+          this._touchRow((i / W) | 0); this._touchRow((d / W) | 0);
+          if (drop < need + B) break;                   // only a cliff gives way in depth
+        }
+      }
+    }
+    this.rng = rs || 0x9E3779B9;
+    this._aval[b] = moved > 0 ? 1 : 0;                  // still running: keep going down to slStop
+    this.frame.moved += moved; this.frame.slides += moved;
+    return moved;
+  };
+
+  /* ---------------------------------------------------------------- *
    *  Ballistic grains: v = v0 + g·Δt, sub-pixel positions, restitution
    * ---------------------------------------------------------------- */
   Sim.prototype._particles = function (gx, gy) {
@@ -2298,6 +2838,9 @@
     this._landSlugs();
     this.cell.reverse();
     this.seed.reverse();
+    this.run.reverse();
+    this.slip[0] = this.slip[1] = 0; this.slipAcc[0] = this.slipAcc[1] = 0;
+    if (this.granular) this._offAt = this.steps;   // turned over: the sand has a fall and a slope to find
     var W = this.W, H = this.H;
     for (var p = 0; p < this.np; p++) {
       this.px[p] = W - this.px[p]; this.py[p] = H - this.py[p];
@@ -2325,6 +2868,7 @@
     flipBulbPair(this.bf); flipBulbPair(this.hSlow); flipBulbPair(this.cen);
     t = this.agit[0]; this.agit[0] = this.agit[1]; this.agit[1] = t;
     t = this.sweepAcc[0]; this.sweepAcc[0] = this.sweepAcc[1]; this.sweepAcc[1] = t;
+    t = this._aval[0]; this._aval[0] = this._aval[1]; this._aval[1] = t;
     t = this._landAt[0]; this._landAt[0] = this._landAt[1]; this._landAt[1] = t;
     // the slugs trade states, not objects (a reader may keep sim.slug[0]);
     // both beds were just put down, so both sit on their seats
