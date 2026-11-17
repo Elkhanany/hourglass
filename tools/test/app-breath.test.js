@@ -198,11 +198,11 @@ function seed(o) {
   return st;
 }
 function breathT0(t) { return t.eval(function () { return window.Hourglass.breath.t0; }); }
-/** Open Tune and bring the Breathing pace row into view (dimmed controls first take a tap to come back). */
+/** Open Tune and bring the Breathing pace row into view (out of Zen first: two fingers pinching together). */
 async function openTune(t) {
   if (await t.eval(function () { return document.getElementById('app').classList.contains('zen'); })) {
     var g = await t.glass();
-    await t.touch.tap(g.cx, g.cy, 60);
+    await t.touch.pinch(g.cx, g.cy, 230, 90, 260);
     await sleep(650);
   }
   await t.page.tap('#btn-settings');
@@ -818,6 +818,8 @@ async function zen(s, env) {
   var g = await t.glass();
   await sampleStart(t);
   await t.touch.tap(g.cx, g.cy, 60);
+  await sleep(400);
+  await t.page.tap('#btn-zen');                              // (Zen comes by the moon button or a pinch, never by itself)
   await t.page.waitForFunction(function () { return document.getElementById('app').classList.contains('zen-deep'); }, null, { timeout: 12000 });
   await sleep(600);
   var p = await H.perfWatch(t);

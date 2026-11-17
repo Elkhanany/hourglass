@@ -123,6 +123,29 @@ function makeTouch(cdp) {
     up: function () {
       return cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     },
+    /** Several fingers at once: type 'touchStart' | 'touchMove', pts [[x, y], ...] (ids 1, 2, ...). up() lifts them all. */
+    fingers: function (type, pts) {
+      return cdp.send('Input.dispatchTouchEvent', { type: type, touchPoints: pts.map(function (q, i) {
+        return { x: q[0], y: q[1], id: i + 1, radiusX: 2, radiusY: 2, force: 1 };
+      }) });
+    },
+    /**
+     * Two fingers on a level line through (cx, cy), the gap between them
+     * going from `from` to `to` px over ms (a step every ~8 ms), then lifted;
+     * hold: they stay down.
+     */
+    pinch: async function (cx, cy, from, to, ms, hold) {
+      var two = function (gap) { return [[cx - gap / 2, cy], [cx + gap / 2, cy]]; };
+      await t.fingers('touchStart', two(from));
+      var t0 = Date.now();
+      for (;;) {
+        var u = Math.min(1, (Date.now() - t0) / (ms || 260));
+        await t.fingers('touchMove', two(from + (to - from) * u));
+        if (u >= 1) break;
+        await sleep(8);
+      }
+      if (!hold) await t.up();
+    },
     /**
      * Move along fn(u) → {x, y}, u from 0 to 1 over ms of wall time, a step
      * every ~8 ms. `lift`: the finger leaves the glass while still moving (a

@@ -2,8 +2,8 @@
  * Controller acceptance 13 (REGRESSION SMOKE): the existing flow still
  * works, and integration E1/E11 checks of the shell.
  *   - duration pills and a custom duration; start; the Flip button (2.6 s,
- *     swaps the time); Zen; the end; the quiet ending holds Zen through
- *     the bowl; pour adds exactly the time its sand is worth
+ *     swaps the time); no Zen by itself, Zen by the moon button; the end
+ *     leaves Zen as it is; pour adds exactly the time its sand is worth
  *   - the main screen is as lean as before: the same buttons, the same Tune
  *     rows, the switch now reads 'Real motion'
  *   - the service worker caches its current VERSION (sw.js), motion.js included
@@ -33,7 +33,7 @@ async function testFlow(s, env) {
   s.check('UI: the main screen has the same buttons (3 top, 12 bottom: six duration pills); Tune has 8 rows (with Layered sand and Breathing pace)',
           ui.top === 3 && ui.bottom === 12 && ui.rows === 8, JSON.stringify(ui));
   s.check('UI: the Tune switch reads "Real motion"', ui.tilt === 'Real motion', '"' + ui.tilt + '"');
-  s.check('UI: the stage says how to play with the glass', ui.aria === 'Hourglass. Tap to start or pause. Drag to move or turn it.');
+  s.check('UI: the stage says how to play with the glass', ui.aria === 'Hourglass. Tap to start or pause. Drag to move or turn it. Spread two fingers for Zen, pinch them to come back.');
   s.check('UI: #c-spill sits in the zoom, outside the glass', ui.spill);
 
   // duration pills, custom
@@ -98,16 +98,17 @@ async function testFlow(s, env) {
   s.check('FLOW: pour adds time: T.rem → remAt(topAt(rem) + made)', p.made > 50 && Math.abs(p.got - p.want) < 1e-6,
           p.made + ' grains: ' + (p.rem0 / 1000).toFixed(2) + ' → ' + (p.got / 1000).toFixed(2) + ' s (expected ' + (p.want / 1000).toFixed(2) + ')');
 
-  // Zen, the end, and the quiet ending
+  // Zen and the end: only the moon button and a pinch change the view
   await t.eval(function () { window.Hourglass.setDuration(10000); });
   await sleep(900);
   var g = await t.glass();
+  var zenOn = function () { return t.eval(function () { return document.getElementById('app').classList.contains('zen'); }); };
   await t.touch.tap(g.cx, g.cy, 60);
-  try {
-    await t.page.waitForFunction(function () { return document.getElementById('app').classList.contains('zen'); }, null, { timeout: 7000 });
-  } catch (e) {}
-  var zen = await t.eval(function () { return document.getElementById('app').classList.contains('zen'); });
-  s.check('FLOW: Zen dims the controls 4 s after starting', zen);
+  await sleep(5000);
+  s.check('FLOW: running brings no Zen by itself (5 s after starting)', !(await zenOn()));
+  await t.page.tap('#btn-zen');
+  await sleep(300);
+  s.check('FLOW: the moon button brings Zen', await zenOn());
   await t.page.waitForFunction(function () { return window.Hourglass.timer.state === 'done'; }, null, { timeout: 15000 });
   var e = await t.eval(function () {
     var H = window.Hourglass;
@@ -116,11 +117,14 @@ async function testFlow(s, env) {
   });
   s.check('FLOW: the end: 00:00, "Time"', e.main === '00:00' && /Time/.test(e.status), e.main + ' / ' + e.status);
   await sleep(1200);
-  var held = await t.eval(function () { return document.getElementById('app').classList.contains('zen'); });
+  var held = await zenOn();
   await sleep(2600);
-  var risen = await t.eval(function () { return document.getElementById('app').classList.contains('zen'); });
-  s.check('FLOW: the quiet ending holds Zen through the bowl, then the controls rise', e.zen && held && !risen,
-          'at the end ' + e.zen + ', 1.2 s later ' + held + ', 3.8 s later ' + risen);
+  var still = await zenOn();
+  s.check('FLOW: the end of a glass leaves Zen as it is', e.zen && held && still,
+          'at the end ' + e.zen + ', 1.2 s later ' + held + ', 3.8 s later ' + still);
+  await t.touch.pinch(g.cx, g.cy, 230, 90, 260);
+  await sleep(300);
+  s.check('FLOW: two fingers pinching together bring the controls back', !(await zenOn()));
   var wl = await t.eval(function () { return window.Hourglass.wakeState(); });
   s.check('FLOW: the wake-lock state reports', typeof wl === 'string' && wl.length > 0, wl);
   await H.invariants(s, t, 'FLOW');

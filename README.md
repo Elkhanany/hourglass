@@ -58,8 +58,10 @@ deep-water teal.
   grains, the first grains ticking on bare glass, a singing bowl at the end,
   and optional water behind it (a brook, rain, the ocean, a waterfall, or
   drips in a grotto), all synthesised, nothing recorded.
-- **Zen.** Four seconds after you let it run, the controls fade and the glass
-  fills the screen; the end of a glass is quiet and slow.
+- **Zen.** Spread two fingers on the screen, or tap the moon, and the controls
+  fade while the glass grows to fill the screen. Pinch them together to come
+  back. Nothing else changes the view: not a tap, not playing with the glass,
+  not time.
 - **Breathing pace.** If you like, the glow behind the glass swells as you
   breathe in and fades as you breathe out, for as long as the sand runs.
 - **A glass you can hold.** Drag it by the waist, turn it by a bulb, flick it
@@ -91,18 +93,26 @@ deep-water teal.
 | Reset | **Reset** | `R` |
 | Duration | Pills `1 5 10 15 30 60` min, **Custom**, or tap the time (10 s to 99:59) | |
 | Work and rest | **Custom** (or tap the time): *Then rest* 1 to 60 min, *Rounds* 1 to 12 | |
-| Dim the controls now | Moon icon | |
+| Zen: the glass fills the screen | Spread two fingers, or the moon icon | |
+| Back from Zen | Pinch two fingers together | `Esc` |
 | Mute | Speaker icon | `M` |
 | Material, frame, sound, motion, breathing, screen | **Tune** | |
 
-After four seconds of running without a touch the controls fade slowly, over
-about three seconds, to 12 % (or disappear entirely with *Full Zen*) as the
-glass grows to fill the screen; while they are dimmed the tenths rest. While
-they are still visibly fading they answer a tap as usual; once dim, the first
-tap only brings them back. Playing with the glass (moving, turning, spinning,
-catching or mending it) keeps them dim; only a tap brings them back. The moon
-icon starts the same fade at once and, where the browser allows it, goes full
-screen. With *Reduce Motion* turned on in the system settings, all of this
+Zen is yours to enter and to leave. Spread two fingers anywhere on the
+screen, or tap the moon icon, and the controls fade over about a second and a
+half to 12 % (or disappear entirely with *Full Zen*) as the glass grows to
+fill the screen; while they are dimmed the tenths rest. Pinch two fingers
+together and they come back at once (`Esc` on a keyboard; a trackpad's pinch
+works both ways too). Nothing else changes the view. A tap on the glass
+starts or pauses it in Zen as it does at home; playing with the glass
+(moving, turning, spinning, catching, mending, knocking) leaves the view as
+it is; the controls do not fade by themselves however long the sand runs;
+and the end of a glass leaves Zen as it is. The fingers must travel a little
+(a fifth of the gap between them, and 36 px at least), a glass that is
+already being carried or turned is not let go for a second finger, and
+turning back within the same pinch undoes it. The first three times, the
+moon icon says how to come back. Where the browser allows it, Zen also goes
+full screen. With *Reduce Motion* turned on in the system settings, all of this
 happens at once instead. With *Reduce Motion* a glass that is let go glides
 home instead of falling, nothing flashes and the phone's shaking cannot crack
 the glass; what a finger does to it (a slam on the desk, knocks, hard spins)
@@ -169,8 +179,8 @@ bowl, lighter and shorter, and only with *Completion bowl* on), the glass
 turns itself over with the Flip button's unhurried half turn, and the next
 phase starts as the turn ends. It is the same sand, timed to the new length:
 through a 5 minute rest it runs five times as fast as through the 25 minutes
-before it. The last phase ends as any glass does. The turn never brings
-dimmed controls back, in Zen or Full Zen. With *Reduce Motion* the glass does
+before it. The last phase ends as any glass does. The turn leaves the view
+as it is, in Zen or out of it. With *Reduce Motion* the glass does
 not turn: the sand fades away below and returns above, in the same time.
 
 Pause and resume work inside a phase; paused between two phases, the turn
@@ -910,6 +920,13 @@ node tools/test/app-gestures.test.js     # any single suite
   pour, flip, a restored session and Reduce Motion. `app-ambience` covers the six
   ambience cards: the radio group as a screen reader meets it, two rows of
   three from 320 to 430 px and in landscape, choosing, saving and restoring.
+  `app-gestures` also covers Zen: none by itself, in by spreading two fingers
+  or the moon icon, out by pinching or `Esc`, and unchanged by taps, by
+  playing with the glass, by a second finger while it is carried, and by a
+  pinch while a sheet is open. `app-haptics` covers the iPhone's taps: a
+  label over a hidden switch on every control and on the stage, the switch
+  flipping exactly when the app asked for a tap, every control still doing
+  its work once, and scrolling, pouring, carrying and pinching unchanged.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
@@ -962,12 +979,19 @@ never flashes white before its first frame.
 - A web app cannot hide the iPhone status bar or silence notifications. On
   Android the installed app runs full screen; in desktop and Android browsers
   the moon icon enters full screen.
-- Haptics use `navigator.vibrate` on Android. iOS has no vibration API; on
-  iOS 18 and later a hidden switch control is flipped instead, which taps the
-  Taptic Engine lightly. iOS allows that only as a finger lifts or taps, so
-  a tap wanted while the finger is down (a catch, a half turn, the creak of
-  a glass banged on the desk) plays as it lifts; a glass that lands after it
-  was let go, timers and shaking cannot tap at all.
+- Haptics use `navigator.vibrate` on Android. An iPhone has no vibration
+  API. Since iOS 18 a switch control taps the Taptic Engine when it flips,
+  and since iOS 26.5 only when a finger really lands on it or on its label.
+  So on an iPhone every control, and the glass itself, carries a transparent
+  label over a hidden switch, and a tap that the app wants felt lets that
+  switch flip: one light tick a tap, on buttons, pills, cards, switches, and
+  a tap or a knock on the glass. What happens without a tap cannot tick on
+  an iPhone: the end of a glass, a landing, a crack from shaking, a catch or
+  a half turn while the finger drags (on iOS 18 to 26.4 those still tick as
+  the finger lifts). *System Haptics* must be on in the iPhone's Sounds &
+  Haptics settings. This is tested in a browser shaped like an iPhone
+  (`app-haptics`), which has no Taptic Engine: whether the phone ticks can
+  only be felt on a phone.
 - The completion sound can only play in a hidden tab if the browser keeps the
   page's audio running; on a locked phone it generally will not.
 

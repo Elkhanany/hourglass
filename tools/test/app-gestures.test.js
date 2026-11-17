@@ -1,7 +1,7 @@
 /*
  * Controller acceptance 2–7 and 12: the glass as a body under a finger.
  * MOVE (drag by the waist), TURN (drag a bulb), FREE / DETENT (flicks),
- * CATCH, MEND (kintsugi), ZEN (play never wakes the controls) and
+ * CATCH, MEND (kintsugi), ZEN (only a pinch and the moon button change it) and
  * REDUCE MOTION. iPhone 12 in Chromium, real touch events (CDP).
  *
  *   node tools/test/app-gestures.test.js [--root <dir>] [--port <n>] [--only move|turn|free|catch|mend|zen|reduced]
@@ -461,17 +461,36 @@ async function zenOn(t) {
 }
 async function testZen(s, env) {
   var t = await env.open({ motionStub: CFG.stub });
-  var g0 = await t.glass();
+  var g0 = await t.glass(), i;
+  var state = function () { return t.eval(function () { return window.Hourglass.timer.state; }); };
   await sleep(500);                                         // apart from any earlier tap: not a knock
   await t.touch.tap(g0.cx, g0.cy, 60);                      // start, by a tap on the glass
-  try {
-    await t.page.waitForFunction(function () { return document.getElementById('app').classList.contains('zen'); }, null, { timeout: 9000 });
-  } catch (e) {}
-  var z = await zenOn(t);
-  s.check('ZEN: the zen class appears while running', z);
-  await sleep(3200);                                        // the glass grows to its Zen size
+  await sleep(6000);
+  s.check('ZEN: six seconds of running bring no Zen by themselves', !(await zenOn(t)) && (await state()) === 'running');
+  await t.touch.pinch(g0.cx, g0.cy, 80, 108, 200);
+  await sleep(150);
+  s.check('ZEN: two fingers that barely move bring none', !(await zenOn(t)));
+  // a glass that is being carried is not let go for a second finger, wherever that one goes
+  await t.touch.down(g0.cx, g0.cy);
+  await t.touch.path(function (u) { return { x: g0.cx + 60 * u, y: g0.cy }; }, 150);
+  await t.touch.fingers('touchStart', [[g0.cx + 60, g0.cy], [g0.cx + 60, g0.cy + 70]]);
+  for (i = 1; i <= 12; i++) { await t.touch.fingers('touchMove', [[g0.cx + 60, g0.cy], [g0.cx + 60, g0.cy + 70 + 15 * i]]); await sleep(10); }
+  var carried = await t.eval(function () { return window.Hourglass.body.px; });
+  await t.touch.up();
+  s.check('ZEN: a second finger spreading while the glass is carried brings none', !(await zenOn(t)) && Math.abs(carried) > 5, 'carried ' + carried.toFixed(1) + ' cells');
+  await waitRest(t, 5000);
+  await sleep(700);
+  g0 = await t.glass();
+  var st0 = await state();
+  await t.touch.pinch(g0.cx, g0.cy, 80, 220, 260);
+  await sleep(150);
+  s.check('ZEN: two fingers spreading bring it', await zenOn(t));
+  s.check('ZEN: ... and are no tap: the glass runs on', st0 === 'running' && (await state()) === 'running', st0 + ' → ' + (await state()));
+  await sleep(1800);                                        // the glass grows to its Zen size
+  var deep = await t.eval(function () { return document.getElementById('app').classList.contains('zen-deep'); });
+  s.check('ZEN: settled, the dim controls take no taps', deep);
   var g = await t.glass();
-  var st = await t.eval(function () { return window.Hourglass.timer.state; });
+  var st = await state();
   // MOVE
   await t.touch.down(g.cx, g.cy);
   await t.touch.path(function (u) { return { x: g.cx + 100 * u, y: g.cy }; }, 200);
@@ -492,13 +511,55 @@ async function testZen(s, env) {
   await sleep(300);
   var sealed = await t.eval(function () { return window.Hourglass.sim.cracks[0].sealed; });
   s.check('ZEN: a mend hold keeps the class (and mends)', (await zenOn(t)) && sealed, 'sealed ' + sealed);
-  var st1 = await t.eval(function () { return window.Hourglass.timer.state; });
-  // a tap wakes it, and does nothing else
+  var st1 = await state();
+  // a tap is a tap, here as at home: the glass pauses, and Zen stays
+  await sleep(700);
   await t.touch.tap(g.cx, g.cy, 60);
   await sleep(400);
-  var st2 = await t.eval(function () { return window.Hourglass.timer.state; });
-  s.check('ZEN: a tap removes the class', !(await zenOn(t)));
-  s.check('ZEN: ... without toggling', st2 === st1 && st1 === st, st + ' → ' + st1 + ' → ' + st2);
+  var st2 = await state();
+  s.check('ZEN: a tap keeps the class', await zenOn(t));
+  s.check('ZEN: ... and pauses the glass, as it does at home', st === 'running' && st1 === 'running' && st2 === 'paused', st + ' → ' + st1 + ' → ' + st2);
+  await t.touch.tap(4, 4, 60);
+  await sleep(400);
+  s.check('ZEN: a tap beside the glass does nothing at all', (await zenOn(t)) && (await state()) === 'paused');
+  // carried, with a second finger closing in: still not let go, still Zen
+  await sleep(700);
+  g = await t.glass();
+  await t.touch.down(g.cx, g.cy);
+  await t.touch.path(function (u) { return { x: g.cx + 40 * u, y: g.cy }; }, 150);
+  await t.touch.fingers('touchStart', [[g.cx + 40, g.cy], [g.cx + 40, g.cy + 260]]);
+  for (i = 1; i <= 12; i++) { await t.touch.fingers('touchMove', [[g.cx + 40, g.cy], [g.cx + 40, g.cy + 260 - 15 * i]]); await sleep(10); }
+  await t.touch.up();
+  s.check('ZEN: a second finger closing in while the glass is carried keeps the class', await zenOn(t));
+  await waitRest(t, 5000);
+  await sleep(500);
+  g = await t.glass();
+  await t.touch.pinch(g.cx, g.cy, 230, 90, 260);
+  await sleep(150);
+  s.check('ZEN: two fingers pinching together leave it', !(await zenOn(t)) && (await state()) === 'paused', await state());
+  // there and back within one pinch
+  await t.touch.pinch(g.cx, g.cy, 90, 230, 220, true);
+  var mid = await zenOn(t);
+  for (i = 1; i <= 14; i++) { await t.touch.fingers('touchMove', [[g.cx - (230 - 10 * i) / 2, g.cy], [g.cx + (230 - 10 * i) / 2, g.cy]]); await sleep(10); }
+  await t.touch.up();
+  s.check('ZEN: spread and turned back within one pinch: there and back', mid && !(await zenOn(t)));
+  // the moon button, and Escape
+  await sleep(700);
+  await t.page.tap('#btn-zen');
+  await sleep(300);
+  var hint = await t.eval(function () { var q = document.getElementById('toast'); return q.classList.contains('show') ? q.textContent : ''; });
+  s.check('ZEN: the moon button brings it, and says the way back', (await zenOn(t)) && /Pinch in/.test(hint), JSON.stringify(hint));
+  await t.page.keyboard.press('Escape');
+  await sleep(150);
+  s.check('ZEN: Escape leaves it', !(await zenOn(t)));
+  // not while a sheet is open
+  await t.page.tap('#btn-settings');
+  await sleep(700);
+  await t.touch.pinch(g.cx, 300, 80, 240, 220);
+  await sleep(150);
+  s.check('ZEN: a pinch while Tune is open does nothing', !(await zenOn(t)));
+  await t.page.keyboard.press('Escape');
+  await sleep(700);
   await H.invariants(s, t, 'ZEN');
   await t.close();
 }

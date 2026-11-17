@@ -205,7 +205,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 }
 
 /* ------------------------------------------------------------------ *
- *  HUD (auto-dims after 4 s of running)
+ *  HUD (dims in Zen: a pinch, or the moon button)
  * ------------------------------------------------------------------ */
 .hud {
   position: absolute; left: 0; right: 0; z-index: 3;
@@ -213,15 +213,13 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   pointer-events: none;
 }
 .hud > * { pointer-events: auto; }
-#app.zen .hud { opacity: 0.12; transition: opacity 2.8s var(--sine); }   /* settle in slowly */
+#app.zen .hud { opacity: 0.12; transition: opacity 1.4s var(--sine); }   /* settle in softly (app.js: ZEN_SETTLE) */
 #app.zen.zen-full .hud { opacity: 0; }
 #app.zen-deep .hud > * { pointer-events: none; }   /* controls stay live while still visibly fading */
-#app:not(.zen) .hud { transition-duration: 0.5s; }  /* a touch wakes them promptly */
-#app.zen #zoom { transition: transform 2.8s var(--sine); }
+#app:not(.zen) .hud { transition-duration: 0.5s; }  /* pinched back, they return promptly */
+#app.zen #zoom { transition: transform 1.4s var(--sine); }
 #app.zen #t-frac { opacity: 0; transition: opacity 1.2s var(--sine); }
 #app.zen-deep .panel { -webkit-backdrop-filter: none; backdrop-filter: none; }   /* invisible at 12 %: stop re-blurring the sand */
-/* the end of a glass: the controls rise and the glass settles back slowly */
-#app.slow .hud, #app.slow #zoom, #app.slow #t-frac { transition-duration: 2.4s; transition-timing-function: var(--sine); }
 
 /* ---- top ---------------------------------------------------------- */
 #hud-top {
@@ -716,5 +714,5 @@ input[type="range"]::-moz-range-thumb {
   .hud, .sheet, #scrim, #toast, .pill, .act, .card { transition-duration: 0.01s !important; }
   #zoom, #t-frac { transition-duration: 0.01s !important; }   /* the glass does not grow or shrink either */
   #breath, #breath.in { transform: none; }                    /* a breath only brightens and dims */
-  #app.zen .hud > * { pointer-events: none; }                 /* dim at once, so a tap only wakes */
+  #app.zen .hud > * { pointer-events: none; }                 /* dim at once: they take no taps */
 }
