@@ -271,6 +271,14 @@
     this._layNeed = 0;        // ... and how many make the layer
     this._layWait = 0;        // calm steps to wait before the next one begins
     this._layUp = 0;          // the tone that stays on top in this layer; the other sifts down
+    this._layMin = 4; this._laySpan = 8; this._layPow = 1;   // how deep the heap's layers are laid this time (_style)
+    this._rec = [null, null]; // each bulb's pattern since the last turn (_turned) …
+    this._duty = [0.4, 0.4];  // … and the companion tone's share of its sand
+    this._recN = 0;           // patterns drawn so far
+    this._want = null;        // the tone each cell would have in its bulb's pattern (made a column at a time)
+    this._wantAt = null;      // per bulb: the pattern each column of _want was made for
+    this._dev = 0;            // steps left in which sand coming to rest is laid in its pattern
+    this._devNeed = null; this._devMov = null;
 
     this._buildVessel();
     this._initMotion();
@@ -1125,7 +1133,7 @@
 
     // 3. Free-falling grains.
     if (this.np) this._particles(gx, gy);
-    if (this.layers) this._sift();
+    if (this.layers) { this._sift(); if (this._dev > 0) this._develop(); }
 
     // 4. A breached glass leaks, even at rest, and micro-damage slowly arrests.
     if (this.nOpen > 0) this._leak();
@@ -1309,7 +1317,7 @@
 
     // 8. Grains in the air, in the full field.
     if (this.np) this._particlesM();
-    if (this.layers) this._sift();
+    if (this.layers) { this._sift(); if (this._dev > 0) this._develop(); }
 
     // 9. A breached glass leaks; shaking breaks the arches that jam it.
     if (this.nOpen > 0) this._leak();
@@ -2852,6 +2860,7 @@
     this.angle = 0;
     this.flipping = false;
     this._pourLeft = 0; this._layN = -1; // sand poured or falling now lands on another surface
+    if (this.layers) this._turned();
     this.wakeAll();
     this._flipState();
   };
@@ -3583,11 +3592,12 @@
   /** Layered-sand tunables. Change values in place; the object is shared. */
   var LAY = Sim.LAYERS = {
     share: 0.4,          // the companion tone's share of sand that has no bands to go by
-    min: 4, span: 8,     // a layer on the heap is min … min + span grains deep (two strata)
     pSift: 64,           // /256 chance per visit that a grain sifts under the one below it
     pSide: 128,          // /256 chance per visit that it sifts down sideways instead
     reach: 32,           // grains above the layer's floor that sifting looks at
     wait: 30,            // calm steps before a layer begins on sand that was turned or shaken
+    settle: 480,         // steps after a turn in which sand coming to rest is laid in its new pattern (4 s)
+    lay: 36,             // … at most this many grains a step in each bulb, so it settles in, never snaps
     pour: 420            // grains in a poured layer: pour … 2·pour
   };
 
@@ -3601,6 +3611,7 @@
     if (on === this.layers) return;
     this.layers = on;
     this._pourLeft = 0;
+    this._dev = 0;
     if (on) { this._strata(); return; }
     var cell = this.cell, seed = this.seed, N = cell.length, salt = glassHash(this.rng ^ 0x3C6EF372), i;
     for (i = 0; i < N; i++) if (cell[i] >= REST) seed[i] = (seed[i] & 127) | (glassHash(i ^ salt) & 128);
@@ -3615,53 +3626,131 @@
   };
 
   /**
-   * Lay the sand in the glass in strata. Above the neck: five to nine
-   * bands of unequal thickness, their seams gently wavy and a grain or so
-   * ragged, a little different every time, following the surface of the
-   * pile (level in a fresh fill, the crater of a glass part-way through).
-   * The companion tone never makes up most of them: the glass stays the
+   * A pattern for the sand of bulb b, drawn afresh every time it is asked
+   * for: strata of unequal thickness, fine or bold, that may lie level or
+   * lean, arch or sag, run in gentle waves or fold on themselves like
+   * marble. No two glasses, and no two turns of one glass, get the same.
+   */
+  Sim.prototype._pattern = function (b) {
+    var self = this, u = function () { return self._lrand(); };
+    var P = 9 + 26 * Math.pow(u(), 1.6);                       // one pair of strata, in cells: fine more often than bold
+    var lean = u() < 0.55 ? 0.14 : 0.62;                       // level, or leaning (up to about 32 degrees)
+    var fold = u() < 0.3 ? 0.35 + 0.75 * u() : 0.3 * u();      // waves, in pairs of strata: gentle, or folded
+    var k = 2 * Math.PI / (40 + 110 * u());
+    return {
+      y0: b ? this.gateY + 1 : this.topY, cx: this.geo.cx, hw: (this._bx1 - this._bx0) / 2 || 1, P: P,
+      tilt: lean * (2 * u() - 1),
+      bend: u() < 0.45 ? 0 : 1.8 * (2 * u() - 1),              // an arch or a sag: pairs of strata by the wall
+      fold: fold * P, kx: k, ky: 0.9 * k * (u() - 0.5), p1: 2 * Math.PI * u(), p2: 2 * Math.PI * u(),
+      km: 2 * Math.PI / (P * (2.5 + 3.5 * u())), p3: 2 * Math.PI * u(),   // strata swell and thin, never the same twice
+      salt: glassHash((this._lrng ^ 0x7F4A7C15) | 0)
+    };
+  };
+  /** How far through its pair of strata the cell at (x, y) lies in pattern R: 0 … 1. */
+  Sim.prototype._phase = function (R, x, y) {
+    var dx = x - R.cx, q = dx / R.hw;
+    var v = (y - R.y0) + R.tilt * dx + R.bend * R.P * q * q +
+            R.fold * (Math.sin(R.kx * x + R.ky * y + R.p1) + 0.4 * Math.sin(2.3 * R.kx * x - 1.7 * R.ky * y + R.p2)) +
+            ((glassHash((y * this.W + x) ^ R.salt) >>> 8) / 16777216 - 0.5) * 1.6;      // a grain or so ragged
+    v = v / R.P + 0.3 * Math.sin(v * R.km + R.p3);
+    return v - Math.floor(v);
+  };
+  /** How deep the heap's next layers will be: fine, even, bold, or fine with a thick one now and then. */
+  Sim.prototype._style = function () {
+    var k = (this._lrand() * 4) | 0;
+    this._layMin = [3, 4, 7, 3][k]; this._laySpan = [4, 8, 12, 18][k]; this._layPow = k === 3 ? 2.5 : 1;
+  };
+
+  /**
+   * The glass has been turned over. Its sand tumbles into a blend; as it
+   * comes to rest it is laid afresh, each bulb in a pattern of its own
+   * (_develop), and the heap's next layers are laid another way too.
+   */
+  Sim.prototype._turned = function () {
+    var W = this.W, cell = this.cell, seed = this.seed, x0 = this._bx0, x1 = this._bx1, b, x, y, i, n, n1;
+    if (!this._want) {
+      this._want = new Uint8Array(cell.length);
+      this._wantAt = [new Int32Array(W), new Int32Array(W)];
+      this._devNeed = [new Int32Array(LAY.lay), new Int32Array(LAY.lay)];
+      this._devMov = [new Int32Array(4 * LAY.lay), new Int32Array(4 * LAY.lay)];
+    }
+    this._recN++;
+    for (b = 0; b < 2; b++) {
+      var lo = this.colLo[b], hi = this.colHi[b];
+      for (x = x0, n = 0, n1 = 0; x <= x1; x++) {
+        for (y = lo[x]; y <= hi[x]; y++) { i = y * W + x; if (cell[i] >= REST) { n++; n1 += seed[i] >> 7; } }
+      }
+      this._rec[b] = this._pattern(b);
+      this._duty[b] = n ? n1 / n : 0;
+    }
+    this._style();
+    this._dev = LAY.settle;
+  };
+
+  /**
+   * One step of laying turned sand in its new pattern. A grain that has
+   * come to rest in the wrong tone for its place trades seeds with one of
+   * the right tone that is still on the move, so the pattern grows where
+   * the sand settles and nothing changes in sand that lies still for good.
+   * A quarter of the columns are looked at each step, and only so many
+   * grains are laid: it settles in over a second or two, never snaps. Only
+   * seeds trade places: the lattice is left as it is, and each tone keeps
+   * its count.
+   */
+  Sim.prototype._develop = function () {
+    this._dev--;
+    var W = this.W, cell = this.cell, seed = this.seed, want = this._want, id = this._recN;
+    var x0 = this._bx0, x1 = this._bx1, cap = LAY.lay, b, x, y, i, c, t, k, n;
+    for (b = 0; b < 2; b++) {
+      var lo = this.colLo[b], hi = this.colHi[b], at = this._wantAt[b], R = this._rec[b], duty = this._duty[b];
+      var need = this._devNeed, mov = this._devMov, nn = [0, 0], nm = [0, 0];
+      for (x = x0 + ((this.steps + b) & 3); x <= x1; x += 4) {
+        if (at[x] !== id) {
+          for (y = lo[x]; y <= hi[x]; y++) want[y * W + x] = this._phase(R, x, y) < duty ? 1 : 0;
+          at[x] = id;
+        }
+        for (y = lo[x]; y <= hi[x]; y++) {
+          i = y * W + x; c = cell[i];
+          if (c < REST) continue;
+          t = seed[i] >> 7;
+          if (c === REST) {
+            k = want[i];
+            if (k !== t && nn[k] < cap) need[k][nn[k]++] = i;
+          } else if (nm[t] < 4 * cap) mov[t][nm[t]++] = i;
+        }
+      }
+      for (k = 0; k < 2; k++) {
+        // a resting grain that should be of tone k, and a moving one that is
+        n = nn[k] < nm[k] ? nn[k] : nm[k];
+        var stride = n ? (nm[k] / n) | 0 : 1;
+        for (c = 0; c < n; c++) {
+          i = need[k][c]; y = mov[k][c * stride];
+          t = seed[i]; seed[i] = seed[y]; seed[y] = t;
+        }
+      }
+    }
+  };
+
+  /**
+   * Lay the sand in the glass in strata. Above the neck: a pattern drawn
+   * afresh (_pattern), cut by the surface of the pile as it lies (level
+   * in a fresh fill, the crater of a glass part-way through). The
+   * companion tone never makes up most of it: the glass stays the
    * material it is. Below the neck, whatever lies there is sifted into
    * the strata a run would have left.
    */
   Sim.prototype._strata = function () {
     var W = this.W, cell = this.cell, seed = this.seed, x0 = this._bx0, x1 = this._bx1;
-    var lo = this.colLo[0], hi = this.colHi[0], edge = [], amp = [], kx = [], ph = [];
-    var x, y, i, k, s, last, deep = 0, n0 = 0, n1 = 0;
+    var lo = this.colLo[0], hi = this.colHi[0], x, y, i, k, n0 = 0, n1 = 0;
     var salt = this._lrng = glassHash(this.rng ^ 0x51ED270B) || 0x6D2B79F5;
-    // how deep the sand lies: each column from its surface (its first grain that rests on another)
+    var R = this._pattern(0), duty = 0.32 + 0.16 * this._lrand();
+    this._style();
+    this._dev = 0;
     for (x = x0; x <= x1; x++) {
-      s = -1; last = -1;
-      for (y = lo[x]; y <= hi[x]; y++) {
-        if (cell[y * W + x] < REST) continue;
-        if (s < 0 && (y === hi[x] || cell[(y + 1) * W + x] >= REST)) s = y;
-        last = y;
-      }
-      if (s >= 0 && last - s + 1 > deep) deep = last - s + 1;
-    }
-    var nb = 5 + ((this._lrand() * 5) | 0), sum = 0, at = 0, t0 = this._lrand() < 0.5 ? 0 : 1;
-    if (nb > deep / 6) nb = Math.max(1, Math.floor(deep / 6));
-    for (k = 0; k < nb; k++) { edge[k] = 0.55 + this._lrand(); sum += edge[k]; }
-    for (k = 0; k < nb; k++) {
-      // seam k lies under band k; it wanders by less than a third of the thinner band beside it
-      var th = edge[k] * deep / sum, a = 1.2 + 1.8 * this._lrand();
-      at += th;
-      edge[k] = at;
-      amp[k] = a < 0.3 * th ? a : 0.3 * th;
-      if (k > 0 && amp[k - 1] > 0.3 * th) amp[k - 1] = 0.3 * th;
-      kx[k] = 2 * Math.PI / (50 + 90 * this._lrand());
-      ph[k] = 2 * Math.PI * this._lrand();
-    }
-    for (x = x0; x <= x1; x++) {
-      s = -1;
       for (y = lo[x]; y <= hi[x]; y++) {
         i = y * W + x;
         if (cell[i] < REST) continue;
-        if (s < 0 && (y === hi[x] || cell[i + W] >= REST)) s = y;
-        var d = (s < 0 ? 0 : y - s) + ((glassHash(i ^ salt) >>> 8) / 16777216 - 0.5) * 1.6;
-        for (k = 0; k < nb - 1; k++) {
-          if (d < edge[k] + amp[k] * (Math.sin(x * kx[k] + ph[k]) + 0.35 * Math.sin(x * kx[k] * 2.7 + 1.9 * ph[k]))) break;
-        }
-        k = (k + t0) & 1;
+        k = this._phase(R, x, y) < duty ? 1 : 0;
         if (k) n1++; else n0++;
         seed[i] = (seed[i] & 127) | (k << 7);
       }
@@ -3719,7 +3808,7 @@
       lb[x] = m > hi[x] + 1 ? hi[x] + 1 : m;
     }
     this._layN = this.total - this.nTop;
-    this._layNeed = (LAY.min + LAY.span * this._lrand()) * (wide > 24 ? wide : 24);
+    this._layNeed = (this._layMin + this._laySpan * Math.pow(this._lrand(), this._layPow)) * (wide > 24 ? wide : 24);
     this._layUp ^= 1;
   };
 
@@ -3782,7 +3871,7 @@
       for (y = lb[x] - 1, n = 0; cell[y * W + x] >= REST; y--) n++;
       if (n) { sum += n; cols++; }
     }
-    var K = cols ? Math.max(1, Math.round(sum / cols / (LAY.min + LAY.span / 2))) : 0, at = 0;
+    var K = cols ? Math.max(1, Math.round(sum / cols / (this._layMin + this._laySpan / (1 + this._layPow)))) : 0, at = 0;
     for (k = 0, sum = 0; k < K; k++) { cut[k] = 0.55 + this._lrand(); sum += cut[k]; }
     for (k = 0; k < K; k++) { at += cut[k] / sum; cut[k] = at; }
     for (x = x0; x <= x1 && K; x++) {
