@@ -388,7 +388,7 @@
     // its field leans by muK of the load plus slipC (1/s) of its speed; never faster than slipMax cells/s
     muS: 0.65, muK: 0.5, slipK: 0.6, slipC: 6, slipMax: 1200,
     airK: 1,             // how much of the glass's own on-screen motion a grain in the air feels (1: it stays where it was in the room)
-    slipShifts: 2,       // cells a step a sliding bed is moved at most (1 at quality 0)
+    slipShifts: 2,       // cells a step a sliding bed is moved at most
     slipStop: 0.02,      // a shift that moves less than this share of the bed's grains has met the glass: the slide ends
     slB: 8, slUp: 3, slStop: 36, slMax: 96, slEvery: 2, slRun: 64, slDeep: 6, slW: 3,
     spinW: 6,            // rad/s: spun faster than this the sand is stepped by the old automaton
@@ -1176,7 +1176,9 @@
     var Fx = G * gx + Ax, Fy = G * gy + Ay;                 // the neck (r = 0) feels just this
     var kS = 1 - Math.exp(-DT / MOT.tauSlow), kT = 1 - Math.exp(-DT / MOT.tauT);
     var gzD = MOT.gzK * this.mGz;
-    var gran = this.granular, lvx = gy, lvy = -gx;          // the level, across gravity
+    // (below full quality, which the app's governor sets on a device that cannot keep up, a moved
+    // glass is stepped as it always was: the old automaton, no thick avalanches, no bed momentum)
+    var gran = this.granular && this.quality >= 2, lvx = gy, lvy = -gx;  // the level, across gravity
     for (b = 0; b < 2; b++) {
       var rx = cen[2 * b], ry = cen[2 * b + 1];
       var hx = Ax + w2 * rx + la * ry, hy = Ay + w2 * ry - la * rx;
@@ -1273,8 +1275,7 @@
         // the bed is moved over the glass by what it has slid (while its rows lie near the level)
         if (gy >= 0.7 || gy <= -0.7) {
           var acS = this.slipAcc[b] + this.slip[b] * lvx * DT, shifts = 0, got;
-          var maxSh = qual >= 1 ? MOT.slipShifts : 1;
-          while ((acS >= 1 || acS <= -1) && shifts < maxSh) {
+          while ((acS >= 1 || acS <= -1) && shifts < MOT.slipShifts) {
             got = this._slide(b, acS > 0 ? 1 : -1);
             acS += acS > 0 ? -1 : 1; shifts++;
             if (got < MOT.slipStop * this._slideN) { this.slip[b] = 0; acS = 0; break; }   // packed against the glass: the wall has its momentum
@@ -1376,8 +1377,7 @@
       var hot = (T - MOT.hotT0) / (MOT.hotT1 - MOT.hotT0);
       hot = hot > 0 ? (hot > 1 ? 1 : hot) : 0;
       // (a fast spin throws the sand: there is no avalanche to work out)
-      // (at the lighter quality levels half as often)
-      if (this.steps % (this.quality >= 2 ? MOT.slEvery : 2 * MOT.slEvery) === 0 && this.mW < MOT.slW && this.mW > -MOT.slW) this._slump(b, ux, uy, hot);
+      if (this.steps % MOT.slEvery === 0 && this.mW < MOT.slW && this.mW > -MOT.slW) this._slump(b, ux, uy, hot);
       for (k = 0; k < n; k++) {
         a = lo - (k + 1) * kq; z = hi + 1 + (k + 1) * kq;
         this._caM(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full, k === 0 ? 1 : 0, hot);
