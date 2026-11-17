@@ -696,9 +696,11 @@ The wall clock stays the master. Moving, shaking, catching and mending never
 stop the clock; only a turn (by hand, by a spin or by the Flip button) and
 laying the phone on its side do. A shaken neck falls behind, so while shaking
 is recent a backlog drains as a slightly thicker thread instead of a clump,
-and the page's sleep catch-up never teleports sand. Once the glass is calm
-again, the rest of the run is re-timed so the sand that is there lasts
-exactly the time that is left: the last grain still leaves at `00:00.0`. Sand
+and the page's sleep catch-up never teleports sand. In a thin stream that
+thread often makes up the backlog by itself. If the sand above the neck is
+still off the clock once the glass is calm again, the rest of the run is
+re-timed so the sand that is there lasts exactly the time that is left: the
+last grain still leaves at `00:00.0`. Sand
 leaking from the upper bulb thins the stream (the neck lets through less), and
 where it leaks faster than the stream can make up, as in a long glass, the
 rest of the run is re-timed the same way; sand leaking from the lower bulb
@@ -1073,6 +1075,10 @@ node tools/test/app-gestures.test.js     # any single suite
   moving through the neck meanwhile; another duration while the glass runs,
   Start tapped during the sweep, another duration during the pour, the page
   hidden in the middle, and the plain cross-fade with Reduce Motion.
+  `app-retime` covers a neck held back by a hard shake, twice: with the glass
+  held whole, where the backlog must be re-timed exactly once, and cracked by
+  the shake as the app meets it, where spilled sand and backlog cancel in
+  part and the run is re-timed only where that is needed.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
