@@ -77,7 +77,7 @@ async function run(s, env) {
     s.check('TUNE: Classic is chosen at first, and the sand is as it has been', a.shown === '0' && a.q === 1.08 && a.pace === 1 && (a.saved === undefined || a.saved === 0),
             'scale ' + a.q + ', pace ' + a.pace + ', ' + a.total + ' grains');
     await t.eval(function () { window.Hourglass.setDuration(30000); });
-    await sleep(1200);
+    await sleep(1400);
     a = await snap(t);
     var poured0 = await pourSecond(t);
     await t.page.tap('#btn-reset');

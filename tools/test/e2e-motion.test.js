@@ -55,7 +55,7 @@ async function e2(s, env) {
     var conv = convs[c];
     var t = await env.open({});
     await t.eval(function () { window.Hourglass.setDuration(60000); });
-    await sleep(900);
+    await sleep(1400);
     await t.eval(function () { window.Hourglass.start(); });
     await sleep(6000);                                    // a small pile in the lower bulb
     await t.eval(function () { window.Hourglass.pause(); });

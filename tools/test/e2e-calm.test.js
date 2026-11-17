@@ -34,7 +34,7 @@ async function e1(s, env) {
   s.check('E1: the main screen\'s controls are unchanged', ui.top === 4 && ui.bottom === 12 && ui.rows === 9, JSON.stringify(ui));
   s.check('E1: the #opt-tilt row reads "Real motion"', ui.tilt === 'Real motion', '"' + ui.tilt + '"');
   await t.eval(function () { window.Hourglass.setDuration(20000); });
-  await sleep(1000);
+  await sleep(1400);
   await t.eval(function () { __mon.reset(); });
   var p = await H.perfWatch(t);
   var g = await t.glass();

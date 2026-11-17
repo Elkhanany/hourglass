@@ -641,7 +641,7 @@ async function rest(s, env) {
 
   // the end of a glass: Deep holds full from 4 s to 11 s, and this glass ends at 10 s
   await t.eval(function () { window.Hourglass.setDuration(10000); });
-  await sleep(900);
+  await sleep(1400);
   await t.page.tap('#btn-settings');
   await sleep(700);
   await t.page.tap('#breaths button[data-breath="deep"]');

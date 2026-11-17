@@ -4497,6 +4497,9 @@
     this.glassRot = 0;
     this._initGlass();
     this.frameNo = 0;
+    this.sweep = 0;       // one glass of sand giving way to the next: 1 the old goes, 2 the new comes (setSweep)
+    this.sweepP = 0;
+    this._swNew = false; this._swSrc = null; this._swFar = 0; this._sw = null;
     this.theme = THEMES.sahara;
     this.scale = 1;       // CSS px per cell
     this.dpr = 1;
@@ -4855,8 +4858,175 @@
       if (glow) glow[(py[p] >> 1) * bw + (px[p] >> 1)] += 0.3;
     }
 
+    if (this.sweep === 1) this._sweepOut(); else if (this.sweep === 2) this._sweepIn();
     this.sctx.putImageData(this.img, 0, 0);
     if (glow) this._bloomOut();
+  };
+
+  /* ---------------------------------------------------------------- *
+   *  The sweep: one glass of sand gives way to the next (Reset, another
+   *  duration). Only the picture changes; the sand itself is not touched.
+   *
+   *  1, the old sand goes into the neck, as an incompressible sheet flows
+   *  into a point sink: for every grain the square of its distance from
+   *  the neck falls by the same amount. So the nearest sand is swallowed
+   *  first, a funnel sinks into the upper bed, the heap below is eaten
+   *  from its apex, and no grain changes size on its way.
+   *
+   *  2, the new sand is poured: the bed the reset has laid is shown up to
+   *  a surface that rises as a steady pour would raise it, grain for grain
+   *  (fast in the narrow of the funnel, slower above), heaped under the
+   *  thread that falls from the top of the bulb, and level at the end.
+   *
+   *  p runs from 0 to 1 in each; 0 for the kind ends it.
+   * ---------------------------------------------------------------- */
+  Renderer.prototype.setSweep = function (kind, p) {
+    if (!kind) { this.sweep = 0; this._sw = null; return; }
+    if (kind !== this.sweep) { this.sweep = kind; this._swNew = true; }
+    this.sweepP = p > 0 ? (p < 1 ? p : 1) : 0;
+  };
+
+  Renderer.prototype._sweepOut = function () {
+    var sim = this.sim, W = sim.W, BW = this.BW, BH = this.BH, buf = this.buf, edge = this.edgeMask;
+    var nx = sim.geo.cx * SUB, ny = (sim.gateY + 0.5) * SUB;       // the neck, in the picture's own pixels
+    var src = this._swSrc || (this._swSrc = new Uint32Array(BW * BH));
+    var x, y, dx, dy, r2, k, sx, sy, v, row;
+    if (this._swNew) {
+      // how far from the neck the farthest sand lies
+      this._swNew = false;
+      var far = 0;
+      for (y = 0; y < BH; y++) {
+        dy = y + 0.5 - ny; row = y * BW;
+        for (x = 0; x < BW; x++) {
+          if (buf[row + x] === 0) continue;
+          dx = x + 0.5 - nx; r2 = dx * dx + dy * dy;
+          if (r2 > far) far = r2;
+        }
+      }
+      this._swFar = far + 4;
+    }
+    var S = this._swFar * Math.pow(this.sweepP, 1.5), lim = this._swFar - S;   // what is left lies within √lim of the neck
+    src.set(buf);
+    buf.fill(0);
+    if (lim <= 0) return;
+    var R = Math.sqrt(lim);
+    var x0 = Math.max(0, Math.floor(nx - R)), x1 = Math.min(BW - 1, Math.ceil(nx + R));
+    var y0 = Math.max(0, Math.floor(ny - R)), y1 = Math.min(BH - 1, Math.ceil(ny + R));
+    for (y = y0; y <= y1; y++) {
+      dy = y + 0.5 - ny; row = y * BW;
+      for (x = x0; x <= x1; x++) {
+        dx = x + 0.5 - nx;
+        r2 = dx * dx + dy * dy;
+        if (r2 > lim || r2 < 0.2) continue;
+        k = Math.sqrt((r2 + S) / r2);                              // where this grain was: farther out along its ray
+        sx = (nx + dx * k) | 0; sy = (ny + dy * k) | 0;
+        if (sx < 0 || sy < 0 || sx >= BW || sy >= BH) continue;
+        v = src[sy * BW + sx];
+        if (v === 0) continue;
+        // inside the glass only (a ray from the neck can graze the wall beside it)
+        if (!((edge[(y >> 1) * W + (x >> 1)] >> (((y & 1) << 1) | (x & 1))) & 1)) continue;
+        buf[row + x] = v;
+      }
+    }
+  };
+
+  Renderer.prototype._sweepIn = function () {
+    var sim = this.sim, W = sim.W, BW = this.BW, buf = this.buf, cell = sim.cell, seed = sim.seed, edge = this.edgeMask;
+    var rowMin = sim.rowMin, rowMax = sim.rowMax, gate = sim.gateY, cx = sim.geo.cx, cxI = cx | 0;
+    var lut = this.lut, base = this.baseLevel, ao = this.aoTab, hiOff = this.hiOff, loOff = this.loOff, hiBoost = this.hiBoost;
+    var st = this._sw, x, y, i, bi, k, a, b, c, hw, h, s, d, lv, hl, em;
+    if (this._swNew || !st) {
+      // the bed as the reset laid it: its rows of sand from the neck up, the top of the bulb on its axis,
+      // and a handful of its grains' colours for the thread
+      this._swNew = false;
+      st = this._sw = { lo: new Int32Array(gate), hi: new Int32Array(gate), cnt: new Int32Array(gate), n: 0, top: gate, cap: 1, pal: new Uint8Array(32) };
+      for (y = gate - 1; y >= 1; y--) {
+        a = -1; b = -2; c = 0;
+        for (x = rowMin[y]; x <= rowMax[y]; x++) if (cell[y * W + x] >= REST) { if (a < 0) a = x; b = x; c++; }
+        st.lo[y] = a; st.hi[y] = b; st.cnt[y] = c; st.n += c;
+        if (c > 0) st.top = y;
+      }
+      for (y = 1; y < gate; y++) if (rowMin[y] <= cxI && cxI <= rowMax[y]) { st.cap = y; break; }
+      for (k = 0; k < 32; k++) {
+        y = st.top + (((gate - st.top) * (k + 0.5) / 32) | 0);
+        st.pal[k] = st.cnt[y] > 0 ? seed[y * W + st.lo[y] + ((Math.imul(k, 0x9E3779B1) >>> 8) % st.cnt[y])] : 0;
+      }
+    }
+    if (st.n === 0 || sim.gy <= 0) return;
+    var p = this.sweepP, fr = this.frameNo;
+    var v = (p - 0.08) / 0.78; v = v < 0 ? 0 : (v > 1 ? 1 : v);     // the share of the sand that has come
+    var want = v * st.n, slope = 0.62 * Math.sqrt(1 - v);           // heaped under the thread (32°), level at the end
+    // the apex row of the heap that holds `want` grains (bisection: a few dozen rows a time)
+    var up = st.top - 2 - slope * W, dn = gate, yb = gate, it;
+    for (it = 0; it < 14; it++) {
+      yb = (up + dn) / 2; c = 0;
+      for (y = Math.max(st.top, Math.ceil(yb - 0.5)); y < gate; y++) {
+        if (st.cnt[y] === 0) continue;
+        hw = slope > 1e-3 ? (y + 0.5 - yb) / slope : 1e9;
+        a = Math.max(st.lo[y], Math.ceil(cx - hw - 0.5)); b = Math.min(st.hi[y], Math.floor(cx + hw - 0.5));
+        if (b >= a) c += b - a + 1;
+      }
+      if (c > want) up = yb; else dn = yb;
+    }
+    if (v >= 1) yb = up;
+    // hide what has not come yet, and light the surface of what has
+    var deep = 2; while (deep < 40 && ao[deep] !== ao[255]) deep++;
+    for (y = st.top; y < gate; y++) {
+      if (st.cnt[y] === 0) continue;
+      hw = slope > 1e-3 ? (y + 0.5 - yb) / slope : 1e9;
+      for (x = st.lo[y]; x <= st.hi[y]; x++) {
+        i = y * W + x;
+        if (cell[i] < REST) continue;
+        d = cx - (x + 0.5); if (d < 0) d = -d;
+        bi = (y * SUB) * BW + x * SUB;
+        if (hw < d) { buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = 0; continue; }
+        // how deep under the heap's surface this grain lies for the moment (in its own column)
+        d = ((y + 0.5 - yb - slope * d) | 0) + 1;
+        if (d >= deep) continue;                                   // as deep as it will ever look
+        s = seed[i];
+        lv = base[i] - ao[d] + AO_BIAS;
+        hl = lv + hiBoost[s]; if (hl > 47) hl = 47;
+        buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = lut[(lv << 8) | s];
+        buf[bi + hiOff[s]] = lut[(hl << 8) | s];
+        buf[bi + loOff[s]] = lut[((lv - 3) << 8) | s];
+        em = edge[i];
+        if (em !== 15) {
+          if (!(em & 1)) buf[bi] = 0;
+          if (!(em & 2)) buf[bi + 1] = 0;
+          if (!(em & 4)) buf[bi + BW] = 0;
+          if (!(em & 8)) buf[bi + BW + 1] = 0;
+        }
+      }
+    }
+    // the thread: its first grains fall, it pours, its last grains fall
+    var head = st.cap + (gate - st.cap) * Math.min(1, p / 0.09), tail = st.cap + (gate - st.cap) * Math.max(0, (p - 0.85) / 0.11);
+    var end = Math.min(head, yb - 0.5), thick = Math.min(1, p / 0.12) * Math.min(1, (1 - p) / 0.2);
+    for (y = Math.ceil(tail); y < end; y++) {
+      for (k = -2; k <= 2; k++) {                                  // (a pour, not the glass's own thread: a few grains abreast)
+        h = Math.imul((y * 5 + k + 2) ^ Math.imul(fr, 0x85EBCA6B), 0x9E3779B1) >>> 0;
+        if ((h & 255) >= (k === 0 ? 225 : (k === 1 || k === -1 ? 150 : 50)) * thick) continue;
+        x = cxI + k;
+        if (x < rowMin[y] || x > rowMax[y]) continue;
+        bi = (y * SUB + ((h >>> 9) & 1)) * BW + x * SUB + ((h >>> 8) & 1);
+        c = lut[((22 + ((h >>> 28) & 3)) << 8) | st.pal[(h >>> 16) & 31]];
+        buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = c;
+      }
+    }
+    // … and a little spray where it lands
+    if (head >= yb - 0.5 && tail < yb - 0.5) {
+      for (k = 0; k < 14; k++) {
+        h = Math.imul((k + 1) ^ Math.imul(fr, 0xC2B2AE35), 0x9E3779B1) >>> 0;
+        if ((h & 255) > 140 * thick) continue;
+        x = cxI + ((h >>> 8) % 15) - 7;
+        d = cx - (x + 0.5); if (d < 0) d = -d;
+        y = (yb + slope * d - 1 - ((h >>> 12) % 6)) | 0;
+        if (y <= st.cap || y >= gate || x < rowMin[y] || x > rowMax[y]) continue;
+        bi = (y * SUB) * BW + x * SUB;
+        if (buf[bi] !== 0) continue;
+        c = lut[((24 + ((h >>> 28) & 3)) << 8) | st.pal[(h >>> 20) & 31]];
+        buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = c;
+      }
+    }
   };
 
   /** Blur the accumulated light and hand it to the compositor. */

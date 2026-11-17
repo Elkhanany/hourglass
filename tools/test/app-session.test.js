@@ -94,7 +94,7 @@ async function run(s, env, opts) {
     // Reset: a new glass inside the cross-fade
     var pre = drawnAfter;
     await t.page.tap('#btn-reset');
-    await sleep(800);
+    await sleep(1400);
     var rs = await t.eval(function () {
       var H = window.Hourglass;
       return { n: H.sim.cracks.length, spill: H.spill.count, total: H.sim.total, want: H.grainsFor(H.timer.durationMs), lost: H.sim.lost,

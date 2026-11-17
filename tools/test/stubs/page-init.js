@@ -10,7 +10,9 @@
  *    plays a hand profile (tools/test/lib/profiles.js, which must be
  *    injected first) at 60 Hz as real DeviceMotionEvent and
  *    DeviceOrientationEvent dispatches, and also into window.__motion when
- *    the motion stub is in use. window.__driveStop() ends it.
+ *    the motion stub is in use (whole: true never arms it, so the glass
+ *    cannot crack: for a test of the clock alone). window.__driveStop()
+ *    ends it.
  *  - Invariant monitor: every 15 frames sim.census() must match sim.total
  *    and sim.nTop; when nTop first reaches 0 and when the timer turns
  *    'done' (Date.now(), noted after every physics step); every
@@ -88,7 +90,7 @@
         if (rms >= 1.6) { d.hi += 1 / 60; d.lo = 0; } else { d.hi = 0; if (rms < 1.2) d.lo += 1 / 60; else d.lo = 0; }
         if (!d.armed && d.hi >= 0.6) d.armed = true;
         if (d.armed && d.lo >= 0.5) d.armed = false;
-        M.armed = d.armed;
+        M.armed = d.armed && !o.whole;            // (o.whole: the glass is never armed, for a test of the clock alone)
       }
     }
     d.timer = setInterval(tick, 1000 / 60);
