@@ -180,7 +180,7 @@
     var now = Date.now(), d = now - T.lastTick;
     T.lastTick = now;
     if (d > 1500) back = true;                 // frames and timers stopped: we were asleep
-    if (d <= 0 || T.state !== 'running') return;
+    if (d <= 0 || T.state !== 'running' || sweep) return;   // (one glass giving way to the next: no time passes)
     // between two phases of a sequence the glass is turning itself over: unwatched (hidden, or back from
     // a sleep with the turn long due), the clock goes on without it
     if (seq.gap) {
@@ -289,38 +289,94 @@
   }
 
   /* ---- reset / duration -------------------------------------------- */
-  // A new glass: Reset and a new duration also sweep away cracks, gold and
-  // spilled sand, inside the same cross-fade.
+  // A new glass (Reset, another duration). The old sand is drawn into the
+  // neck, the glass is made new, and the new sand is poured in from the top:
+  // about a second in all (renderer.setSweep draws it; the sand itself changes
+  // once, in between). Cracks, gold and spilled sand go with the old sand. The
+  // clock stands still meanwhile, and a glass that is to run starts as the
+  // last of its sand lands. With Reduce Motion, or unseen, it is a cross-fade.
+  var SWEEP_OUT = 380, SWEEP_IN = 620;                  // ms: the old sand goes, the new comes
+  var sweep = null;                                     // { phase: 1 | 2, t0, keep }
   function reset(keepRunning) {
-    if (resetting) return;
+    if (resetting) {
+      // another duration, chosen while the sand of the last was being poured: that one next
+      if (sweep && sweep.phase === 2 && T.durationMs !== sweep.ms) { sweep.redo = true; sweep.keep = !!keepRunning; }
+      return;
+    }
     resetting = true;
     pendingStart = false;
     audio.hush();
-    app.classList.add('swap');       // cross-fade the sand (and any that spilled)
-    setTimeout(function () {
-      var was = crackState();
-      if (flip.active) { flip.active = false; flip.dragging = false; }
-      if (grab) grab.kind = 'none';  // a finger still down no longer holds the glass
-      bodyHome();
-      grav.base = 0;
-      endMend(true);
-      spill.clear();
-      sim.reset(grainsFor(T.durationMs));
-      sim.tilt = 0;
-      seq.phase = 0; seq.gap = 0;    // a sequence starts over, from its first glass
-      app.classList.remove('pass');
-      calibrate();
-      T.rem = T.durationMs;
-      S.flow = S.imp = S.slides = 0;
-      leakRate = 0;
-      audio.setCracked('intact');
-      if (was !== 'intact') audio.newGlass();
-      applyBody(0);
-      resetting = false;
-      setState(keepRunning || pendingStart ? 'running' : 'idle');
-      pendingStart = false;
-      app.classList.remove('swap');
-    }, 460);
+    if (reduceMotion || document.hidden) {
+      app.classList.add('swap');     // cross-fade the sand (and any that spilled)
+      setTimeout(function () {
+        newGlass();
+        resetting = false;
+        setState(keepRunning || pendingStart ? 'running' : 'idle');
+        pendingStart = false;
+        app.classList.remove('swap');
+      }, 460);
+      return;
+    }
+    app.classList.add('sweep');      // (what spilled fades with the old sand; the glow steps aside)
+    sweep = { phase: 1, t0: performance.now(), keep: !!keepRunning };
+    dirty = true;
+  }
+  /** The glass made new, for the duration that is set: whole, upright, full, its clock wound. */
+  function newGlass() {
+    var was = crackState();
+    if (flip.active) { flip.active = false; flip.dragging = false; }
+    if (grab) grab.kind = 'none';    // a finger still down no longer holds the glass
+    bodyHome();
+    grav.base = 0;
+    endMend(true);
+    spill.clear();
+    sim.reset(grainsFor(T.durationMs));
+    sim.tilt = 0;
+    seq.phase = 0; seq.gap = 0;      // a sequence starts over, from its first glass
+    app.classList.remove('pass');
+    calibrate();
+    T.rem = T.durationMs;
+    S.flow = S.imp = S.slides = 0;
+    leakRate = 0;
+    audio.setCracked('intact');
+    if (was !== 'intact') audio.newGlass();
+    applyBody(0);
+  }
+  /** One frame of the sweep (from frame()). */
+  function stepSweep(now) {
+    var p = (now - sweep.t0) / (sweep.phase === 1 ? SWEEP_OUT : SWEEP_IN);
+    dirty = true;
+    if (sweep.phase === 1) {
+      if (p < 1) { renderer.setSweep(1, p); return; }
+      sweepTurn();
+      sweep.t0 = now; p = 0;
+    }
+    if (p < 1) { renderer.setSweep(2, p); sweep.pour = p > 0.06 && p < 0.84; return; }
+    sweepDone();
+  }
+  /** Between the two halves: the glass is made new. */
+  function sweepTurn() {
+    newGlass();
+    setState(sweep.keep ? 'running' : 'idle');          // (it does not run yet: see frame() and tickClock())
+    sweep.phase = 2; sweep.ms = T.durationMs; sweep.redo = false;
+  }
+  function sweepDone() {
+    var redo = sweep.redo, keep = sweep.keep;
+    renderer.setSweep(0, 0);
+    sweep = null;
+    app.classList.remove('sweep');
+    resetting = false;
+    dirty = true;
+    if (redo) { reset(keep || pendingStart); return; }
+    if (pendingStart && T.state !== 'running') setState('running');
+    pendingStart = false;
+    T.lastTick = Date.now();                            // the clock starts as the last of the sand lands
+  }
+  /** The page is hidden: nobody sees a sweep, and the clock must go on. Finish it at once. */
+  function endSweep() {
+    if (!sweep) return;
+    if (sweep.phase === 1 || sweep.redo) sweepTurn();
+    sweepDone();
   }
 
   /** A new glass of `ms`. Followed by a rest (ms) it is a sequence of `rounds`; a plain duration ends one. */
@@ -1138,6 +1194,7 @@
     if (dtMs <= 0) return;
 
     tickClock();
+    if (sweep) stepSweep(now);
     if (seq.gap) seqTurn();
     if (grav.on) {
       var hd = motion.heading;
@@ -1148,8 +1205,8 @@
     stepGravity(Math.min(dtMs, 100), now);
     updateMend(now);
 
-    var running = T.state === 'running' && !flip.active;
-    var draining = T.state === 'done' && sim.nTop > 0 && !flip.active;
+    var running = T.state === 'running' && !flip.active && !sweep;
+    var draining = T.state === 'done' && sim.nTop > 0 && !flip.active && !sweep;
 
     // how many grains the clock says should still be above the neck
     var target = sim.nTop;
@@ -1198,7 +1255,7 @@
     }
 
     var active = running || draining || flip.active || pour.active || dirty || sim.isActive() ||
-                 bodyBusy() || spill.active || renderer.animating || felt;
+                 bodyBusy() || spill.active || renderer.animating || felt || sweep;
     var simMs = 0, drawMs = 0;
     if (active) {
       drainDamage(now);                         // events from outside a frame (a forced crack, a mend)
@@ -1466,7 +1523,7 @@
     AU.fill = sim.nBottom / sim.capacity;
     AU.bottom = sim.nBottom / fine2;
     AU.slides = S.slides;
-    AU.pouring = pour.active;
+    AU.pouring = pour.active || (sweep !== null && sweep.pour === true);   // (a new glass is poured, too)
     AU.running = running;
     AU.ambient = T.state === 'running';  // a running glass keeps its ambience while being turned
     AU.flipping = flip.active;
@@ -2755,6 +2812,7 @@
     }
   }
   document.addEventListener('visibilitychange', function () {
+    if (document.hidden) endSweep();     // (a glass being made new is made at once)
     if (!document.hidden) back = true;   // before tickClock: an end found on return is not held
     tickClock();
     if (document.hidden) {

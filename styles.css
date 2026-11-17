@@ -187,6 +187,8 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   transition: opacity 0.42s var(--ease);
 }
 #app.swap #c-sand, #app.swap #c-bloom { opacity: 0; }
+/* a new glass: the sand layer draws the old sand going and the new coming itself; its glow steps aside meanwhile */
+#app.sweep #c-bloom { opacity: 0; transition-duration: 0.12s; }
 /* Reduce Motion, between two phases of a sequence: no turn, the sand fades slowly away below (and returns above) */
 #app.pass #c-sand, #app.pass #c-bloom { opacity: 0; transition-duration: 1.1s; }
 /* sand that got out, on the desk below the glass: it stays in the room
@@ -197,6 +199,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   transition: opacity 0.6s var(--ease);
 }
 #app.swap #c-spill { opacity: 0; }
+#app.sweep #c-spill { opacity: 0; transition-duration: 0.3s; }
 #c-light { transition: opacity 0.3s linear; }
 #shadow {
   position: absolute; pointer-events: none;

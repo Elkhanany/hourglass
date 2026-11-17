@@ -99,7 +99,7 @@ deep-water teal.
 | Turn the glass | Drag a bulb round; flick it to spin; touch it to stop. Or **Flip** | `F` |
 | Mend a crack | Hold a finger still on the glass | |
 | Add sand (extends the timer) | Tap or hold **Sand** | focus + hold `Space` |
-| Reset | **Reset** | `R` |
+| Reset: the old sand is drawn into the neck, new sand is poured in | **Reset** | `R` |
 | Duration | Pills `1 5 10 15 30 60` min, **Custom**, or tap the time (10 s to 99:59) | |
 | Work and rest | **Custom** (or tap the time): *Then rest* 1 to 60 min, *Rounds* 1 to 12 | |
 | Zen: the glass fills the screen | Spread two fingers, or the moon icon | |
@@ -883,6 +883,23 @@ physics on slow phones, and service-worker registration. The clock uses
 `?debug=motion` overlay shows the sensors and the sand's state, and `&rec=N`
 records N seconds of raw sensor events to a file, for tuning on a device.
 
+A new glass (Reset, or another duration) takes about a second. The old sand
+is drawn into the neck: the picture of it is carried as an incompressible
+sheet flows into a point sink, the square of every grain's distance from the
+neck falling by the same amount, so the nearest sand goes first, a funnel
+sinks into the upper bed, the heap below is eaten from its apex, and no grain
+changes size on its way (0.38 s). Then the glass is made new, once, exactly as
+before (`sim.reset`), and its sand is poured: the new bed is shown up to a
+surface that rises as a steady pour would raise it, grain for grain, heaped
+at 32° under a thread that falls from the top of the bulb and level at the
+end, lit as a surface while it is one, with the pour's own sound (0.62 s).
+Only the picture is touched (`Renderer.setSweep`); the sand changes at the one
+moment in between. The clock stands still meanwhile, and a glass that is to
+run (another duration chosen while it ran, or Start tapped during the sweep)
+starts as the last of its sand lands. Another duration chosen during the pour
+is poured next; a page hidden in the middle has its glass made at once. With
+Reduce Motion it is the cross-fade it was.
+
 A work and rest sequence is the rest's length, the number of rounds and the
 index of the running phase (even: work, odd: rest); the glass is still sized
 for the work time. Each phase is calibrated when it begins, so that the
@@ -1043,6 +1060,12 @@ node tools/test/app-gestures.test.js     # any single suite
   while a glass runs (twice the scale, four times the grains, the time kept),
   the clock kept to the last grain, Sand adding time as fast, Classic again
   while paused, and a cracked glass coming back whole in another grain.
+  `app-reset` covers a new glass: Reset taking about a second, the old sand
+  leaving the picture (the upper bed first), the glass made new once, in
+  between, the new sand rising to the full bed, no time passing and no sand
+  moving through the neck meanwhile; another duration while the glass runs,
+  Start tapped during the sweep, another duration during the pour, the page
+  hidden in the middle, and the plain cross-fade with Reduce Motion.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
