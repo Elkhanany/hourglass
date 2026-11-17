@@ -953,6 +953,7 @@
    * its sideways momentum (slip). Zero while the glass keeps its place.
    */
   Sim.prototype.setCarry = function (kx, ky) {
+    if (!this.granular) return;                        // (the engine as it was never hears of it)
     this.mKx = finiteOr0(kx); this.mKy = finiteOr0(ky);
   };
 
@@ -1105,8 +1106,13 @@
       this._caM(gx, gy, 1, H - 1, false, 1, 0);
       if (this.flipping || gy < 0.7) { if (MOT.offSweeps > 1) this._caM(gx, gy, 1, H - 1, false, 0, 0); }
       else {
-        var extraM = this.topSweeps + (lag > 10 ? 1 : 0) + (lag > 60 ? 2 : 0);
+        var extraM = this.topSweeps;
         while (extraM-- > 0) this._caM(gx, gy, 1, this.gateY, false, 0, 0);
+        // A neck that has run short is fed as it always was. Leaned far over, sand may
+        // rightly lie at rest on the low side of the funnel, but the glass is a timer and
+        // owes the clock its sand: these sweeps let it creep on down to the neck.
+        extraM = (lag > 10 ? 1 : 0) + (lag > 60 ? 3 : 0);
+        while (extraM-- > 0) this._ca(gx, gy, 1, this.gateY);
       }
     } else if (this.flipping || gy < 0.7) {
       this._ca(gx, gy, 1, H - 1);
@@ -1179,6 +1185,8 @@
     // (below full quality, which the app's governor sets on a device that cannot keep up, a moved
     // glass is stepped as it always was: the old automaton, no thick avalanches, no bed momentum)
     var gran = this.granular && this.quality >= 2, lvx = gy, lvy = -gx;  // the level, across gravity
+    // (a slide the lighter level cut short ends there: nothing below would ever stop it, and the step would never idle)
+    if (!gran) { this.slip[0] = this.slip[1] = 0; this.slipAcc[0] = this.slipAcc[1] = 0; }
     for (b = 0; b < 2; b++) {
       var rx = cen[2 * b], ry = cen[2 * b + 1];
       var hx = Ax + w2 * rx + la * ry, hy = Ay + w2 * ry - la * rx;
@@ -1270,7 +1278,11 @@
       // The upper bulb keeps the neck fed, as on the idle path: extra sweeps
       // when the neck ran short. (Sand the valve held back, because the bed
       // was in the air or relCap, is not a starved neck: sweeping cannot help.)
-      if (b === 0 && !this.flipping && gy >= 0.7) n += this.topSweeps + (starved > 10 ? 1 : 0) + (starved > 60 ? 2 : 0);
+      // (those go by the old automaton, _caBulb's feed: sand at rest on the low side of a
+      // leaned funnel still creeps down to a neck that has run short)
+      var feed = 0;
+      if (b === 0 && !this.flipping && gy >= 0.7) { n += this.topSweeps; feed = (starved > 10 ? 1 : 0) + (starved > 60 ? (granCA ? 3 : 2) : 0); }
+      if (!granCA) { n += feed; feed = 0; }
       if (gran && this.slip[b] !== 0) {
         // the bed is moved over the glass by what it has slid (while its rows lie near the level)
         if (gy >= 0.7 || gy <= -0.7) {
@@ -1284,10 +1296,10 @@
           this.slipAcc[b] = acS;
         }
       } else if (gran) this.slipAcc[b] = 0;
-      if (n > 0 && gran && this.slip[b] !== 0) {
+      if (n + feed > 0 && gran && this.slip[b] !== 0) {
         var ex = this.lean[2 * b], ey = this.lean[2 * b + 1], em = Math.sqrt(ex * ex + ey * ey) || 1;
-        this._caBulb(b, ex / em, ey / em, n, true, T);
-      } else if (n > 0) this._caBulb(b, bx / mag, by / mag, n, T > 0.05 || spin || this.steps - this._landAt[b] < 8, T);
+        this._caBulb(b, ex / em, ey / em, n, true, T, feed);
+      } else if (n + feed > 0) this._caBulb(b, bx / mag, by / mag, n, T > 0.05 || spin || this.steps - this._landAt[b] < 8, T, feed);
     }
 
     // 7. A hot surface boils: grains hop off it.
@@ -1353,7 +1365,7 @@
    * for empty rows are saved. It helps most when a bulb holds little sand,
    * or a spin has flung its bed toward the far end.
    */
-  Sim.prototype._caBulb = function (b, ux, uy, n, full, T) {
+  Sim.prototype._caBulb = function (b, ux, uy, n, full, T, feed) {
     var yLo = b ? this.gateY + 1 : 1, yHi = b ? this.H - 1 : this.gateY;
     var lo = this._sandRow(yLo, yHi - 1, 1);
     if (lo < 0) return;                               // no sand in this bulb
@@ -1381,6 +1393,11 @@
       for (k = 0; k < n; k++) {
         a = lo - (k + 1) * kq; z = hi + 1 + (k + 1) * kq;
         this._caM(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full, k === 0 ? 1 : 0, hot);
+      }
+      // feed: sweeps of the old automaton for a neck that has run short (see step)
+      for (k = 0; k < feed; k++) {
+        a = lo - (n + 1) * kq - k; z = hi + 1 + (n + 1) * kq + k;
+        this._ca(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full);
       }
     } else for (k = 0; k < n; k++) {
       a = lo - k; z = hi + 1 + k;                     // rows a … z − 1

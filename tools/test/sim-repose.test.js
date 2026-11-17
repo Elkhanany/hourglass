@@ -16,7 +16,8 @@
  *   in the air  the falling thread is left behind when the glass is carried off
  *   shaking     four seconds of hard vertical shaking level a heap; walking
  *               does not
- *   the timer   a glass that runs while it leans still follows its clock
+ *   the timer   a glass that runs while it leans still follows its clock, and one
+ *               that runs out while it leans still brings its sand to the neck
  *   the census  holds through all of it, and each tone keeps its count
  *   untouched   a glass that stands straight never reaches any of this code
  *
@@ -431,6 +432,73 @@ test('a glass that runs while it leans follows its clock', function () {
     out.push('lean ' + lean + '°, 40 s: never ahead, at most ' + worst + ' grains behind, ' + (sim.total - sim.nTop) + ' through');
   });
   return out.join('; ');
+});
+
+/**
+ * A 1-minute glass run to 00:00 while it leans: the grains still above the
+ * neck when the clock ends (they would all be let through at once). o.jitter:
+ * a hand's tremor (g), which keeps the step on the motion path; o.noFeed: the
+ * sweeps that feed a neck that has run short do nothing.
+ */
+function runOut(lean, o) {
+  o = o || {};
+  var opts = { scale: 1.08, seed: 99 };
+  if (o.granular === false) opts.granular = false;
+  var sim = new Sim(opts), rs = 12345, a, b;
+  if (o.noFeed) sim._ca = function () {};
+  sim.reset(Clock.grainsFor(sim, 60000));
+  steps(sim, 300);
+  var T = new Clock(sim, 60000), now = 0, left = -1, k = 0, census = true;
+  sim.tilt = lean * DEG; sim.wakeAll();
+  T.start();
+  while (left < 0 && k < 120 * 70) {
+    var done = T.tick(DT_MS, false);
+    T.apply(now, false, true);
+    if (done) { left = sim.nTop; break; }
+    if (o.jitter) {
+      rs = (Math.imul(rs, 1103515245) + 12345) & 0x7fffffff; a = (rs / 0x7fffffff - 0.5) * 2 * o.jitter * sim.G;
+      rs = (Math.imul(rs, 1103515245) + 12345) & 0x7fffffff; b = (rs / 0x7fffffff - 0.5) * 2 * o.jitter * sim.G;
+      sim.setMotion(a, b, 0, 0, H.LAM, 0);
+      sim.relCap = T.relCap(true, DT);
+    }
+    if ((k & 1) === 0) sim.beginFrame();
+    sim.step(); now += DT_MS; k++;
+    if (k % 600 === 0 && !censusOk(sim)) census = false;
+  }
+  return { left: left, census: census };
+}
+
+test('a glass that runs out while it leans still brings its sand to the neck', function () {
+  // Leaned 30°, the low side of the funnel lies at 15° to the level: sand rightly rests on it.
+  // But the glass is a timer; a neck that has run short is fed as it always was.
+  var r20 = runOut(20), r30 = runOut(30), bare = runOut(30, { noFeed: true });
+  var old = runOut(30, { granular: false });
+  var held = runOut(30, { jitter: 0.03 }), heldOld = runOut(30, { jitter: 0.03, granular: false });
+  ok(r20.census && r30.census && held.census, 'the census broke');
+  ok(r20.left <= 12, 'lean 20°: ' + r20.left + ' grains still above the neck at 00:00 (want at most 12)');
+  ok(r30.left <= 60, 'lean 30°: ' + r30.left + ' grains still above the neck at 00:00 (want at most 60)');
+  ok(held.left <= heldOld.left + 60, 'lean 30° in a hand: ' + held.left + ' grains still above at 00:00, ' + heldOld.left + ' without sand off the upright');
+  ok(bare.left > 400, 'without the feed only ' + bare.left + ' grains were left: this suite could not tell');
+  return 'of ' + Clock.grainsFor(new Sim({ scale: 1.08, seed: 99 }), 60000) + ' grains, still above the neck at 00:00: ' + r20.left + ' at 20°, ' + r30.left + ' at 30° (' + bare.left +
+    ' without the feed, ' + old.left + ' in the engine without sand off the upright); in a hand at 30° ' + held.left + ' (' + heldOld.left + ' without)';
+});
+
+test('a slide the lighter quality level cuts short ends there, and the glass comes to rest', function () {
+  var sim = grown(0.5), k, slid = 0;
+  for (k = 0; k < 6; k++) { sim.setMotion(0, 0, 0, 0, H.LAM, 0); sim.setCarry(30000, 0); sim.beginFrame(); sim.step(); if (sim.slip[1] !== 0) slid++; }
+  ok(slid > 0 && sim.slip[1] !== 0, 'the carry started no slide: this case could not tell');
+  sim.quality = 1;
+  var idleAt = -1;
+  for (k = 0; k < 600; k++) {
+    sim.setMotion(0, 0, 0, 0, H.LAM, 0); sim.setCarry(0, 0);
+    if ((k & 1) === 0) sim.beginFrame();
+    sim.step();
+    if (idleAt < 0 && !sim.motionActive()) idleAt = k;
+  }
+  ok(sim.slip[0] === 0 && sim.slip[1] === 0, 'at quality 1 the bed still slides at ' + sim.slip[1].toFixed(0) + ' cells/s after 5 s');
+  ok(idleAt >= 0 && !sim.isActive(), 'at quality 1 the glass never came to rest after the carry (the step stayed on the motion path)');
+  ok(censusOk(sim), 'the census broke');
+  return 'the slide is dropped on the next step; off the motion path after ' + ((idleAt + 1) / 120).toFixed(2) + ' s, at rest within 5 s';
 });
 
 test('the census and each tone\'s count hold through a lean, a Flip, a jolt, a carry, a shake and a turn-over', function () {
