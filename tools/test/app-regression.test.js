@@ -22,7 +22,7 @@ async function testFlow(s, env) {
   var ui = await t.eval(function () {
     var row = document.getElementById('opt-tilt').closest('.row');
     return {
-      top: document.querySelectorAll('#hud-top button').length,
+      top: document.querySelectorAll('#hud-top button').length, tiltHidden: document.getElementById('btn-motion').hidden,
       bottom: document.querySelectorAll('#hud-bottom button').length,
       rows: document.querySelectorAll('#sheet-settings .row').length,
       tilt: row.querySelector('b').textContent,
@@ -30,8 +30,8 @@ async function testFlow(s, env) {
       spill: !!document.querySelector('#zoom > #c-spill')
     };
   });
-  s.check('UI: the main screen has the same buttons (3 top, 12 bottom: six duration pills); Tune has 9 rows (with Layered sand, Grain and Breathing pace)',
-          ui.top === 3 && ui.bottom === 12 && ui.rows === 9, JSON.stringify(ui));
+  s.check('UI: the main screen has the same buttons (4 top, the tilt button hidden; 12 bottom: six duration pills); Tune has 9 rows (with Layered sand, Grain and Breathing pace)',
+          ui.top === 4 && ui.tiltHidden && ui.bottom === 12 && ui.rows === 9, JSON.stringify(ui));
   s.check('UI: the Tune switch reads "Real motion"', ui.tilt === 'Real motion', '"' + ui.tilt + '"');
   s.check('UI: the stage says how to play with the glass', ui.aria === 'Hourglass. Tap to start or pause. Drag to move or turn it. Spread two fingers for Zen, pinch them to come back.');
   s.check('UI: #c-spill sits in the zoom, outside the glass', ui.spill);

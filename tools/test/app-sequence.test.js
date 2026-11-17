@@ -241,7 +241,7 @@ async function testUi(s, env) {
   s.check('UI: the Custom pill says it, shown and spoken; no preset is selected', m.label === '5·3 ×2' && m.pressed === 'true' && m.checked === 0 &&
           m.aria === 'Custom duration: 5 minutes, then rest 3 minutes, 2 rounds', '"' + m.label + '" / "' + m.aria + '"');
   s.check('UI: the sequence is kept in the settings', m.saved.join() === '300000,180000,2', m.saved.join());
-  s.check('UI: no new buttons on the main screen (3 top, 12 bottom), and no Tune row of its own (9, with Layered sand, Grain and Breathing pace)', m.top === 3 && m.bottom === 12 && m.rows === 9,
+  s.check('UI: no new buttons on the main screen (4 top, one of them hidden; 12 bottom), and no Tune row of its own (9, with Layered sand, Grain and Breathing pace)', m.top === 4 && m.bottom === 12 && m.rows === 9,
           JSON.stringify({ top: m.top, bottom: m.bottom, rows: m.rows }));
 
   // it fits at 360 px: the usual sequence and the longest one

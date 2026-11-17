@@ -163,6 +163,9 @@ five, three quarters for 45.
   shake it and the sand lifts and lands; twist it and the sand sloshes; spin
   it flat on a table and the sand is pushed to both ends. Shaken hard for
   about three seconds, in any direction, the glass creaks and then cracks.
+  An iPhone forgets its permission for this whenever the app is closed, so
+  after a fresh launch a small tilt icon waits in the top bar: tap it and
+  allow, or leave it and the glass stands still that time.
 - **Breathing pace**: while the sand is running, the warm light behind the
   glass swells and brightens through the in-breath, holds, and fades through
   the out-breath, slowly and without a sound. Choose *Calm* (in 4 s, out 6 s:
@@ -440,16 +443,26 @@ bit-identical with f446085.
 - **Repose against gravity.** A grain falls along the two lattice directions
   the field lies between, in the odds that give the field's own direction. It
   steps sideways only when the slope beyond the step, probed along a true line
-  below the field's horizontal, is steeper than sand can hold: 37° for a grain
-  at rest, 29° for one already moving. Rows sleep at any lean. Held at 5°,
-  10°, 20°, 30° and 45° the free surface settles at 30° to 35° to gravity and
-  the sand is at rest within 1 to 4 s; before, it crept flat and never rested.
-- **Thick avalanches.** A face far steeper than sand can hold fails in depth:
-  the free surface is read as heights across the field, and where it falls
-  more steeply than 40° over eight cells the top grains are carried down to
-  where the slope eases, and run on down to 36°. After the Flip the sand is
-  under 40° within a second and at rest in under 3 s (it stood at 68° for more
-  than 20 s).
+  below the field's horizontal, is steeper than sand can hold: 35° for a grain
+  at rest, 32° for one already moving, three degrees apart as in dry sand.
+  Rows sleep at any lean. Held at 5°, 10°, 20°, 30° and 45° the free surface
+  settles at 28° to 33° to gravity and the sand is at rest within 1 to 4 s;
+  before, it crept flat and never rested.
+- **It flows, it does not wait and go.** The automaton moves one layer of
+  grains, so the slopes are also read as heights across the field (the thick
+  avalanche), and where one falls more steeply than 36° over eight cells its
+  top grains are moved down it, on down to 33°. A slope only a little too
+  steep creeps: a grain goes two cells down, six more for every cell the
+  slope is over, and is left moving, to be carried on at the next call; so
+  the sand is seen to flow, a layer at a time, and follows a slow tilt as it
+  comes. A cliff (a face eight cells or more too high) still fails in depth,
+  its grains carried to where the slope eases. Tilted steadily at 5° a second
+  the beds now move in 97 % of the tenths of a second, and the busiest fifth
+  of the time carries 30 % of the shift; as first shipped (held to 37°, ran
+  to 29°, avalanche from 40° to 36° with every grain taken to the foot at
+  once) they stood still 14 % of the time and then went. After the Flip the
+  sand is under 40° within about a second and at rest in under 4 s (it stood
+  at 68° for more than 20 s).
 - **Falling sand gathers speed.** Each grain carries a count of the sweeps it
   has kept moving, as it carries its colour; a fall covers more cells the
   longer it lasts. Sand let go (the phone turned over) accelerates and
@@ -502,7 +515,8 @@ screen as the sand it replaces:
   alike. A kinetic sweep's fall, which is g·t, counts 1/p as much a sweep.
 - **The thick avalanche runs p² times as often.** It lowers a face a grain
   at a time, and the automaton's own flow is one grain deep, so on finer
-  sand the same slump is p² times the moves.
+  sand the same slump is p² times the moves. A creeping slope's step is
+  shorter in turn, so the flow keeps its speed on screen.
 - **What is measured in cells or in grains is scaled**: speeds (spray, hops,
   the thread, the fastest a grain may fly), crack lengths and the width of a
   breach, layer depths and the bands of layered sand, pours, leaks and caps.
@@ -528,17 +542,17 @@ Measured against the classic sand (`sim-grain`, a one-minute glass):
 | Share of sand above the neck at 15, 30, 45 s | | within 0.0012 | within 0.0018 |
 | Grains left above the neck at 00:00 | 0 | 0 | 0 |
 | Sand in the air (the thread) | 0.78 % | 0.80 % | 0.82 % |
-| After the Flip: bulk settled / all at rest | 1.1 / 2.4 s | 0.9 / 2.1 s | 1.1 / 2.2 s |
-| Leaned 30°: bulk settled / all at rest | 1.1 / 2.3 s | 1.1 / 2.8 s | 1.3 / 2.9 s |
-| First crack under the hard, slow shake | 1.54 s | 1.54 s | 1.54 s |
+| After the Flip: bulk settled / all at rest | 1.7 / 3.6 s | 1.8 / 3.3 s | 2.0 / 3.5 s |
+| Leaned 30°: bulk settled / all at rest | 0.9 / 3.9 s | 1.0 / 4.2 s | 1.2 / 5.1 s |
+| First crack under the hard, slow shake | 1.52 s | 1.54 s | 1.52 s |
 
 What it costs (Node, this machine, a five-minute glass half run, ms a frame):
 
 | | Classic | Fine | Finest |
 |---|---|---|---|
-| Running, calm (mean) | 0.23 | 0.58 | 1.78 |
-| The Flip and 5 s after (p95) | 1.5 | 4.1 | 11.9 |
-| The hardest shake (p95) | 2.2 | 5.2 | 15.1 |
+| Running, calm (mean) | 0.21 | 0.56 | 1.52 |
+| The Flip and 5 s after (p95) | 1.4 | 4.0 | 10.6 |
+| The hardest shake (p95) | 2.1 | 5.1 | 13.1 |
 | In the page: physics and drawing, running (mean) | 1.1 | 2.2 | 4.0 |
 
 Fine is about two and a half times the work, Finest about eight times while
@@ -960,7 +974,9 @@ node tools/test/app-gestures.test.js     # any single suite
   sand falling identically with layers on and off; the heap settling into
   strata; turned sand settling into a new pattern each time, not a blend; the
   colour table with layers off against 7f71786. `sim-repose` covers sand off
-  the upright: repose at held leans, the slump after the Flip, falling sand
+  the upright: repose at held leans, a slow steady tilt followed as it
+  comes (and waited out, then rushed, by the sand as first shipped), the
+  slump after the Flip, falling sand
   gathering speed, a bed's momentum under a jolt and a finger's carry, the
   thread in the air, shaking against walking, the timer while leaned and to
   its end, the census and each tone's count; every case that can is also run
@@ -1054,9 +1070,14 @@ never flashes white before its first frame.
   the audio context on the first touch, and resumes it again after an
   interruption (call, lock screen, tab switch).
 - Real motion needs motion permission on iOS 13+; the switch asks for it, once
-  for both sensors. If the browser asks again after a reload, the switch stays
-  on and the next tap on the screen asks (where the site was already allowed,
-  that answer comes back without a prompt).
+  for both sensors. An iPhone keeps that permission only until the app is
+  closed, and a web app cannot change that, so with Real motion left on it
+  has to be given again at each launch. The app does not spring the question
+  on the first tap that comes along: a small tilt icon waits in the top bar
+  (the first three times a note points to it) and asks when it is tapped.
+  Left alone, the glass simply stands still that time and Real motion stays
+  on for the next. Where the site is still allowed (the same session, a
+  reload) the readings arrive unasked and the icon never shows.
 - Keep screen awake needs the Screen Wake Lock API: Safari 16.4+ on iOS, and
   iOS 18.4+ when installed to the home screen.
 - A web app cannot hide the iPhone status bar or silence notifications. On

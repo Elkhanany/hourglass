@@ -46,7 +46,8 @@
     mendNotes: 0,                    // how often the "hold it still to mend" note was shown (the first three cracks)
     hintCrack: false,                // the one-time "the glass can crack" note was shown
     hintZen: 0,                      // how often the way back out of Zen has been said (three times at most)
-    grain: 0                         // the sand's grain: 0 classic, 1 fine (twice the grains), 2 finest (four times)
+    grain: 0,                        // the sand's grain: 0 classic, 1 fine (twice the grains), 2 finest (four times)
+    hintMotion: 0                    // how often the tilt icon has been pointed out (three times at most)
   };
   try {
     var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -970,12 +971,11 @@
     return a;
   }
 
-  var motionWatch = 0, rearmTimer = 0, rearm = null, askSeq = 0;
-  var REARM_EVENTS = ['pointerup', 'touchend', 'keydown'];
+  var motionWatch = 0, waitTimer = 0, askSeq = 0, btnMotion = $('btn-motion');
 
   function motionOff(msg) {
     askSeq++;                                     // an answer still on its way no longer counts
-    clearTimeout(motionWatch); clearTimeout(rearmTimer); disarmRequest();
+    clearTimeout(motionWatch); clearTimeout(waitTimer); btnMotion.hidden = true;
     motion.stop();
     grav.on = false; grav.target = 0; grav.seen = false;
     settings.tilt = false; optTilt.checked = false; save();
@@ -999,7 +999,7 @@
     try { req = motion.request(); } catch (e) { motionOff('Motion access is unavailable'); return; }
     req.then(function (r) {
       if (my !== askSeq) return;                 // switched off (or asked again) meanwhile
-      if (r === 'granted') { motionGo(); watchMotion(true); }
+      if (r === 'granted') { btnMotion.hidden = true; motionGo(); watchMotion(true); }
       else if (r === 'denied') motionOff('Motion access was declined. Allow it in Settings to use this.');
       else motionOff('Motion is not available on this device');
     }, function () {
@@ -1007,29 +1007,39 @@
     });
   }
   /**
-   * Real motion was left on, but this browser asks again after a reload and
-   * a prompt needs a tap: ask on the next one (pointerup and touchend count
-   * as a tap on a touch screen; pointerdown does not). If the site was
-   * already allowed, the answer comes back without a prompt.
+   * Real motion was left on. An iPhone forgets the permission whenever the
+   * app is closed, and only a tap may ask for it again. The app does not
+   * spring that question on the first tap that comes along: a small tilt
+   * button waits in the top bar and asks when it is tapped. Left alone, the
+   * glass simply stands still this time, and Real motion stays switched on
+   * for the next. Where the site is still allowed (the same session, a
+   * reload) the readings arrive unasked and the button never shows.
    */
-  function armRequest() {
-    if (rearm) return;
-    rearm = function () {
-      disarmRequest();
-      if (grav.on && !motion.seenOrient && !motion.seenMotion) askMotion();
-    };
-    for (var i = 0; i < REARM_EVENTS.length; i++) window.addEventListener(REARM_EVENTS[i], rearm, true);
+  function awaitMotion() {
+    if (!grav.on || motion.seenOrient || motion.seenMotion) return;
+    btnMotion.hidden = false;
+    if ((settings.hintMotion | 0) < 3) {
+      settings.hintMotion = (settings.hintMotion | 0) + 1; save();
+      toast('Real motion: tap the tilt icon to allow it', 4200);
+    }
   }
-  function disarmRequest() {
-    if (!rearm) return;
-    for (var i = 0; i < REARM_EVENTS.length; i++) window.removeEventListener(REARM_EVENTS[i], rearm, true);
-    rearm = null;
+  // The question must go out from inside a real tap. The button's click may reach it by way
+  // of its haptic label, so the lifting finger is listened for as well (once a tap).
+  var motionTapAt = 0;
+  function motionTap(e) {
+    if (btnMotion.hidden || !e.target || !btnMotion.contains(e.target)) return;
+    var now = performance.now();
+    if (now - motionTapAt < 700) return;
+    motionTapAt = now;
+    askMotion();
+    buzz(8);
   }
+  ['pointerup', 'touchend', 'click'].forEach(function (t) { window.addEventListener(t, motionTap, true); });
 
   /** The Real motion switch. fromUser: inside the switch's click, where a prompt may be shown. */
   function setMotion(on, fromUser) {
     askSeq++;
-    clearTimeout(motionWatch); clearTimeout(rearmTimer); disarmRequest();
+    clearTimeout(motionWatch); clearTimeout(waitTimer); btnMotion.hidden = true;
     if (!on) { motionOff(''); return; }
     if (!window.DeviceMotionEvent && !window.DeviceOrientationEvent) {
       motionOff(fromUser ? 'Motion is not available on this device' : '');
@@ -1043,9 +1053,7 @@
     // At start-up with the switch left on: listen without asking (and keep the switch on).
     motionGo();
     if (motion.needsPermission) {
-      rearmTimer = setTimeout(function () {
-        if (grav.on && !motion.seenOrient && !motion.seenMotion) armRequest();
-      }, 1000);
+      waitTimer = setTimeout(awaitMotion, 1000);
     } else watchMotion(false);
   }
 
@@ -1063,6 +1071,7 @@
 
   var tiltOver = 0;
   function stepGravity(dtMs, now) {
+    if (!btnMotion.hidden && (motion.seenOrient || motion.seenMotion)) btnMotion.hidden = true;   // allowed already: nothing to ask
     var want = grav.on ? grav.target : 0;
     if (want > -0.045 && want < 0.045) want = 0;          // standing straight: let the sand sleep
     // follows the sensor briskly while it reports, eases over otherwise; never snaps

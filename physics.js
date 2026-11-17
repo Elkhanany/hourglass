@@ -387,7 +387,8 @@
     leakLinger: 120,     // steps a leak keeps the sim awake
     // Sand off the upright (sim.granular): slopes are judged against the
     // field itself, in degrees below its horizontal
-    thS: 37, thD: 29,    // a grain at rest lets go above thS (maximum stability); one already moving runs on above thD
+    thS: 35, thD: 32,    // a grain at rest lets go above thS (maximum stability); one already moving runs on above thD
+                         // (three degrees apart, as in dry sand: under a slow tilt it trickles, it does not wait and go)
     nS: 8, nD: 3,        // cells of the slope probed beyond the step
     kinA: 0.21, kFall: 8, kSlide: 12, // a kinetic sweep: a fall covers 1 + kinA·run cells (at most kFall), a slide runs on up to kSlide
     pLet: 205,           // /256 chance a sweep that a grain at rest, the sand under it gone, lets go (so a hanging mass loosens from its face)
@@ -404,7 +405,7 @@
     airK: 1,             // how much of the glass's own on-screen motion a grain in the air feels (1: it stays where it was in the room)
     slipShifts: 2,       // cells a step a sliding bed is moved at most
     slipStop: 0.02,      // a shift that moves less than this share of the bed's grains has met the glass: the slide ends
-    slB: 8, slUp: 3, slStop: 36, slMax: 96, slEvery: 2, slRun: 64, slDeep: 6, slW: 3,
+    slB: 8, slUp: 1, slStop: 33, slMax: 96, slEvery: 2, slRun: 64, slDeep: 6, slW: 3, slHop: 2, slGain: 6,
     spinW: 6,            // rad/s: spun faster than this the sand is stepped by the old automaton
     maxSweepsG: 2,       // most sweeps a step for a bulb (maxSweeps without granular)
     offSweeps: 1,        // sweeps a step while turned or laid over (2 without granular: there a grain moves one cell a sweep)
@@ -2526,7 +2527,10 @@
     if (top === null) {
       top = this._slTop = new Float32Array(NB); topI = this._slI = new Int32Array(NB);
       flo = this._slFlo = new Float32Array(NB); floI = this._slFloI = new Int32Array(NB);
+      this._slGot = new Int32Array(NB); this._slId = 0;
     }
+    // (a creeping grain is carried once a call: see below)
+    var got = this._slGot, id = this._slId = (this._slId + 1) | 0;
     var x, y, i, s, h, s0 = NB, s1 = -1, x0, x1, sRow, hRow;
 
     // the glass under every bin: the lowest cell of the bulb's rim that falls in it
@@ -2577,7 +2581,7 @@
     var up2 = DX[(kU + 1) & 7] + DY[(kU + 1) & 7] * W, up3 = DX[(kU + 7) & 7] + DY[(kU + 7) & 7] * W;
     var gate = this.gateY * W, isTop = b === 0, rs = this.rng | 0;
     rs ^= rs << 13; rs ^= rs >>> 17; rs ^= rs << 5;
-    var dirFirst = (rs & 1) ? 1 : -1, step1 = tStop / B * 0.5, deep = MOT.slDeep, reach = MOT.slRun;
+    var dirFirst = (rs & 1) ? 1 : -1, step1 = tStop / B * 0.5, deep = MOT.slDeep, reach = MOT.slRun, hop = MOT.slHop | 0, gain = MOT.slGain;
     var pass, dir, reps, t, drop, nx, far, j, d, e;
     for (pass = 0; pass < 2 && moved < budget; pass++) {
       dir = pass ? -dirFirst : dirFirst;                // downhill toward +s, then toward −s (the order alternates)
@@ -2589,9 +2593,21 @@
           if (i < 0 || cell[i] < REST) break;           // (a bin's next grain may have left with a neighbour's)
           drop = top[s] - top[t];
           if (drop <= need) break;
-          // it runs on down the slope while the slope still falls away (to the foot, or slRun bins)
-          nx = t + dir; far = s + dir * reach;
-          while (nx >= s0 && nx <= s1 && nx !== far && top[nx] <= top[t] - step1) { t = nx; nx += dir; }
+          far = hop > 0 ? hop + ((drop - need) * gain | 0) : reach;
+          if (far < B) {
+            // A slope a little too steep creeps: its top grain goes a few bins down, the farther
+            // the steeper, and is left moving, to be carried on at the next call if the slope
+            // still asks (a bin that was given a grain in this call gives none on). Seen from
+            // outside the sand flows, a layer at a time, and follows a slow tilt as it comes.
+            // (From slB bins on, the cliff's rule below takes over.)
+            if (got[s] === id) break;
+            t = s + dir * far;
+            if (top[t] > top[s] - 1) break;
+          } else {
+            // a cliff: it runs on down the slope while the slope still falls away (to the foot, or slRun bins)
+            nx = t + dir; far = s + dir * reach;
+            while (nx >= s0 && nx <= s1 && nx !== far && top[nx] <= top[t] - step1) { t = nx; nx += dir; }
+          }
           j = topI[t];
           if (j >= 0) {
             if (cell[j] < REST) break;
@@ -2604,7 +2620,7 @@
           if ((d < gate) !== isTop) break;
           cell[d] = MOVE; seed[d] = seed[i]; cell[i] = EMPTY;
           run[d] = 0; run[i] = 0;
-          topI[t] = d; top[t] = j < 0 ? flo[t] : top[t] + 1;
+          topI[t] = d; top[t] = j < 0 ? flo[t] : top[t] + 1; got[t] = id;
           // the high bin's next grain: the one under it along the field
           e = i - up;
           if (cell[e] < REST) { e = i - up2; if (cell[e] < REST) e = i - up3; }
@@ -3664,6 +3680,9 @@
     MOT.slipShifts = Math.ceil(MOT0.slipShifts * p);
     MOT.gateGuard = Math.round(MOT0.gateGuard * p);
     MOT.slDeep = Math.round(MOT0.slDeep * p);
+    // (a creeping slope is asked p² times as often, so each step is shorter: the flow keeps its speed on screen)
+    MOT.slHop = Math.max(1, Math.round(MOT0.slHop / p));
+    MOT.slGain = MOT0.slGain / Math.sqrt(p);
     // a breach as wide on screen is p times the cells, and widens in p times the steps
     MOT.wMax = Math.round(MOT0.wMax * p);
     MOT.widen = MOT0.widen / p;
