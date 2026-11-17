@@ -219,10 +219,31 @@
   }
 
 
-  /** Wrap raw channel data (synthesised at `sr`) into an AudioBuffer. */
+  // Older WebKit (before iOS 14.5) makes no AudioBuffer below this rate
+  var MIN_SR = 22050;
+  /**
+   * Wrap raw channel data (synthesised at `sr`) into an AudioBuffer. Where the
+   * browser refuses so low a rate, each sample is drawn out into the least
+   * whole number of them that reaches MIN_SR, on straight lines (and from the
+   * last sample on to the first: these are loops). Played, that is the same
+   * sound: a source reads between two samples along the same straight line.
+   */
   function toBuffer(ctx, channels, sr) {
-    var b = ctx.createBuffer(channels.length, channels[0].length, sr);
-    for (var c = 0; c < channels.length; c++) b.getChannelData(c).set(channels[c]);
+    var n = channels[0].length, k = 1, b, c, i, j, o, x, d, out, a;
+    try { b = ctx.createBuffer(channels.length, n, sr); }
+    catch (e) {
+      if (sr >= MIN_SR) throw e;
+      k = Math.ceil(MIN_SR / sr);
+      b = ctx.createBuffer(channels.length, n * k, sr * k);
+    }
+    for (c = 0; c < channels.length; c++) {
+      if (k === 1) { b.getChannelData(c).set(channels[c]); continue; }
+      a = channels[c]; out = b.getChannelData(c);
+      for (i = 0, o = 0; i < n; i++) {
+        x = a[i]; d = (a[i + 1 < n ? i + 1 : 0] - x) / k;
+        for (j = 0; j < k; j++) out[o++] = x + d * j;
+      }
+    }
     return b;
   }
 
@@ -980,10 +1001,805 @@
     ]);
   }
 
+  /* ---- ocean ------------------------------------------------------------
+   * Slow surf on a sandy beach, heard from the shore. A wave is not noise
+   * faded in and out. The swell comes up dark, out of the rumble; it breaks
+   * low first (the soft thud of the plunge, then its roar); the wash opens up
+   * as the foam spreads over the sand, the hiss comes last and stays longest;
+   * and what draws back is thin and fizzing, bubbles bursting one by one, a
+   * different sound from the break.
+   *
+   * So a wave is several coloured noises, each on its own envelope around the
+   * moment of breaking (τ, in seconds, stretched by the wave's own tempo),
+   * the low-pass of the wash gliding open with the foam and closing again as
+   * the water draws back, and after them the brook's smallest bubbles, as
+   * many as there is foam.
+   *
+   * Two loops play together. In front, six waves in a minute, about 8 to
+   * 12 s apart, no two gaps or sizes alike. Behind them, on a shorter loop of its
+   * own, the low rumble of distant surf and two softer, duller waves from
+   * farther along the beach: each time round they fall elsewhere among the
+   * waves in front, now filling a gap, now doubling a wave, so no minute
+   * sounds like the last.
+   *
+   * It is made in many short slices (a minute of sound is a lot of noise):
+   * the heavy loops live in functions of their own, compiled once, and the
+   * first channel made, while they are still cold, is cut finer.
+   * ------------------------------------------------------------------- */
+
+  var SURF = {
+    cr: 25,                                   // control rate of its curves, Hz
+    bite: 400000,                             // samples of noise made in one slice (2 to 3 ms, once the code is hot)
+    ild: 10,                                  // dB between the ears for a wave fully to one side
+    // A loop: `n` waves, each gap within ± `jit` of the mean and each size within
+    // ± 1.5 `size` (log), one from every slice of that range, in a random order;
+    // a bigger wave is slower; `rise` is the swell's time constant (s); `heave`
+    // (σ, log) is the slow swell of whatever sounds all the time.
+    // A part is noise through a 2-pole low-pass `lp` (gliding up to `lp1` with the
+    // foam) and a 2-pole high-pass `hp`; `rho` of it is common to the ears and `pan`
+    // of the wave's place is heard in it; it flickers (σ `sig`, band-passed to
+    // fhp…fc Hz). Its level, × `gain`: `fl` always; `ap` × the swell coming in; the
+    // break, which begins at τ = `on`, rises for `at` s and falls with time constant
+    // `de` (a rounded crest: 1/cosh); `bw` × the backwash, a bell around τ = `bc`, `bd` s to either side.
+    // `pw`: how its level follows the size of the wave.
+    front: { salt: 11, n: 6, jit: 0.22, size: 0.33, rise: 2.4, heave: 0.2, rms: 0.077,
+      parts: [
+        { lp: 240, hp: 100, rho: 0.9, pan: 0.5, sig: 0.3, fc: 6, fhp: 1.5, gain: 0.55,
+          fl: 0.08, pw: 1.4, ap: 0.6, on: -0.45, at: 0.4, de: 0.5, bw: 0, bc: 0, bd: 1 },
+        { lp: 750, hp: 190, rho: 0.75, pan: 0.8, sig: 0.26, fc: 8, fhp: 2, gain: 0.85,
+          fl: 0.08, pw: 1.2, ap: 0.6, on: -0.4, at: 0.55, de: 0.65, bw: 0.04, bc: 4.0, bd: 1.8 },
+        { lp: 1200, lp1: 4500, hp: 450, rho: 0.5, pan: 0.9, sig: 0.16, fc: 10, fhp: 2.5, gain: 1,
+          fl: 0.14, pw: 1, ap: 0.3, on: -0.3, at: 0.75, de: 1.0, bw: 0.14, bc: 4.0, bd: 1.8 },
+        { lp: 5500, hp: 2000, rho: 0.35, pan: 1, sig: 0.08, fc: 10, fhp: 3, gain: 0.48,
+          fl: 0.5, pw: 0.85, ap: 0.12, on: -0.1, at: 0.95, de: 1.6, bw: 0.08, bc: 3.6, bd: 1.8 }
+      ],
+      // the foam's bubbles bursting: up to `rate` a second where the foam is thickest, dying
+      // away with time constant `de`; pitch, loudness and damping as the brook's fizz
+      fizz: { rate: 450, de: 2.2, f0: 2600, f1: 5200, amp: 0.46, sigma: 0.7, tilt: -0.3, damp: 3, pan: 0.9 } },
+    far: { salt: 23, n: 2, jit: 0.25, size: 0.25, rise: 2.6, heave: 0.25, rms: 0.045,
+      parts: [
+        { lp: 260, hp: 95, rho: 0.9, pan: 0.2, sig: 0.26, fc: 5, fhp: 0.8, gain: 0.6,
+          fl: 0.42, pw: 1.3, ap: 0.5, on: -0.5, at: 0.7, de: 1.0, bw: 0, bc: 0, bd: 1 },
+        { lp: 520, lp1: 1500, hp: 200, rho: 0.6, pan: 0.6, sig: 0.2, fc: 8, fhp: 1.5, gain: 0.8,
+          fl: 0.15, pw: 1, ap: 0.4, on: -0.3, at: 0.8, de: 1.4, bw: 0.1, bc: 4.4, bd: 1.8 },
+        { lp: 2400, hp: 1000, rho: 0.4, pan: 0.9, sig: 0.14, fc: 10, fhp: 2.5, gain: 0.3,
+          fl: 0.11, pw: 0.9, ap: 0.2, on: -0.1, at: 1.0, de: 1.8, bw: 0.2, bc: 3.8, bd: 1.6 }
+      ] }
+  };
+
+  var surfHot = false;                        // a channel has been made: the code is compiled, the next ones take bigger bites
+
+  /** When the waves break and how big they are: one gap and one size from every slice of their range, shuffled. */
+  function surfPlan(o) {
+    var P = o.P, rE = o.rE, gaps = [], big = [], t = rE() * o.seconds, all = 0, w, c, v;
+    for (w = 0; w < P.n; w++) {
+      gaps.push(1 + P.jit * ((w + rE()) / P.n * 2 - 1));
+      big.push(Math.exp(P.size * 1.5 * ((w + rE()) / P.n * 2 - 1)));
+      all += gaps[w];
+    }
+    for (w = P.n - 1; w > 0; w--) {
+      c = (rE() * (w + 1)) | 0; v = gaps[w]; gaps[w] = gaps[c]; gaps[c] = v;
+      c = (rE() * (w + 1)) | 0; v = big[w]; big[w] = big[c]; big[c] = v;
+    }
+    for (w = 0; w < P.n; w++) { o.W.push({ t: t, big: big[w] }); t += gaps[w] / all * o.seconds; }
+    for (w = 0; w < P.parts.length; w++) o.E.push(new Float32Array(o.nc));
+  }
+
+  /** Waves w0 … w1 of a loop: what each part does around them. */
+  function surfLay(o, w0, w1) {
+    var P = o.P, parts = P.parts, np = parts.length, F = P.fizz, rE = o.rE, cr = SURF.cr, nc = o.nc, ch = o.ch;
+    var E = o.E, open = o.open, foam = o.foam, size = [], w, c, b, v;
+    if (!w0) surfPlan(o);
+    for (w = w0; w < w1; w++) {
+      var t = o.W[w].t, big = o.W[w].big, d = Math.sqrt(big) * (0.9 + 0.2 * rE());   // its tempo: a big wave takes its time
+      var rise = P.rise * (0.8 + 0.5 * rE()), steep = 0.75 + 0.6 * rE();
+      var tilt = Math.exp(0.16 * gauss(rE)), back = 0.7 + 0.6 * rE();
+      var x0 = (rE() * 2 - 1) * 0.8, glide = (rE() < 0.5 ? -1 : 1) * (0.08 + 0.2 * rE());   // where it breaks, which way it runs
+      for (b = 0; b < np; b++) size[b] = Math.pow(big, parts[b].pw) * (b * 2 < np ? 1 / tilt : tilt);
+      for (c = Math.floor((t - 8 * d) * cr); c < (t + 9 * d) * cr; c++) {
+        var x = (c / cr - t) / d, j = ((c % nc) + nc) % nc;          // τ; the loop wraps
+        var edge = x < -7 ? x + 8 : x > 8 ? 9 - x : 1;               // in and out over a second, far from the break
+        var swell = x < 0 ? Math.exp(x / rise) : Math.exp(-x / 0.4);
+        var px = x0 + glide * x; px = px > 1 ? 1 : px < -1 ? -1 : px;
+        var ear = (ch ? px : -px) * SURF.ild * 0.0576;               // ± half the level difference, in nepers
+        for (b = 0; b < np; b++) {
+          var p = parts[b], y = x - p.on, at = p.at * steep, q = (x - p.bc) / p.bd, e = p.ap * swell;
+          if (q > -1 && q < 1) e += p.bw * back * (0.5 + 0.5 * Math.cos(Math.PI * q));
+          if (y > 0) e += y < at ? 0.5 - 0.5 * Math.cos(Math.PI * y / at) : 2 / (Math.exp((y - at) / p.de) + Math.exp((at - y) / p.de));
+          E[b][j] += e * edge * size[b] * (1 + ear * p.pan);
+        }
+        // how far the wash is open: a little with the swell, wide with the break, closing as the water draws back
+        v = (x < -0.4 ? 0.3 * Math.exp((x + 0.4) / rise) : x < 0.8 ? 0.65 - 0.35 * Math.cos(Math.PI * (x + 0.4) / 1.2) : Math.exp(-(x - 0.8) / 3)) * edge;
+        if (v > open[j]) open[j] = v;
+        // the foam left on the sand: up after the break, longest of all to go
+        if (F && x > 0.6) foam[j] += (x < 2.6 ? 0.5 - 0.5 * Math.cos(Math.PI * (x - 0.6) / 2) : Math.exp(-(x - 2.6) / F.de)) * edge * big * back * 0.8;
+      }
+    }
+    if (w1 === P.n) { o.heave = ctrlCurve(rE, nc, 0.3, cr); o.x = (rE() * 4294967296) | 1; }
+  }
+
+  /** Parts b0 … b1 of a loop: each one's level through it, and the state of its noise and filters. */
+  function surfTune(o, b0, b1) {
+    var P = o.P, sr = o.sr, nc = o.nc, cr = SURF.cr, heave = o.heave, open = o.open;
+    for (var b = b0, c, kl, a; b < b1; b++) {
+      var p = P.parts[b], e = o.E[b], fS = ctrlCurve(o.rE, nc, p.fc, cr, p.fhp), fC = ctrlCurve(o.rC, nc, p.fc, cr, p.fhp);
+      var G = new Float32Array(nc + 1), K = p.lp1 ? new Float32Array(nc + 1) : null, lg = K ? Math.log(p.lp1 / p.lp) : 0;
+      for (c = 0; c < nc; c++) {
+        if (K || !c) {
+          kl = 1 - Math.exp(-TAU * p.lp * Math.exp(lg * open[c]) / sr); a = 1 - kl; a = 1 - a * a;
+          // what the low-pass lets through of the noise (integers, ± 2³¹), so that `gain` is an RMS
+          a = Math.sqrt(kl * kl * kl * kl * (2 - a) / (a * a * a) / 3) * 2147483648;
+          if (K) K[c] = kl;
+        }
+        G[c] = p.gain * (p.fl * Math.exp(P.heave * heave[c]) + e[c]) * Math.exp(p.sig * (0.77 * fS[c] + 0.63 * fC[c])) / a;
+      }
+      G[nc] = G[0]; if (K) K[nc] = K[0];
+      o.S.push({ G: G, K: K, kl: 1 - Math.exp(-TAU * p.lp / sr), kh: 1 - Math.exp(-TAU * p.hp / sr),
+                 cs: Math.sqrt(p.rho), cc: Math.sqrt(1 - p.rho), xs: (o.rE() * 4294967296) | 1, xo: (o.rC() * 4294967296) | 1,
+                 l1: 0, l2: 0, h1: 0, h2: 0, i: 0 });
+    }
+  }
+
+  /** Control steps c0 … c1 of one part, added to `raw`: noise, low-pass, high-pass, its level. Returns its energy. */
+  function surfPart(raw, s, c0, c1, n, nc) {
+    var G = s.G, K = s.K, kl = s.kl, kh = s.kh, cs = s.cs, cc = s.cc, xs = s.xs, xo = s.xo;
+    var l1 = s.l1, l2 = s.l2, h1 = s.h1, h2 = s.h2, i = s.i, end = raw.length, e = 0, c, j, i1, v, dv, dk = 0, y;
+    for (c = c0; c < c1; c++) {
+      j = c % nc;                                                    // past the end: on into the start, for the seam
+      i1 = Math.min(end, Math.floor((c + 1) * n / nc));
+      v = G[j]; dv = (G[j + 1] - v) / (i1 - i);
+      if (K) { kl = K[j]; dk = (K[j + 1] - kl) / (i1 - i); }
+      for (; i < i1; i++) {
+        xs ^= xs << 13; xs ^= xs >>> 17; xs ^= xs << 5;              // xorshift: the noise both ears share,
+        xo ^= xo << 13; xo ^= xo >>> 17; xo ^= xo << 5;              // and this ear's own
+        l1 += kl * (cs * xs + cc * xo - l1); l2 += kl * (l1 - l2);
+        h1 += kh * (l2 - h1); y = l2 - h1; h2 += kh * (y - h2);
+        y = (y - h2) * v; raw[i] += y; e += y * y;
+        v += dv; kl += dk;
+      }
+    }
+    s.xs = xs; s.xo = xo; s.l1 = l1; s.l2 = l2; s.h1 = h1; s.h2 = h2; s.i = i; s.kl = kl;
+    return e;
+  }
+  /** A stretch of a loop, every part of it; after the last, the seam. */
+  function surfNoise(o, c0, c1) {
+    var raw = o.raw, n = o.n, fade = raw.length - n, b, i, a;
+    for (b = 0; b < o.S.length; b++) o.sum += surfPart(raw, o.S[b], c0, c1, n, o.nc) / raw.length;   // the parts are independent: their powers add
+    if (o.S[0].i === raw.length) {
+      for (i = 0; i < fade; i++) {                                   // equal-power crossfade → seamless loop
+        a = i / fade;
+        raw[i] = raw[i] * Math.sqrt(a) + raw[n + i] * Math.sqrt(1 - a);
+      }
+    }
+  }
+
+  /** The next of a loop's random numbers for its bubbles, 0 … 1 (xorshift; alike in both ears). */
+  function surfRnd(o) {
+    var x = o.x;
+    x ^= x << 13; x ^= x >>> 17; x ^= x << 5; o.x = x;
+    return (x >>> 0) / 4294967296;
+  }
+  /** A stretch of a loop's bubbles: shared events, this ear's pan and delay. */
+  function surfFizz(o, c0, c1) {
+    var F = o.P.fizz, raw = o.raw, ch = o.ch, sr = o.sr, n = o.n, nc = o.nc, foam = o.foam, cr = SURF.cr;
+    var lr = Math.log(F.f1 / F.f0), itd = WATER.itd * sr, tab = SINE, ramp = Math.max(2, Math.round(sr * 0.00017)), ft = o.ft;
+    if (ft < 0) ft = -Math.log(1 - surfRnd(o)) / F.rate;
+    while (ft < c1 / cr) {
+      if (surfRnd(o) < foam[Math.min(nc - 1, (ft * cr) | 0)]) {
+        var f0 = F.f0 * Math.exp(lr * surfRnd(o)), d = F.damp * (0.043 * f0 + 0.0014 * f0 * Math.sqrt(f0));   // damping, 1/s
+        var p = (surfRnd(o) * 2 - 1) * F.pan, ang = (p + (ch ? 1 : 3)) * Math.PI / 4;                          // left: the cosine
+        var env = F.amp * Math.min(WATER.cap, Math.exp(F.sigma * 1.732 * (surfRnd(o) + surfRnd(o) + surfRnd(o) + surfRnd(o) - 2))) *
+                  Math.pow(f0 / 1000, F.tilt) * 1.414 * Math.sin(ang), dec = Math.exp(-d / sr);
+        var j = (Math.floor(ft * sr) + Math.round(itd * Math.max(0, ch ? -p : p))) % n;                        // far ear later
+        var ph = surfRnd(o) * 4096, dph = 4096 * f0 / sr, len = Math.min(n, Math.ceil(sr * 4.6 / d));
+        o.sum += env * env * 0.5 / (1 - dec * dec) / n;                // what it adds to the loop's power
+        for (var q = 0; q < len; q++) {
+          raw[j] += env * tab[ph & 4095] * (q < ramp ? q / ramp : 1);
+          if (++j === n) j = 0;                                      // wraps → seamless
+          ph += dph; env *= dec;
+        }
+      }
+      ft += -Math.log(1 - surfRnd(o)) / F.rate;
+    }
+    o.ft = ft;
+  }
+
+  /**
+   * Samples i0 … i1 of a loop, to its RMS (its power was added up on the way). A wave's
+   * tallest crests may pass 0.7: those few samples are rounded off towards 0.95, so that
+   * the loop is as loud whatever the seed.
+   */
+  function surfScale(o, i0, i1) {
+    var raw = o.raw, g = o.P.rms / Math.sqrt(o.sum), i, v;
+    for (i = i0; i < i1; i++) {
+      v = raw[i] * g;
+      raw[i] = v > 0.7 ? 0.95 - 0.0625 / (v - 0.45) : v < -0.7 ? 0.0625 / (-v - 0.45) - 0.95 : v;
+    }
+    if (i1 === o.n) { surfHot = true; return raw.subarray(0, o.n); }
+  }
+
+  /**
+   * One channel of a loop of surf: the parts of `P`, each a noise on its own
+   * envelope around the waves, then the fizz. Both ears get the same waves
+   * and the same bubbles from one seed.
+   */
+  function surf(sr, seconds, ch, seed, P) {
+    var n = Math.floor(sr * seconds), nc = Math.round(seconds * SURF.cr), end = n + Math.floor(sr * 0.25);
+    var np = P.parts.length, list = [];
+    var o = { P: P, ch: ch, sr: sr, seconds: seconds, n: n, nc: nc,
+              rE: mulberry32(seed * 7919 + P.salt),                  // shared by both ears
+              rC: mulberry32(seed * 104729 + P.salt * 31 + ch * 977),   // this ear's own
+              raw: new Float32Array(end), W: [], E: [], S: [], open: new Float32Array(nc), foam: new Float32Array(nc),
+              heave: null, x: 1, ft: -1, sum: 0 };
+    /**
+     * Steps that take `work` from 0 to `m`, about `bite` at a time. Unless `plain`, three short
+     * ones come first while the code is still cold: it runs many times slower until it is compiled.
+     */
+    function sweep(work, m, bite, plain) {
+      var q = Math.ceil(m / bite), ramp = plain || surfHot ? 0 : 3, k = 0;
+      function at() { return Math.min(m, Math.max(k, Math.floor(m * (k > ramp ? k - ramp : Math.pow(k / (ramp + 1), 5)) / q))); }
+      function step() { var a = at(); k++; return work(o, a, at()); }
+      for (var i = 0; i < q + ramp; i++) list.push(step);
+    }
+    sweep(surfLay, P.n, surfHot ? P.n : 1, true);
+    sweep(surfTune, np, surfHot ? Math.ceil(4000 / nc) : 1, true);
+    sweep(surfNoise, Math.ceil(end * nc / n), Math.ceil(SURF.bite / np * nc / n));
+    if (P.fizz) sweep(surfFizz, nc, Math.ceil(nc / 4));
+    sweep(surfScale, n, SURF.bite);
+    return steps(list);
+  }
+
+  /** One channel of the waves in front: swell, break, foam, backwash. */
+  function rawSurf(sr, seconds, ch, seed) { return surf(sr, seconds, ch, seed, SURF.front); }
+  /** One channel of the distant surf: its rumble, and softer, duller waves from farther along the beach. */
+  function rawSurfFar(sr, seconds, ch, seed) { return surf(sr, seconds, ch, seed, SURF.far); }
+
+  /* ---- falling water -----------------------------------------------------
+   * A small fall heard from a few metres is mostly a rush: so many splashes
+   * and bubbles a second that they blur into noise. What makes it water and
+   * not hiss is its colour (weight from 160 Hz to 1 kHz, then a steady fall
+   * of 3 dB an octave), that both ears hear the same lows but not the same
+   * highs, and that from close by it is never still: it spits and splashes
+   * (bursts of noise a few to a few tens of milliseconds long, each with a
+   * pitch and a place of its own) and the pool below gurgles with low
+   * bubbles.
+   *
+   * Three loops play together: the falling sheet, the wash around its foot,
+   * and the plunge pool, low and slow. Each carries a share of the rush, of
+   * the splashes and of the bubbles, and breathes on its own, so no band
+   * hangs on one loop and what is heard does not come round the same way:
+   * the three line up again after six days. The proportions come from
+   * recordings of small waterfalls: the colour and the stereo image from
+   * three made a few metres away, the splashing and gurgling from two made
+   * close to the pool (on the calm side of them).
+   *
+   * The work is cut into small steps and each call runs on for about
+   * FALLS.slice ms, so a slice stays short on any device.
+   * ------------------------------------------------------------------- */
+  var FALLS = {
+    chunk: 6000, slice: 2.5,                  // samples of rush made per step; a slice of work lasts about this many ms
+    bfc: 0.3,                                 // each loop breathes below this many Hz (`breath`: log-amplitude σ)
+    cap: 2.2,                                 // a splash's random loudness: at most 2.2× its median
+    // rush: noise split at `x` Hz into lows, mids and highs; `rho` of each is
+    // shared between the ears. The sum is coloured by two one-pole
+    // high-passes at `hp`, three one-pole low-passes side by side (`p`,
+    // weights `w`) and `lpn` one-pole low-passes at `lp`. `gain`: its RMS
+    // beside the amplitudes of the splashes and bubbles.
+    // splashes: short bursts of noise. Rate /s, pitch range, how narrow (`q`,
+    // widest to narrowest), median RMS at their top at 1 kHz, its log-normal
+    // σ and tilt with pitch, attack `ta` s, decay time `tau` (shortest,
+    // longest) s, the rhythm of the rate (σ `rsigma` of a log-normal below
+    // `rfc` Hz) and how wide they are panned.
+    // bubbles: as in WATER.
+    // Splashes and bubbles come in `n` batches: spots that splash or bubble when they will (and a step of work each).
+    sheet: { salt: 211, rms: 0.0466, breath: 0.050,
+      bed: { gain: 0.050, x: [450, 1800], rho: [0.92, 0.62, 0.25],
+             hp: 174.9, p: [174.9, 1434, 31420], w: [1, 0.0337, 0.0441], lp: 9000, lpn: 4 },
+      splash: [
+        { n: 4, rate: 1.6, f0: 3500, f1: 10000, q: [1.2, 3], amp: 0.088, sigma: 0.7, tilt: -0.5, ta: 0.001, tau: [0.003, 0.012],
+          rfc: 0.6, rsigma: 0.6, pan: 0.7 },                                                  // spits of spray
+        { n: 6, rate: 1.35, f0: 900, f1: 3400, q: [1, 2.5], amp: 0.046, sigma: 0.55, tilt: -0.5, ta: 0.002, tau: [0.006, 0.025],
+          rfc: 0.5, rsigma: 0.6, pan: 0.6 },                                                  // splashes
+        { n: 4, rate: 0.62, f0: 400, f1: 1200, q: [1, 2.5], amp: 0.048, sigma: 0.45, tilt: -0.5, ta: 0.004, tau: [0.012, 0.045],
+          rfc: 0.4, rsigma: 0.8, pan: 0.5 }                                                   // slaps
+      ],
+      bubbles: [
+        { n: 5, rate: 1.4, f0: 500, f1: 1500, skew: 1.0, amp: 0.042, sigma: 0.45, tilt: -0.3,
+          damp: 2.0, xi0: -0.01, xi1: 0.07, rfc: 1.5, rhp: 0, rsigma: 1.2, pan: 0.7 },        // plops
+        { n: 4, rate: 1.15, f0: 260, f1: 620, skew: 1.0, amp: 0.072, sigma: 0.40, tilt: -0.3,
+          damp: 2.4, xi0: -0.01, xi1: 0.07, rfc: 1.5, rhp: 0, rsigma: 1.2, pan: 0.5 },        // gurgles
+        { n: 2, rate: 0.45, f0: 140, f1: 270, skew: 1.0, amp: 0.050, sigma: 0.35, tilt: -0.3,
+          damp: 2.0, xi0: -0.01, xi1: 0.06, rfc: 1.5, rhp: 0, rsigma: 0.8, pan: 0.4 }         // glugs
+      ] },
+    pool: { salt: 223, rms: 0.0530, breath: 0.050,
+      bed: { gain: 0.050, x: [450, 1800], rho: [0.92, 0.62, 0.25],
+             hp: 149.5, p: [149.5, 149.5, 4800], w: [1, 0.1444, 0.1305], lp: 1066, lpn: 4 },
+      splash: [],
+      bubbles: [
+        { n: 5, rate: 0.96, f0: 250, f1: 600, skew: 1.0, amp: 0.072, sigma: 0.40, tilt: -0.3,
+          damp: 2.4, xi0: -0.01, xi1: 0.07, rfc: 1.5, rhp: 0, rsigma: 1.2, pan: 0.5 },        // gurgles
+        { n: 3, rate: 0.4, f0: 130, f1: 260, skew: 1.0, amp: 0.050, sigma: 0.35, tilt: -0.3,
+          damp: 2.0, xi0: -0.01, xi1: 0.06, rfc: 1.5, rhp: 0, rsigma: 0.8, pan: 0.4 }         // glugs
+      ] },
+    wash: { salt: 227, rms: 0.0466, breath: 0.050,
+      bed: { gain: 0.050, x: [450, 1800], rho: [0.92, 0.62, 0.25],
+             hp: 174.9, p: [174.9, 1434, 31420], w: [1, 0.0337, 0.0441], lp: 9000, lpn: 4 },
+      splash: [
+        { n: 4, rate: 1.6, f0: 3200, f1: 9000, q: [1.2, 3], amp: 0.088, sigma: 0.7, tilt: -0.5, ta: 0.001, tau: [0.003, 0.012],
+          rfc: 0.6, rsigma: 0.6, pan: 0.7 },                                                  // spits
+        { n: 6, rate: 1.35, f0: 700, f1: 3000, q: [1, 2.5], amp: 0.046, sigma: 0.55, tilt: -0.5, ta: 0.002, tau: [0.006, 0.025],
+          rfc: 0.5, rsigma: 0.6, pan: 0.6 },                                                  // splashes
+        { n: 4, rate: 0.62, f0: 350, f1: 1100, q: [1, 2.5], amp: 0.048, sigma: 0.45, tilt: -0.5, ta: 0.004, tau: [0.012, 0.045],
+          rfc: 0.4, rsigma: 0.8, pan: 0.5 }                                                   // slaps
+      ],
+      bubbles: [
+        { n: 5, rate: 1.4, f0: 450, f1: 1400, skew: 1.0, amp: 0.042, sigma: 0.45, tilt: -0.3,
+          damp: 2.0, xi0: -0.01, xi1: 0.07, rfc: 1.5, rhp: 0, rsigma: 1.2, pan: 0.7 },        // plops
+        { n: 4, rate: 1.15, f0: 240, f1: 580, skew: 1.0, amp: 0.072, sigma: 0.40, tilt: -0.3,
+          damp: 2.4, xi0: -0.01, xi1: 0.07, rfc: 1.5, rhp: 0, rsigma: 1.2, pan: 0.5 },        // gurgles
+        { n: 2, rate: 0.45, f0: 125, f1: 250, skew: 1.0, amp: 0.050, sigma: 0.35, tilt: -0.3,
+          damp: 2.0, xi0: -0.01, xi1: 0.06, rfc: 1.5, rhp: 0, rsigma: 0.8, pan: 0.4 }         // glugs
+      ] }
+  };
+
+  /**
+   * Like steps(), for many small steps: each call runs on for about `ms`
+   * milliseconds (at least one step), so a slice of work stays short however
+   * fast the device is, and whether or not the code has been compiled yet.
+   */
+  function stretches(list, ms) {
+    var k = 0;
+    return function next() {
+      var t0 = now(), r;
+      do r = list[k++](); while (k < list.length && now() - t0 < ms);
+      return k < list.length ? next : r;
+    };
+  }
+
+  /** A slow ctrlCurve of `nc` steps at WATER.cr: made at an eighth of the rate, then drawn out. */
+  function fallsCurve(r, nc, fc) {
+    var n = Math.round(nc / 8), c = ctrlCurve(r, n, fc, WATER.cr / 8), out = new Float32Array(nc), i, u, j;
+    for (i = 0; i < nc; i++) { u = i * n / nc; j = u | 0; out[i] = c[j] + (c[(j + 1) % n] - c[j]) * (u - j); }
+    return out;
+  }
+
+  /**
+   * Add one class of splashes to a channel: short bursts of noise, each with
+   * its own pitch, width and length. Shared events, this ear's pan and delay.
+   */
+  function fallsSpray(out, sr, seconds, nc, C, swell, rE, ch) {
+    var n = out.length, itd = WATER.itd * sr, q = 1 / 2147483648, rate = fallsCurve(rE, nc, C.rfc);
+    // a Poisson stream whose rate swings log-normally: thin a faster one
+    var mMax = Math.exp(C.rsigma * 2.5), lam = C.rate * mMax, lf = Math.log(C.f1 / C.f0), lt = Math.log(C.tau[1] / C.tau[0]), t = 0;
+    for (;;) {
+      t += -Math.log(1 - rE()) / lam;
+      if (t >= seconds) break;
+      var c = Math.min(nc - 1, (t / seconds * nc) | 0);
+      var keep = Math.exp(C.rsigma * rate[c] - C.rsigma * C.rsigma * 0.5) / mMax;
+      var u = rE(), uf = rE(), ua = gauss(rE), uq = rE(), ud = rE(), up = rE();   // drawn alike in both ears,
+      var a = (rE() * 4294967295) | 1;                                            // and so is its noise
+      if (u > keep) continue;
+      var f0 = C.f0 * Math.exp(lf * uf), Q = C.q[0] + (C.q[1] - C.q[0]) * uq;
+      var w0 = TAU * f0 / sr, al = Math.sin(w0) / (2 * Q), b0 = al / (1 + al), a1 = -2 * Math.cos(w0) / (1 + al), a2 = (1 - al) / (1 + al);
+      var p = (up * 2 - 1) * C.pan, ang = (p + 1) * Math.PI / 4;
+      // noise of ±1 through this band-pass has an RMS of √(π f0 / (3 Q sr)): `amp` is the RMS at the top of the burst
+      var env = C.amp * Math.min(FALLS.cap, Math.exp(C.sigma * ua)) * Math.pow(f0 / 1000, C.tilt) * Math.exp(WATER.swell * swell[c]) *
+                1.414 * Math.cos(ang - ch * Math.PI / 2) / Math.sqrt(Math.PI * f0 / (3 * Q * sr));
+      var tau = C.tau[0] * Math.exp(lt * ud), dec = Math.exp(-1 / (tau * sr)), na = Math.max(8, Math.round(C.ta * sr));
+      var len = Math.min(n, na + Math.ceil(tau * sr * 4.6));
+      var j = (Math.floor(t * sr) + Math.round(itd * Math.max(0, p * (1 - 2 * ch)))) % n;   // far ear later
+      var x, x1 = 0, x2 = 0, y, y1 = 0, y2 = 0;
+      for (var k = 0; k < len; k++) {
+        a ^= a << 13; a ^= a >>> 17; a ^= a << 5; x = a * q;
+        y = b0 * (x - x2) - a1 * y1 - a2 * y2;
+        x2 = x1; x1 = x; y2 = y1; y1 = y;
+        if (k < na) out[j] += y * env * k / na;                         // rises in a straight line,
+        else { out[j] += y * env; env *= dec; }                         // dies away
+        if (++j === n) j = 0;                                           // wraps → seamless
+      }
+    }
+  }
+
+  /**
+   * Samples `from` to `to` of one channel of a fall's rush. White noise is
+   * split into lows, mids and highs, each shared between the ears by its own
+   * amount; the sum breathes on the gain curve `G` (`step` of it a sample)
+   * and is coloured. `st` carries the filters, and the energy so far, from
+   * one call to the next.
+   */
+  function fallsNoise(raw, from, to, sr, B, G, step, st) {
+    function k1(f) { return 1 - Math.exp(-TAU * f / sr); }
+    var m = G.length - 1, q = 1 / 2147483648;
+    var ka = k1(B.x[0]), kb = k1(B.x[1]), kh = k1(B.hp), q0 = k1(B.p[0]), q1 = k1(B.p[1]), q2 = k1(B.p[2]);
+    var w0 = B.w[0], w1 = B.w[1], w2 = B.w[2], kl = k1(B.lp), km = B.lpn > 2 ? kl : 1;
+    var a0 = Math.sqrt(B.rho[0]), a1 = Math.sqrt(B.rho[1]), a2 = Math.sqrt(B.rho[2]);
+    var b0 = Math.sqrt(1 - B.rho[0]), b1 = Math.sqrt(1 - B.rho[1]), b2 = Math.sqrt(1 - B.rho[2]);
+    var s1 = st[0], s2 = st[1], c1 = st[2], c2 = st[3], h1 = st[4], h2 = st[5], p0 = st[6], p1 = st[7], p2 = st[8];
+    var l1 = st[9], l2 = st[10], l3 = st[11], l4 = st[12], pos = st[13], a = st[14] | 0, c = st[15] | 0;
+    var i, ws, wc, j, x, e = st[16];
+    for (i = from; i < to; i++) {
+      // the noise: an xorshift per stream, inline (a call per sample would cost more than all the filters)
+      a ^= a << 13; a ^= a >>> 17; a ^= a << 5; ws = a * q;          // shared by both ears
+      c ^= c << 13; c ^= c >>> 17; c ^= c << 5; wc = c * q;          // this ear's own
+      s1 += ka * (ws - s1); s2 += kb * (ws - s2);                    // lows, lows + mids
+      c1 += ka * (wc - c1); c2 += kb * (wc - c2);
+      j = pos | 0;
+      x = (a0 * s1 + b0 * c1 + a1 * (s2 - s1) + b1 * (c2 - c1) + a2 * (ws - s2) + b2 * (wc - c2)) *
+          (G[j] + (G[j + 1] - G[j]) * (pos - j));
+      pos += step; if (pos >= m) pos -= m;
+      h1 += kh * (x - h1); x -= h1; h2 += kh * (x - h2); x -= h2;    // no rumble
+      p0 += q0 * (x - p0); p1 += q1 * (x - p1); p2 += q2 * (x - p2);
+      l1 += kl * (w0 * p0 + w1 * p1 + w2 * p2 - l1); l2 += kl * (l1 - l2);
+      l3 += km * (l2 - l3); l4 += km * (l3 - l4);
+      raw[i] = l4; e += l4 * l4;
+    }
+    st[0] = s1; st[1] = s2; st[2] = c1; st[3] = c2; st[4] = h1; st[5] = h2; st[6] = p0; st[7] = p1; st[8] = p2;
+    st[9] = l1; st[10] = l2; st[11] = l3; st[12] = l4; st[13] = pos; st[14] = a; st[15] = c; st[16] = e;
+  }
+
+  /** One channel of one loop of the falls, in small steps: its share of the rush, its splashes, its bubbles. */
+  function fallsLayer(L, sr, seconds, ch, seed) {
+    var n = Math.floor(sr * seconds), nc = Math.round(seconds * WATER.cr);
+    var rE = mulberry32(seed * 7919 + L.salt);                       // shared by both ears
+    var rC = mulberry32(seed * 104729 + L.salt + ch * 977);          // this ear's own
+    var B = L.bed, fade = Math.floor(sr * 0.25), len = n + fade, raw, out, swell, G, st = new Float64Array(17);
+    var list = [], from = 0, at = 0, sum = 0, peak = 0, g = 0, k, b;
+    function rush() { fallsNoise(raw, from, Math.min(len, from + FALLS.chunk), sr, B, G, nc / n, st); from += FALLS.chunk; }
+    function splashes(C) { return function () { fallsSpray(out, sr, seconds, nc, C, swell, rE, ch); }; }
+    function bubbles(C) { return function () { waterBubbles(out, sr, seconds, nc, C, swell, rE, ch); }; }
+    function mix() {                                                 // the rush at its gain, under the splashes and bubbles
+      var end = Math.min(n, at + 8 * FALLS.chunk), s = B.gain / (Math.sqrt(st[16] / len) || 1), i, v;
+      for (i = at; i < end; i++) {
+        v = out[i] += s * raw[i];
+        sum += v * v;
+        if (v < 0) v = -v;
+        if (v > peak) peak = v;
+      }
+      at = end === n ? 0 : end;
+    }
+    function scale() {                                               // to its RMS, the peak kept under 0.95 (as level() does)
+      var end = Math.min(n, at + 8 * FALLS.chunk), i;
+      if (!g) { g = L.rms / (Math.sqrt(sum / n) || 1); if (peak * g > 0.95) g = 0.95 / peak; }
+      for (i = at; i < end; i++) out[i] *= g;
+      at = end;
+      return out;
+    }
+    list.push(function () {
+      swell = fallsCurve(rE, nc, FALLS.bfc);
+      G = new Float32Array(nc + 1);
+      for (var i = 0; i < nc; i++) {                                 // rush, splashes and bubbles breathe as one
+        swell[i] *= L.breath / WATER.swell;
+        G[i] = Math.exp(WATER.swell * swell[i]);
+      }
+      G[nc] = G[0];
+      raw = new Float32Array(len); out = new Float32Array(n);
+      st[14] = (rE() * 4294967295) | 1; st[15] = (rC() * 4294967295) | 1;   // the two noise streams
+    });
+    for (k = 0; k < len; k += FALLS.chunk) list.push(rush);
+    list.push(function () {
+      for (var i = 0; i < fade; i++) {                               // equal-power crossfade → seamless loop
+        var a = i / fade;
+        raw[i] = raw[i] * Math.sqrt(a) + raw[n + i] * Math.sqrt(1 - a);
+      }
+    });
+    for (b = 0; b < L.splash.length; b++) for (k = 0; k < (L.splash[b].n || 1); k++) list.push(splashes(L.splash[b]));
+    for (b = 0; b < L.bubbles.length; b++) for (k = 0; k < (L.bubbles[b].n || 1); k++) list.push(bubbles(L.bubbles[b]));
+    for (k = 0; k < n; k += 8 * FALLS.chunk) list.push(mix);
+    for (k = 0; k < n; k += 8 * FALLS.chunk) list.push(scale);
+    return stretches(list, FALLS.slice);
+  }
+  /** The falling sheet: rush, spray, splashes. */
+  function rawFallsSheet(sr, seconds, ch, seed) { return fallsLayer(FALLS.sheet, sr, seconds, ch, seed); }
+  /** The plunge pool: the low end of the rush, gurgles and glugs. */
+  function rawFallsPool(sr, seconds, ch, seed) { return fallsLayer(FALLS.pool, sr, seconds, ch, seed); }
+  /** The wash around the foot of the fall. */
+  function rawFallsWash(sr, seconds, ch, seed) { return fallsLayer(FALLS.wash, sr, seconds, ch, seed); }
+
+  /* ---- drips ------------------------------------------------------------
+   * Drops falling, one at a time, into a still pool in a small stone grotto.
+   *
+   * What is heard when a drop lands is not the splash but the air it drags
+   * under: a bubble that rings at its own pitch and dies in a few hundredths
+   * of a second. Pinched off just below the surface, it rings higher and
+   * higher as it closes, slowly at first and then quickly (f0 / √(1 − t / tc)
+   * fits the drops of a cave recording), so each drop is a short tone that
+   * curls upward: a plop if the drop was big, a plink if it was small. Often
+   * a second, smaller bubble follows a tenth of a second later, and a droplet
+   * or two thrown up by the splash fall back, hardly heard.
+   *
+   * The stone gives every drop back. Each sound is copied eight hundred
+   * times a second, a little duller, at random moments and with random
+   * signs, fading as the room does (longer for low sounds than for high
+   * ones): first a few separate reflections, then too many to tell apart.
+   * Both ears hear the same drop, a third of its reflections alike and the
+   * rest their own, so the drop has a place and the room has none. Because
+   * the copies are of the drop itself, the room rings on at the drop's own
+   * pitch, as a real one does, and no two tails are alike. Nothing is tuned:
+   * pitches fall anywhere, and glide.
+   *
+   * Three loops of a few drops each play together, with a faint trickle far
+   * off on a fourth. No loop holds two drops close together: the pairs and
+   * the long silences happen where the loops meet, and they meet differently
+   * every time round. Each loop has a big drop, a small one and one or two
+   * between, a loud one and a soft one, some to each side.
+   *
+   * Levels are set drop by drop, not by the loop's RMS: a loop of drops is
+   * silence most of the time. The loudest drops peak where the brook's own
+   * peaks are and read, on a sound level meter's fast response, what the
+   * brook reads all the time; the long-term RMS is some 13 dB under it.
+   *
+   * The work is done in steps of a few milliseconds by the clock, whatever
+   * the machine: the result does not depend on where the steps fall.
+   * ------------------------------------------------------------------- */
+
+  var DRIPS = {
+    slice: 4,                                 // ms of work in one step
+    amp: 0.56,                                // the loudest drop's amplitude in the loop
+    range: 12,                                // dB from the loudest drop of a loop to its softest
+    small: 3,                                 // dB by which the smallest drop is softer than the biggest
+    f0: 580, f1: 2200, skew: 1.5,             // where a drop's pitch starts, Hz; skew > 1 leans low
+    tau: 0.014, tauPow: 0.6, tauSigma: 0.25,  // the ring dies in tau s at 1 kHz; a bigger bubble rings longer
+    q0: 0.15, q1: 0.65,                       // the glide: tau / tc (squared draw: every drop curls, a few a lot)
+    top0: 1.5, top1: 3.6,                     // the bubble closes when its pitch has risen this many times
+    click: 0.4,                               // the tick of the drop touching the water, beside the tone
+    second: 0.55,                             // how often a second, smaller bubble follows
+    ild: 10, itd: 0.25e-3,                    // a drop fully to one side: dB between the ears, s between them
+    gap0: 0.3, gap1: 2.6,                     // the gaps of a loop: these shares of an even one, most of them short
+    // the grotto: reverberation time at 1 kHz (× (1 kHz / f)^tilt), the energy it gives back beside
+    // the direct sound (more for a drop farther off), the part of it both ears share, reflections
+    // per second once they merge, how fast they multiply (per s³: sparse for the first 20 ms),
+    // the first one, how dull they are, and how many decay times they are followed for
+    room: { t60: 1.6, tilt: 0.3, wet: 0.8, far: 0.6, rho: 0.35, dens: 800, grow: 1.6e6, first: 0.003, lp: 2800, span: 4.6 },
+    a: { salt: 1, n: 4 },
+    b: { salt: 2, n: 3 },
+    c: { salt: 3, n: 3 },
+    // the trickle far off, all bubbles: a thin run of them over a murmur of fainter ones.
+    // As WATER's bubbles: rate /s, pitch range, median amplitude and its log-normal σ, tilt with
+    // pitch, damping × Minnaert's, glide per decay time, how wide they lie; the rate swings
+    // (σ of a log-normal) on four slow waves of up to `rfc` Hz that fit the loop.
+    // It is far away: little of each bubble comes straight (`direct`), most as `echoes` copies
+    // from the stone, within `spread` s or so, each ear its own
+    trickle: { direct: 0.5, echoes: 4, spread: 0.07, kinds: [
+      { rate: 40, f0: 500, f1: 2300, amp: 0.0094, sigma: 0.7, tilt: -0.3, damp: 1.2, xi: 0.08, rfc: 2, rsigma: 0.6, pan: 0.6 },
+      { rate: 200, f0: 400, f1: 1900, amp: 0.0046, sigma: 0.5, tilt: -0.3, damp: 1.6, xi: 0.04, rfc: 1, rsigma: 0.35, pan: 0.8 }
+    ] }
+  };
+
+  /** 0 … n − 1 in a random order. */
+  function shuffled(r, n) {
+    var a = [], i, j, t;
+    for (i = 0; i < n; i++) a.push(i);
+    for (i = n - 1; i > 0; i--) { j = (r() * (i + 1)) | 0; t = a[i]; a[i] = a[j]; a[j] = t; }
+    return a;
+  }
+
+  /** Add `a` × the first `len` samples of `d` to the loop `out` from sample `j` on; what runs past its end wraps. */
+  function loopAdd(out, j, d, len, a) {
+    var n = out.length, m = len < n - j ? len : n - j, k;
+    for (k = 0; k < m; k++) out[j + k] += a * d[k];
+    for (j = -m; k < len; k++) out[j + k] += a * d[k];
+  }
+
+  /**
+   * One ringing bubble, dry, into `d` from its first sample: a tone that starts at
+   * `f0` and rises as f0 / √(1 − t / tc) until it has risen `top` times, dying with
+   * time constant `tau`, with the tick of its onset. Returns its length in samples.
+   */
+  function dripTone(d, sr, f0, tau, tc, top, amp, click, r) {
+    var len = Math.min(d.length, Math.ceil(sr * Math.min(tc * (1 - 1 / (top * top)), tau * 5.5)));
+    var atk = Math.max(2, Math.round(sr * 0.0004)), fade = Math.max(8, Math.round(sr * 0.003));
+    var ph0 = r() * TAU, w = TAU * f0 * 2 * tc, dec = Math.exp(-1 / (tau * sr)), e = amp, k;
+    for (k = 0; k < len; k++) {
+      var g = e, s = Math.sqrt(1 - k / (sr * tc));           // f0 / f
+      if (k < atk) g *= k / atk;
+      if (k > len - fade) g *= (len - k) / fade;
+      d[k] = g / s * Math.sin(ph0 + w * (1 - s));            // a smaller bubble is heard better: × f / f0
+      e *= dec;
+    }
+    var nk = Math.min(len, Math.round(sr * 0.0012));        // the tick: a millisecond of noise
+    for (k = 0; k < nk; k++) { var x = 1 - k / nk; d[k] += amp * click * (r() * 2 - 1) * x * x; }
+    return len;
+  }
+
+  /**
+   * More of the reflections of the sound in `dl` (the state `V`: its place in the
+   * loop, its length, the room's gain and decay for it, how far it has got), `share`
+   * of the room's, their moments and signs drawn from `r`, until the clock reads
+   * `until`. True once the room has fallen silent.
+   */
+  function dripEchoes(out, sr, dl, V, share, r, until) {
+    var R = DRIPS.room, n = out.length, t1 = Math.sqrt(R.dens / R.grow), c1 = R.grow * t1 * t1 * t1 / 3, k = 0;
+    for (;;) {
+      V.c -= Math.log(1 - r()) / share;                      // one more reflection
+      var c = V.c, t = c < c1 ? Math.pow(3 * c / R.grow, 1 / 3) : t1 + (c - c1) / R.dens;
+      if (t > V.tMax) return true;
+      var a = V.G * Math.exp(-t / V.tr) / Math.sqrt(c < c1 ? R.grow * t * t : R.dens);
+      loopAdd(out, (V.at + Math.round(t * sr)) % n, dl, V.len, r() < 0.5 ? -a : a);
+      if ((++k & 1) === 0 && now() >= until) return false;
+    }
+  }
+
+  /** The random numbers of a loop's drops, alike in both ears. */
+  function dripSeed(seed, L) { return mulberry32(seed * 7919 + 17 + L.salt * 6151); }
+  /**
+   * The drops of a loop of `n`: one from each part of the range of sizes, of loudness and of
+   * places, and when each falls (`when[j]` of `sum`): uneven gaps, none short.
+   */
+  function dripPlan(rE, n) {
+    var P = { size: shuffled(rE, n), loud: shuffled(rE, n), side: shuffled(rE, n), when: [], sum: 0 }, j;
+    for (j = 0; j < n; j++) { P.when.push(P.sum); P.sum += DRIPS.gap0 + (DRIPS.gap1 - DRIPS.gap0) * Math.pow(rE(), 2); }
+    return P;
+  }
+
+  /** One channel of a loop of drops. `L`: its salt and how many drops it holds. */
+  function dripLoop(sr, seconds, ch, seed, L) {
+    var D = DRIPS, R = D.room, n = Math.floor(sr * seconds), out = new Float32Array(n);
+    var rE = dripSeed(seed, L);                                          // the drops: shared by both ears
+    var rC = mulberry32(seed * 104729 + 43 + L.salt * 389 + ch * 977);   // this ear's own reflections
+    var d = new Float32Array(Math.ceil(sr * 0.26)), dl = new Float32Array(d.length);
+    var P = dripPlan(rE, L.n), size = P.size, loud = P.loud, side = P.side, when = P.when, sum = P.sum, j;
+    var c0 = R.grow * R.first * R.first * R.first / 3, kl = 1 - Math.exp(-TAU * R.lp / sr);
+    var list = [work], sounds = [], V = null, stage = 0;
+    j = 0;
+
+    /** The sounds of drop j: the bubble, perhaps a second one, and up to two droplets falling back. */
+    function plan(j) {
+      var at = Math.floor(when[j] / sum * n), i;
+      var x = (size[j] + rE()) / L.n, y = (loud[j] + rE()) / L.n, p = (side[j] + rE()) / L.n * 2 - 1, z = rE();
+      var f0 = D.f0 * Math.pow(D.f1 / D.f0, Math.pow(x, D.skew));
+      var near = 1 - 0.3 * z, amp = D.amp * near * Math.pow(10, -(D.range * y + D.small * x) / 20);
+      var wet = R.wet * (1 + R.far * z) / (near * near);                    // a far drop: less of it, more room
+      var tau = D.tau * Math.pow(1000 / f0, D.tauPow) * Math.exp(D.tauSigma * gauss(rE)), u = rE();
+      sounds.push({ at: at, f: f0, tau: tau, tc: tau / (D.q0 + (D.q1 - D.q0) * u * u), top: D.top0 + (D.top1 - D.top0) * rE(),
+                    amp: amp, click: D.click * (0.6 + 0.8 * rE()), p: p, wet: wet });
+      var u2 = rE(), t2 = 0.004 + 0.006 * rE();
+      var s2 = { at: at + Math.round((0.045 + 0.13 * rE()) * sr), f: Math.min(3600, f0 * (1.7 + 1.4 * rE())), tau: t2,
+                 tc: t2 / (0.1 + 0.3 * rE()), top: 1.6, amp: amp * (0.12 + 0.3 * rE()), click: 0.3 + 0.5 * rE(),
+                 p: Math.max(-1, Math.min(1, p + 0.3 * (rE() - 0.5))), wet: wet };
+      if (u2 < D.second) sounds.push(s2);
+      var nd = (rE() * 3) | 0;
+      for (i = 0; i < 2; i++) {
+        var s3 = { at: at + Math.round((0.12 + 0.4 * rE()) * sr), f: 2600 + 1600 * rE(), tau: 0.003 + 0.003 * rE(), tc: 0.03, top: 1.4,
+                   amp: amp * (0.03 + 0.07 * rE()), click: 0.6, p: Math.max(-1, Math.min(1, p + 0.6 * (rE() - 0.5))), wet: wet };
+        if (i < nd) sounds.push(s3);
+      }
+    }
+    /** A sound, dry, into this ear, and the duller copy of it that the stone gives back. */
+    function sound(o) {
+      var len = dripTone(d, sr, o.f, o.tau, o.tc, o.top, o.amp, o.click, rE), far = ch ? Math.max(0, -o.p) : Math.max(0, o.p), l = 0, k;
+      // the far ear hears it later, but never by more than an eighth of its period: the ears stay in step
+      var at = o.at + Math.round(sr * Math.min(D.itd * far, 0.125 / o.f)), tr = R.t60 * Math.pow(1000 / o.f, R.tilt) / 6.908;
+      var g = Math.pow(10, (ch ? o.p : -o.p) * D.ild / 40);                // this ear's share of it: both together, as much as in the middle
+      loopAdd(out, at % n, d, len, g / Math.sqrt((g * g + 1 / (g * g)) / 2));
+      for (k = 0; k < len; k++) { l += kl * (d[k] - l); dl[k] = l; }
+      return { at: at, len: len, tr: tr, G: Math.sqrt(2 * o.wet / tr), tMax: tr * R.span, c: c0 };
+    }
+    function work() {
+      var until = now() + D.slice;
+      for (;;) {
+        if (stage === 0) {
+          if (!sounds.length) { if (j === L.n) return out; plan(j++); }
+          V = sound(sounds.shift());
+          stage = 1;
+        }
+        if (stage === 1) {                                   // the reflections both ears share
+          if (!dripEchoes(out, sr, dl, V, R.rho, rE, until)) break;
+          V.c = c0; stage = 2;
+        }
+        if (!dripEchoes(out, sr, dl, V, 1 - R.rho, rC, until)) break;   // and this ear's own
+        stage = 0;
+        if (now() >= until) break;
+      }
+      list.push(work);                                       // not done: one more step
+      return out;
+    }
+    return steps(list);
+  }
+
+  function rawDripsA(sr, seconds, ch, seed) { return dripLoop(sr, seconds, ch, seed, DRIPS.a); }
+  function rawDripsB(sr, seconds, ch, seed) { return dripLoop(sr, seconds, ch, seed, DRIPS.b); }
+  function rawDripsC(sr, seconds, ch, seed) { return dripLoop(sr, seconds, ch, seed, DRIPS.c); }
+
+  /** One small bubble into the loop from sample `j`: as waterBubbles' own. */
+  function dripBubble(out, j, len, env, dec, ph, dph, rise) {
+    var n = out.length, tab = SINE, k;
+    for (k = 0; k < 8; k++) {
+      out[j] += env * tab[ph & 4095] * k / 8;
+      if (++j === n) j = 0;
+      ph += dph + rise * k; env *= dec;
+    }
+    for (; k < len; k++) {
+      out[j] += env * tab[ph & 4095];
+      if (++j === n) j = 0;                                  // wraps → seamless
+      ph += dph + rise * k; env *= dec;
+    }
+  }
+
+  /**
+   * One channel of the trickle far off in the grotto, so that the silence between
+   * two drops is never dead. Bubbles only, no noise: the same ones in both ears,
+   * each in its place, coming now thicker and now thinner, and each heard mostly
+   * as the stone gives it back: a handful of copies, this ear's own.
+   */
+  function rawDripsTrickle(sr, seconds, ch, seed) {
+    var T = DRIPS.trickle, n = Math.floor(sr * seconds), out = new Float32Array(n);
+    var rE = mulberry32(seed * 7919 + 9001);                    // the bubbles: shared by both ears
+    var rC = mulberry32(seed * 104729 + 71 + ch * 977);         // this ear's own reflections
+    var itd = WATER.itd * sr, list = [work], q = 0, C = null, wk = [], wp = [], t, mMax, lam;
+    function work() {
+      var until = now() + DRIPS.slice, i;
+      for (;;) {
+        if (!C) {                                            // the next kind of bubble, and the rhythm of its rate
+          if (q === T.kinds.length) return out;
+          C = T.kinds[q++];
+          for (i = 0; i < 4; i++) { wk[i] = TAU * (1 + ((rE() * C.rfc * seconds) | 0)) / seconds; wp[i] = rE() * TAU; }
+          mMax = Math.exp(C.rsigma * 2.5); lam = C.rate * mMax; t = 0;
+        }
+        t += -Math.log(1 - rE()) / lam;                      // a Poisson stream, thinned to its rhythm
+        if (t >= seconds) { C = null; continue; }
+        var swing = 0.707 * (Math.sin(wk[0] * t + wp[0]) + Math.sin(wk[1] * t + wp[1]) + Math.sin(wk[2] * t + wp[2]) + Math.sin(wk[3] * t + wp[3]));
+        var u = rE(), uf = (rE() + rE()) / 2, ua = gauss(rE), ux = rE(), up = rE(), u0 = rE();   // drawn alike in both ears
+        if (u * mMax <= Math.exp(C.rsigma * swing - C.rsigma * C.rsigma * 0.5)) {
+          var f0 = C.f0 * Math.exp(Math.log(C.f1 / C.f0) * uf);              // most of them mid-range: no edge to the band
+          var amp = C.amp * Math.min(WATER.cap, Math.exp(C.sigma * ua)) * Math.pow(f0 / 1000, C.tilt);
+          var dmp = C.damp * (0.043 * f0 + 0.0014 * f0 * Math.sqrt(f0));
+          var p = (up * 2 - 1) * C.pan, ang = (p + 1) * Math.PI / 4;
+          var at = Math.floor(t * sr) + Math.round(itd * (ch ? Math.max(0, -p) : Math.max(0, p)));
+          var len = Math.min(n, Math.ceil(sr * 4 / dmp)), dec = Math.exp(-dmp / sr);
+          var dph = 4096 * f0 / sr, rise = 4096 * f0 * C.xi * ux * dmp / (sr * sr);
+          dripBubble(out, at % n, len, T.direct * amp * 1.414 * (ch ? Math.sin(ang) : Math.cos(ang)), dec, u0 * 4096, dph, rise);
+          for (i = 0; i < T.echoes; i++) {
+            var te = -Math.log(1 - rC()) * T.spread;
+            dripBubble(out, (at + Math.round((0.004 + te) * sr)) % n, len, amp * Math.exp(-te / (2 * T.spread)) * 0.7, dec, rC() * 4096, dph, rise);
+          }
+        }
+        if (now() >= until) break;
+      }
+      list.push(work);                                       // not done: one more step
+      return out;
+    }
+    return steps(list);
+  }
+
+  /* ---- a first hearing ---------------------------------------------------
+   * Chosen in the settings, an ambience plays for a few seconds so that it can
+   * be heard. A brook can be judged from any five seconds of it; surf and
+   * drops cannot. Their loops are not started just anywhere then, but where
+   * there is something to hear: these say where (s into the loop), from the
+   * seed the loop was made with.
+   * ------------------------------------------------------------------- */
+
+  /**
+   * The surf in front: 3 s before a wave breaks, as its swell comes up. Of the
+   * two waves with the longest wait for the next one, the bigger: it is heard
+   * to its end, backwash and all, before another arrives.
+   */
+  function cueSurf(seconds, seed) {
+    var P = SURF.front, o = { P: P, rE: mulberry32(seed * 7919 + P.salt), seconds: seconds, W: [], E: [], nc: 0 }, W, i;
+    surfPlan(o);
+    W = o.W;                                             // in the order they break; after the last, the first again
+    for (i = 0; i < W.length; i++) W[i].gap = (i + 1 < W.length ? W[i + 1].t : W[0].t + seconds) - W[i].t;
+    W.sort(function (a, b) { return b.gap - a.gap; });
+    return (((W[W[0].big >= W[1].big ? 0 : 1].t - 3) % seconds) + seconds) % seconds;
+  }
+  /** A loop of drops: `lead` s before its second loudest drop falls. */
+  function cueDrip(L, lead) {
+    return function (seconds, seed) {
+      var P = dripPlan(dripSeed(seed, L), L.n), j = P.loud.indexOf(1);
+      return (((P.when[j] / P.sum * seconds - lead) % seconds) + seconds) % seconds;
+    };
+  }
+
   /*
    * Each ambience is one or more seamless loops, played together. `make(sr,
    * seconds, ch, seed)` renders one channel; both channels get the same seed.
    * It may return a function instead: the rest of the work, a step per call.
+   * `audition`: how long it plays when chosen (5 s if not given), counted from
+   * when it is heard; a layer's `cue(seconds, seed)`: where it starts then.
+   *
+   * A loop needs no higher rate than its sound: the lower the rate, the longer
+   * the loop that fits. At most 8 MB of PCM for an ambience, and only the
+   * chosen one holds any.
    */
   var AMBIENCES = {
     none: { name: 'None' },
@@ -993,6 +1809,27 @@
     ] },
     rain: { name: 'Rain', layers: [
       { make: rawRain, seconds: 7.9, sr: PRE_SR }
+    ] },
+    // Low-passed as they are, the loops need no more than these rates: 7.9 MB of PCM in all.
+    // 61.3 s and 23.3 s: the far loop comes round 0.63 of its length later each time, and
+    // the two line up again only after 4 hours. Heard first: one whole wave, swell to backwash.
+    ocean: { name: 'Ocean', audition: 12, layers: [
+      { make: rawSurf, seconds: 61.3, sr: 13000, cue: cueSurf },
+      { make: rawSurfFar, seconds: 23.3, sr: 8000 }
+    ] },
+    waterfall: { name: 'Waterfall', layers: [
+      { make: rawFallsSheet, seconds: 12.1, sr: 24000 },       // 121, 313 and 139 tenths share no factor
+      { make: rawFallsPool, seconds: 31.3, sr: 12000 },        // all below 1.5 kHz: a low rate buys a long loop
+      { make: rawFallsWash, seconds: 13.9, sr: 24000 }
+    ] },
+    // Nothing in a drop rings above 6 kHz and the trickle is duller still: 16 and 12 kHz are plenty,
+    // 7.98 MB of PCM in all. 21.7, 18.5 and 15.3 s: the three loops of drops line up again only after 7 days.
+    // Heard first: a drop from each loop, 1.2, 3 and 5.2 s in, and whatever else falls meanwhile.
+    drips: { name: 'Drips', audition: 9, layers: [
+      { make: rawDripsA, seconds: 21.7, sr: 16000, cue: cueDrip(DRIPS.a, 1.2) },
+      { make: rawDripsB, seconds: 18.5, sr: 16000, cue: cueDrip(DRIPS.b, 3) },
+      { make: rawDripsC, seconds: 15.3, sr: 16000, cue: cueDrip(DRIPS.c, 5.2) },
+      { make: rawDripsTrickle, seconds: 9.1, sr: 12000 }
     ] }
   };
 
@@ -1021,11 +1858,12 @@
     this._cushion = 0;
     this._voices = 0;
     this._silenced = false;
-    this.ambience = 'none';   // optional second layer: 'none' | 'brook' | 'rain'
+    this.ambience = 'none';   // optional second layer: 'none' | 'brook' | 'rain' | 'ocean' | 'waterfall' | 'drips'
     this.ambLevel = 0.5;
-    this._ambRaw = {};        // synthesised ambiences, by id: [L, R] per layer…
+    // Only the chosen ambience holds any sound (and the one before it, while it fades):
+    this._ambRaw = {};        // synthesised, by id: [L, R] per layer…
     this._ambBuf = {};        // …wrapped into AudioBuffers once there is a context
-    this._ambJobs = {};       // ambiences being synthesised, by id
+    this._ambJobs = {};       // being synthesised, by id
     this._amb = null;         // the one playing
     this._ambPreview = 0;     // audition until this context time
     this._ambUntil = 0;       // after a glass ends: flows on until this context time
@@ -1165,7 +2003,8 @@
   HourglassAudio.AMBIENCES = AMBIENCES;
   // The synthesis itself, for offline tests and measurement.
   HourglassAudio._synth = { microBank: microBank, grainBed: grainBed, limitPeaks: limitPeaks, synthPat: synthPat,
-                            synthTink: synthTink, mulberry32: mulberry32, BEDS: BEDS, PRE_SR: PRE_SR, SEED: SAND_SEED };
+                            synthTink: synthTink, mulberry32: mulberry32, BEDS: BEDS, PRE_SR: PRE_SR, SEED: SAND_SEED,
+                            toBuffer: toBuffer, MIN_SR: MIN_SR };
 
   /* ---------------------------------------------------------------- *
    *  Unlocking / lifecycle (iOS Safari is strict about all of this)
@@ -1590,6 +2429,7 @@
     if (job) { if (done) job.done.push(done); return; }               // already on its way
     job = this._ambJobs[id] = { seed: 1 + ((rnd() * 2147483646) | 0), k: 0, out: [], done: done ? [done] : [] };
     function next() {
+      if (self._ambJobs[id] !== job) return;            // another one was chosen meanwhile: let it go
       var li = job.k >> 1, ch = job.k & 1, L = d.layers[li];
       var r = job.step ? job.step() : L.make(L.sr, L.seconds, ch, job.seed);   // both ears: one seed
       job.step = typeof r === 'function' ? r : null;
@@ -1599,62 +2439,90 @@
         job.k++;
       }
       if (job.k < d.layers.length * 2) { setTimeout(next, 30); return; }
+      job.out.seed = job.seed;
       self._ambRaw[id] = job.out;
       delete self._ambJobs[id];
       for (var i = 0; i < job.done.length; i++) job.done[i]();
     }
     setTimeout(next, 30);                                // never inside the tap that asked for it
   };
-  /** Synthesise if need be, then play — if it is still the one wanted. */
-  HourglassAudio.prototype._loadAmbience = function (id) {
+  /** Synthesise if need be, then play — if it is still the one wanted. `audition`: it was chosen to be heard. */
+  HourglassAudio.prototype._loadAmbience = function (id, audition) {
     var self = this;
-    this._synthAmbience(id, function () { if (self.ambience === id) self._startAmbience(id); });
+    this._synthAmbience(id, function () { if (self.ambience === id) self._startAmbience(id, audition); });
   };
-  HourglassAudio.prototype._startAmbience = function (id) {
+  HourglassAudio.prototype._startAmbience = function (id, audition) {
     if (!this.ready) return;
     var ctx = this.ctx, t = ctx.currentTime, d = AMBIENCES[id], i;
-    if (this._amb && this._amb.id === id) return;
+    if (this._amb && this._amb.id === id) {
+      // Playing already. Chosen to be heard while it is silent: once more, from where there is something to hear
+      if (!audition || this._last.amb > 0) {
+        if (audition) this._ambPreview = Math.max(this._ambPreview, t + (d.audition || 5));
+        return;
+      }
+    }
     this._stopAmbience();                                // cross-fade out of the previous one
     var bufs = this._ambBuf[id], raw = this._ambRaw[id];
     if (!bufs) {
       if (!raw) return;
-      bufs = this._ambBuf[id] = [];                      // wrap once, then let the arrays go
-      for (i = 0; i < raw.length; i++) bufs.push(toBuffer(ctx, raw[i], d.layers[i].sr));
+      bufs = this._ambBuf[id] = [];                      // wrap once, letting the arrays go layer by layer
+      bufs.seed = raw.seed;
+      for (i = 0; i < raw.length; i++) { bufs.push(toBuffer(ctx, raw[i], d.layers[i].sr)); raw[i] = null; }
       delete this._ambRaw[id];
     }
     var g = ctx.createGain(), srcs = [];
     g.gain.value = 0;
     g.connect(this.ambBus);
     for (i = 0; i < bufs.length; i++) {                  // the layers loop independently
-      var src = ctx.createBufferSource();
+      var src = ctx.createBufferSource(), L = d.layers[i];
       src.buffer = bufs[i];
       src.loop = true;
       src.connect(g);
-      src.start(0, rnd() * bufs[i].duration);
+      // from a whole sample of the layer's own rate: the same sound whatever rate its buffer got
+      var at = audition && L.cue ? L.cue(L.seconds, bufs.seed) : rnd() * bufs[i].duration;
+      src.start(0, Math.round(at * L.sr) % Math.floor(L.sr * L.seconds) / L.sr);
       srcs.push(src);
     }
     g.gain.setTargetAtTime(1, t, 0.4);
     this._amb = { id: id, srcs: srcs, g: g };
+    if (audition) this._ambPreview = t + (d.audition || 5);   // counted from now: making it took a while
   };
   /** Fade out the ambience that is playing, then let it go. */
   HourglassAudio.prototype._stopAmbience = function () {
     var old = this._amb;
     if (!old) return;
     this._amb = null;
+    this._ambRelease();
     old.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.3);
     setTimeout(function () {
-      for (var i = 0; i < old.srcs.length; i++) { try { old.srcs[i].stop(); } catch (e) {} }
+      for (var i = 0; i < old.srcs.length; i++) { try { old.srcs[i].stop(); } catch (e) {} try { old.srcs[i].disconnect(); } catch (e2) {} }
       try { old.g.disconnect(); } catch (e) {}
+      old.srcs = [];                                     // and with them its buffers
     }, 1800);
   };
-  /** 'none' | 'brook' | 'rain'. Plays while the sand runs; auditions briefly when chosen. */
+  /**
+   * Let go of every ambience's sound but the chosen one's: its buffers (those
+   * of the one still playing stay until it has faded), its arrays, and the
+   * work on it if it was still being made. Up to 8 MB each.
+   */
+  HourglassAudio.prototype._ambRelease = function () {
+    var keep = this.ambience, live = this._amb ? this._amb.id : keep, k;
+    for (k in this._ambBuf) if (k !== keep && k !== live) delete this._ambBuf[k];
+    for (k in this._ambRaw) if (k !== keep) delete this._ambRaw[k];
+    for (k in this._ambJobs) if (k !== keep) delete this._ambJobs[k];
+  };
+  /**
+   * 'none' | 'brook' | 'rain' | 'ocean' | 'waterfall' | 'drips'. Plays while the sand runs. With
+   * `audition` it also plays now, long enough to be heard (AMBIENCES[id].audition), from the
+   * moment it sounds: the first time, it has to be made first (up to 2 s, in short slices).
+   */
   HourglassAudio.prototype.setAmbience = function (id, audition) {
     if (!AMBIENCES[id]) return;
     this.ambience = id;
+    this._ambRelease();
     if (!this.ready) return;
     if (id === 'none') { this._stopAmbience(); return; }
-    if (audition) this._ambPreview = this.ctx.currentTime + 5;
-    this._loadAmbience(id);
+    this._loadAmbience(id, audition);
   };
   /**
    * Glide the ambience bus. On while `on` (the glass is running), while it is
@@ -1675,7 +2543,9 @@
   HourglassAudio.prototype.setAmbienceLevel = function (v, audition) {
     this.ambLevel = Math.max(0, Math.min(1, v));
     this._last.amb = undefined;
-    if (audition && this.ready) this._ambPreview = this.ctx.currentTime + 3;
+    // heard at its new level: 3 s of a brook, more of what takes longer to show itself
+    var d = AMBIENCES[this.ambience];
+    if (audition && this.ready) this._ambPreview = Math.max(this._ambPreview, this.ctx.currentTime + Math.max(3, (d.audition || 5) / 2));
   };
 
   /* ---------------------------------------------------------------- *

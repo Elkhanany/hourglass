@@ -394,6 +394,7 @@
       saveSession();
       return;
     }
+    var rung = seq.gap > 0;          // this phase end was seen as it happened: its bowl has been asked for
     var at = seqAt(seq.phase, over);
     if (flip.active) { flip.active = false; flip.dragging = false; }   // a turn under way is dropped, as Reset drops one
     if (grab) grab.kind = 'none';
@@ -403,7 +404,7 @@
     T.rem -= at[1];
     applyBody(0);
     if (T.rem <= 0) { T.rem = 0; finish(); return; }
-    if (at[1] < 10000) audio.chime(0, true);
+    if (at[1] < 10000 && !(rung && at[2] === 1)) audio.chime(0, true);
     setState('running', true);
   }
   /**
@@ -478,7 +479,6 @@
     sim.flipping = true;
     sim.wakeAll();
     statusEl.textContent = STATUS.turning;
-    audio.flipStart();
     if (!byHand) buzz(14);           // a hand has already felt the glass engage
   }
 
@@ -527,7 +527,6 @@
     syncMode();
     sim.wakeAll();
     applyBody(0);
-    audio.flipEnd();
     buzz(22);
     setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was, byHand);
   }
@@ -676,10 +675,14 @@
       }
       sim.wakeAll();
     }
-    // the base on the desk (or the frame on the screen's edge), and the glass answering
-    var k = v / 1800;
-    audio.thump(k * k, 0.8 * nx, sim.nTop >= sim.nBottom ? 0 : 1);
-    if (v > 300) { k = (v - 250) / 1700; audio.clack(k * k, 0.8 * nx); }
+    // the base on the desk (or the frame on the screen's edge), and the glass answering:
+    // heard only when the blow is hard enough to mark the glass. Handling it is silent
+    // (taking it, turning it, setting it down); the one sound a finger makes is its tap.
+    if (grade) {
+      var k = v / 1800;
+      audio.thump(k * k, 0.8 * nx, sim.nTop >= sim.nBottom ? 0 : 1);
+      k = (v - 250) / 1700; audio.clack(k * k, 0.8 * nx);
+    }
     if (v > 300) buzz(grade ? 16 : 8);
     lastMotionAt = performance.now();
   }
@@ -2042,7 +2045,6 @@
     if (turning || out) holdTurn(g, x, y);
     else holdMove(g, x, y);
     catching = true;
-    audio.catchThud();
     buzz(10);
   }
   /** The finger moved on with the spin: it takes the glass at the speed it has (no brake). */
@@ -2064,7 +2066,6 @@
     rot = 'held';
     catching = true;
     syncMode();
-    audio.catchThud();
     buzz(10);
   }
   /**
@@ -2173,15 +2174,22 @@
   btnZen.addEventListener('click', function () { buzz(8); zenNow(); });
 
   var THEME_ORDER = ['sahara', 'volcanic', 'moonstone', 'lapis', 'rosequartz', 'seaglass'];
-  /** Change something about the instrument behind a slow cross-fade. */
-  var softTimer = 0;
+  /**
+   * Change something about the instrument behind a slow cross-fade. What is
+   * asked for while the fade comes in waits with it: all of it happens, in
+   * the order asked, once the instrument is out of sight.
+   */
+  var softTimer = 0, softQueue = [];
   function softSwap(fn) {
-    clearTimeout(softTimer);
+    softQueue.push(fn);
+    if (softTimer) return;
     assembly.classList.add('fade');
     softTimer = setTimeout(function () {
-      fn();
+      var q = softQueue;
+      softTimer = 0; softQueue = [];
+      for (var i = 0; i < q.length; i++) q[i]();
       dirty = true;
-      requestAnimationFrame(function () { assembly.classList.remove('fade'); });
+      requestAnimationFrame(function () { if (!softTimer) assembly.classList.remove('fade'); });   // (unless the next one has begun)
     }, 380);
   }
   function setTheme(id, soft) {
@@ -2213,6 +2221,7 @@
     customLabel.textContent = hit ? 'Custom' : (seq.rest ? seqBrief(T.durationMs, seq.rest, seq.rounds) : fmt(T.durationMs)[0]);
     pillCustom.setAttribute('aria-label', 'Custom duration' + (seq.rest ? ': ' + seqSpoken(T.durationMs, seq.rest, seq.rounds) : ''));
     pillCustom.classList.toggle('seq', seq.rest > 0);
+    app.classList.toggle('seq', seq.rest > 0);
     pillCustom.classList.toggle('long', customLabel.textContent.length > 9);
   }
   /** A sequence in a few characters, for the Custom pill: "25·5 ×4" (minutes; with seconds, "1:30·5"). */
