@@ -144,10 +144,12 @@
    * times the time is twice the sand (a tenth of a bulb for a minute, a good
    * fifth for five, a third for ten, over half for thirty). The neck's flow
    * rate makes up the rest: a short glass still runs with a livelier thread.
+   * A shape that fits less than FULL under its neck says so (sim.fillMax),
+   * and that is then its full glass.
    */
   var FULL = 0.78, FULL_MS = 3600000;
   function grainsFor(ms) {
-    var f = FULL * Math.sqrt(Math.min(1, ms / FULL_MS));
+    var f = Math.min(FULL, sim.fillMax || FULL) * Math.sqrt(Math.min(1, ms / FULL_MS));
     return Math.round(sim.capacity * Math.max(0.02, f));
   }
 
