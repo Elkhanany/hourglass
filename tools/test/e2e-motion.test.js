@@ -12,7 +12,9 @@
  *     at the rate its width allows.
  * E14 Audio smoke during E3: thumps and agitation reach audio.update, every
  *     creak, crack and chip is sounded, and the live AudioNode count is back
- *     near its baseline 3 s after the shaking.
+ *     near its baseline after the shaking (the median of fifteen looks over
+ *     nine seconds, before and after: the count swings by twenty from one
+ *     look to the next).
  *
  *   node tools/test/e2e-motion.test.js [--root <dir>] [--port <n>] [--only e2|e3]
  *
@@ -140,9 +142,13 @@ async function spyAll(t) {
 }
 
 async function liveNodes(t) {
-  // the median of three looks: the grains' own ticks come and go by half a dozen nodes
+  // The median of fifteen looks, 0.6 s apart. The grains' own sounds come and go, and by far more
+  // than half a dozen nodes: in a calm, running glass that has not been shaken at all, look after
+  // look read 119 to 167 around a median of 144 (and the same after a shake, in this version and
+  // in the one before it). Three looks, as this was, vary by ten and more either way, and two such
+  // readings were compared with a bound of ten. Fifteen looks agree within about five.
   var seen = [];
-  for (var k = 0; k < 3; k++) {
+  for (var k = 0; k < 15; k++) {
     await t.cdp.send('HeapProfiler.collectGarbage');
     await sleep(300);
     await t.cdp.send('HeapProfiler.collectGarbage');
@@ -150,7 +156,7 @@ async function liveNodes(t) {
     seen.push(t.nodes.created - t.nodes.destroyed);
   }
   seen.sort(function (a, b) { return a - b; });
-  return seen[1];
+  return seen[7];
 }
 
 async function shakeGlass(env, profile, secs) {
@@ -197,8 +203,8 @@ async function e3(s, env) {
   // fewer than 10 below. After this gentler shake the count came back 12 and 22 under the
   // baseline in two runs; which sounds had ended was not found out. Fewer nodes is not a
   // leak, so that side is now only held to 30.)
-  s.check('E14 normal: live AudioNodes back to the baseline (+10 at most) within 3 s', after - v.base <= 10 && v.base - after <= 30,
-          'baseline ' + v.base + ', 3 s after ' + after);
+  s.check('E14 normal: live AudioNodes back to the baseline (+10 at most) in the ten seconds after the shake', after - v.base <= 10 && v.base - after <= 30,
+          'baseline ' + v.base + ', after ' + after);
   await H.invariants(s, t, 'E3 normal');
   await t.close();
 
