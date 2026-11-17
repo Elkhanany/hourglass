@@ -389,6 +389,12 @@
     // field itself, in degrees below its horizontal
     thS: 35, thD: 32,    // a grain at rest lets go above thS (maximum stability); one already moving runs on above thD
                          // (three degrees apart, as in dry sand: under a slow tilt it trickles, it does not wait and go)
+    // What the glass builds while it stands straight is steeper than that: the old automaton drains its upper
+    // bed to 40° and pours its heap to 34°. So that none of it gives way in bulk as these rules take over, a bed
+    // holds that much more to begin with: upTop degrees on both angles in the upper bulb, upBot in the lower.
+    // It gives that up evenly as the field leans from the glass's axis, all of it by upLean degrees, and does
+    // not get it back by leaning less: only when the glass has stood straight again under its own rules (_hold).
+    upTop: 13, upBot: 5, upLean: 15,
     nS: 8, nD: 3,        // cells of the slope probed beyond the step
     kinA: 0.21, kFall: 8, kSlide: 12, // a kinetic sweep: a fall covers 1 + kinA·run cells (at most kFall), a slide runs on up to kSlide
     pLet: 205,           // /256 chance a sweep that a grain at rest, the sand under it gone, lets go (so a hanging mass loosens from its face)
@@ -499,7 +505,8 @@
     // was a moment ago; false is the engine as it was at every lean.
     this.run = new Uint8Array(N);        // sweeps a grain has kept falling or sliding (its speed), carried with it
     this._offAt = -1e9;                  // the last step the glass was leaned, turning or moved
-    this._lnKey = [2, 2, -1];            // the slope probes in _lnOff are for this field and heat
+    this._lnKey = [2, 2, -1, -1];        // the slope probes in _lnOff are for this field, heat and hold
+    this._keep = [1, 1];                 // how much of upTop / upBot each bed still holds (see _hold)
     this._lnOff = new Int32Array(128);
     this._aval = [0, 0];                 // a thick avalanche is running in this bulb (_slump)
     this._slideN = 0;                    // grains the last _slide looked at
@@ -1122,17 +1129,26 @@
       if (off) this._offAt = this.steps;
       else off = this.steps - this._offAt < MOT.handBack;
     }
+    // (each bed holds its own slope beyond thS and thD until a lean has taken it: see upTop. What
+    // the glass builds standing straight, under its own rules, is held again in full.)
+    var upT = 0, upB = 0;
+    if (off) { upT = this._hold(0, gx, gy); upB = this._hold(1, gx, gy); }
+    else if (this.granular) { this._keep[0] = 1; this._keep[1] = 1; }
     for (var rep = 0; rep < reps; rep++) {
       if (off) {
         // (the step's thick avalanches, shared among its repetitions: one, at the first, unless setPace)
         for (var sk = ((rep + 1) * slN / reps | 0) - (rep * slN / reps | 0); sk > 0; sk--) {
           if (this.quiet < 24 || this._aval[0] || this._aval[1]) { this._slump(0, gx, gy, 0); this._slump(1, gx, gy, 0); }
         }
-        this._caM(gx, gy, 1, H - 1, false, 1, 0);
-        if (this.flipping || gy < 0.7) { if (MOT.offSweeps > 1) this._caM(gx, gy, 1, H - 1, false, 0, 0); }
+        if (upT === upB) this._caM(gx, gy, 1, H - 1, false, 1, 0, upT);
+        else {                                              // the lower bulb's rows first, as one sweep takes them
+          this._caM(gx, gy, this.gateY, H - 1, false, 1, 0, upB);
+          this._caM(gx, gy, 1, this.gateY, false, 1, 0, upT);
+        }
+        if (this.flipping || gy < 0.7) { if (MOT.offSweeps > 1) this._caM(gx, gy, 1, H - 1, false, 0, 0, 0); }
         else {
           var extraM = this.topSweeps;
-          while (extraM-- > 0) this._caM(gx, gy, 1, this.gateY, false, 0, 0);
+          while (extraM-- > 0) this._caM(gx, gy, 1, this.gateY, false, 0, 0, upT);
           // A neck that has run short is fed as it always was. Leaned far over, sand may
           // rightly lie at rest on the low side of the funnel, but the glass is a timer and
           // owes the clock its sand: these sweeps let it creep on down to the neck.
@@ -1378,6 +1394,20 @@
   };
 
   /**
+   * The slope bulb b's bed holds beyond thS and thD (degrees: see upTop),
+   * under a field along (ux, uy) (a unit vector in the glass's frame). The
+   * field's lean takes it away, and it stays away: _keep is the share left,
+   * and only the upright glass's own step gives it back.
+   */
+  Sim.prototype._hold = function (b, ux, uy) {
+    var most = b ? MOT.upBot : MOT.upTop, keep = this._keep;
+    if (keep[b] <= 0) return 0;
+    var f = uy > 0 ? 1 - Math.atan2(ux < 0 ? -ux : ux, uy) * 57.29577951308232 / MOT.upLean : 0;
+    if (f < keep[b]) keep[b] = f > 0 ? f : 0;
+    return most * keep[b];
+  };
+
+  /**
    * n sweeps of bulb b's automaton along (ux, uy). Shaken sand loses its
    * friction (vibration fluidises a bed), so the stick-slip odds are lerped
    * toward free flow with the temperature T for these sweeps only.
@@ -1414,6 +1444,7 @@
       var kq = MOT.kinA > 0 ? MOT.kFall + 2 : 1;
       var hot = (T - MOT.hotT0) / (MOT.hotT1 - MOT.hotT0);
       hot = hot > 0 ? (hot > 1 ? 1 : hot) : 0;
+      var up = this._hold(b, ux, uy);
       // (a fast spin throws the sand: there is no avalanche to work out)
       // (finer sand repeats the pattern: reps is 1 unless setPace)
       for (rep = 0; rep < reps; rep++) {
@@ -1422,7 +1453,7 @@
         }
         for (k = 0; k < n; k++) {
           a = lo - (rep * n + k + 1) * kq; z = hi + 1 + (rep * n + k + 1) * kq;
-          this._caM(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full, k === 0 ? 1 : 0, hot);
+          this._caM(ux, uy, a < yLo ? yLo : a, z > yHi ? yHi : z, full, k === 0 ? 1 : 0, hot, up);
         }
       }
       // feed: sweeps of the old automaton for a neck that has run short (see step)
@@ -2266,8 +2297,9 @@
    *  moving gathers speed (run, carried with it as its seed is): a fall
    *  covers 1 + kinA·run cells, which is g·t, and a slide runs on.
    *  hot (0 … 1): shaken sand holds shallower slopes (thHot).
+   *  up: degrees the sand holds beyond thS and thD (near the upright: _hold).
    * ---------------------------------------------------------------- */
-  Sim.prototype._caM = function (gx, gy, yLo, yHi, forceFull, kin, hot) {
+  Sim.prototype._caM = function (gx, gy, yLo, yHi, forceFull, kin, hot, up) {
     var W = this.W;
     var cell = this.cell, seed = this.seed, stamp = this.stamp, run = this.run;
     var rowMin = this.rowMin, rowMax = this.rowMax;
@@ -2288,7 +2320,8 @@
     var aDA = 90 - phi, aDB = 45 + phi;                   // how steeply each descends below the field's horizontal
 
     var cool = hot > 0 ? 1 - MOT.thHot * (hot > 1 ? 1 : hot) : 1;
-    var thS = MOT.thS * cool, thD = MOT.thD * cool, nS = MOT.nS, nD = MOT.nD;
+    up = up > 0 ? up : 0;
+    var thS = (MOT.thS + up) * cool, thD = (MOT.thD + up) * cool, nS = MOT.nS, nD = MOT.nD;
 
     // The steps to either side, steepest first. A: toward lower k; B: toward higher k.
     var kq;
@@ -2300,8 +2333,8 @@
     // True-line probes beyond a step: side (A 0, B 1) × class (at rest 0, moving 1) × 4 phases × 8 cells.
     var LN = this._lnOff, key = this._lnKey;
     var side, cls, ph, j, hx, hy, th, dx, dy, sh, q;
-    if (key[0] !== ux || key[1] !== uy || key[2] !== cool) {
-      key[0] = ux; key[1] = uy; key[2] = cool;
+    if (key[0] !== ux || key[1] !== uy || key[2] !== cool || key[3] !== up) {
+      key[0] = ux; key[1] = uy; key[2] = cool; key[3] = up;
       for (side = 0; side < 2; side++) {
         hx = side ? uy : -uy; hy = side ? -ux : ux;       // the field's horizontal toward this side
         for (cls = 0; cls < 2; cls++) {
@@ -2572,8 +2605,8 @@
     }
 
     var RD = Math.PI / 180, cool = hot > 0 ? 1 - MOT.thHot * (hot > 1 ? 1 : hot) : 1;
-    var B = MOT.slB, running = this._aval[b] > 0;
-    var tStart = B * Math.tan((MOT.thS + MOT.slUp) * cool * RD), tStop = B * Math.tan(MOT.slStop * cool * RD);
+    var B = MOT.slB, running = this._aval[b] > 0, up = this._hold(b, ux, uy);
+    var tStart = B * Math.tan((MOT.thS + MOT.slUp + up) * cool * RD), tStop = B * Math.tan((MOT.slStop + up) * cool * RD);
     var need = running ? tStop : tStart, moved = 0, q = this.quality;
     var budget = q >= 2 ? MOT.slMax : (q === 1 ? (MOT.slMax * 0.6) | 0 : (MOT.slMax * 0.35) | 0);
     // the lattice steps that climb against the field (to set a grain on top of a bin)
