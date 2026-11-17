@@ -2176,18 +2176,23 @@
   var THEME_ORDER = ['sahara', 'volcanic', 'moonstone', 'lapis', 'rosequartz', 'seaglass'];
   /**
    * Change something about the instrument behind a slow cross-fade. What is
-   * asked for while the fade comes in waits with it: all of it happens, in
-   * the order asked, once the instrument is out of sight.
+   * asked for while the fade comes in waits with it and happens once the
+   * instrument is out of sight: every `kind` of change asked for (the
+   * material, the frame, the layers), and of one kind only the last, so the
+   * chip tapped quickly through four materials sets one, not four (each
+   * rebuilds the renderer's picture of the sand and the glass).
    */
   var softTimer = 0, softQueue = [];
-  function softSwap(fn) {
-    softQueue.push(fn);
+  function softSwap(kind, fn) {
+    var k = 0;
+    while (k < softQueue.length && softQueue[k].kind !== kind) k++;
+    softQueue[k] = { kind: kind, fn: fn };                // a newer one of its kind takes the older one's place
     if (softTimer) return;
     assembly.classList.add('fade');
     softTimer = setTimeout(function () {
       var q = softQueue;
       softTimer = 0; softQueue = [];
-      for (var i = 0; i < q.length; i++) q[i]();
+      for (var i = 0; i < q.length; i++) q[i].fn();
       dirty = true;
       requestAnimationFrame(function () { if (!softTimer) assembly.classList.remove('fade'); });   // (unless the next one has begun)
     }, 380);
@@ -2196,7 +2201,7 @@
     settings.theme = id; save();
     document.documentElement.dataset.theme = id;
     themeName.textContent = P.THEMES[id].short;
-    if (soft) softSwap(function () { renderer.setTheme(id); });
+    if (soft) softSwap('theme', function () { renderer.setTheme(id); });
     else renderer.setTheme(id);
     dirty = true;
     var cards = document.querySelectorAll('#themes .card');
@@ -2343,7 +2348,7 @@
   });
   $('opt-frame').addEventListener('change', function (e) {
     settings.frame = e.target.checked; save();
-    softSwap(function () {
+    softSwap('frame', function () {
       renderer.setFrame(settings.frame);
       layout();                                        // the bare glass can sit larger
     });
@@ -2352,7 +2357,7 @@
   // goes back to one tone), behind the same slow cross-fade as a new material.
   $('opt-layers').addEventListener('change', function (e) {
     settings.layers = e.target.checked; save();
-    softSwap(function () {
+    softSwap('layers', function () {
       sim.setLayers(settings.layers);
       renderer.setLayers(settings.layers);
     });
