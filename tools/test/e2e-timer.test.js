@@ -9,10 +9,11 @@
  *     is recent, and the last grain leaves within 30 ms of 00:00.0.
  *     (Until the crash work this shook it at 4 g and asked for exactly one
  *     re-timing. That shake now cracks the glass within two seconds, by
- *     intent, and at 2 g the neck keeps up well enough to need none: 180
- *     grains behind at the worst, 26 once calm, against a threshold of 88.
+ *     intent, and at 2 g the neck keeps up well enough to need none: 13
+ *     grains behind at the worst, 8 once calm, against a threshold of 24.
  *     "Exactly once after a hard shake" is still held by app-retime, where
- *     the neck falls 2,300 grains behind.) Variant: a 'normal' shake in the last 8 s: 'done' comes at
+ *     the glass is held whole and the neck falls some 700 grains behind.)
+ *     Variant: a 'normal' shake in the last 8 s: 'done' comes at
  *     00:00.0 within 30 ms of start + 60 s, and the sand still above drains
  *     within 1.5 s after it.
  * E5  A 60 s glass breached in the upper funnel (forceCrack at u ≈ 0.15,
@@ -22,7 +23,7 @@
  *     of the clock throughout, it is re-timed exactly where that is needed
  *     (here: never), the last grain leaves within 30 ms of 00:00.0, and
  *     'done' comes once, at start + 60 s.
- * E5b A 45 min glass (~8 grains/s) with the same breach and shake: the leak
+ * E5b A 45 min glass (~7 grains/s) with the same breach and shake: the leak
  *     outruns the flow, so once calm (and only then) the rest of the run is
  *     re-timed, after which the sand above matches the clock again.
  *
@@ -166,7 +167,7 @@ async function e5(s, env) {
   var c = r.clk;
   s.check('E5: an upper-funnel breach (u ≈ 0.15, w = 3)', cr && cr.bulb === 0 && cr.w === 3 && Math.abs(cr.u - 0.15) < 0.05, JSON.stringify(cr));
   s.check('E5: sand leaked from the top', r.leakedTop > 0, 'leakedTop ' + r.leakedTop + ' of ' + r.lost + ' lost');
-  // A 1 min glass's neck flows ~175 grains/s, so the valve simply lets
+  // A 1 min glass's neck flows ~49 grains/s, so the valve simply lets
   // through less while the breach leaks (tens a second shaken, a few at
   // rest): the sand above never strays far from the clock, and there is
   // nothing to re-time. (E5b is the glass where the leak does outrun the

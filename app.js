@@ -138,14 +138,19 @@
   };
 
   /**
-   * How much sand a glass of this length holds. A longer glass is a fuller
-   * one (roughly a third full for a minute, three quarters for 45 minutes);
-   * the neck's flow rate makes up the rest. A shape that fits less than
-   * three quarters under its neck says so (sim.fillMax).
+   * How much sand a glass of this length holds: the amount shows the time.
+   * An hour (and anything longer) is the full glass, FULL of what a bulb
+   * holds; a shorter glass holds less by the square root of its time, so four
+   * times the time is twice the sand (a tenth of a bulb for a minute, a good
+   * fifth for five, a third for ten, over half for thirty). The neck's flow
+   * rate makes up the rest: a short glass still runs with a livelier thread.
+   * A shape that fits less than FULL under its neck says so (sim.fillMax),
+   * and that is then its full glass.
    */
+  var FULL = 0.78, FULL_MS = 3600000;
   function grainsFor(ms) {
-    var f = 0.36 + 0.40 * Math.log(ms / 60000) / Math.log(45);
-    return Math.round(sim.capacity * Math.max(0.17, Math.min(sim.fillMax || 0.78, f)));
+    var f = Math.min(FULL, sim.fillMax || FULL) * Math.sqrt(Math.min(1, ms / FULL_MS));
+    return Math.round(sim.capacity * Math.max(0.02, f));
   }
 
   /** Time the neck so that N grains last d ms (by default: the whole glass, its whole length). */
