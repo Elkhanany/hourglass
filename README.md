@@ -55,7 +55,8 @@ deep-water teal.
   time.
 - **Real sound.** The soft hush of sand landing, made of thousands of tiny
   grains, the first grains ticking on bare glass, a singing bowl at the end,
-  and an optional brook or rain behind it, all synthesised, nothing recorded.
+  and optional water behind it (a brook, rain, the ocean, a waterfall, or
+  drips in a grotto), all synthesised, nothing recorded.
 - **Zen.** Four seconds after you let it run, the controls fade and the glass
   fills the screen; the end of a glass is quiet and slow.
 - **Breathing pace.** If you like, the glow behind the glass swells as you
@@ -124,8 +125,9 @@ five, three quarters for 45.
   layers of the other tone. It is off by default, and with it off the sand is
   exactly as it was. Turning the glass over tumbles the sand into an even
   blend of the two tones; the next run lays it down in strata again.
-- **Acoustic character** (six voicings) and volume; **Ambience** (a brook or
-  rain behind the sand, with its own level); **Completion bowl**.
+- **Acoustic character** (six voicings) and volume; **Ambience** (None,
+  Brook, Rain, Ocean, Waterfall or Drips behind the sand, with its own level;
+  the one you tap plays long enough to be heard); **Completion bowl**.
 - **Keep screen awake** while the sand is flowing, and for 12 s after it runs
   out (Screen Wake Lock API).
 - **Real motion**: the sand feels what the phone feels. Lean it and the piles
@@ -635,11 +637,11 @@ recedes under the bowl.
   after about 22 minutes.
 - *Rain*: a dense patter of fine filtered clicks, a few heavier drops and a
   distant hiss.
+- *Ocean*: slow surf on a sandy beach, heard from the shore. A wave is four bands of noise, each on its own envelope around the moment of breaking: the swell comes up dark, the break is low first (plunge, then roar), the wash opens as the foam spreads (its low-pass glides from 1.2 to 4.5 kHz and closes again), and the hiss comes last and stays longest. What draws back is thin and fizzing: the brook's smallest bubbles, bursting as the foam thins. Six waves a minute in front, 8 to 13 s apart, no two alike in size, tempo or place. Behind them, on a shorter loop (23.3 s against 61.3 s), a distant rumble and two duller waves that fall elsewhere among the front ones each time round. Measured against four recordings of calm surf.
+- *Waterfall*: a small fall from a few metres away. A coloured rush (weight from 160 Hz to 1 kHz, then 3 dB less per octave; the ears share its lows, not its highs) that spits and splashes in short bursts of band-passed noise, over a plunge pool that gurgles with low bubbles. Three loops (12.1, 13.9 and 31.3 s) that line up again after six days.
+- *Drips*: drops falling one at a time into a still pool in a small stone grotto. A drop is the bubble it drags under: a short tone that curls upward as it closes, a plop if the drop was big, a plink if small, often with a second, smaller bubble after it. The stone gives every drop back as about 800 dulled copies a second, fading over 1.6 s, so the room rings on at the drop's own pitch. Ten drops on three loops (21.7, 18.5 and 15.3 s) that meet differently every time round, over a faint trickle far off. It is quiet by nature: its loudest drops peak where the brook does, but its level over time is about 13 dB lower.
 
-Both are synthesised into seamless loops in short steps, one per slice of
-main-thread time (each a few to a few tens of milliseconds, so the sand keeps
-falling smoothly): the saved one while the page settles after loading, another
-the first time it is chosen.
+All are synthesised into seamless loops in short steps, the saved one while the page settles after loading, another the first time it is chosen. The ocean, the waterfall and the drips are made in slices of a few milliseconds (40 to 80 of them, 0.1 to 0.25 s of work spread over one to three seconds); the brook and the rain in a dozen longer ones. Only the chosen ambience holds any sound: at most 8 MB of PCM, kept small by giving each loop no higher a sample rate than its sound needs (8 to 24 kHz for the new ones). Choosing another lets the previous one go once it has faded. Where a browser makes no buffer below 22.05 kHz (WebKit before iOS 14.5), those loops are drawn out to a whole multiple of their rate, which plays as the same sound and costs up to twice the memory. Chosen in Tune, an ambience plays long enough to be heard, counted from the moment it sounds: five seconds of brook, rain or waterfall; one whole wave of the ocean (twelve seconds, from where its swell comes up); nine seconds of drips, at least three drops.
 
 The sand was built against recordings of falling sand and grit (a continuous
 pour of fine sand, fine sugar poured close to the microphone, a rainstick,
@@ -664,12 +666,11 @@ Levels were set the same way: the sand keeps the loudness it had, within
 about 1 dB at the default volume (near −32 dBFS RMS for a 30-minute glass,
 −29 for a 5-minute one and −27 for a one-minute one), so the bowl and the
 ambiences keep their balance; being made of grains rather than hiss, its
-peaks stand a little taller, near −8 to −9 dBFS. The brook and rain sit near
-−26 and −28 dBFS at their default level. The five other characters were
+peaks stand a little taller, near −8 to −9 dBFS. At their default level the brook, the ocean and the waterfall sit near -26 dBFS, the rain near -28 and the drips near -39 (their peaks like the brook's). With the sand at full volume nothing reaches the end of the soft clipper's curve in any character, even with the ambience at the top of its slider (the rain comes nearest, 0.7 dB under). The five other characters were
 levelled against the old ones, layer by layer, and the ambiences have not been
 tuned by ear (the brook was matched to measurements, not by listening), so
 treat the tables at the top of `audio.js` (`CHARACTERS`, `BEDS`, the `MODES_*`
-sets, `WATER`, `AMBIENCES`, `LEVEL`) as a starting point.
+sets, `WATER`, `SURF`, `FALLS`, `DRIPS`, `AMBIENCES`, `LEVEL`) as a starting point.
 
 ### `app.js`, `index.html`, `styles.css`
 
@@ -797,7 +798,10 @@ node tools/test/app-gestures.test.js     # any single suite
   with no cracks, the picture against f446085, pixel for pixel.
 - `motion-*` and `audio-*`: the sensor pipeline (against a model of a phone
   being shaken, in each browser's sign convention) and its permission, and
-  the sound engine's calls and levels.
+  the sound engine's calls and levels, and the water ambiences: that each
+  starts, switches and stops leaving nothing behind, their levels, that
+  nothing clips behind the sand, their synthesis slices, and the fallback for
+  browsers that refuse low sample rates.
 - `app-*`: the app's own acceptance tests (permission, gestures, motion,
   re-timing, session, the existing flow), with stand-ins for any module that
   is missing. `app-breath` covers breathing pace: the Tune row and what is
@@ -810,7 +814,9 @@ node tools/test/app-gestures.test.js     # any single suite
   bowls, the turns, Zen), pause, Flip and Reset inside a phase, the clock
   moved on through phase ends (asleep, hidden), reloads, and Reduce Motion.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
-  pour, flip, a restored session and Reduce Motion.
+  pour, flip, a restored session and Reduce Motion. `app-ambience` covers the six
+  ambience cards: the radio group as a screen reader meets it, two rows of
+  three from 320 to 430 px and in landscape, choosing, saving and restoring.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
