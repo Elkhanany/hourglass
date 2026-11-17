@@ -20,10 +20,14 @@
 var TAIL_P = 1.7;                    // app.js: the final grains thin into single drops
 var DT_MS = 1000 / 120;              // one physics step
 
-/** How much sand a glass of this length holds (app.js grainsFor). */
+/**
+ * How much sand a glass of this length holds (app.js grainsFor). A shape
+ * that fits less under its neck says so in sim.fillMax; the classic glass,
+ * and a build from before there were shapes, take 0.78.
+ */
 function grainsFor(sim, ms) {
   var f = 0.36 + 0.40 * Math.log(ms / 60000) / Math.log(45);
-  return Math.round(sim.capacity * Math.max(0.17, Math.min(0.78, f)));
+  return Math.round(sim.capacity * Math.max(0.17, Math.min(sim.fillMax || 0.78, f)));
 }
 
 function Clock(sim, durationMs) {

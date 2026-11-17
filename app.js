@@ -140,11 +140,12 @@
   /**
    * How much sand a glass of this length holds. A longer glass is a fuller
    * one (roughly a third full for a minute, three quarters for 45 minutes);
-   * the neck's flow rate makes up the rest.
+   * the neck's flow rate makes up the rest. A shape that fits less than
+   * three quarters under its neck says so (sim.fillMax).
    */
   function grainsFor(ms) {
     var f = 0.36 + 0.40 * Math.log(ms / 60000) / Math.log(45);
-    return Math.round(sim.capacity * Math.max(0.17, Math.min(0.78, f)));
+    return Math.round(sim.capacity * Math.max(0.17, Math.min(sim.fillMax || 0.78, f)));
   }
 
   /** Time the neck so that N grains last d ms (by default: the whole glass, its whole length). */

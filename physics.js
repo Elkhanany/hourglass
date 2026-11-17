@@ -53,14 +53,88 @@
    * ==================================================================== */
 
   /**
+   * Other glasses. A shape is { id, name, kR, kH, f }: kR and kH scale the
+   * bulb's largest half-width and its height against the classic glass's
+   * (88 and 206 cells at scale 1), and f(u) is how far the wall has opened
+   * at u, from 0 at the neck (u = 0) to 1 at its widest:
+   * r(u) = RN + (R - RN) * f(u). The classic teardrop is not written this
+   * way: it keeps its own formula in profile(), so its numbers never move.
+   *
+   * What the sand needs of a shape (the Sim checks it when it is built):
+   * the wall never opens by more than a cell a row on the way out of the
+   * neck (sand runs off glass that steep, upright or leaned), one bulge and
+   * no second waist (a bed in flight moves whole columns), and an end wide
+   * enough to pour into. f must be a pure function of u.
+   */
+  var SHAPES = {
+    classic: null,
+    // a straight cone under a round shoulder
+    cone: {
+      id: 'cone', name: 'Cone', kR: 0.95, kH: 1.0,
+      f: function (u) {
+        var c = 0.74;
+        if (u <= c) return u / c;
+        var w = (u - c) / (1 - c);
+        return Math.sqrt(Math.max(0, 1 - Math.pow(w, 2.6)));
+      }
+    },
+    // slim and tall: a short funnel, a long straight tube, a round end
+    slim: {
+      id: 'slim', name: 'Slim', kR: 0.68, kH: 1.10,
+      f: function (u) {
+        var c = 0.46, d = 0.80, w;
+        if (u <= c) return Math.sin(Math.PI * 0.5 * Math.pow(u / c, 1.1));
+        if (u <= d) return 1;
+        w = (u - d) / (1 - d);
+        return Math.sqrt(Math.max(0, 1 - Math.pow(w, 2.4)));
+      }
+    },
+    // wide and low: a broad cone, barely bowed, under a flat dome
+    wide: {
+      id: 'wide', name: 'Wide', kR: 1.12, kH: 0.90,
+      f: function (u) {
+        var c = 0.70, w;
+        if (u <= c) { w = u / c; return w * (1.12 - 0.12 * w); }
+        w = (u - c) / (1 - c);
+        return Math.sqrt(Math.max(0, 1 - Math.pow(w, 2.2)));
+      }
+    }
+  };
+  var SHAPE_ORDER = ['classic', 'cone', 'slim', 'wide'];
+
+  /** Where a shape is widest: the u of its largest f, the middle of a plateau. */
+  var SHAPE_EQ = {};
+  function shapeEquator(s) {
+    if (SHAPE_EQ[s.id] !== undefined && SHAPE_EQ[s.id].f === s.f) return SHAPE_EQ[s.id].u;
+    var N = 4096, k, v, m = -1, a = 0, b = 0;
+    for (k = 0; k < N; k++) { v = s.f(k / N); if (v > m) m = v; }
+    for (k = 0; k < N; k++) {
+      if (s.f(k / N) >= m - 1e-9) { if (!b) a = k; b = k; }
+    }
+    SHAPE_EQ[s.id] = { f: s.f, u: (a + b) / (2 * N) };
+    return SHAPE_EQ[s.id].u;
+  }
+
+  /**
    * All lengths are in grid cells (one cell = one grain of sand).
    * `q` scales the whole vessel: 1.08 ≈ 17k grains (phones),
    * 1.3 ≈ 25k grains (tablets / desktop); up to 33k with added sand.
+   * `shape` is an id in SHAPES; without one (or 'classic') it is the
+   * classic teardrop, exactly as it has always been.
    */
-  function makeGeometry(q) {
+  function makeGeometry(q, shape) {
     q = q || 1;
+    var s = null;
+    if (shape !== undefined && shape !== null && shape !== 'classic') {
+      s = Object.prototype.hasOwnProperty.call(SHAPES, shape) ? SHAPES[shape] : null;
+      if (!s) throw new Error('makeGeometry: there is no glass shape "' + shape + '"');
+    }
     var R = Math.round(88 * q);          // max inner half-width of a bulb
     var HB = Math.round(206 * q);        // bulb height, neck centre → far end
+    if (s) {
+      R = Math.round(88 * q * s.kR);
+      HB = Math.round(206 * q * s.kH);
+    }
     var RN = Math.round(3 * q) + 0.5;    // neck inner half-width (7 / 9 cells)
     var PAD = 8;
     var W = 2 * (R + PAD) + 1;           // odd → exact 180° symmetry
@@ -69,7 +143,8 @@
       q: q, R: R, HB: HB, RN: RN, W: W, H: H,
       cx: W / 2, cy: H / 2,
       gateY: (H - 1) / 2,
-      equator: 0.66,                     // where the bulb is widest (0 = neck)
+      equator: s ? shapeEquator(s) : 0.66,   // where the bulb is widest (0 = neck)
+      shape: s,                          // the shape's record; null: the classic teardrop
       wall: 2.6 * q,                     // drawn glass thickness
       // assembly (glass + caps + posts) for the renderer
       capHalf: R + 24 * q,
@@ -90,6 +165,7 @@
   function profile(u, g) {
     if (u >= 1) return 0;
     if (u < 0) u = 0;
+    if (g.shape) return g.RN + (g.R - g.RN) * g.shape.f(u);   // another glass (SHAPES)
     var c = g.equator;
     if (u <= c) {
       var v = u / c;
@@ -187,7 +263,7 @@
 
   function Sim(opts) {
     opts = opts || {};
-    var g = this.geo = makeGeometry(opts.scale || 1);
+    var g = this.geo = makeGeometry(opts.scale || 1, opts.shape);
     var W = this.W = g.W, H = this.H = g.H, N = W * H;
 
     this.cell = new Uint8Array(N);       // EMPTY / WALL / REST / MOVE
@@ -258,6 +334,7 @@
     this.total = 0;
     this.capacity = 0;        // interior cells in one bulb
     this.maxTotal = 0;
+    this.fillMax = 0.78;      // the fullest glass the clock asks for, as a share of capacity (less in a shape that fits less)
     this.tick = 0;
     this.steps = 0;
     this.quiet = 0;           // consecutive steps with nothing moving
@@ -479,6 +556,72 @@
         this.nrmY[i] = Math.round(sy / len * 127);
       }
     }
+
+    // The classic teardrop is done: it takes 0.78 of its capacity from the
+    // clock and 0.86 from pours with room to spare, as it always has. Another
+    // shape is checked first, then held to what fits under its neck: the
+    // clock's fullest glass leaves the thread 30 rows to fall, a pour 6.
+    if (g.shape) {
+      this._checkShape();
+      this.fillMax = Math.min(0.78, this._heapMax(Math.round(30 * PACE)) / cap);
+      this.maxTotal = Math.round(cap * Math.min(0.86, this._heapMax(Math.round(6 * PACE)) / cap));
+      this.defaultGrains = Math.round(cap * Math.min(0.62, this.fillMax));
+    }
+  };
+
+  /**
+   * How many grains the lower bulb holds when its heap has grown to `clear`
+   * rows under the neck: sand pours to a heap of 34 degrees, so each row down
+   * holds what the heap's width or the glass allows, whichever is less.
+   */
+  Sim.prototype._heapMax = function (clear) {
+    var gate = this.gateY, H = this.H, span = this.gateX1 - this.gateX0 + 1, sum = 0;
+    for (var d = clear + 1; gate + d < H; d++) {
+      var y = gate + d, w = this.rowMax[y] - this.rowMin[y] + 1;
+      if (w <= 0) break;
+      sum += Math.min(w, span + 2 * (d - 1 - clear) / Math.tan(34 * Math.PI / 180));
+    }
+    return sum;
+  };
+
+  /**
+   * What the sand needs of a glass that is not the classic one (SHAPES), read
+   * off the lattice itself. A shape that fails is refused here, by name and
+   * by rule, before a grain is laid in it.
+   */
+  Sim.prototype._checkShape = function () {
+    var g = this.geo, W = this.W, H = this.H, N = W * H, cell = this.cell, gate = this.gateY;
+    var rowMin = this.rowMin, rowMax = this.rowMax, top = this.topY, y, i;
+    var span = this.gateX1 - this.gateX0 + 1;
+    function wd(r) { return rowMax[r] >= rowMin[r] ? rowMax[r] - rowMin[r] + 1 : 0; }
+    function no(rule) {
+      throw new Error('Sim: the glass shape "' + g.shape.id + '" cannot be used: ' + rule);
+    }
+    // the neck is the classic glass's own, and the rows beside it are open across it
+    // (the thread leaves anywhere across the gate, and a full lower bulb is told by the cell under it)
+    if (span <= 0 || span !== 2 * g.RN) no('its neck is ' + span + ' cells wide, not ' + (2 * g.RN) + ' (f(0) must be 0)');
+    if (top < 0 || top >= gate - 4) no('it has no bulb');
+    if (rowMin[gate - 1] > this.gateX0 || rowMax[gate - 1] < this.gateX1 || rowMin[gate + 1] > this.gateX0 || rowMax[gate + 1] < this.gateX1) {
+      no('the rows beside the neck are narrower than the neck');
+    }
+    // one bulge: wider row by row from the neck to the widest, narrower from there to the end
+    // (so every column is one span: a bed in flight moves whole columns, and would write sand into a second waist)
+    var wy = gate - 1, wMax = 0;
+    for (y = gate - 1; y >= top; y--) if (wd(y) > wMax) { wMax = wd(y); wy = y; }
+    for (y = gate - 1; y > wy; y--) if (wd(y - 1) < wd(y)) no('it narrows again between the neck and its widest row (row ' + (y - 1) + '): one bulge only');
+    for (y = wy; y > top; y--) if (wd(y - 1) > wd(y)) no('it widens again beyond its widest row (row ' + (y - 1) + '): one bulge only');
+    if (wMax > 2 * g.R - 1) no('its widest row is ' + wMax + ' cells, wider than R = ' + g.R + ' allows (f must not pass 1)');
+    // the funnel: sand runs off glass, upright or leaned, only where it opens by no more than a cell a row
+    if (rowMin[gate - 1] < this.gateX0 - 1) no('its funnel opens by ' + (this.gateX0 - rowMin[gate - 1]) + ' cells in one row at the neck (at most 1)');
+    for (y = gate - 1; y > wy; y--) {
+      if (rowMin[y] - rowMin[y - 1] > 1) no('its funnel opens by ' + (rowMin[y] - rowMin[y - 1]) + ' cells in one row (row ' + (y - 1) + '; at most 1)');
+    }
+    // the far end: sand is poured in from three rows under it, into three rows, 7 cells across at the classic size
+    for (y = top + 3; y <= top + 5; y++) {
+      if (wd(y) < 7 * PACE + 2) no('its end is ' + wd(y) + ' cells wide ' + (y - top) + ' rows in, too pointed to pour into (at least ' + Math.ceil(7 * PACE + 2) + ')');
+    }
+    // a turn of the glass is the lattice read backwards
+    for (i = 0; i < N >> 1; i++) if (cell[i] !== cell[N - 1 - i]) no('its two bulbs are not mirror images (cell ' + i + ')');
   };
 
   /* ---------------------------------------------------------------- *
@@ -6591,6 +6734,8 @@
     THEMES: THEMES,
     makeGeometry: makeGeometry,
     profile: profile,
+    SHAPES: SHAPES,
+    SHAPE_ORDER: SHAPE_ORDER,
     EMPTY: EMPTY, WALL: WALL, REST: REST, MOVE: MOVE,
     STEP_HZ: STEP_HZ, DT: DT
   };

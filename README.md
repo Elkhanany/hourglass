@@ -1025,7 +1025,17 @@ node tools/test/app-gestures.test.js     # any single suite
   Flip and a lean, and the first crack, and that `setPace(1)` puts every
   constant back. (`HOURGLASS_PACE=2 node tools/test/sim-fracture.test.js`
   runs any `sim-*` suite on finer sand; what a suite counts in cells or in
-  grains then comes out larger.) The
+  grains then comes out larger.) `sim-shape` covers other glass shapes
+  (`HourglassPhysics.SHAPES`; the app does not offer them yet): for every
+  registered shape, the classic teardrop first as the reference, what the
+  sand needs of the lattice at every size the app builds, the clock of a
+  one-minute glass upright, leaned 12 degrees and on Finest sand, the fullest
+  glass fitting under the neck, the Flip, a pour, layered sand, and a hard
+  shake that must never write sand into the glass; and that glasses the sand
+  cannot use are refused by name and by rule.
+  (`HOURGLASS_SHAPE=cone node tools/test/sim-clock.test.js` runs any `sim-*`
+  suite on another shape; many state what the teardrop does, so some of
+  their cases then fail without anything being wrong.) The
   others cover cracks, leaks, mending and saving (`p0`), conservation,
   sanity, flight, fracture, spinning, knocking, leak, flip, persistence,
   determinism, the valve, the clock and performance.

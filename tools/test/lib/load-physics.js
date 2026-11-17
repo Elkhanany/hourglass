@@ -72,6 +72,29 @@ if (FINE > 1 && P.Sim.setPace) {
   P.Sim = Fine;
 }
 
+/*
+ * HOURGLASS_SHAPE=id (an id of P.SHAPES) runs a suite on another glass:
+ * every Sim it builds has that shape, unless the suite asks for one itself.
+ * Unset, nothing changes. (Many suites state what the classic teardrop
+ * does; on another shape they say how far that glass is from it.)
+ */
+var SHAPE = process.env.HOURGLASS_SHAPE || '';
+if (SHAPE) {
+  if (!P.SHAPES || !Object.prototype.hasOwnProperty.call(P.SHAPES, SHAPE)) {
+    throw new Error('HOURGLASS_SHAPE: there is no glass shape "' + SHAPE + '"');
+  }
+  var Sim1 = P.Sim;
+  var Shaped = function (o) {
+    var q = {}, k;
+    for (k in o) q[k] = o[k];
+    if (q.shape === undefined) q.shape = SHAPE;
+    return new Sim1(q);
+  };
+  Shaped.prototype = Sim1.prototype;
+  for (var key1 in Sim1) Shaped[key1] = Sim1[key1];
+  P.Sim = Shaped;
+}
+
 module.exports = {
   ROOT: ROOT,
   PHYSICS: PHYSICS,
