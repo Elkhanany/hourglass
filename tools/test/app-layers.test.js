@@ -191,6 +191,35 @@ async function testQuick(s, env) {
   await sleep(300);
   var d = await both('#opt-layers', '#opt-layers', 700);
   s.check('QUICK: switched off and, 700 ms later, on again: on, in step', d.sw && d.sim === true && d.ren === true && !d.fading, JSON.stringify(d));
+  // Of one kind of change only the last happens: the material chip tapped through four
+  // materials sets one, not four (each is a heavy change of the renderer's), and a switch
+  // tapped on, off and on again is applied once. Another kind asked meanwhile still happens.
+  await sleep(300);
+  var e = await t.eval(function () {
+    return new Promise(function (resolve) {
+      var Hg = window.Hourglass, P = window.HourglassPhysics, R = Hg.renderer, n = { theme: 0, frame: 0, layers: 0 };
+      var st = R.setTheme, sf = R.setFrame, sl = R.setLayers, chip = document.getElementById('btn-theme'), was = R.theme, frameWas = R.frame;
+      R.setTheme = function () { n.theme++; return st.apply(R, arguments); };
+      R.setFrame = function () { n.frame++; return sf.apply(R, arguments); };
+      R.setLayers = function () { n.layers++; return sl.apply(R, arguments); };
+      chip.click(); chip.click();
+      document.getElementById('opt-frame').click();
+      setTimeout(function () {
+        chip.click(); chip.click();
+        var l = document.getElementById('opt-layers'); l.click(); l.click(); l.click();
+      }, 120);
+      setTimeout(function () {
+        var saved = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
+        R.setTheme = st; R.setFrame = sf; R.setLayers = sl;
+        resolve({ calls: n, saved: saved.theme, theme: R.theme === P.THEMES[saved.theme], moved: R.theme !== was, shown: document.documentElement.dataset.theme,
+                  frame: R.frame === !frameWas && R.frame === document.getElementById('opt-frame').checked,
+                  layers: Hg.sim.layers === document.getElementById('opt-layers').checked && R.layers === Hg.sim.layers,
+                  fading: document.getElementById('assembly').classList.contains('fade') });
+      }, 1300);
+    });
+  });
+  s.check('QUICK: the material chip tapped four times, Frame once and Layered sand three times within one fade: one change of each kind, the last asked',
+          e.calls.theme === 1 && e.calls.frame === 1 && e.calls.layers === 1 && e.theme && e.moved && e.shown === e.saved && e.frame && e.layers && !e.fading, JSON.stringify(e));
   s.check('QUICK: no page or console errors', t.errors.length === 0, t.errors.slice(0, 3).join(' | '));
   await t.close();
 }
