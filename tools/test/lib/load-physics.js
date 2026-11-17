@@ -51,6 +51,27 @@ function baseline(rev) {
   return loadIsolated(src, (file || rev + ':physics.js'));
 }
 
+/*
+ * HOURGLASS_PACE=p (1.414, 2, …) runs a suite on finer sand: every Sim it
+ * builds is p times the scale it asked for, with Sim.setPace(p) in force.
+ * The suite then states, in the same terms, what the finer sand must still
+ * do. (What a suite counts in cells or in grains comes out p or p² larger.)
+ */
+var FINE = +(process.env.HOURGLASS_PACE || 1);
+if (FINE > 1 && P.Sim.setPace) {
+  P.Sim.setPace(FINE);
+  var Sim0 = P.Sim;
+  var Fine = function (o) {
+    var q = {}, k;
+    for (k in o) q[k] = o[k];
+    q.scale = (q.scale || 1) * FINE;
+    return new Sim0(q);
+  };
+  Fine.prototype = Sim0.prototype;
+  for (var key in Sim0) Fine[key] = Sim0[key];
+  P.Sim = Fine;
+}
+
 module.exports = {
   ROOT: ROOT,
   PHYSICS: PHYSICS,

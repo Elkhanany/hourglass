@@ -54,6 +54,11 @@ deep-water teal.
   level or leaning, arched, waved or folded. As it runs, the two tones settle
   into strata on the heap below, and every turn of the glass lets the sand
   settle into a new pattern. No two are alike.
+- **Finer sand.** Choose the grain in **Tune**: Classic, Fine (twice the
+  grains) or Finest (four times, about 40,000 for a one-minute glass on a
+  phone). The finer sand flows, slumps, sounds and keeps time as the classic
+  sand does; there is simply more of it, each grain smaller, and more work
+  for the phone.
 - **Real sound.** The soft hush of sand landing, made of thousands of tiny
   grains, the first grains ticking on bare glass, a singing bowl at the end,
   and optional water behind it (a brook, rain, the ocean, a waterfall, or
@@ -79,6 +84,10 @@ deep-water teal.
   <img src="docs/images/kintsugi.jpg" width="210" alt="A rose quartz glass mended with a seam of gold along its shoulder">
   &nbsp;
   <img src="docs/images/tune.jpg" width="210" alt="The Tune sheet: materials, frame, sound, ambience and switches">
+</p>
+
+<p>
+  <img src="docs/images/grain.jpg" width="430" alt="The same glass at the same moment in Classic and in Finest sand: four times the grains, a smoother crater and heap, a denser thread">
 </p>
 
 ## Using it
@@ -137,7 +146,12 @@ five, three quarters for 45.
   layers of the other tone. It is off by default, and with it off the sand is
   exactly as it was. Turning the glass over tumbles the sand, and within
   about four seconds it settles into a new pattern, drawn afresh for each
-  bulb at every turn.
+  bulb at every turn. **Grain** is Classic, Fine (×2) or Finest (×4): how
+  many grains the same glass holds. Another grain is another lattice, so
+  choosing one builds the glass afresh behind a short fade; the running time
+  is kept, a crack is not. Finer sand is more work for the phone: if the
+  glass ever stutters on Finest, Fine has half as many grains for about a
+  third of the work.
 - **Acoustic character** (six voicings) and volume; **Ambience** (None,
   Brook, Rain, Ocean, Waterfall or Drips behind the sand, with its own level;
   the one you tap plays long enough to be heard); **Completion bowl**.
@@ -472,6 +486,66 @@ bit-identical with f446085.
   the sand let go at once 0.14 / 0.40 → 0.40 / 2.85 for a third of a second; a
   spin at 5 rad/s 1.24 / 2.50 → 1.48 / 3.77; an upright running glass
   unchanged.
+
+### Finer sand
+
+A glass built at p times the scale holds p² times the grains, each 1/p the
+size (**Tune › Grain**: Fine is p = √2, Finest p = 2). Left to itself it
+would also run in slow motion: a grain moves a cell a sweep, and there are p
+times the cells to cross. `Sim.setPace(p)` makes the finer sand behave on
+screen as the sand it replaces:
+
+- **Gravity** is p times as many cells a second², so a grain falls from the
+  neck to the heap in the same time.
+- **The automaton's pattern of sweeps is repeated p times a step** (a
+  fractional p by an accumulator), in the upright glass and off the upright
+  alike. A kinetic sweep's fall, which is g·t, counts 1/p as much a sweep.
+- **The thick avalanche runs p² times as often.** It lowers a face a grain
+  at a time, and the automaton's own flow is one grain deep, so on finer
+  sand the same slump is p² times the moves.
+- **What is measured in cells or in grains is scaled**: speeds (spray, hops,
+  the thread, the fastest a grain may fly), crack lengths and the width of a
+  breach, layer depths and the bands of layered sand, pours, leaks and caps.
+  The reference stress of a landing goes as √p, since it is a speed over
+  √(G·cell).
+- **Time is untouched.** Seconds, rates and every threshold in g stay as
+  they are, so the glass cracks, creaks and mends as it did.
+- **What belongs to a grain stays a grain's**: the slope probes, the width a
+  breach jams at, the raggedness of a seam. A finer thread is denser, a
+  finer splash smaller.
+
+The app scales what it counts in grains by the same p²: the pour, the last
+grains of the tail, and what the ear and the desk are given (the sound
+engine and the spilled dune receive the classic glass's share, so both are
+as they were). With pace 1 nothing changes at all: the tables are restored
+exactly and the upright glass stays bit-identical with f446085.
+
+Measured against the classic sand (`sim-grain`, a one-minute glass):
+
+| | Classic | Fine | Finest |
+|---|---|---|---|
+| Grains | 10,116 | 20,290 | 40,536 |
+| Share of sand above the neck at 15, 30, 45 s | | within 0.0012 | within 0.0018 |
+| Grains left above the neck at 00:00 | 0 | 0 | 0 |
+| Sand in the air (the thread) | 0.78 % | 0.80 % | 0.82 % |
+| After the Flip: bulk settled / all at rest | 1.1 / 2.4 s | 0.9 / 2.1 s | 1.1 / 2.2 s |
+| Leaned 30°: bulk settled / all at rest | 1.1 / 2.3 s | 1.1 / 2.8 s | 1.3 / 2.9 s |
+| First crack under the hard, slow shake | 1.54 s | 1.54 s | 1.54 s |
+
+What it costs (Node, this machine, a five-minute glass half run, ms a frame):
+
+| | Classic | Fine | Finest |
+|---|---|---|---|
+| Running, calm (mean) | 0.23 | 0.58 | 1.78 |
+| The Flip and 5 s after (p95) | 1.5 | 4.1 | 11.9 |
+| The hardest shake (p95) | 2.2 | 5.2 | 15.1 |
+| In the page: physics and drawing, running (mean) | 1.1 | 2.2 | 4.0 |
+
+Fine is about two and a half times the work, Finest about eight times while
+the sand is moved (a quarter of a 60 Hz frame while it merely runs). The
+governor lightens the physics on a phone that cannot keep up, as it always
+did. A session saved in one grain is restored in another by its time; a
+crack is kept cell by cell, so there the glass comes back whole.
 
 ### Glass and fracture
 
@@ -892,7 +966,12 @@ node tools/test/app-gestures.test.js     # any single suite
   its end, the census and each tone's count; every case that can is also run
   with `granular: false`, which must fail it. `sim-identity`'s lean and
   scripted-flip cases pin the engine with `granular: false`; its upright
-  cases run with it on. The
+  cases run with it on. `sim-grain` covers finer sand: Fine and Finest
+  against the classic sand in the clock, the thread, the settling after a
+  Flip and a lean, and the first crack, and that `setPace(1)` puts every
+  constant back. (`HOURGLASS_PACE=2 node tools/test/sim-fracture.test.js`
+  runs any `sim-*` suite on finer sand; what a suite counts in cells or in
+  grains then comes out larger.) The
   others cover cracks, leaks, mending and saving (`p0`), conservation,
   sanity, flight, fracture, spinning, knocking, leak, flip, persistence,
   determinism, the valve, the clock and performance.
@@ -927,6 +1006,10 @@ node tools/test/app-gestures.test.js     # any single suite
   label over a hidden switch on every control and on the stage, the switch
   flipping exactly when the app asked for a tap, every control still doing
   its work once, and scrolling, pouring, carrying and pinching unchanged.
+  `app-grain` covers the Grain choice: the three choices, Finest chosen
+  while a glass runs (twice the scale, four times the grains, the time kept),
+  the clock kept to the last grain, Sand adding time as fast, Classic again
+  while paused, and a cracked glass coming back whole in another grain.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).

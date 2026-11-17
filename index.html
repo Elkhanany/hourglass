@@ -171,6 +171,16 @@
           <span><b>Layered sand</b><small>Two tones that settle into strata as they fall</small></span>
           <input id="opt-layers" class="switch" type="checkbox" role="switch">
         </label>
+        <div class="row" id="grain-row">
+          <span><b>Grain</b><small>Finer sand is more grains, and more work for the phone</small></span>
+        </div>
+        <div class="sub">
+          <div id="grains" class="segmented" role="radiogroup" aria-label="Sand grain">
+            <button type="button" role="radio" aria-checked="true" data-grain="0" aria-label="Classic: the sand as it has been">Classic</button>
+            <button type="button" role="radio" aria-checked="false" data-grain="1" aria-label="Fine: twice the grains">Fine <i>×2</i></button>
+            <button type="button" role="radio" aria-checked="false" data-grain="2" aria-label="Finest: four times the grains">Finest <i>×4</i></button>
+          </div>
+        </div>
       </div>
 
       <h3>Acoustic character</h3>

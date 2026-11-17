@@ -169,6 +169,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 }
 #assembly { transition: opacity 0.65s var(--ease); }
 #assembly.fade { opacity: 0; transition-duration: 0.36s; }
+#app.regrain #assembly { opacity: 0; transition-duration: 0.3s; }   /* another grain: the glass is made anew (app.js) */
 #assembly canvas {
   position: absolute; left: 0; top: 0;
   display: block;
