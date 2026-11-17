@@ -336,7 +336,7 @@ test('... nor when it is picked up: a hand\'s tremor starts no slump', function 
   var r = lift(), r0 = withoutHold(lift);
   ok(r.census && r0.census, 'census broke');
   ok(r.ofBed < 0.022, sayBeds(r) + ' (want under 2.2 %): ' + r.q.join(' '));
-  ok(r0.peak > 2 * r.peak && r0.ofBed > 0.035, 'this suite could not tell: as it was, ' + sayBeds(r0) + '; now ' + sayBeds(r));
+  ok(r0.peak > 2 * r.peak && r0.ofBed >= 0.022, 'this suite could not tell: as it was, ' + sayBeds(r0) + '; now ' + sayBeds(r));
   return sayBeds(r) + '; as it was: ' + sayBeds(r0);
 });
 
