@@ -90,6 +90,10 @@ deep-water teal.
   <img src="docs/images/grain.jpg" width="430" alt="The same glass at the same moment in Classic and in Finest sand: four times the grains, a smoother crater and heap, a denser thread">
 </p>
 
+<p>
+  <img src="docs/images/reset.jpg" width="860" alt="Reset in nine frames over one second: the upper sand drains into the neck, the heap below lifts into it, the glass stands empty, and new sand pours in from the top and rises to a level bed">
+</p>
+
 ## Using it
 
 | Action | Touch | Keyboard |
