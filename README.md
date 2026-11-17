@@ -445,9 +445,10 @@ bit-identical with f446085.
   steps sideways only when the slope beyond the step, probed along a true line
   below the field's horizontal, is steeper than sand can hold: 35° for a grain
   at rest, 32° for one already moving, three degrees apart as in dry sand.
-  Rows sleep at any lean. Held at 5°, 10°, 20°, 30° and 45° the free surface
-  settles at 28° to 33° to gravity and the sand is at rest within 1 to 4 s;
-  before, it crept flat and never rested.
+  Rows sleep at any lean. Held at 10°, 20°, 30° and 45° the free surface
+  settles at 28° to 35° to gravity and the sand is at rest within 1 to 4 s;
+  before, it crept flat and never rested. (Held at 5° the upper bed keeps 40°:
+  see *Leaving the upright*.)
 - **It flows, it does not wait and go.** The automaton moves one layer of
   grains, so the slopes are also read as heights across the field (the thick
   avalanche), and where one falls more steeply than 36° over eight cells its
@@ -463,6 +464,21 @@ bit-identical with f446085.
   once) they stood still 14 % of the time and then went. After the Flip the
   sand is under 40° within about a second and at rest in under 4 s (it stood
   at 68° for more than 20 s).
+- **Leaving the upright.** What the glass builds while it stands straight is
+  steeper than that: the old automaton drains its upper bed to 40° and pours
+  its heap to 34°. Handed over to these rules as they were, a tenth of the
+  upper bed let go within half a second, at the first 3° of lean or as the
+  phone was picked up: the sand went in bulk at a certain angle. So each bed
+  holds that much more to begin with (13° in the upper bulb, 5° in the lower,
+  on both angles) and gives it up evenly as the field leans from the glass's
+  axis, all of it by 15°. It does not get it back by leaning less, only when
+  the glass has stood straight again under its own rules; after a Flip, or
+  once leaned past 15°, the sand has its plain angles. The app also brings
+  the phone's lean in from nothing (none under 1.7°, caught up with the phone
+  by 5°) where it used to begin with a step of 2.6°. A running glass tilted
+  from straight at 5° a second: its busiest quarter second moves 1.3 % of the
+  upper bed (it was 3.9 %, which was 29 % of all that bed did in the tilt);
+  picked up with a hand's tremor of 0.1 g, 1.4 % (it was 4.6 %).
 - **Falling sand gathers speed.** Each grain carries a count of the sweeps it
   has kept moving, as it carries its colour; a fall covers more cells the
   longer it lasts. Sand let go (the phone turned over) accelerates and
@@ -975,8 +991,9 @@ node tools/test/app-gestures.test.js     # any single suite
   strata; turned sand settling into a new pattern each time, not a blend; the
   colour table with layers off against 7f71786. `sim-repose` covers sand off
   the upright: repose at held leans, a slow steady tilt followed as it
-  comes (and waited out, then rushed, by the sand as first shipped), the
-  slump after the Flip, falling sand
+  comes (and waited out, then rushed, by the sand as first shipped), a
+  running glass tilted from straight or picked up, which gives nothing up in
+  bulk as it leaves the upright (and did), the slump after the Flip, falling sand
   gathering speed, a bed's momentum under a jolt and a finger's carry, the
   thread in the air, shaking against walking, the timer while leaned and to
   its end, the census and each tone's count; every case that can is also run

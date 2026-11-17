@@ -3,8 +3,10 @@
  * shaken glass does to its sand.
  *
  *   repose      held leans of 5, 10, 20, 30 and 45 degrees (and the other way):
- *               the free surface settles at 28 to 38 degrees to gravity and the
- *               sand comes to rest within 5 s, and stays at rest
+ *               the free surface settles at 28 to 38 degrees to gravity (under
+ *               a lean of less than 15, as much steeper as a bed still holds
+ *               of what the upright glass built) and the sand comes to rest
+ *               within 5 s, and stays at rest
  *   avalanches  after the Flip button's turn the steepest stretch of the new
  *               upper bulb is under 40 degrees within 3 s, and at rest by 6 s
  *   falling     sand let go (the phone turned over) gathers speed and
@@ -16,6 +18,10 @@
  *   in the air  the falling thread is left behind when the glass is carried off
  *   shaking     four seconds of hard vertical shaking level a heap; walking
  *               does not
+ *   leaving the upright
+ *               the upright glass builds steeper than sand off the upright
+ *               holds; tilted slowly from straight, or picked up, it gives
+ *               none of that up in bulk
  *   the timer   a glass that runs while it leans still follows its clock, and one
  *               that runs out while it leans still brings its sand to the neck
  *   the census  holds through all of it, and each tone keeps its count
@@ -186,8 +192,10 @@ test('a held lean settles at the angle of repose to gravity and comes to rest', 
     ok(r.rest >= 0 && r.rest <= 5, 'lean ' + lean + '°: at rest after ' + (r.rest < 0 ? 'more than 8' : f1(r.rest)) + ' s (want at most 5)');
     ok(r.late === 0, 'lean ' + lean + '°: ' + r.late + ' steps with a grain moving between 6 and 8 s');
     ok(!sim.isActive(), 'lean ' + lean + '°: the sim is still active after 8 s');
-    ok(r.lower >= 28 && r.lower <= 38, 'lean ' + lean + '°: the lower surface lies at ' + f1(r.lower) + '° to gravity (want 28 to 38)');
-    ok(r.upper <= 38, 'lean ' + lean + '°: the upper surface lies at ' + f1(r.upper) + '° to gravity (want at most 38)');
+    // (under a small lean a bed still holds part of what the upright glass built: upTop, upBot)
+    var kept = Math.max(0, 1 - Math.abs(lean) / MOT.upLean), mostL = 38 + MOT.upBot * kept, mostU = 38 + MOT.upTop * kept;
+    ok(r.lower >= 28 && r.lower <= mostL, 'lean ' + lean + '°: the lower surface lies at ' + f1(r.lower) + '° to gravity (want 28 to ' + f1(mostL) + ')');
+    ok(r.upper <= mostU, 'lean ' + lean + '°: the upper surface lies at ' + f1(r.upper) + '° to gravity (want at most ' + f1(mostU) + ')');
     out.push(lean + '° → ' + f1(r.lower) + '° (above ' + f1(r.upper) + '°), at rest in ' + f1(r.rest) + ' s');
   });
   return out.join('; ');
@@ -242,6 +250,94 @@ test('tilted slowly and steadily, the sand follows the tilt as it comes: it flow
   ok(r.still < 0.10 && r.top < 0.38 && r.uneven < 0.60, say(r) + ' (want under 10 %, 38 % and 0.60)');
   ok(r0.still > r.still + 0.05 && r0.uneven > r.uneven + 0.12, 'this suite could not tell: as it was, ' + say(r0) + '; now ' + say(r));
   return say(r) + '; as it was: ' + say(r0);
+});
+
+/* ---- leaving the upright -------------------------------------------------- */
+
+/** A one-minute glass that has run for `secs` seconds through its clock, and still runs. */
+function running(secs) {
+  var sim = new Sim({ scale: 1.08, seed: 9 });
+  sim.reset(Clock.grainsFor(sim, 60000));
+  steps(sim, 300);
+  var T = new Clock(sim, 60000), now = 0, k;
+  T.start();
+  for (k = 0; k < secs * 120; k++) { T.tick(DT_MS, false); T.apply(now, false, true); if ((k & 1) === 0) sim.beginFrame(); sim.step(); now += DT_MS; }
+  return { sim: sim, T: T, now: now };
+}
+/** The grains of each bed, column by column (in the glass's own frame). */
+function columns(sim) {
+  var W = sim.W, cell = sim.cell, gate = sim.gateY, a = new Int32Array(W), b = new Int32Array(W), x, y;
+  for (y = 1; y < gate; y++) for (x = sim.rowMin[y]; x <= sim.rowMax[y]; x++) if (cell[y * W + x] >= REST) a[x]++;
+  for (y = gate + 1; y < sim.H - 1; y++) for (x = sim.rowMin[y]; x <= sim.rowMax[y]; x++) if (cell[y * W + x] >= REST) b[x]++;
+  return [a, b];
+}
+/** The grains that changed column between two counts (what the neck passed meanwhile is not a shift). */
+function shifted(p, q) {
+  var sum = 0, net = 0, x;
+  for (x = 0; x < p.length; x++) { sum += Math.abs(p[x] - q[x]); net += q[x] - p[x]; }
+  return (sum - Math.abs(net)) / 2;
+}
+/**
+ * Watch a running glass for `secs` seconds while `each(t, sim)` moves it, and say how its upper
+ * bed (the one the upright glass keeps steepest) took it: the grains that changed column in each
+ * quarter of a second, the busiest of those, and that as a share of the bed and of all the shift.
+ */
+function watchBeds(g, secs, each) {
+  var sim = g.sim, T = g.T, now = g.now, last = columns(sim), top0 = sim.nTop, q = [], sum = 0, peak = 0, k, c, v;
+  for (k = 0; k < secs * 120; k++) {
+    each(k / 120, sim);
+    T.tick(DT_MS, false); T.apply(now, false, true);
+    if ((k & 1) === 0) sim.beginFrame();
+    sim.step(); now += DT_MS;
+    if (k % 30 === 29) { c = columns(sim); v = shifted(last[0], c[0]); q.push(Math.round(v)); sum += v; if (v > peak) peak = v; last = c; }
+  }
+  return { q: q, peak: peak, ofBed: peak / top0, ofShift: peak / sum, census: censusOk(sim) };
+}
+/** The lean the app gives the glass for the phone's (app.js stepGravity): none while it stands straight, then in from nothing. */
+function appLean(want, hard) {
+  if (hard) return want < 0.045 ? 0 : want;                       // as it was: a step of 2.6° as the phone left the upright
+  return want < 0.03 ? 0 : (want < 0.09 ? 1.5 * (want - 0.03) : want);
+}
+/** The sand as it was before it held on near the upright (upTop, upBot). */
+function withoutHold(fn) {
+  var keep = { upTop: MOT.upTop, upBot: MOT.upBot }, r;
+  MOT.upTop = 0; MOT.upBot = 0;
+  try { r = fn(); } finally { MOT.upTop = keep.upTop; MOT.upBot = keep.upBot; }
+  return r;
+}
+function sayBeds(r) { return 'the busiest quarter second moved ' + Math.round(r.peak) + ' grains of the upper bed (' + (r.ofBed * 100).toFixed(1) + ' % of it, ' + (r.ofShift * 100).toFixed(0) + ' % of all its shift)'; }
+
+test('a running glass tilted slowly from straight gives nothing up in bulk as it leaves the upright', function () {
+  // The upright glass drains its upper bed to 40° and pours its heap to 34°, steeper than sand off the
+  // upright holds (35° and 32°). Leaned 3°, a tenth of the upper bed used to let go within half a second.
+  var tilt = function (hard) {
+    return watchBeds(running(30), 5, function (t, sim) {
+      var want = appLean(Math.min(20, 5 * t) * DEG, hard);
+      sim.tilt += (want - sim.tilt) * (1 - Math.exp(-DT_MS / 100));
+      if (want) sim.wakeAll();
+    });
+  };
+  var r = tilt(false), r0 = withoutHold(function () { return tilt(true); });
+  ok(r.census && r0.census, 'census broke');
+  ok(r.ofBed < 0.022 && r.ofShift < 0.18, sayBeds(r) + ' (want under 2.2 % and 18 %): ' + r.q.join(' '));
+  ok(r0.ofShift > 0.24 && r0.peak > 2 * r.peak, 'this suite could not tell: as it was, ' + sayBeds(r0) + '; now ' + sayBeds(r));
+  return sayBeds(r) + '; as it was: ' + sayBeds(r0);
+});
+
+test('... nor when it is picked up: a hand\'s tremor starts no slump', function () {
+  var f = { x: 0, y: 0, z: 0, w: 0, al: 0 }, inp = {};
+  var lift = function () {
+    return watchBeds(running(30), 4, function (t, sim) {
+      if (t >= 1) { f.x = 0.1 * Math.sin(TAU * 3.1 * (t - 1)); f.y = 0.07 * Math.sin(TAU * 4.3 * (t - 1) + 1); } else { f.x = f.y = 0; }
+      H.felt(sim, f, inp, false);
+      sim.setMotion(inp.ax, inp.ay, inp.w, inp.al, H.LAM, inp.gz);
+    });
+  };
+  var r = lift(), r0 = withoutHold(lift);
+  ok(r.census && r0.census, 'census broke');
+  ok(r.ofBed < 0.022, sayBeds(r) + ' (want under 2.2 %): ' + r.q.join(' '));
+  ok(r0.peak > 2 * r.peak && r0.ofBed >= 0.022, 'this suite could not tell: as it was, ' + sayBeds(r0) + '; now ' + sayBeds(r));
+  return sayBeds(r) + '; as it was: ' + sayBeds(r0);
 });
 
 function flipAndWatch(sim, secs) {

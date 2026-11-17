@@ -128,7 +128,9 @@ function run(name, o) {
     var hd = motion.heading;
     if (hd === hd && isFinite(hd)) gravTarget = hd;
     var want = gravTarget;                               // stepGravity (grav.base 0: the phone is the right way up)
-    if (want > -0.045 && want < 0.045) want = 0;
+    var aw = want < 0 ? -want : want;                    // (none while it stands straight, then in from nothing)
+    if (aw < 0.03) want = 0;
+    else if (aw < 0.09) want = (want < 0 ? -1.5 : 1.5) * (aw - 0.03);
     var d = wrapPi(want - sim.tilt);
     if (d > 0.0008 || d < -0.0008) { sim.tilt = wrapPi(sim.tilt + d * (1 - Math.exp(-FRAME_MS / 100))); sim.wakeAll(); }
     else if (d !== 0) { sim.tilt = wrapPi(want); sim.wakeAll(); }

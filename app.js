@@ -1073,7 +1073,11 @@
   function stepGravity(dtMs, now) {
     if (!btnMotion.hidden && (motion.seenOrient || motion.seenMotion)) btnMotion.hidden = true;   // allowed already: nothing to ask
     var want = grav.on ? grav.target : 0;
-    if (want > -0.045 && want < 0.045) want = 0;          // standing straight: let the sand sleep
+    // Standing straight: let the sand sleep. Past that the lean comes in from nothing (it does not
+    // begin with a step, which the sand would answer with a start) and has caught up with the phone by 5°.
+    var aw = want < 0 ? -want : want;
+    if (aw < 0.03) want = 0;
+    else if (aw < 0.09) want = (want < 0 ? -1.5 : 1.5) * (aw - 0.03);
     // follows the sensor briskly while it reports, eases over otherwise; never snaps
     var tau = grav.on && motion.seenOrient ? 100 : 240;
     var d = wrapPi(want + grav.base - sim.tilt);
