@@ -154,11 +154,53 @@ async function testReduced(s, env) {
   await t.close();
 }
 
+/**
+ * Two changes within one cross-fade (it takes 0.38 s to come in): both happen.
+ * Before, the second replaced the first: Layered sand tapped and then Frame, or
+ * a material, left the switch on and the sand plain.
+ */
+async function testQuick(s, env) {
+  var t = await env.open({ motionStub: true });
+  await openTune(t);
+  function both(first, second, ms) {
+    return t.eval(function (a) {
+      return new Promise(function (resolve) {
+        var Hg = window.Hourglass, P = window.HourglassPhysics;
+        document.querySelector(a.first).click();
+        setTimeout(function () {
+          document.querySelector(a.second).click();
+          setTimeout(function () {
+            var saved = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
+            resolve({ sw: document.getElementById('opt-layers').checked, sim: Hg.sim.layers, ren: Hg.renderer.layers, tones: Hg.sim.tones(), total: Hg.sim.total,
+                      frameSw: document.getElementById('opt-frame').checked, frame: Hg.renderer.frame, saved: [saved.layers, saved.frame, saved.theme],
+                      theme: Hg.renderer.theme === P.THEMES[saved.theme], fading: document.getElementById('assembly').classList.contains('fade') });
+          }, 1100);
+        }, a.ms);
+      });
+    }, { first: first, second: second, ms: ms });
+  }
+  var a = await both('#opt-layers', '#opt-frame', 150);
+  s.check('QUICK: Layered sand, then Frame 150 ms later: the sand is layered (switch, sim and renderer agree) and the frame is off',
+          a.sw && a.sim === true && a.ren === true && a.tones[1] > 0.2 * a.total && a.tones[1] <= a.tones[0] && !a.frameSw && a.frame === false && !a.fading, JSON.stringify(a));
+  var b = await both('#opt-layers', '#themes .card[data-theme-id="lapis"]', 250);
+  s.check('QUICK: Layered sand off, then a material 250 ms later: one tone again, and the renderer has the new material',
+          !b.sw && b.sim === false && b.ren === false && b.saved[2] === 'lapis' && b.theme && !b.fading, JSON.stringify(b));
+  var c = await both('#opt-frame', '#opt-layers', 30);
+  s.check('QUICK: Frame back on, then Layered sand 30 ms later: both', c.frameSw && c.frame === true && c.sw && c.sim === true && c.ren === true && !c.fading, JSON.stringify(c));
+  // and a change after the fade has gone again still takes one of its own
+  await sleep(300);
+  var d = await both('#opt-layers', '#opt-layers', 700);
+  s.check('QUICK: switched off and, 700 ms later, on again: on, in step', d.sw && d.sim === true && d.ren === true && !d.fading, JSON.stringify(d));
+  s.check('QUICK: no page or console errors', t.errors.length === 0, t.errors.slice(0, 3).join(' | '));
+  await t.close();
+}
+
 (async function () {
   var env = await H.start();
   var s = new H.Suite('app-layers');
   try {
     await testSwitch(s, env);
+    await testQuick(s, env);
     await testReduced(s, env);
   } catch (e) {
     s.check('the suite ran to its end', false, String(e && e.stack || e));

@@ -29,8 +29,11 @@
  *          two phases; another sequence's session does not.
  *  CALM    Reduce Motion: no turn, the sand fades across in the same time;
  *          with the Completion bowl off, no bowl.
+ *  REVIEW  the page hidden during the gap between two phases: one bowl, not
+ *          two; on short screens a sequence's phase line is still there for
+ *          a screen reader, and on screen in landscape.
  *
- *   node tools/test/app-sequence.test.js [--root <dir>] [--port <n>] [--only ui|run|phase|clock|reload|calm]
+ *   node tools/test/app-sequence.test.js [--root <dir>] [--port <n>] [--only ui|run|phase|clock|reload|calm|review]
  */
 'use strict';
 var H = require('./stubs/harness.js');
@@ -739,11 +742,86 @@ async function testCalm(s, env) {
 
 /* ---------------------------------------------------------------------- */
 
+/**
+ * Two things found in review. The page hidden during the gap between two
+ * phases (after the phase end was seen, and its bowl asked for): no second
+ * bowl. And on short screens, where the status line is not shown, a sequence
+ * still says which phase it is in: to a screen reader always, on screen in
+ * landscape, where there is room beside the glass.
+ */
+async function testReview(s, env) {
+  var WORK = 25 * 60000, REST = 5 * 60000;
+  // hidden 300 ms into the gap (before the bowl has sounded) and 2.5 s into it (during the turn)
+  var delays = [300, 2500];
+  for (var i = 0; i < delays.length; i++) {
+    var t = await env.open({ init: skewInit });
+    await t.eval(function (a) { window.Hourglass.setDuration(a[0], a[1], 3); }, [WORK, REST]);
+    await sleep(900);
+    await watch(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1200);
+    await t.eval(function () { window.__jump(window.Hourglass.timer.rem - 1500); });
+    await waitFor(t, function () { return window.Hourglass.seq.gap > 0; }, 12000);
+    await sleep(delays[i]);
+    await t.eval(function () { window.__hide(true); });
+    await sleep(1500);
+    await t.eval(function () { window.__hide(false); });
+    await sleep(1500);
+    var w = await seen(t), c = await snap(t);
+    s.check('REVIEW: the page hidden ' + delays[i] + ' ms into the gap between two phases: still one soft bowl for that phase end',
+            w.chimes.length === 1 && w.chimes[0].soft && c.phase === 1 && c.state === 'running' && c.status === 'Rest · 1 of 3',
+            JSON.stringify(w.chimes.map(function (q) { return (q.soft ? 'soft' : 'full') + (q.hidden ? ' (hidden)' : ''); })) + ', then "' + c.status + '", ' + c.state);
+    s.check('REVIEW: ... no page or console errors', t.errors.length === 0, t.errors.slice(0, 3).join(' | '));
+    await t.close();
+  }
+
+  // the phase line on short screens
+  function line(t) {
+    return t.eval(function () {
+      var st = document.getElementById('status'), cs = getComputedStyle(st), r = st.getBoundingClientRect(), ro = document.getElementById('readout').getBoundingClientRect();
+      return { text: st.textContent, live: st.getAttribute('aria-live'), display: cs.display, visibility: cs.visibility, clip: cs.clipPath, w: Math.round(r.width), h: Math.round(r.height),
+               position: cs.position, overflow: cs.overflow,
+               inView: r.left >= 0 && r.right <= window.innerWidth && r.top >= 0 && r.bottom <= window.innerHeight, underReadout: r.top >= ro.bottom - 1,
+               seq: document.getElementById('app').classList.contains('seq') };
+    });
+  }
+  var SHORT = [[320, 568, false], [844, 390, true]];
+  for (var k = 0; k < SHORT.length; k++) {
+    var u = await env.open({ init: skewInit });
+    await u.page.setViewportSize({ width: SHORT[k][0], height: SHORT[k][1] });
+    await sleep(500);
+    var plain = await line(u);
+    await u.eval(function (a) { window.Hourglass.setDuration(a[0], a[1], 4); }, [WORK, REST]);
+    await sleep(900);
+    await u.eval(function () { window.Hourglass.start(); });
+    await sleep(1200);
+    var q = await line(u), name = SHORT[k][0] + '×' + SHORT[k][1];
+    s.check('REVIEW ' + name + ': a plain glass shows no status line there, as before', plain.display === 'none' && !plain.seq, JSON.stringify(plain));
+    s.check('REVIEW ' + name + ': a sequence\'s phase line is there for a screen reader ("Work · 1 of 4", a polite live region, not display: none)',
+            q.seq && q.text === 'Work · 1 of 4' && q.live === 'polite' && q.display !== 'none' && q.visibility !== 'hidden', JSON.stringify(q));
+    if (SHORT[k][2]) {
+      s.check('REVIEW ' + name + ': ... and on screen, under the readout, beside the glass', q.clip === 'none' && q.w > 40 && q.h >= 10 && q.inView && q.underReadout, JSON.stringify(q));
+    } else {
+      // (its own min-height keeps the box 14 px tall: out of the flow and clipped away, that takes no room and shows nothing)
+      s.check('REVIEW ' + name + ': ... and takes no room on screen (out of the flow, 1 px wide, all of it clipped away)',
+              q.position === 'absolute' && q.w <= 1 && q.clip === 'inset(50%)' && q.overflow === 'hidden', JSON.stringify(q));
+    }
+    await u.eval(function () { window.Hourglass.setDuration(5 * 60000); });
+    await sleep(900);
+    var back = await line(u);
+    s.check('REVIEW ' + name + ': a plain glass again: no status line', back.display === 'none' && !back.seq, JSON.stringify(back));
+    s.check('REVIEW ' + name + ': no page or console errors', u.errors.length === 0, u.errors.slice(0, 3).join(' | '));
+    await u.close();
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
 (async function main() {
   var s = new H.Suite('app-sequence');
   var env = await H.start();
   var only = env.args.only;
-  var tests = [['ui', testUi], ['run', testRun], ['phase', testPhase], ['clock', testClock], ['reload', testReload], ['calm', testCalm]];
+  var tests = [['ui', testUi], ['run', testRun], ['phase', testPhase], ['clock', testClock], ['reload', testReload], ['calm', testCalm], ['review', testReview]];
   for (var i = 0; i < tests.length; i++) {
     if (only && only !== tests[i][0]) continue;
     try {

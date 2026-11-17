@@ -27,7 +27,24 @@
  *
  * Other new sounds are measured and printed, without limits.
  *
- *   node tools/test/audio-levels.test.js [port]      (default 8803)
+ * The water ambiences (brook, rain, ocean, waterfall, drips), each through
+ * the engine as the app plays it:
+ *
+ *   - alone at the default level: Ocean and Waterfall within 1 dB of the
+ *     brook's RMS; Drips 10 to 15 dB under it (drops are silence most of the
+ *     time: its loudest drops peak where the brook peaks, within 3 dB)
+ *   - each of the three as loud as it was prototyped (seed 1), within 0.3 dB
+ *   - a browser that refuses AudioBuffers below 22.05 kHz (older WebKit): the
+ *     loops are drawn out to a whole multiple of their rate and the render is
+ *     the same sound (the difference at least 60 dB under it)
+ *   - nothing clips: with the sand mix at full volume and the ambience at the
+ *     top of its slider, in every character, over the ocean's and the drips'
+ *     whole loops, what goes into the soft clipper stays under the end of its
+ *     curve
+ *   - a first hearing: Ocean's audition (12 s from its cue) holds one whole
+ *     wave, Drips' (9 s) at least three drops, for five seeds
+ *
+ *   node tools/test/audio-levels.test.js [port | --port <n>]      (default $PORT, else 8803)
  */
 'use strict';
 var path = require('path');
@@ -36,7 +53,8 @@ var chromium = require('playwright').chromium;
 var Server = require('./lib/static-server.js');
 
 var ROOT = path.resolve(__dirname, '..', '..');
-var PORT = +(process.argv[2] || process.env.PORT || 8803);
+var PORT_AT = process.argv.indexOf('--port');
+var PORT = +((PORT_AT > 0 ? process.argv[PORT_AT + 1] : process.argv[2]) || process.env.PORT || 8803);
 var BASE = 'http://127.0.0.1:' + PORT;
 
 var failures = 0, cases = 0;
@@ -218,6 +236,162 @@ async function main() {
       out.mixNew = rn; out.mixOld = ro;
       return out;
     });
+
+    /* ---- the water ambiences ---------------------------------------------------- */
+    var amb = await page.evaluate(async function () {
+      var A = window.HourglassAudio, out = { alone: {}, clip: [], cue: {} };
+      var R = window.__render, every = window.__every, M = window.__metrics, base = window.__base;
+      var AMB = A.AMBIENCES;
+
+      /** An ambience through the engine: started as the app starts it, the glass running. `o.sand`: with the full sand mix. */
+      function play(id, dur, o) {
+        var info = {};
+        return R(A, dur, function (a, off) {
+          if (o.refuse) {                              // an old WebKit: no AudioBuffer below 22.05 kHz
+            var make = off.createBuffer.bind(off);
+            info.refused = 0;
+            off.createBuffer = function (c, n, sr) {
+              if (sr < 22050) { info.refused++; throw new DOMException('sample rate', 'NotSupportedError'); }
+              return make(c, n, sr);
+            };
+          }
+          if (o.volume != null) a.setVolume(o.volume);
+          if (o.character) a.setCharacter(o.character);
+          a._cushion = 1;
+          a._makeAmbience(id, o.seed || 1);
+          a.ambience = id; a.ambLevel = o.level != null ? o.level : 0.5;
+          a._startAmbience(id);
+          info.rates = a._amb.srcs.map(function (s) { return s.buffer.sampleRate; });
+          info.seconds = a._amb.srcs.map(function (s) { return s.buffer.duration; });
+          var st = o.sand ? { flow: 290, impacts: 290, bottom: 6000, slides: 30000, running: true } : { running: true };
+          // the sand mix of the regression case above; its grains are scheduled as the render
+          // gets to them, as the app does (thousands waiting in the graph render many times slower)
+          var tg = 0.3;
+          every(off, a, 0.05, dur - 0.05, o.sand ? 1 / 60 : 0.1, function (a2, t) {
+            base(a2, st);
+            if (o.sand) while (tg < t + 0.07) { tg += -Math.log(1 - Math.random()) / 190; a2._tick(tg, false, 0.35 + Math.random() * 0.6, Math.random() * 2 - 1); }
+          });
+        }).then(function (buf) { buf.info = info; return buf; });
+      }
+      function seeded(s) { return A._synth.mulberry32(s); }
+
+      // 1. alone, at the default level and volume
+      var LEN = { brook: 35, rain: 35, ocean: 66, waterfall: 35, drips: 125 }, id;
+      for (id in LEN) {
+        var o1 = await play(id, LEN[id], {});
+        out.alone[id] = M(o1, 5, LEN[id]);
+        out.alone[id].rates = o1.info.rates;
+      }
+
+      // 2. the low-rate fallback: the same render with and without it, from the same random numbers
+      out.fallback = {};
+      var realRandom = Math.random;
+      for (id in { ocean: 1, waterfall: 1, drips: 1 }) {
+        Math.random = seeded(7);                       // the room, the sand and where the loops start: alike in both
+        var fa = await play(id, 12, {});
+        Math.random = seeded(7);
+        var fb = await play(id, 12, { refuse: true });
+        Math.random = realRandom;
+        var e = 0, d = 0, i0 = 48000 * 2;
+        for (var i = i0; i < fa.L.length; i++) { var x = fa.L[i] - fb.L[i]; d += x * x; e += fa.L[i] * fa.L[i]; }
+        out.fallback[id] = { asked: fa.info.rates, got: fb.info.rates, refused: fb.info.refused, seconds: fa.info.seconds, secondsFb: fb.info.seconds,
+                             residual: +(10 * Math.log10(d / e + 1e-30)).toFixed(1), a: M(fa, 2, 12), b: M(fb, 2, 12) };
+      }
+
+      // 3. behind the sand at full volume, the ambience at the top of its slider, in every character.
+      // The master gain comes after the soft clipper, whose curve (tanh(1.5 x) / tanh(1.5)) ends at
+      // ±1: from the output's peak, the peak that went into the clipper, in dB under that end.
+      var CLIP = { brook: 12, rain: 12, ocean: 64, waterfall: 12, drips: 24 };     // the ocean's and the drips' whole loops
+      var master = A.prototype._masterTarget.call({ muted: false, _silenced: false, volume: 1 });
+      Math.random = seeded(11);                        // the same sand and the same places in the loops every run
+      for (var ch in A.CHARACTERS) {
+        for (id in CLIP) {
+          var o3 = await play(id, CLIP[id], { sand: true, volume: 1, level: 1, character: ch }), pk = 0;
+          for (var j3 = 48000; j3 < o3.L.length; j3++) pk = Math.max(pk, Math.abs(o3.L[j3]), Math.abs(o3.R[j3]));
+          var y3 = pk / master;
+          out.clip.push({ character: ch, ambience: id, peak: +(20 * Math.log10(pk)).toFixed(2),
+                          into: y3 < 1 ? +(20 * Math.log10(Math.atanh(y3 * Math.tanh(1.5)) / 1.5)).toFixed(2) : 99 });
+        }
+      }
+      Math.random = realRandom;
+      out.master = master;
+
+      // 4. a first hearing: what the audition holds, from the loops themselves
+      function env(x, sr, w) {                         // RMS over windows of w seconds
+        var n = Math.floor(sr * w), m = Math.floor(x.length / n), o = new Float32Array(m);
+        for (var k = 0; k < m; k++) { var s = 0; for (var j = k * n; j < (k + 1) * n; j++) s += x[j] * x[j]; o[k] = Math.sqrt(s / n); }
+        return o;
+      }
+      out.cue.ocean = []; out.cue.drips = [];
+      [1, 2, 3, 12345, 2147483646].forEach(function (seed) {
+        var a = new A(), raw = a._makeAmbience('ocean', seed), L0 = AMB.ocean.layers[0], w = 0.25;
+        var e0 = env(raw[0][0], L0.sr, w), cue = L0.cue(L0.seconds, seed), n = e0.length, all = 0, k, best = 0, at = 0;
+        for (k = 0; k < n; k++) all += e0[k] * e0[k];
+        all = Math.sqrt(all / n);
+        var win = [], len = Math.round(AMB.ocean.audition / w);
+        for (k = 0; k < len; k++) win.push(e0[(Math.floor(cue / w) + k) % n]);
+        for (k = 0; k + 4 <= len; k++) {               // its loudest second
+          var s = Math.sqrt((win[k] * win[k] + win[k + 1] * win[k + 1] + win[k + 2] * win[k + 2] + win[k + 3] * win[k + 3]) / 4);
+          if (s > best) { best = s; at = k * w; }
+        }
+        function db(v) { return +(20 * Math.log10(v / all)).toFixed(1); }
+        out.cue.ocean.push({ seed: seed, cue: +cue.toFixed(2), crest: db(best), crestAt: at, first: db(Math.sqrt((win[0] * win[0] + win[1] * win[1]) / 2)),
+                             last: db(Math.sqrt((win[len - 1] * win[len - 1] + win[len - 2] * win[len - 2] + win[len - 3] * win[len - 3] + win[len - 4] * win[len - 4]) / 4)) });
+
+        // drops: the three loops from their cues, for the length of the audition
+        var b = new A(), rd = b._makeAmbience('drips', seed), sr = 16000, m = Math.round(AMB.drips.audition * sr), mix = new Float32Array(m), top = 0, li, j;
+        for (li = 0; li < 3; li++) {
+          var Ld = AMB.drips.layers[li], x = rd[li][0], y = rd[li][1], c0 = Math.round(Ld.cue(Ld.seconds, seed) * sr);
+          for (j = 0; j < x.length; j++) top = Math.max(top, Math.abs(x[j]), Math.abs(y[j]));
+          for (j = 0; j < m; j++) mix[j] = Math.max(mix[j], Math.abs(x[(c0 + j) % x.length]), Math.abs(y[(c0 + j) % y.length]));
+        }
+        // a drop: the sound rises above 0.07 (the loudest are near 0.5) after a quarter of a second under it
+        var drops = [], lastAt = -1e9;
+        for (j = 0; j < m; j++) if (mix[j] > 0.07) { if (j - lastAt > 0.25 * sr) drops.push(+(j / sr).toFixed(2)); lastAt = j; }
+        out.cue.drips.push({ seed: seed, drops: drops, loudest: +top.toFixed(2) });
+      });
+      return out;
+    });
+
+    var brook = amb.alone.brook;
+    function ambShow(id) { var m = amb.alone[id]; return id + ' ' + m.rms + ' dBFS RMS, peak ' + m.peak + ' (' + m.rates.join('/') + ' Hz)'; }
+    report(Math.abs(amb.alone.ocean.rms - brook.rms) <= 1 && Math.abs(amb.alone.waterfall.rms - brook.rms) <= 1,
+           'Ocean and Waterfall sit at the brook\'s loudness (RMS within 1 dB)', ['brook', 'ocean', 'waterfall', 'rain'].map(ambShow).join('; '));
+    var dU = brook.rms - amb.alone.drips.rms, dP = amb.alone.drips.peak - brook.peak;
+    report(dU >= 10 && dU <= 15 && Math.abs(dP) <= 3, 'Drips: 10 to 15 dB under the brook in RMS, its peaks within 3 dB of the brook\'s',
+           ambShow('drips') + ': ' + dU.toFixed(1) + ' dB under, peaks ' + (dP >= 0 ? '+' : '') + dP.toFixed(1) + ' dB');
+    // as the three were prototyped (seed 1, the same render): ocean −26.07, waterfall −25.57, drips −39.18 dBFS
+    var PROTO = { ocean: -26.07, waterfall: -25.57, drips: -39.18 };
+    report(Object.keys(PROTO).every(function (id) { return Math.abs(amb.alone[id].rms - PROTO[id]) <= 0.3; }),
+           'each new ambience is as loud as its prototype (within 0.3 dB)',
+           Object.keys(PROTO).map(function (id) { return id + ' ' + amb.alone[id].rms + ' (prototype ' + PROTO[id] + ')'; }).join(', '));
+    var fbOk = Object.keys(amb.fallback).every(function (id) {
+      var f = amb.fallback[id];
+      return f.refused > 0 && f.got.every(function (r) { return r >= 22050; }) && f.residual <= -60 &&
+             f.seconds.every(function (s, i) { return Math.abs(s - f.secondsFb[i]) < 1e-6; });
+    });
+    report(fbOk, 'where a browser refuses rates below 22.05 kHz the loops are drawn out to a whole multiple, and sound the same',
+           Object.keys(amb.fallback).map(function (id) {
+             var f = amb.fallback[id];
+             return id + ' ' + f.asked.join('/') + ' → ' + f.got.join('/') + ' Hz (' + f.refused + ' refused), difference ' + f.residual + ' dB re the sound';
+           }).join('; '));
+    // Nothing clips: what goes into the soft clipper never reaches the end of its curve, where it
+    // would be cut flat. (The same sand and the same places in the loops every run: seeded.)
+    function hottest(id) { return amb.clip.filter(function (c) { return c.ambience === id; }).reduce(function (w, c) { return c.into > w.into ? c : w; }); }
+    var worst = amb.clip.reduce(function (w, c) { return c.into > w.into ? c : w; });
+    report(worst.into <= -0.3 && amb.clip.length === 30,
+           'nothing clips: sand at full volume, the ambience at the top of its slider, in all six characters (the clipper\'s input stays ≥ 0.3 dB under its end)',
+           'dB under the end, the nearest of six characters: ' + ['brook', 'rain', 'ocean', 'waterfall', 'drips'].map(function (id) {
+             var h = hottest(id);
+             return id + ' ' + h.into + ' (' + h.character + ', output peak ' + h.peak + ' dBFS)';
+           }).join('; ') + '; output can reach ' + (20 * Math.log10(amb.master)).toFixed(2) + ' dBFS at most');
+    var oc = amb.cue.ocean, dr = amb.cue.drips;
+    report(oc.every(function (c) { return c.crest >= 3 && c.crestAt >= 1.5 && c.crestAt <= 7 && c.first <= c.crest - 6 && c.last <= c.crest - 6; }),
+           'Ocean\'s audition holds one whole wave: a crest ≥ 3 dB over the loop 1.5 to 7 s in, 6 dB less at both ends',
+           oc.map(function (c) { return 'seed ' + c.seed + ': ' + c.first + ' → ' + c.crest + ' dB at ' + c.crestAt + ' s → ' + c.last; }).join('; '));
+    report(dr.every(function (c) { return c.drops.length >= 3 && c.drops[0] <= 2; }),
+           'Drips\' audition holds several drops (≥ 3 in its 9 s, the first within 2 s)',
+           dr.map(function (c) { return 'seed ' + c.seed + ': ' + c.drops.join(', ') + ' s'; }).join('; '));
 
     function show(k) { return k + ' ' + JSON.stringify(res[k]); }
     var TH = [res.thump5Hz_agit2_sand, res.thump5Hz_agit2_glass];
