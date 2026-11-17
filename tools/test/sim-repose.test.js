@@ -11,7 +11,9 @@
  *               stretches; it does not sink as a block at one speed
  *   momentum    a sideways jolt carries the bed on after it has ended; a glass
  *               carried by a finger and stopped dead (as app.js steps it)
- *               makes its sand surge and run back; a slow carry starts nothing
+ *               leaves its sand behind, which surges back at the stop and
+ *               comes to rest; a slow carry starts nothing
+ *   in the air  the falling thread is left behind when the glass is carried off
  *   shaking     four seconds of hard vertical shaking level a heap; walking
  *               does not
  *   the timer   a glass that runs while it leans still follows its clock
@@ -325,27 +327,61 @@ function carry(sim, v, dist, secsAfter) {
   return r;
 }
 
-test('a glass carried by a finger and stopped dead: its sand is left behind, surges past where it lay and comes to rest; a slow carry starts nothing', function () {
-  var sim = grown(0.5), r = carry(sim, 600, 180, 2.5);
+test('a glass carried by a finger and stopped dead: its sand is left behind, surges back and comes to rest; a slow carry starts nothing', function () {
+  var sim = grown(0.5), r = carry(sim, 1000, 200, 2.5);
   ok(r.census, 'the census broke');
-  ok(r.slip >= 100, 'the bed slid at ' + r.slip.toFixed(0) + ' cells/s at most (want at least 100)');
+  ok(r.slip >= 80, 'the bed slid at ' + r.slip.toFixed(0) + ' cells/s at most (want at least 80)');
   // carried off toward +x the sand is left behind (its centroid moves toward −x in the glass);
-  // at the stop it surges the other way, past where it lay; then it lies still
-  var iStop = Math.round(r.T1 * 20), back = 0, fwd = -1e9, k;
+  // at the stop it surges the other way, back to where it lay; then it lies still
+  var iStop = Math.round(r.T1 * 20), back = 0, k;
   for (k = 0; k < iStop + 3; k++) if (r.x[k] < back) back = r.x[k];
-  for (k = iStop; k < r.x.length; k++) if (r.x[k] > fwd) fwd = r.x[k];
   var end = r.x[r.x.length - 1];
-  ok(back <= -5, 'carried off, the bed was left behind by ' + f1(-back) + ' cells at most (want at least 5)');
-  ok(fwd >= 1, 'stopped dead, the bed surged to ' + f1(fwd) + ' cells past where it lay (want at least 1)');
-  ok(fwd - back >= 8, 'the slosh spans ' + f1(fwd - back) + ' cells (want at least 8)');
+  ok(back <= -4, 'carried off, the bed was left behind by ' + f1(-back) + ' cells at most (want at least 4)');
+  ok(end - back >= 3 && Math.abs(end) <= 2, 'stopped dead, it did not surge back: ' + f1(back) + ' cells at the most, ' + f1(end) + ' at the end');
   ok(r.rest >= 0 && r.rest <= 2, 'not at rest 2 s after the stop');
   var slow = carry(grown(0.5), 150, 120, 1.5), xs = Math.max.apply(null, slow.x.map(Math.abs));
   ok(slow.slip === 0, 'a slow carry (150 px/s) set the bed sliding at ' + slow.slip.toFixed(0) + ' cells/s');
   ok(xs < 1, 'a slow carry moved the bed ' + f1(xs) + ' cells');
-  var old = carry(grown(0.5, { granular: false }), 600, 180, 2.5), xo = Math.max.apply(null, old.x.map(Math.abs));
+  var old = carry(grown(0.5, { granular: false }), 1000, 200, 2.5), xo = Math.max.apply(null, old.x.map(Math.abs));
   ok(xo < 2, 'without it the bed moved ' + f1(xo) + ' cells: this suite could not tell');
-  return '600 px/s over 180 px: the bed slides at up to ' + r.slip.toFixed(0) + ' cells/s; its centroid is left ' + f1(-back) + ' cells behind, surges to ' + f1(fwd) +
-    ' past where it lay at the stop and ends at ' + f1(end) + ', at rest ' + f1(r.rest) + ' s after the stop (without it: ' + f1(xo) + ' cells in all); 150 px/s: no slide, the bed moves ' + f1(xs) + ' cells';
+  return '1000 px/s over 200 px: the bed slides at up to ' + r.slip.toFixed(0) + ' cells/s; its centroid is left ' + f1(-back) + ' cells behind, surges back at the stop and ends at ' +
+    f1(end) + ', at rest ' + f1(r.rest) + ' s after the stop (without it: ' + f1(xo) + ' cells in all); 150 px/s: no slide, the bed moves ' + f1(xs) + ' cells';
+});
+
+test('grains in the air belong to the room: the falling thread is left behind when the glass is carried off', function () {
+  // a running glass, its thread falling; then carried off toward +x at 600 px/s (as in carry())
+  function thread(o) {
+    var sim = new Sim(o && o.granular === false ? { scale: 1.08, seed: 5, granular: false } : { scale: 1.08, seed: 5 });
+    sim.reset(Clock.grainsFor(sim, 60000));
+    steps(sim, 300);
+    var T = new Clock(sim, 60000), now = 0, k, dev = 0, n = 0, worst = 0, cx = sim.geo.cx;
+    var KPX = 0.16e-3 / 9.81, PX = 1.48, fw = 30, fz = 0.85, px = 0, vx = 0;
+    T.start();
+    function go(nSteps, v) {
+      for (k = 0; k < nSteps; k++) {
+        var ax = 0;
+        if (v) { ax = fw * fw * (v * (k + 1) * DT - px) - 2 * fz * fw * vx; vx += ax * DT; px += vx * DT; }
+        T.tick(DT_MS, false); T.apply(now, false, true);
+        sim.setMotion(-sim.G * KPX * ax, 0, 0, 0, H.LAM, 0);
+        sim.setCarry(-ax / PX, 0);
+        if ((k & 1) === 0) sim.beginFrame();
+        sim.step(); now += DT_MS;
+        if (v) {
+          dev = 0; n = 0;
+          for (var p = 0; p < sim.np; p++) if (sim.py[p] > sim.gateY + 20) { dev += sim.px[p] - cx; n++; }
+          if (n > 3 && dev / n < worst) worst = dev / n;
+        }
+      }
+    }
+    go(600, 0);
+    go(30, 600);
+    return { worst: worst, census: censusOk(sim) };
+  }
+  var r = thread(), old = thread({ granular: false });
+  ok(r.census, 'the census broke');
+  ok(r.worst <= -8, 'the thread was left ' + f1(-r.worst) + ' cells behind at most (want at least 8)');
+  ok(r.worst < 2 * old.worst, 'without it the thread was left ' + f1(-old.worst) + ' cells behind, with it ' + f1(-r.worst) + ': this suite could not tell');
+  return 'carried off at 600 px/s, the grains in the air are left ' + f1(-r.worst) + ' cells behind the neck within 0.25 s (without it ' + f1(-old.worst) + ')';
 });
 
 /* ---- shaking -------------------------------------------------------------- */

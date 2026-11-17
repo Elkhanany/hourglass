@@ -924,7 +924,8 @@
     // The sand was moving across the screen with the glass and keeps that speed when the
     // glass is stopped or snatched away: its beds slide on (physics.js setCarry). In the
     // glass's own cells, not as a g-ratio: the sand lives in slow motion, the hand does not.
-    var kx = reduceMotion ? 0 : -body.ax / room.px, ky = reduceMotion ? 0 : -body.ay / room.px;
+    // (while it falls freely its sand is weightless already, above: not twice)
+    var kx = reduceMotion ? 0 : -body.ax / room.px, ky = reduceMotion || body.air ? 0 : -body.ay / room.px;
     sim.setCarry(kx * c + ky * s, -kx * s + ky * c);
   }
 

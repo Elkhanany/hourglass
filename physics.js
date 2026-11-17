@@ -386,7 +386,8 @@
     // each bed's sideways momentum (slip): it starts when the level push beats muS of the load, friction muK
     // takes it away again; slipK of the glass's own on-screen motion counts as push (setCarry); while it slides
     // its field leans by muK of the load plus slipC (1/s) of its speed; never faster than slipMax cells/s
-    muS: 0.65, muK: 0.5, slipK: 1, slipC: 6, slipMax: 1200,
+    muS: 0.65, muK: 0.5, slipK: 0.6, slipC: 6, slipMax: 1200,
+    airK: 1,             // how much of the glass's own on-screen motion a grain in the air feels (1: it stays where it was in the room)
     slipShifts: 2,       // cells a step a sliding bed is moved at most
     slipStop: 0.02,      // a shift that moves less than this share of the bed's grains has met the glass: the slide ends
     slB: 8, slUp: 3, slStop: 36, slMax: 96, slEvery: 2, slRun: 64, slDeep: 6, slW: 3,
@@ -1770,12 +1771,18 @@
     var G = this.G, cx = g.cx, cy = g.cy, gateY = this.gateY, f = this.frame;
     var lam = this.mLam, w = this.mW, w2 = lam * w * w, la = lam * this.mAl;
     var Ax = this.mAx, Ay = this.mAy, Fx = G * this.gx + Ax, Fy = G * this.gy + Ay;
+    // A grain in the air belongs to the room, not to the glass: when the glass is carried
+    // off or stopped (setCarry) the grain keeps the speed it had, so in the glass's frame
+    // it feels all of the glass's own acceleration, in cells. Exactly nothing while the
+    // glass keeps its place.
+    var Kx = this.granular ? this.mKx * MOT.airK : 0, Ky = this.granular ? this.mKy * MOT.airK : 0;
+    Fx += Kx; Fy += Ky;
     // Coriolis, −2Ω×v = 2ω(v_y, −v_x), at √λ (sim speeds are slow-motion
     // real speeds), applied as an exact-norm Cayley rotation by c = √λ·ω·Δt:
     // explicit Euler would gain about 2 % of speed per step at 4π rad/s.
     var c = Math.sqrt(lam) * w * DT, cn = 1 / (1 + c * c), cA = (1 - c * c) * cn, cB = 2 * c * cn;
     var aLim = 0.02 * G;
-    var calm = Ax * Ax + Ay * Ay < aLim * aLim && w < 0.2 && w > -0.2;
+    var calm = Ax * Ax + Ay * Ay < aLim * aLim && Kx * Kx + Ky * Ky < aLim * aLim && w < 0.2 && w > -0.2;
     var focus = calm && !this.flipping && this.gy > 0.9 ? this.focus : 0;
     var jx = MOT.jitX, jy = MOT.jitY, vMax = MOT.vMax, rV = MOT.retryV;
     var s = this.rng | 0;
