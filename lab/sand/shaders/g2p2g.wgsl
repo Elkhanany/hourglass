@@ -8,7 +8,8 @@
 // friction; particles are never deleted, only put back inside the glass; a
 // closed neck holds the top bulb's sand; sand measures how tightly it is
 // packed from the grid, so that loose sand packs back down under load
-// (EA's per-particle expansion memory is replaced by that measure).
+// (EA's per-particle expansion memory is replaced by that measure): the mean
+// over the filled nodes around it, not the densest node.
 //-----------------------------------------------------------------------------
 
 //!include common.inc
@@ -107,8 +108,10 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
             var B = ZeroMatrix;
             var d = vec2f(0);
             var volume = 0.0;
-            // sand: the packing of the densest grid node around the particle (1: the fill's packing)
+            // sand: how tightly the sand around the particle is packed (1: the fill's packing): the
+            // grid's volume, weighted, over the nodes the sand fills (wFilled: their share of the weights)
             var packing = 0.0;
+            var wFilled = 0.0;
             for(var i = 0; i < 3; i++)
             {
                 for(var j = 0; j < 3; j++)
@@ -131,11 +134,15 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                     {
                         let nodeVolume = decodeFixedPoint(atomicLoad(&s_tileData[gridVertexIdx + 3]), g_simConstants.fixedPointMultiplier);
                         volume += weight * nodeVolume;
-                        packing = max(packing, nodeVolume);
+                        if (nodeVolume > 0.25) { wFilled += weight; }
                     }
                 }
             }
 
+            if(g_simConstants.useGridVolumeForLiquid != 0)
+            {
+                packing = volume / max(wFilled, 0.05);
+            }
             // Recover an objective measure of a liquid's volume from the grid, when compressed.
             if(g_simConstants.useGridVolumeForLiquid != 0)
             {
@@ -179,15 +186,21 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                         let sinPhi = sin(materialParams.physical.x/180.0 * 3.14159);
                         let alpha = sqrt(2.0/3.0)*2.0*sinPhi/(3.0 - sinPhi);
                         // How loose the sand is (log of its volume over its rest volume, >= 0), measured on
-                        // the grid: the packing of the densest node around the particle. (Not the mean over
-                        // the nodes: at a free surface or a wall the nodes outside the sand would make dense
-                        // sand look loose; the densest node is inside it.) EA kept a per-particle memory of
+                        // the grid: the weighted mean packing of the nodes around the particle that the sand
+                        // fills. (Nodes outside the sand, at a free surface or a wall, are left out, or they
+                        // would make dense sand look loose. The densest node, used before, read a bed 3 to 5 %
+                        // looser than its fill as packed, because the most of nine noisy nodes reads high, so
+                        // the bed swelled 6.5 % at rest, 14 % at real speed, and never packed back.) EA kept a per-particle memory of
                         // expansion instead (logJp = beta * trace); in this solver that memory decayed
                         // within a few substeps, while the over-relaxed constraint below kept pushing points
                         // apart, so a bed swelled at rest and never packed back down.
                         // rest packing: mechanical.y for sand (1: as filled)
                         let restPacking = materialParams.mechanical.y;
-                        let loose = select(0.0, clamp(log(restPacking / max(packing, 1e-3)), 0.0, 1.5), g_simConstants.useGridVolumeForLiquid != 0);
+                        // this point's own packing (padding; 0 until it changes: the material's), which
+                        // shaking raises (below)
+                        let phi0 = select(restPacking, particle.padding, particle.padding > 0.0);
+                        let loose = select(0.0, clamp(log(phi0 / max(packing, 1e-3)), 0.0, 1.5), g_simConstants.useGridVolumeForLiquid != 0);
+                        var gammaP = 0.0;
 
                         let eDiag = log(max(abs(svdResult.Sigma), vec2f(1e-6)));
                         // compression up to the looseness only fills voids: it is plastic and costs nothing
@@ -210,6 +223,7 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                             let deltaGammaI = frobNrm + coneK * trace * alpha;
                             if(deltaGammaI > 0)
                             {
+                                gammaP = deltaGammaI;
                                 // Project to cone surface.
                                 svdResult.Sigma = exp(e2 - deltaGammaI/max(frobNrm, 0.000001) * eHat);
                             }
@@ -220,6 +234,18 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                         }
                         // carried to the next substep's constraint: loose sand may be compressed this far
                         particle.logJp = loose;
+                        // Tapping or shaking packs sand tighter, and it stays packed: each time a point is
+                        // packed down again from a loosened state (looser than 2 %), its own packing gains a
+                        // share of the room left to the densest packing, in proportion to the compaction
+                        // taken; plastic shear loosens it back toward the fill's packing (Reynolds dilatancy).
+                        let cmp = g_simConstants.compaction;
+                        if (cmp.x > 0.0) {
+                            let taken = min(max(0.0, -(eDiag.x + eDiag.y)), loose);
+                            var phi = phi0;
+                            if (loose > 0.02) { phi += cmp.x * taken * (cmp.y - phi); }
+                            phi -= cmp.z * gammaP * max(phi - restPacking, 0.0);
+                            particle.padding = clamp(phi, restPacking, max(cmp.y, restPacking));
+                        }
                     }
                     else if(particle.material == MaterialVisco)
                     {

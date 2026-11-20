@@ -65,10 +65,19 @@ struct SimConstants {
     // x: 1 while the neck is closed, y: the neck's half-width, cells
     gate: vec2f,
     material: MaterialParams,
-    // sand: x, y, z: unused; w: how far loose sand may be compressed freely, as a
-    // share of its looseness (0: not at all; it packs down at the rate its load
-    // gets through the constraint)
+    // sand: x, y, z: unused; w: how far loose sand may be compressed freely, as a share of its
+    // looseness (0: not at all; it packs down at the rate its load gets through the constraint)
     sand: vec4f,
+    // the points' spreading (spreadShift.wgsl): x: step, y: crowding threshold, z: longest step
+    // (cells); w: unused
+    spread: vec4f,
+    // sand's packing state (g2p2g.wgsl): x: how fast sand packed down again from a loosened
+    // state gains packing (0: never); y: the densest packing it reaches (1: the fill's);
+    // z: how fast plastic shear loosens it back toward the fill's packing; w: unused
+    compaction: vec4f,
+    // sand's yield inside the iterations (g2p2g.wgsl): x: 1 on (0: EA's clamp target); y: the
+    // share of the friction cone it uses there (yieldScale); z, w: unused
+    yieldp: vec4f,
 };
 
 fn divUp(threadCount : u32, divisor : u32) -> u32
@@ -109,7 +118,7 @@ struct Particle
     mass: f32,
     volume: f32,
     material: f32,
-    padding: f32,
+    padding: f32,       // sand: the point's own packing (g2p2g.wgsl; 0: not yet set)
     color: vec3f,       // x: the grain's own random number (drawing only)
 }; // 24 floats
 

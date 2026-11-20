@@ -78,6 +78,9 @@ const LAYOUTS = {
   gridUpdate: 'usrrrss',
   g2p2g: 'usrsrr',
   rescale: 'urs',
+  spreadClear: 'us',
+  spreadSplat: 'urrs',
+  spreadShift: 'ursrr',
   tally: 'urrrs'
 };
 
@@ -98,12 +101,33 @@ const LAYOUTS = {
  * restPacking is the packing it settles back to (1: as filled), and loose
  * sand packs down under load instead of keeping every expansion (without it
  * a bed at rest swelled by half in 3 s, and a shaken heap to 2.5 times its
- * size). floorLoose: 0, loose sand packs down only as fast as its load gets
+ * size). Since the packing is the mean over the filled nodes (it was the
+ * densest node, which read sand 3 to 5 % looser than its fill as packed, so
+ * that it swelled and was stiffer than its looseness allowed), slightly loose
+ * sand takes some compression plastically and stands lower: at the old 28.5
+ * and 27.5 degrees, heaps of 27.4 and 26.1. The angles are set again for the
+ * same heaps as before (measured: coarse 30 -> 29.1, 31 -> 30.6, 32 -> 28.7,
+ * a noisy step; fine 29 -> 27.4, 30 -> 29.2), so coarse 31 and fine 30.
+ * floorLoose: 0, loose sand packs down only as fast as its load gets
  * through the constraint (1: freely, which made the bed bounce in place).
+ *
+ * spread: the solver's grid is a cell wide and cannot see how the points sit
+ * inside a cell, so in a sheared, dilating flow they crowd into lines with
+ * dark gaps between (the combed stripes and voids of a turn or a shake). Each
+ * substep a sand point that crowds its neighbours (a density, on a grid half a
+ * cell wide, above spreadThr) steps down that density's gradient, by spread
+ * times the excess, at most spreadCap cells: a position correction, its
+ * velocity untouched. 0 turns it off.
+ *
+ * compact, packMax: real sand packs tighter when it is tapped or shaken, and
+ * stays so. Each sand point keeps its own packing (1: the fill's); each time it
+ * is packed down again from a loosened state, it gains compact x the
+ * compaction taken x the room left to packMax; plastic shear loosens it back
+ * toward 1 (dilate). 0 turns it off.
  */
 export const MATERIALS = {
-  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 28.5, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0 },
-  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 27.5, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.42, wallDrag: 0 },
+  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 31, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05 },
+  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 30, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.42, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05 },
   water:  { label: 'Water',       model: 0, frictionAngle: 0,  viscosity: 0.01,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.002 },
   syrup:  { label: 'Syrup',       model: 0, frictionAngle: 0,  viscosity: 0.35,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.05 }
 };
@@ -174,6 +198,9 @@ export class Solver {
     mk('grid0', nodes * 16, S); mk('grid1', nodes * 16, S);
     mk('domain', nodes * 16, S, glass.field);
     mk('wall', nodes * 4, S);
+    // the sub-cell density grid (nodes half a cell apart) on which sand points spread
+    this.fineCount = (2 * this.W + 2) * (2 * this.H + 2);
+    mk('fine', this.fineCount * 4, S);
     mk('bucketCount', this.bucketCount * 4, S);
     mk('bucketInsertCount', this.bucketCount * 4, S);
     mk('bucketStarts', this.bucketCount * 4, S);
@@ -217,6 +244,9 @@ export class Solver {
       update: [b.grid0, b.grid1].map(g => group('gridUpdate', [g, b.domain, b.gridBuckets, b.gridArgs, b.wall, b.counters])),
       solve: [0, 1].map(i => group('g2p2g', [b.particles, i ? b.grid1 : b.grid0, i ? b.grid0 : b.grid1, b.bucketData, b.domain])),
       rescale: group('rescale', [b.count, b.particles]),
+      spreadClear: group('spreadClear', [b.fine]),
+      spreadSplat: group('spreadSplat', [b.count, b.particles, b.fine]),
+      spreadShift: group('spreadShift', [b.count, b.particles, b.fine, b.domain]),
       tally: group('tally', [b.count, b.particles, b.domain, b.tally])
     };
   }
@@ -258,6 +288,9 @@ export class Solver {
     F[o + 28] = m.viscosity; F[o + 29] = m.model === 2 ? (m.restPacking ?? 1) : m.relaxation; F[o + 30] = m.elasticity; F[o + 31] = m.model === 2 ? (m.coneK || 0) : m.plasticity;
     F[o + 32] = m.frictionAngle; F[o + 33] = m.density; F[o + 34] = m.stiffness; F[o + 35] = m.model;
     F[o + 36] = 0; F[o + 37] = 0; F[o + 38] = 0; F[o + 39] = m.floorLoose ?? 0;
+    F[o + 40] = m.spread ?? 0; F[o + 41] = m.spreadThr ?? 0.8; F[o + 42] = m.spreadCap ?? 0.05; F[o + 43] = 0;
+    F[o + 44] = m.compact ?? 0; F[o + 45] = m.packMax ?? 1; F[o + 46] = m.dilate ?? 1; F[o + 47] = 0;
+    F[o + 48] = m.yieldLoop ?? 0; F[o + 49] = m.yieldScale ?? 1; F[o + 50] = 0; F[o + 51] = 0;
   }
 
   /**
@@ -297,6 +330,12 @@ export class Solver {
         if (it) go(P.gridUpdate, G.update[this.gridIndex], base + it, b.gridArgs);
         go(solid, G.solve[this.gridIndex], base + it, b.bucketArgs);
         this.gridIndex = next;
+      }
+      // sand points that crowd together inside a cell move apart (spreadShift.wgsl)
+      if (set.material.model === 2 && set.material.spread) {
+        go(P.spreadClear, G.spreadClear, base, Math.ceil(this.fineCount / 64));
+        go(P.spreadSplat, G.spreadSplat, base, n64);
+        go(P.spreadShift, G.spreadShift, base, n64);
       }
     }
     if (this.count) go(P.tally, G.tally, Math.max(steps - 1, 0) * MAX_IT, n64);
