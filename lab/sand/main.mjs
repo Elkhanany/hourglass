@@ -1102,8 +1102,10 @@ async function autoSetup() {
   const pick = fits.length ? fits[fits.length - 1] : { res: DEFAULT_SETUP.res, amount: DEFAULT_SETUP.amount, ms: ms0, load: ms0 * SETUP_HZ / 1000 };
   const name = c => `${RES_NAME[c.res]} grid, ${AMOUNT_NAME[c.amount]}`;
   setupInfo.state = 'auto';
-  setupInfo.text = `picked ${name(pick)} on first load: the default (${name(DEFAULT_SETUP)}) took ${ms0.toFixed(2)} ms of GPU a substep here (display ${Math.round(f.display || 0)} Hz); scaled by the cost model, ${name(pick)} takes ${Math.round(pick.load * 100)}% of the GPU at ${SETUP_HZ} Hz (the most it may: ${Math.round(GPU_SHARE * 100)}%)` +
-    (scored.length > fits.length ? `; the next, ${name(scored[fits.length] || scored[scored.length - 1])}, ${Math.round((scored[fits.length] || scored[scored.length - 1]).load * 100)}%` : '');
+  const next = fits.length && fits.length < scored.length ? scored[fits.length] : null;
+  setupInfo.text = `${fits.length ? 'picked' : 'kept'} ${name(pick)} on first load: the default (${name(DEFAULT_SETUP)}) took ${ms0.toFixed(2)} ms of GPU a substep here (display ${Math.round(f.display || 0)} Hz); ` +
+    (fits.length ? `scaled by the cost model, ${name(pick)} takes ${Math.round(pick.load * 100)}% of the GPU at ${SETUP_HZ} Hz (the most it may: ${Math.round(GPU_SHARE * 100)}%)` + (next ? `; the next, ${name(next)}, ${Math.round(next.load * 100)}%` : '')
+      : `at ${SETUP_HZ} Hz that is ${Math.round(pick.load * 100)}% of the GPU (the most it may: ${Math.round(GPU_SHARE * 100)}%): nothing fits, so the sand runs slower than real time`);
   setupSave({ res: pick.res, amount: pick.amount, by: 'auto', ms: +ms0.toFixed(3) });
   if (pick.res !== S.res || pick.amount !== S.amount) await resetSand({ res: pick.res, amount: pick.amount });
   setStatus(fits.length ? `Set up for this phone: ${name(pick)} (it keeps up in real time). The buttons change it.` : `This device is slow for the sand: even ${name(pick)} runs slower than real time. The buttons change it.`);

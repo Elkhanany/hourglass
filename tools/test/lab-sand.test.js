@@ -78,7 +78,9 @@
  *               cells, surface within 1 degree
  *  19 pace      the live loop (a small bed pouring and shaken): at most one frame
  *               of GPU work in flight, and the submit-to-done lag within two
- *               display frames (on an iPhone at 5cc11b3, 350 to 730 ms: three
+ *               display frames, or (the software GPU here, where one substep's
+ *               frame takes over a display frame) that frame's own time and one
+ *               display frame more (on an iPhone at 5cc11b3, 350 to 730 ms: three
  *               frames of work queued); the GPU budget holds the substeps and
  *               auto Hz back, and the report says so; control: the old pace (3
  *               frames in flight, no budget) breaks the bound. The Benchmark's
@@ -868,23 +870,39 @@ async function main() {
       // (the stream is falling fast before the live loop takes over: auto Hz wants to rise)
       await L(function () { return window.__lab.advance(0.8); });
       await L(function () { window.__lab.manual(false); });
-      await page.waitForTimeout(6500);
-      var r = await L(function () { return { f: window.__lab.frameStats(4000), ls: window.__lab.loopState(), rep: window.__lab.report() }; });
+      // (while the stream still falls fast: the budget, auto Hz and the report)
+      await page.waitForTimeout(5000);
+      var early = await L(function () { return { f: window.__lab.frameStats(4000), rep: window.__lab.report() }; });
+      // (long enough for frames of the old pace, over a second each here, to come back done)
+      await page.waitForTimeout(5000);
+      var r = await L(function () { return { f: window.__lab.frameStats(4000), ls: window.__lab.loopState(), log: window.__lab.gpuLog() }; });
+      r.early = early.f; r.rep = early.rep;
+      // the lag: the median submit-to-done time of the frames done over the last 4 s
+      var ms = r.log.map(function (x) { return x.ms; }).sort(function (a, b) { return a - b; });
+      r.lag = ms.length ? ms[ms.length >> 1] : NaN;
+      r.T = 1000 / (r.f.display || 60);
+      r.lagFrames = r.lag / r.T;
+      // the quickest frame done, for the bound below
+      r.minMs = ms.length ? ms[0] : NaN;
       await L(function () { window.__lab.manual(true); window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
       // (the old pace leaves frames queued on the software GPU: let them finish)
       await page.waitForFunction(function () { var s = window.__lab.loopState(); return s.inflight === 0; }, null, { timeout: 120000, polling: 250 }).catch(function () {});
       return r;
     };
-    var desc19 = function (r) { return 'lag ' + f1(r.f.gpu) + ' ms = ' + f2(r.f.lagFrames) + ' display frames (display ' + f1(r.f.display) + ' Hz), ' + f1(r.f.fps) + ' fps, ' + f1(r.f.steps) + ' substeps a frame, sim/real ' + f2(r.f.ratio) + ', ' + Math.round(100 * r.f.gpuHeld) + '% of frames held by the GPU budget, auto Hz ' + r.f.hzMax + (r.f.wantMax > r.f.hzMax ? ' (wanted ' + r.f.wantMax + ', held in ' + Math.round(100 * r.f.held) + '%)' : '') + ', up to ' + r.ls.peakInflight + ' frames in flight'; };
+    var desc19 = function (r) { return 'lag ' + f1(r.lag) + ' ms = ' + f2(r.lagFrames) + ' display frames (display ' + f1(r.f.display) + ' Hz), ' + f1(r.f.fps) + ' fps, ' + f1(r.f.steps) + ' substeps a frame, sim/real ' + f2(r.f.ratio) + ', ' + Math.round(100 * r.f.gpuHeld) + '% of frames held by the GPU budget, auto Hz ' + r.early.hzMax + (r.early.wantMax > r.early.hzMax ? ' (wanted ' + r.early.wantMax + ', held in ' + Math.round(100 * r.early.held) + '% of frames, 1 to 5 s in)' : '') + ', up to ' + r.ls.peakInflight + ' frames in flight'; };
     var now19 = await pace19({ queue: 1, budget: true });
     log('  default pace: ' + desc19(now19));
     var old19 = await pace19({ queue: 3, budget: false });
+    // the bound: two display frames, or, where a frame of one substep takes longer than a display
+    // frame by itself (the software GPU here: the budget cannot go below one substep), that frame's
+    // own time (the quickest seen at the default pace) and one display frame more; the same for both
+    now19.bound = old19.bound = Math.max(2 * now19.T, now19.minMs + now19.T);
     log('  old pace (control): ' + desc19(old19));
     await L(function () { return window.__lab.settings({ queue: 1, budget: true }); });
-    check(now19.ls.peakInflight <= 1 && now19.f.lagFrames <= 2, 'what is drawn trails the sand by at most two display frames: one frame of work in flight (' + now19.ls.peakInflight + '), lag ' + f2(now19.f.lagFrames) + ' frames (' + f1(now19.f.gpu) + ' ms)');
-    check(old19.ls.peakInflight > 1 && old19.f.lagFrames > 2, 'control: the old pace queues frames and breaks that bound (' + old19.ls.peakInflight + ' in flight, lag ' + f2(old19.f.lagFrames) + ' frames)');
-    check(now19.f.gpuHeld > 0 && now19.f.wantMax > now19.f.hzMax && now19.f.held > 0 && /held by the GPU budget/.test(now19.rep) && /auto Hz held back in [1-9]/.test(now19.rep),
-      'the GPU budget holds the substeps and auto Hz back here, and the report says so (' + Math.round(100 * now19.f.gpuHeld) + '% of frames, rate ' + now19.f.hzMax + ' for ' + now19.f.wantMax + ')');
+    check(now19.ls.peakInflight <= 1 && now19.lag <= now19.bound, 'what is drawn trails the sand by at most two display frames (or, where one substep takes longer than a frame, its own time and a frame): one frame of work in flight (' + now19.ls.peakInflight + '), lag ' + f1(now19.lag) + ' ms = ' + f2(now19.lagFrames) + ' frames, bound ' + f1(now19.bound) + ' ms');
+    check(old19.ls.peakInflight > 1 && old19.lag > old19.bound, 'control: the old pace queues frames and breaks that bound (' + old19.ls.peakInflight + ' in flight, lag ' + f1(old19.lag) + ' ms = ' + f2(old19.lagFrames) + ' frames, bound ' + f1(old19.bound) + ' ms)');
+    check(now19.early.gpuHeld > 0 && now19.early.wantMax > now19.early.hzMax && now19.early.held > 0 && /held by the GPU budget/.test(now19.rep) && /auto Hz held back in [1-9]/.test(now19.rep),
+      'the GPU budget holds the substeps and auto Hz back here, and the report says so (' + Math.round(100 * now19.early.gpuHeld) + '% of frames, rate ' + now19.early.hzMax + ' for ' + now19.early.wantMax + ')');
     // the Benchmark's default and option rows, and the report's answers (short rows: the software GPU is slow)
     await L(function () { window.__lab.manual(false); });
     var rows19 = await L(function () { return window.__lab.benchmark({ options: true, res: [], warm: 0.5, measure: 2 }); });
