@@ -18,8 +18,11 @@
  *   uniforms chosen by dynamic offset; clears are folded into the dispatch
  *   before them where that is exact (gridUpdate zeroes the next grid,
  *   prepare the spread's sub-cell grid): 16 dispatches a substep with the
- *   spread pass, 14 without (21 and 18 before), since on a phone each
- *   dispatch costs about as much as 350 points' work (dispatchesPerSubstep);
+ *   spread pass, 14 without (21 and 18 before), since on a phone a dispatch
+ *   has a fixed cost (dispatchesPerSubstep). How much is not fitted: the cost
+ *   model put it at about 16 us (350 points' work), but the owner's iPhone's
+ *   coarse 1-minute real-speed row leaves at most about 4 us a dispatch; the
+ *   Benchmark's gpu ms/substep column is to settle it;
  * - a per-frame tally (counts, speeds) is read back for the HUD and tests.
  */
 
@@ -156,7 +159,14 @@ const LAYOUTS = {
  * gives loosened sand that still carries a load its friction (the same load
  * pass): measured at 2, a heap of 28.6 and a fast turn no less liquid (face
  * 18.9 degrees 0.4 s after, against 21.5 without). (yieldStep 1, this
- * substep's compression alone: no strength, heaps flat.)
+ * substep's compression alone: no strength, heaps flat.) Also tried and not
+ * kept (November 2026): the same load-sized friction for loosened sand in the
+ * return map at the end of each substep (its shear strain kept up to the cone
+ * of the load, scale 2; one more dispatch): a slowly turned bed no longer ran
+ * out (face 43 to 46 degrees after, against 22) but still slid round the glass
+ * as a block, now on the wall (wallFriction 0.5), a column fell to a heap of
+ * 21.8 and a fast turn ran out to 8 degrees: shear kept without the pressure
+ * that goes with it pulls the sand apart.
  *
  * Syrup wets the glass (wallDrag 1: no slip) and is three times as viscous as
  * before, so it oozes; its viscosity term is at its ceiling (1), so it still

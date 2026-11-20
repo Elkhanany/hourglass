@@ -60,11 +60,15 @@
  *  11 slowturn  a 1-minute bed, gravity turned 0 to 90 degrees at 30 deg/s with the
  *               glass: first failure at 30 to 40 degrees; from 65 to 90 it fails in
  *               surface sheets (lower half / top quarter move <= 0.3); the face 1 s
- *               after the turn >= 26 degrees (no liquid run-out)
+ *               after the turn >= 28 degrees (no liquid run-out; the scoreboard's
+ *               block.postFail)
  *  12 fastturn  a quarter glass turned 180 deg/s to 90: face >= 22 degrees and mean
  *               speed <= 5 cells/s at +2 s; holes in the drawn bed <= 4 % at +0.2 s
+ *               (bounds no worse than 5cc11b3, not real sand's: face 30 to 36,
+ *               speed <= 3, holes <= 0.1 %; the messages say so)
  *  13 jerk      a quarter glass jerked 2 g: holes <= 1 % at +0.15 s; mean speed at
- *               +1 s <= 29.4 cells/s; no node clamped
+ *               +1 s <= 29.4 cells/s (no worse than 5cc11b3; real sand <= 3); no
+ *               node clamped
  *  14 shake     a 1-minute bed shaken up and down 2 g at 10 Hz for 2 s: interior
  *               packing does not fall; the same with compaction off is logged
  *  15 press     real speed, a 3 g press for 0.5 s: the surface does not rise under
@@ -72,16 +76,19 @@
  *  16 stream    an upright pour: the grains as drawn (with their streaks) cover
  *               >= 85 % of the 1-cell rows on the axis below the neck; drawn as
  *               dots (control) <= 60 %
- *  17 syrup     the flow test: syrup drains in >= 3 x water's time and >= 0.45 x
- *               coarse sand's (it ran nearly as fast as water)
+ *  17 syrup     the flow test: syrup drains in >= 3 x water's time and >= 2 x
+ *               coarse sand's (the scoreboard's target: real syrup oozes far more
+ *               slowly than sand; 98f2d20 set 0.45 x, when sand drained 4 x faster)
  *  18 creep     a 1-minute bed held at 25 degrees, 0.5 to 3.5 s: centre <= 1.15
- *               cells, surface within 1 degree
- *  19 pace      the live loop (a small bed pouring and shaken): at most one frame
- *               of GPU work in flight, and the submit-to-done lag within two
- *               display frames, or (the software GPU here, where one substep's
- *               frame takes over a display frame) that frame's own time and one
- *               display frame more (on an iPhone at 5cc11b3, 350 to 730 ms: three
- *               frames of work queued); the GPU budget holds the substeps and
+ *               cells (no worse than 5cc11b3; real sand <= 0.5), surface within 1
+ *               degree
+ *  19 pace      the live loop (a small bed pouring and shaken): at most two frames
+ *               of GPU work in flight (the default), and the submit-to-done lag
+ *               within two display frames, or (the software GPU here, where one
+ *               substep's frame takes over a display frame) two such frames and
+ *               one display frame more (on an iPhone at 5cc11b3, medium quarter,
+ *               350 to 730 ms: three frames of work queued); the GPU budget holds
+ *               the substeps and
  *               auto Hz back, and the report says so; control: the old pace (3
  *               frames in flight, no budget) breaks the bound. The Benchmark's
  *               rows for the default and its costly options, and the report's
@@ -722,7 +729,7 @@ async function main() {
     log('  first failure at ' + first11 + ' degrees; lower/top in the failures from 65 to 90: ' + f2(lateRatio) + '; the lower half\'s largest move from 40 to 70: ' + f2(deepMax11) + ' cells (logged); face 1 s after the turn ' + f1(face11) + ' degrees');
     check(first11 >= 30 && first11 <= 40, 'the bed first fails at 30 to 40 degrees of turn (' + first11 + ')');
     check(lateRatio <= 0.3, 'from 65 to 90 degrees it fails in surface sheets: lower half / top quarter <= 0.3 (' + f2(lateRatio) + '; 5cc11b3: 0.8 to 1.5)');
-    check(face11 >= 26, 'the avalanche stops near its repose angle: face 1 s after >= 26 degrees (' + f1(face11) + ')');
+    check(face11 >= 28, 'the avalanche stops near its repose angle: face 1 s after >= 28 degrees (' + f1(face11) + '; repose 31.5)');
     await inp({ mode: 'manual', gravity: [0, 1] });
   }
 
@@ -740,8 +747,8 @@ async function main() {
     await sec(1.8);
     var face12 = M.faceFit(await pos(), [1, 0], function (x, y) { return y < -1; }), s12 = await stat();
     log('  +0.2 s: holes ' + f2(100 * v12.holes) + ' % of the interior (' + v12.holeCount + ', biggest ' + f2(v12.biggestHole) + ' cell²); +2 s: face ' + f1(face12) + ' degrees, mean speed ' + f1(s12.meanSpeed) + ' cells/s');
-    check(face12 >= 22 && s12.meanSpeed <= 5, 'after a fast turn it stops as sand, not a liquid: face >= 22 degrees (' + f1(face12) + '; 5cc11b3: 13.2) and mean speed <= 5 cells/s at +2 s (' + f1(s12.meanSpeed) + '; 9.5)');
-    check(v12.holes <= 0.04, 'the bed does not tear in the turn: holes <= 4 % at +0.2 s (' + f2(100 * v12.holes) + ' %; 5cc11b3: 16.3)');
+    check(face12 >= 22 && s12.meanSpeed <= 5, 'no worse than 5cc11b3, not yet real sand: after a fast turn face >= 22 degrees (' + f1(face12) + '; 5cc11b3: 13.2; real sand 30 to 36) and mean speed <= 5 cells/s at +2 s (' + f1(s12.meanSpeed) + '; 9.5; real sand <= 3)');
+    check(v12.holes <= 0.04, 'no worse than 5cc11b3, not yet real sand: holes <= 4 % at +0.2 s in the turn (' + f2(100 * v12.holes) + ' %; 5cc11b3: 16.3; real sand <= 0.1)');
   }
 
   if (run(13)) {
@@ -759,7 +766,7 @@ async function main() {
     var s13 = await stat();
     log('  +0.15 s: holes ' + f2(100 * v13.holes) + ' %; +1 s: mean speed ' + f1(s13.meanSpeed) + ' cells/s; clamp hits ' + (s13.clamped - c13));
     check(v13.holes <= 0.01, 'a jerk does not tear the bed: holes <= 1 % at +0.15 s (' + f2(100 * v13.holes) + ' %; 5cc11b3: 6.8)');
-    check(s13.meanSpeed <= 29.4 && s13.clamped - c13 === 0, 'it settles no slower than before (mean speed at +1 s ' + f1(s13.meanSpeed) + ' <= 29.4) and no node is clamped (' + (s13.clamped - c13) + ')');
+    check(s13.meanSpeed <= 29.4 && s13.clamped - c13 === 0, 'no worse than 5cc11b3, not yet real sand: it settles no slower than before (mean speed at +1 s ' + f1(s13.meanSpeed) + ' <= 29.4; real sand <= 3) and no node is clamped (' + (s13.clamped - c13) + ')');
   }
 
   if (run(14)) {
@@ -842,7 +849,7 @@ async function main() {
     }
     var dc = flows.coarse && flows.coarse.duration, dw = flows.water && flows.water.duration, dsy = flows.syrup && flows.syrup.duration;
     log('  drained in: coarse ' + f1(dc) + ' s, water ' + f1(dw) + ' s, syrup ' + f1(dsy) + ' s');
-    check(dsy >= 3 * dw && dsy >= 0.45 * dc, 'syrup oozes: drains in >= 3 x water\'s time (' + f2(dsy / dw) + ' x) and >= 0.45 x coarse sand\'s (' + f2(dsy / dc) + ' x; 5cc11b3: 1.47 x water)');
+    check(dsy >= 3 * dw && dsy >= 2 * dc, 'syrup oozes: drains in >= 3 x water\'s time (' + f2(dsy / dw) + ' x) and >= 2 x coarse sand\'s (' + f2(dsy / dc) + ' x; 5cc11b3: 1.47 x water, 0.14 x sand)');
   }
 
   if (run(18)) {
@@ -858,7 +865,7 @@ async function main() {
     var c18 = await stat(), h18c = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
     var d18 = Math.hypot(c18.com[0] - a18.com[0], c18.com[1] - a18.com[1]);
     log('  centre moves ' + f2(d18) + ' cells from 0.5 s to 3.5 s; surface ' + f1(h18a.tilt) + ' -> ' + f1(h18c.tilt) + ' degrees');
-    check(d18 <= 1.15 && Math.abs(h18c.tilt - h18a.tilt) <= 1, 'below repose it creeps no more than before: centre <= 1.15 cells (' + f2(d18) + '; 5cc11b3: 1.40), surface within 1 degree (' + f2(Math.abs(h18c.tilt - h18a.tilt)) + '; 1.03)');
+    check(d18 <= 1.15 && Math.abs(h18c.tilt - h18a.tilt) <= 1, 'no worse than 5cc11b3, not yet real sand: below repose it creeps no more than before: centre <= 1.15 cells (' + f2(d18) + '; 5cc11b3: 1.40; real sand <= 0.5), surface within 1 degree (' + f2(Math.abs(h18c.tilt - h18a.tilt)) + '; 1.03)');
     await inp({ mode: 'manual', gravity: [0, 1] });
   }
 
@@ -878,7 +885,8 @@ async function main() {
       var r = await L(function () { return { f: window.__lab.frameStats(4000), ls: window.__lab.loopState(), log: window.__lab.gpuLog() }; });
       r.early = early.f; r.rep = early.rep;
       // the lag: the median submit-to-done time of the frames done over the last 4 s
-      var ms = r.log.map(function (x) { return x.ms; }).sort(function (a, b) { return a - b; });
+      var tLast = r.log.reduce(function (m, x) { return Math.max(m, x.t); }, -Infinity);
+      var ms = r.log.filter(function (x) { return x.t >= tLast - 4000; }).map(function (x) { return x.ms; }).sort(function (a, b) { return a - b; });
       r.lag = ms.length ? ms[ms.length >> 1] : NaN;
       r.T = 1000 / (r.f.display || 60);
       r.lagFrames = r.lag / r.T;
@@ -890,16 +898,17 @@ async function main() {
       return r;
     };
     var desc19 = function (r) { return 'lag ' + f1(r.lag) + ' ms = ' + f2(r.lagFrames) + ' display frames (display ' + f1(r.f.display) + ' Hz), ' + f1(r.f.fps) + ' fps, ' + f1(r.f.steps) + ' substeps a frame, sim/real ' + f2(r.f.ratio) + ', ' + Math.round(100 * r.f.gpuHeld) + '% of frames held by the GPU budget, auto Hz ' + r.early.hzMax + (r.early.wantMax > r.early.hzMax ? ' (wanted ' + r.early.wantMax + ', held in ' + Math.round(100 * r.early.held) + '% of frames, 1 to 5 s in)' : '') + ', up to ' + r.ls.peakInflight + ' frames in flight'; };
-    var now19 = await pace19({ queue: 1, budget: true });
+    var now19 = await pace19({ queue: 2, budget: true });
     log('  default pace: ' + desc19(now19));
     var old19 = await pace19({ queue: 3, budget: false });
-    // the bound: two display frames, or, where a frame of one substep takes longer than a display
-    // frame by itself (the software GPU here: the budget cannot go below one substep), that frame's
-    // own time (the quickest seen at the default pace) and one display frame more; the same for both
-    now19.bound = old19.bound = Math.max(2 * now19.T, now19.minMs + now19.T);
+    // the bound: two display frames (two frames in flight), or, where a frame of one substep takes
+    // longer than a display frame by itself (the software GPU here: the budget cannot go below one
+    // substep), two such frames (the quickest seen at the default pace) and one display frame more;
+    // the same for both
+    now19.bound = old19.bound = Math.max(2 * now19.T, 2 * now19.minMs + now19.T);
     log('  old pace (control): ' + desc19(old19));
-    await L(function () { return window.__lab.settings({ queue: 1, budget: true }); });
-    check(now19.ls.peakInflight <= 1 && now19.lag <= now19.bound, 'what is drawn trails the sand by at most two display frames (or, where one substep takes longer than a frame, its own time and a frame): one frame of work in flight (' + now19.ls.peakInflight + '), lag ' + f1(now19.lag) + ' ms = ' + f2(now19.lagFrames) + ' frames, bound ' + f1(now19.bound) + ' ms');
+    await L(function () { return window.__lab.settings({ queue: 2, budget: true }); });
+    check(now19.ls.peakInflight <= 2 && now19.lag <= now19.bound, 'what is drawn trails the sand by at most two display frames (or, where one substep takes longer than a frame, two such frames and a display frame): at most two frames of work in flight (' + now19.ls.peakInflight + '), lag ' + f1(now19.lag) + ' ms = ' + f2(now19.lagFrames) + ' frames, bound ' + f1(now19.bound) + ' ms');
     check(old19.ls.peakInflight > 1 && old19.lag > old19.bound, 'control: the old pace queues frames and breaks that bound (' + old19.ls.peakInflight + ' in flight, lag ' + f1(old19.lag) + ' ms = ' + f2(old19.lagFrames) + ' frames, bound ' + f1(old19.bound) + ' ms)');
     check(now19.early.gpuHeld > 0 && now19.early.wantMax > now19.early.hzMax && now19.early.held > 0 && /held by the GPU budget/.test(now19.rep) && /auto Hz held back in [1-9]/.test(now19.rep),
       'the GPU budget holds the substeps and auto Hz back here, and the report says so (' + Math.round(100 * now19.early.gpuHeld) + '% of frames, rate ' + now19.early.hzMax + ' for ' + now19.early.wantMax + ')');
@@ -912,7 +921,7 @@ async function main() {
     var tags19 = rows19.map(function (r) { return r.tag; }).join(',');
     check(tags19 === 'default,default,spread off,blur off,8 iterations,yield in loop' && rows19.every(function (r) { return isFinite(r.msStep) && r.msStep > 0; }) && rows19[2].dispatches === rows19[0].dispatches - 2,
       'the Benchmark times the default at both speeds and each costly option, with the GPU time a substep (' + tags19 + ')');
-    check(/\nAnswers /.test(text19) && /Default, coarse grid, 1-minute, app speed: (HOLDS|does NOT hold) real time/.test(text19) && /Default, coarse grid, 1-minute, real speed: /.test(text19) && /Costly options at the default .*spread off .*blur off .*8 iterations/.test(text19) && /\nPace: at most 1 frame of GPU work in flight/.test(text19),
+    check(/\nAnswers /.test(text19) && /Default, coarse grid, 1-minute, app speed: (HOLDS|does NOT hold) real time/.test(text19) && /Default, coarse grid, 1-minute, real speed: /.test(text19) && /Costly options at the default .*spread off .*blur off .*8 iterations/.test(text19) && /\nPace: at most 2 frames of GPU work in flight/.test(text19),
       'Copy results answers: does the default hold real time at each speed, the lag, the display rate, and what each option costs');
   }
 

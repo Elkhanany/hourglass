@@ -90,8 +90,10 @@ fn hash(input: u32) -> u32 {
     if (r2 > 1.0) { discard; }
     // the same light falls on the grain whatever its streak: back to screen axes
     let d = v.streak.xy * ql.x + vec2f(-v.streak.y, v.streak.x) * ql.y;
-    // the grain's light is spread along its streak: a blurred grain is fainter, as on film
-    let spread = 1.0 / (1.0 + hl);
+    // the grain's light is spread along its streak: a blurred grain is fainter, as on film, but
+    // no fainter than 0.6: a point here stands for many grains, and a stream of them is a bright
+    // thread to the eye, not the faint dashes that the full dimming drew
+    let spread = max(0.6, 1.0 / (1.0 + hl));
     // a rounded grain lit from the upper left; mica (alpha > 1) glints
     let light = normalize(vec2f(-0.55, 0.65));
     let lit = 0.78 + 0.30 * dot(d, light) * (1.0 - 0.3 * r2) + 0.12 * (1.0 - r2);
