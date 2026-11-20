@@ -54,7 +54,8 @@ struct SimConstants {
     wallDrag: f32,
     // the most a grid node may move in one substep, cells
     maxStep: f32,
-    // 1: include the Coriolis term
+    // the Coriolis term's factor (0: left out); with omega scaled by sqrt(lambda)
+    // for a slowed world, sqrt(lambda) gives 2 lambda w x v
     coriolis: f32,
     simFrame: u32,
     timeStepRatio: f32,

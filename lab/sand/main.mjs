@@ -55,6 +55,7 @@ const glassCache = new Map();
 let simTime = 0, gateUntil = 0, manual = false, busy = false, hidden = document.hidden;
 let lastTally = null, lastField = { gravity: [0, -1], omega: 0, alpha: 0 };
 let fillCount = 0, flowRec = null, benchRun = null, flowResult = null, benchRows = [];
+const flowResults = [];           // every flow test of this visit, for the report
 let scriptInput = null;           // __lab.setInput({ mode: 'manual', ... })
 let fingerScript = null;          // __lab.drag(...)
 const pose = { x: 0, y: 0, vx: 0, vy: 0, theta: 0, omega: 0, alpha: 0, ax: 0, ay: 0, axLP: 0, ayLP: 0 };
@@ -69,10 +70,12 @@ let behindS = 0;
 const set = () => ({ hz: S.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis,
   material: S.override ? { ...MATERIALS[S.material], ...S.override } : MATERIALS[S.material] });
 
-/** Gravity in solver cells/s²: the app's slow-motion pull, or true g for a glass 11 cm tall. */
+/** True g in solver cells/s², for a glass 11 cm tall. */
+function gReal() { return glass ? 9810 / (REAL_HEIGHT_MM / (2 * glass.HBc)) : 1; }
+/** Gravity in solver cells/s²: the app's slow-motion pull, or true g. */
 function gCells() {
   if (!glass) return 1;
-  return (S.gScale || 1) * (S.speed === 'app' ? APP_G * glass.s : 9810 / (REAL_HEIGHT_MM / (2 * glass.HBc)));
+  return (S.gScale || 1) * (S.speed === 'app' ? APP_G * glass.s : gReal());
 }
 
 /* ------------------------------------------------------------------ *
@@ -252,8 +255,12 @@ function fieldAt() {
   const c = Math.cos(pose.theta), s = Math.sin(pose.theta);
   const lx = c * gx + s * gy, ly = -s * gx + c * gy;      // into the glass (still y down)
   const G = gCells();
+  // The turning terms at the glass's true size, as the app takes them (app.js lamNow): a
+  // centrifugal pull of w² r is (w² r / g) g, so in the slow-motion world it is scaled by
+  // G / g like every other force (1 at real speed). Coriolis scales the same way.
+  const lam = G / gReal(), rl = Math.sqrt(lam);
   simTime += dt;
-  lastField = { gravity: [lx * G, -ly * G], omega: -w, alpha: -a, gate: simTime < gateUntil };
+  lastField = { gravity: [lx * G, -ly * G], omega: -w * rl, alpha: -a * lam, cor: rl, gate: simTime < gateUntil };
   return lastField;
 }
 
@@ -418,7 +425,7 @@ class GrainRenderer {
   }
   setPalette(p) { this.device.queue.writeBuffer(this.palBuf, 0, p); }
   encode(enc, count) {
-    const v = this.viewData, g = glass, k = view.k, c = Math.cos(pose.theta), s = Math.sin(pose.theta);
+    const v = this.viewData, g = glass, k = kNow(), c = Math.cos(pose.theta), s = Math.sin(pose.theta);
     const W = view.W, H = view.H, hx = view.hx + pose.x, hy = view.hy + pose.y;
     v[0] = 2 * k * c / W; v[1] = 2 * k * s / W; v[2] = -2 * k * s / H; v[3] = 2 * k * c / H;
     v[4] = 2 / W * (hx - k * c * g.cx - k * s * g.cy) - 1;
@@ -482,10 +489,18 @@ function layout() {
   const halfW = glass.Rc + 24 * q * s + 2;
   const availH = Math.max(120, bottom - top), availW = W - 24;
   view.k = Math.min(availH / (2 * halfH), availW / (2 * halfW));
+  Object.assign(view, { availW, availH, halfW, halfH });
   view.hx = W / 2; view.hy = top + availH / 2;
   drawGlass(true);                                           // (resizing a canvas clears it)
 }
 
+/** The drawing scale at the glass's present angle: the whole glass stays on screen as it turns. */
+function kNow() {
+  if (!view.halfH) return view.k;
+  const c = Math.abs(Math.cos(pose.theta)), n = Math.abs(Math.sin(pose.theta));
+  const hw = c * view.halfW + n * view.halfH, hh = n * view.halfW + c * view.halfH;
+  return Math.min(view.k, view.availH / (2 * hh), view.availW / (2 * hw));
+}
 function rgba(c, a) { return `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`; }
 const TINT = [255, 233, 204];
 const WOOD = { hi: [112, 70, 42], mid: [70, 41, 23], lo: [30, 17, 9] };
@@ -493,12 +508,13 @@ let drawnKey = '';
 /** The glass, back (behind the sand) and front (its wall, rims and wooden caps): physics.js _drawBack/_drawFront, simplified. */
 function drawGlass(force) {
   if (!glass) return;
-  const key = [pose.x.toFixed(2), pose.y.toFixed(2), pose.theta.toFixed(4), view.k, view.W, view.H, glass.s].join();
+  const kk = kNow();
+  const key = [pose.x.toFixed(2), pose.y.toFixed(2), pose.theta.toFixed(4), kk, view.W, view.H, glass.s].join();
   if (key === drawnKey && !force) return;
   drawnKey = key;
   const s = glass.s, q = APP_Q, wall = glass.wallCells, R = glass.Rc, HB = glass.HBc;
   const setT = ctx => {
-    const k = view.k * view.dpr, c = Math.cos(pose.theta), n = Math.sin(pose.theta);
+    const k = kk * view.dpr, c = Math.cos(pose.theta), n = Math.sin(pose.theta);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.setTransform(k * c, k * n, -k * n, k * c, (view.hx + pose.x) * view.dpr, (view.hy + pose.y) * view.dpr);
@@ -535,8 +551,8 @@ function drawGlass(force) {
   f.strokeStyle = rgba(TINT, 0.04); f.lineWidth = 7 * q * s; f.stroke(inner);
   f.strokeStyle = rgba(TINT, 0.06); f.lineWidth = 3 * q * s; f.stroke(inner);
   f.restore();
-  f.strokeStyle = rgba(TINT, 0.42); f.lineWidth = Math.max(0.75 * q * s, 0.9 / (view.k * view.dpr)); f.stroke(outer);
-  f.strokeStyle = rgba(TINT, 0.22); f.lineWidth = Math.max(0.5 * q * s, 0.7 / (view.k * view.dpr)); f.stroke(inner);
+  f.strokeStyle = rgba(TINT, 0.42); f.lineWidth = Math.max(0.75 * q * s, 0.9 / (kk * view.dpr)); f.stroke(outer);
+  f.strokeStyle = rgba(TINT, 0.22); f.lineWidth = Math.max(0.5 * q * s, 0.7 / (kk * view.dpr)); f.stroke(inner);
   // a soft sheen on the left of each bulb
   for (let side = -1; side <= 1; side += 2) {
     f.save();
@@ -597,7 +613,7 @@ function loop(now) {
   const p = solver.run(steps, set(), fieldAt, enc => renderer.encode(enc, solver.count));
   const tSim = simTime, tSub = performance.now();
   gpu.device.queue.onSubmittedWorkDone().then(() => { gpuLog.push({ t: now, ms: performance.now() - tSub }); while (gpuLog.length && now - gpuLog[0].t > 4000) gpuLog.shift(); });
-  if (p) p.then(t => onTally(t, tSim, now), e => console.error(e));
+  if (p) p.then(t => t && onTally(t, tSim, now), e => console.error(e));
   renderer.present();
   drawGlass();
   frames.push({ t: now, dt: dtReal * 1000, work: performance.now() - t0, steps, sim: steps / S.hz, real: dtReal });
@@ -725,6 +741,7 @@ async function flowTest(opts = {}) {
   } finally { flowRec = null; S.input = prevInput; syncUI(); }
   if (!rec.start || rec.samples.length < 5) { setStatus('Flow test: no flow measured'); return null; }
   flowResult = flowSummary(rec);
+  flowResults.push(flowResult);
   setStatus('');
   if (!opts.quiet) showFlow(flowResult);
   return flowResult;
@@ -811,12 +828,12 @@ function reportText() {
     L.push('Benchmark (frame ms: median / p95 / worst; GPU ms: median / p95; fps; substeps a frame; sim/real; clamp hits/s)');
     for (const r of benchRows) L.push(`${r.res.padEnd(6)} ${r.amount.padEnd(8)} ${r.speed.padEnd(4)} ${String(r.points).padStart(6)} pts ${r.hz} Hz x${r.it}: ${n(r.median)} / ${n(r.p95)} / ${n(r.worst)} ms, gpu ${n(r.gpu)} / ${n(r.gpu95)} ms, ${n(r.fps, 0)} fps, ${n(r.steps)} steps, sim/real ${n(r.ratio, 2)}, clamp ${n(r.clampPerS, 0)}/s`);
   } else L.push('Benchmark: not run');
-  if (flowResult) {
-    const r = flowResult;
+  if (flowResults.length) for (const r of flowResults) {
+    const k = 1 / (PPC * PPC) / (RES[r.res] * RES[r.res]);
     L.push('');
-    L.push(`Flow test: ${MATERIALS[r.material].label}, ${AMOUNT_NAME[r.amount]} glass, ${RES_NAME[r.res]} grid, ${r.speed} speed, neck ${r.neckCells.toFixed(1)} cells, ${r.start} points`);
-    L.push(`  rate at 3/4 full ${n(r.grains75, 0)} grains/s, at 1/4 full ${n(r.grains25, 0)} grains/s, ratio ${n(r.ratio, 2)}; drained in ${n(r.duration)} s simulated`);
-    L.push('  fill: ' + r.curve.map(p => `${p.fill}:${n(p.rate / (PPC * PPC) / (glass.s * glass.s), 0)}`).join(' '));
+    L.push(`Flow test: ${MATERIALS[r.material].label}, ${AMOUNT_NAME[r.amount]} glass, ${RES_NAME[r.res]} grid, ${r.speed} speed, ${r.hz} Hz x ${r.iterations}, neck ${r.neckCells.toFixed(1)} cells, ${r.start} points`);
+    L.push(`  rate at 3/4 full ${n(r.grains75, 0)} grains/s, at 1/4 full ${n(r.grains25, 0)} grains/s, ratio ${n(r.ratio, 2)} (sand in a real hourglass: about 1); drained in ${n(r.duration)} s simulated`);
+    L.push('  rate (app grains/s) against fill: ' + r.curve.map(p => `${p.fill}:${n(p.rate * k, 0)}`).join(' '));
   } else L.push('Flow test: not run');
   return L.join('\n');
 }
@@ -913,7 +930,7 @@ function bindUI() {
     // in the glass's frame: is the touch on the glass?
     const dx = e.clientX - (view.hx + pose.x), dy = e.clientY - (view.hy + pose.y);
     const c = Math.cos(pose.theta), s = Math.sin(pose.theta);
-    const lx = (c * dx + s * dy) / view.k, ly = (-s * dx + c * dy) / view.k;
+    const lx = (c * dx + s * dy) / kNow(), ly = (-s * dx + c * dy) / kNow();
     if (Math.abs(ly) > glass.HBc + 20 || Math.abs(lx) > glass.Rc + 30) return;
     finger.down = true; finger.id = e.pointerId; finger.x = e.clientX; finger.y = e.clientY;
     finger.ox = pose.x - e.clientX; finger.oy = pose.y - e.clientY;
@@ -947,7 +964,7 @@ async function stepN(n) {
     n -= k;
     p = solver.run(k, set(), fieldAt, n <= 0 ? enc => renderer.encode(enc, solver.count) : null);
     const tSim = simTime;
-    if (p) { p = p.then(t => { onTally(t, tSim); return t; }); last = p; }
+    if (p) { p = p.then(t => { if (t) onTally(t, tSim); return t; }); last = p; }
     await gpu.device.queue.onSubmittedWorkDone();
   }
   await renderer.present();

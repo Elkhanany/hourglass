@@ -22,7 +22,8 @@
  *               shakes for 3 s: finite, nothing leaves the glass, every
  *               material point kept; at rest within about 2 s after
  *   5 flip      the Flip pours the sand through the neck into the other
- *               bulb, and back again
+ *               bulb, with a crater above and a cone below, until nearly
+ *               all of it has crossed; and back again
  *   6 flow      the rate through the neck of an upright glass, with the top
  *               three-quarters and a quarter full: sand about the same
  *               (ratio near 1, as in a real hourglass), water (control)
@@ -226,24 +227,57 @@ async function main() {
   /* ---- 5 ------------------------------------------------------------ */
   if (run(5)) {
     log('5 flip');
+    // The neck sets how fast sand can pour (case 6 measures it), so the check is
+    // not a drain time: it is that the sand keeps pouring through the neck, with
+    // a crater above and a cone below, until (nearly) all of it has crossed.
+    // crater: how far the free surface of the sand above the neck dips at the axis
+    var crater = async function (sideUp) {
+      var p = await L(function () { return window.__lab.positions(); });
+      var bins = {};
+      for (var i = 0; i < p.length; i += 2) {
+        var x = p[i], h = sideUp * p[i + 1];            // height above the neck, up = against gravity
+        if (h <= 2) continue;
+        var k = Math.round(x);
+        if (!(k in bins) || h > bins[k]) bins[k] = h;
+      }
+      var ks = Object.keys(bins).map(Number);
+      if (ks.length < 10) return NaN;
+      var xmin = Math.min.apply(null, ks), xmax = Math.max.apply(null, ks), half = (xmax - xmin) / 2, mid = (xmax + xmin) / 2;
+      var avg = function (lo, hi) { var s = 0, n = 0; ks.forEach(function (k) { var d = Math.abs(k - mid); if (d >= lo && d <= hi) { s += bins[k]; n++; } }); return n ? s / n : NaN; };
+      return avg(0.35 * half, 0.6 * half) - avg(0, 2);   // > 0: lower at the axis than part-way out
+    };
+    var pour = async function (label, fromAbove) {
+      var t = 0, series = [], mid = null;
+      // fromAbove: the sand starts in the grid's upper half (y > 0); key: where it is going
+      var key = fromAbove ? 'below' : 'above';
+      while (t < 10) {
+        await sec(0.5); t += 0.5;
+        var st = await L(function () { return window.__lab.stats(); });
+        series.push(st[key]);
+        if (t >= 2 && !mid) {
+          mid = { crater: await crater(fromAbove ? 1 : -1), cone: await L(function (b) { return window.__lab.heapAngle({ bulb: b }); }, fromAbove ? 'lower' : 'upper') };
+          await shot(fromAbove ? '05-flip-back-pouring' : '05-flip-pouring');
+        }
+        if (st[key] >= 0.97 * st.count) break;
+        if (series.length >= 4 && series[series.length - 1] === series[series.length - 4]) break;   // stopped
+      }
+      log('  ' + label + ': crossed every 0.5 s ' + series.join(' ') + ' of ' + st.count + ' (' + t + ' s after the turn began); crater above ' + f1(mid && mid.crater) + ' cells deep, cone below ' + f1(mid && mid.cone.left) + '/' + f1(mid && mid.cone.right) + ' degrees');
+      return { st: st, t: t, mid: mid, series: series };
+    };
     await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.reset({ fill: 'lower', material: 'coarse', points: 3000 }); });
     await sec(0.5);
     var a0 = await L(function () { return window.__lab.stats(); });
     await L(function () { window.__lab.flip(); });
-    await sec(0.9);
+    await sec(0.6);
     await shot('05-flip-mid');
-    await sec(0.3 + 2.5);
-    var a1 = await L(function () { return window.__lab.stats(); });
-    var hl = await L(function () { return window.__lab.heapAngle({ bulb: 'upper' }); });
-    await shot('05-flip-poured');
-    log('  before: above ' + a0.above + ', below ' + a0.below + '; 2.5 s after the turn: above (now under the neck) ' + a1.above + ', below (now on top) ' + a1.below + '; the cone under the neck ' + f1(hl.left) + '/' + f1(hl.right) + ' degrees');
-    check(a1.above > 0.6 * a0.count, 'the sand pours through the neck into the other bulb (' + a1.above + ' of ' + a0.count + ')');
+    var f1r = await pour('flipped', false);
+    var f2r;
+    check(f1r.st.above >= 0.95 * a0.count && f1r.st.nan === 0, 'the sand pours through the neck into the other bulb, until ' + f1r.st.above + ' of ' + a0.count + ' have crossed');
+    check(f1r.mid && f1r.mid.crater > 1 && f1r.mid.cone.steepest > 25, 'while it pours: a crater above (' + f1(f1r.mid && f1r.mid.crater) + ' cells deep) and a cone below (' + f1(f1r.mid && f1r.mid.cone.steepest) + ' degrees)');
     await L(function () { window.__lab.flip(); });
-    await sec(1.2 + 3);
-    var a2 = await L(function () { return window.__lab.stats(); });
-    log('  flipped back: below ' + a2.below + ' of ' + a2.count);
-    check(a2.below > 0.6 * a2.count, 'and pours back the other way (' + a2.below + ' of ' + a2.count + ')');
-    check(a2.outside === 0 && a2.nan === 0, 'nothing outside the glass, nothing not finite');
+    f2r = await pour('flipped back', true);
+    check(f2r.st.below >= 0.95 * a0.count, 'and pours back the other way, until ' + f2r.st.below + ' of ' + a0.count + ' have crossed');
+    check(f2r.st.outside === 0 && f2r.st.nan === 0, 'nothing outside the glass, nothing not finite');
   }
 
   /* ---- 6 ------------------------------------------------------------ */
@@ -290,14 +324,22 @@ async function main() {
     var tilt = await L(function () { return window.__lab.stats(); });
     log('  tilt right 30 deg: centre x ' + f1(b0.com[0]) + ' -> ' + f1(tilt.com[0]));
     check(tilt.com[0] > b0.com[0] + 1, 'a tilt to the right sends the sand to the right');
-    // the finger: a quick drag to the right
-    b0 = await bed();
-    await L(function () { window.__lab.setInput({ mode: 'upright' }); window.__lab.drag({ dx: 90, dy: 0, ms: 60 }); });
-    await sec(0.08);
-    var drag = await L(function () { return window.__lab.stats(); });
-    var pz = await L(function () { return window.__lab.pose(); });
-    log('  finger flick right 90 px in 60 ms: glass at x ' + f1(pz.x) + ' px; sand centre x ' + f1(b0.com[0]) + ' -> ' + f1(drag.com[0]));
-    check(pz.x > 20 && drag.com[0] < b0.com[0] - 0.5, 'a flick of the glass to the right throws its sand to the left wall');
+    // the finger: a quick flick of the glass, to the right and (control) to the left.
+    // While the glass speeds up the sand lags behind it, so in the glass it moves
+    // the other way. (A flick of 90 px moves the glass at about 1 g for some 50 ms,
+    // too short a push to show; this one is a fast flick, about 3 g.)
+    var flick = async function (dx) {
+      var b = await bed();
+      await L(function (dx) { window.__lab.setInput({ mode: 'upright' }); window.__lab.drag({ dx: dx, dy: 0, ms: 60 }); }, dx);
+      await sec(0.1);
+      var st = await L(function () { return window.__lab.stats(); });
+      var pz = await L(function () { return window.__lab.pose(); });
+      if (dx > 0) await shot('07-flick-right');
+      return { dx: st.com[0] - b.com[0], x: pz.x };
+    };
+    var fr7 = await flick(200), fl7 = await flick(-200);
+    log('  finger flick right 200 px in 60 ms: glass at x ' + f1(fr7.x) + ' px after 0.1 s, sand centre moved ' + f1(fr7.dx) + ' cells; flick left (control): glass at ' + f1(fl7.x) + ', sand ' + f1(fl7.dx));
+    check(fr7.x > 20 && fr7.dx < -0.5 && fl7.dx > 0.5, 'a flick of the glass to the right throws its sand to the left, a flick to the left throws it right');
     await sec(1.5);
     // a real pointer drag moves the glass (live loop, a few frames)
     await L(function () { window.__lab.manual(false); });

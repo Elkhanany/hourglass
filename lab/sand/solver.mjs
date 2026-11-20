@@ -226,7 +226,7 @@ export class Solver {
 
   /**
    * Write one uniform slot. f: the substep's field { gravity:[x,y] cells/s²
-   * (grid frame), omega, alpha (grid frame), gate, ... }.
+   * (grid frame), omega, alpha (grid frame), cor (Coriolis factor), gate }.
    */
   writeSlot(slot, set, f, iteration, frame) {
     const o = slot * SLOT / 4, F = this.uf, U = this.uu, m = set.material;
@@ -240,7 +240,7 @@ export class Solver {
     F[o + 14] = this.glass.cx; F[o + 15] = this.glass.cy;
     F[o + 16] = f.omega; F[o + 17] = f.alpha;
     F[o + 18] = m.wallFriction; F[o + 19] = m.wallDrag;
-    F[o + 20] = set.maxStep; F[o + 21] = set.coriolis ? 1 : 0;
+    F[o + 20] = set.maxStep; F[o + 21] = set.coriolis ? (f.cor ?? 1) : 0;
     U[o + 22] = frame;
     F[o + 23] = this.lastHz ? this.lastHz / set.hz : 1;
     F[o + 24] = this.lastHz ? 1 / this.lastHz : 1 / set.hz;
@@ -306,7 +306,11 @@ export class Solver {
       slot.buffer.unmap(); slot.pending = false;
       return { clamped: u[0], maxMove: u[1] / 1000, points: u[4], above: u[5], below: u[6], outside: u[7], nan: u[8],
         maxSpeed: u[9] / 4, meanSpeed: u[4] ? u[10] / 4 / u[4] : 0, moving: u[11] };
-    }, e => { slot.pending = false; throw e; });
+    }, e => {
+      slot.pending = false;
+      if (!this.readbacks.includes(slot)) return null;   // the glass was rebuilt while this was in flight
+      throw e;
+    });
   }
 
   /** All material points, read back (for the tests and the heap angle). */

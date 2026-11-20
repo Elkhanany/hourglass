@@ -1143,8 +1143,8 @@ worker and loads nothing from anywhere else. Its solver keeps Smoosh's MIT
 and EA's BSD-3-Clause notices (`lab/sand/LICENSES.md`).
 `node tools/test/lab-sand.test.js [--port <n>] [--only 2,6] [--shots <dir>]`
 runs it headless in Chromium with WebGPU in software (SwiftShader), on its
-coarse grid with little sand and the clock driven by the test; it takes
-several minutes, and its speeds say nothing about a phone.
+coarse grid with little sand and the clock driven by the test; it takes about
+20 minutes, and its speeds say nothing about a phone.
 
 ## Icons and launch screens
 
