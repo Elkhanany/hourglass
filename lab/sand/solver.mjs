@@ -86,13 +86,15 @@ const LAYOUTS = {
  * sand on glass grips (mu about 0.45 to 0.5); a liquid slips, held back only
  * by a viscous skin. Sand takes EA's elasticity ratio of 1, not Smoosh's 0.5:
  * at 0.5 the sand was too soft to stand (heaps of 5 to 24 degrees whatever
- * its friction angle, and creeping); at 1 a heap stands near its friction
- * angle. The friction angles are set so that the heaps measure about 35
- * (coarse) and 31 (fine) degrees on the coarse grid.
+ * its friction angle, and creeping); at 1 a heap stands. In this 2-D solver
+ * a heap stands about 5 degrees steeper than the friction angle it is given
+ * (measured: 30 -> 35.5, 31 -> 36.4, 33 -> 39.2 on the coarse grid), so the
+ * friction angles below are set for heaps of about 35 (coarse) and 31 (fine)
+ * degrees.
  */
 export const MATERIALS = {
-  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 33, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0 },
-  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 29, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.42, wallDrag: 0 },
+  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 30, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0 },
+  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 26, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.42, wallDrag: 0 },
   water:  { label: 'Water',       model: 0, frictionAngle: 0,  viscosity: 0.01,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.002 },
   syrup:  { label: 'Syrup',       model: 0, frictionAngle: 0,  viscosity: 0.35,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.05 }
 };

@@ -62,6 +62,7 @@ const flip = { active: false, t0: 0, from: 0, to: 0 };
 const finger = { down: false, id: -1, x: 0, y: 0, ox: 0, oy: 0 };
 const view = { W: 1, H: 1, dpr: 1, hx: 0, hy: 0, k: 1 };
 const frames = [];                // { t, dt, work, steps, sim } over the last few seconds
+const gpuLog = [];                // { t, ms }: from a frame's submit until the GPU has finished it (simulation and drawing)
 const clampLog = [];              // { t, n }
 let behindS = 0;
 
@@ -594,7 +595,8 @@ function loop(now) {
   const steps = Math.min(S.cap, Math.floor((acc + 1e-9) * S.hz));
   acc -= steps / S.hz;
   const p = solver.run(steps, set(), fieldAt, enc => renderer.encode(enc, solver.count));
-  const tSim = simTime;
+  const tSim = simTime, tSub = performance.now();
+  gpu.device.queue.onSubmittedWorkDone().then(() => { gpuLog.push({ t: now, ms: performance.now() - tSub }); while (gpuLog.length && now - gpuLog[0].t > 4000) gpuLog.shift(); });
   if (p) p.then(t => onTally(t, tSim, now), e => console.error(e));
   renderer.present();
   drawGlass();
@@ -619,7 +621,10 @@ function frameStats(windowMs = 2000, list = frames) {
   const d = f.map(x => x.dt).sort((a, b) => a - b);
   const q = p => d[Math.min(d.length - 1, Math.floor(p * (d.length - 1) + 0.5))];
   const real = f.reduce((s, x) => s + x.real, 0), sim = f.reduce((s, x) => s + x.sim, 0);
+  const t0 = f[0].t, g = gpuLog.filter(x => x.t >= t0 && x.t <= now).map(x => x.ms).sort((a, b) => a - b);
+  const gq = p => g.length ? g[Math.min(g.length - 1, Math.floor(p * (g.length - 1) + 0.5))] : NaN;
   return {
+    gpu: gq(0.5), gpu95: gq(0.95),
     n: f.length, median: q(0.5), p95: q(0.95), worst: d[d.length - 1], fps: f.length / Math.max(real, 1e-6),
     steps: f.reduce((s, x) => s + x.steps, 0) / f.length, ratio: sim / Math.max(real, 1e-6),
     work: f.map(x => x.work).sort((a, b) => a - b)[Math.floor(f.length / 2)]
@@ -635,7 +640,7 @@ function hud() {
   if (!S.hud || !glass) return;
   const f = frameStats(), t = lastTally;
   const lines = [];
-  if (f) lines.push(`frame ${f.median.toFixed(1)} ms med  ${f.p95.toFixed(1)} p95  ${f.worst.toFixed(1)} worst  ${f.fps.toFixed(0)} fps`);
+  if (f) lines.push(`frame ${f.median.toFixed(1)} ms med  ${f.p95.toFixed(1)} p95  ${f.worst.toFixed(1)} worst  ${f.fps.toFixed(0)} fps  gpu ${Number.isFinite(f.gpu) ? f.gpu.toFixed(1) : '-'}`);
   if (f) lines.push(`steps ${f.steps.toFixed(1)}/frame  ${S.hz} Hz x${S.iterations} it  cap ${S.cap}  sim/real ${f.ratio.toFixed(2)}${f.ratio < 0.97 ? '  BEHIND' : ''}`);
   const cr = clampRate();
   lines.push(`points ${solver.count.toLocaleString('en-US')}  clamp ${cr > 0 ? Math.round(cr) + ' nodes/s HIT' : '0'}  fastest ${t ? Math.round(t.maxSpeed) : 0} cells/s`);
@@ -762,7 +767,7 @@ async function benchmark(opts = {}) {
       const c1 = lastTally?.clamped ?? c0;
       benchRows.push({
         res: RES_NAME[c.res], amount: AMOUNT_NAME[c.amount], speed: c.speed, points: solver.count, hz: S.hz, it: S.iterations, cap: S.cap,
-        median: st.median, p95: st.p95, worst: st.worst, fps: st.fps, steps: st.steps, ratio: st.ratio, work: st.work,
+        median: st.median, p95: st.p95, worst: st.worst, fps: st.fps, steps: st.steps, ratio: st.ratio, work: st.work, gpu: st.gpu, gpu95: st.gpu95,
         clampPerS: (c1 - c0) / measure, behind: behindS - behind0
       });
       benchRun = null;
@@ -777,12 +782,12 @@ async function benchmark(opts = {}) {
 }
 function benchTable(rows) {
   const n = (v, d = 1) => Number.isFinite(v) ? v.toFixed(d) : '—';
-  return '<table><tr><th>grid</th><th>sand</th><th>speed</th><th>points</th><th>Hz</th><th>med</th><th>p95</th><th>worst</th><th>fps</th><th>steps</th><th>sim/real</th><th>clamp/s</th></tr>' +
-    rows.map(r => `<tr><td>${r.res}</td><td>${r.amount}</td><td>${r.speed}</td><td>${r.points}</td><td>${r.hz}</td><td>${n(r.median)}</td><td>${n(r.p95)}</td><td>${n(r.worst)}</td><td>${n(r.fps, 0)}</td><td>${n(r.steps)}</td><td>${n(r.ratio, 2)}</td><td>${n(r.clampPerS, 0)}</td></tr>`).join('') + '</table>';
+  return '<table><tr><th>grid</th><th>sand</th><th>speed</th><th>points</th><th>Hz</th><th>med</th><th>p95</th><th>worst</th><th>gpu</th><th>fps</th><th>steps</th><th>sim/real</th><th>clamp/s</th></tr>' +
+    rows.map(r => `<tr><td>${r.res}</td><td>${r.amount}</td><td>${r.speed}</td><td>${r.points}</td><td>${r.hz}</td><td>${n(r.median)}</td><td>${n(r.p95)}</td><td>${n(r.worst)}</td><td>${n(r.gpu)}</td><td>${n(r.fps, 0)}</td><td>${n(r.steps)}</td><td>${n(r.ratio, 2)}</td><td>${n(r.clampPerS, 0)}</td></tr>`).join('') + '</table>';
 }
 function showBench() {
   const d = document.createElement('div');
-  d.innerHTML = '<p>Frame times in ms over a few seconds of shaken sand (median, 95th percentile, worst). sim/real under 1 means the simulation fell behind; clamp/s counts grid nodes held to the one-cell-per-substep limit.</p>' + benchTable(benchRows);
+  d.innerHTML = '<p>Frame times in ms over a few seconds of shaken sand (median, 95th percentile, worst); gpu: the median time from a frame\'s submit until the GPU has done it. sim/real under 1 means the simulation fell behind; clamp/s counts grid nodes held to the one-cell-per-substep limit.</p>' + benchTable(benchRows);
   showSheet('Benchmark', d);
 }
 
@@ -800,11 +805,11 @@ function reportText() {
   L.push(`Screen: ${screen.width}x${screen.height} CSS px, devicePixelRatio ${window.devicePixelRatio}, standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`);
   L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed, ${S.hz} Hz x ${S.iterations} iterations, cap ${S.cap}/frame, clamp ${S.maxStep} cell`);
   const f = frameStats();
-  if (f) L.push(`Last 2 s: frame median ${n(f.median)} ms, p95 ${n(f.p95)}, worst ${n(f.worst)}, ${n(f.fps, 0)} fps, ${n(f.steps)} substeps/frame, sim/real ${n(f.ratio, 2)}`);
+  if (f) L.push(`Last 2 s: frame median ${n(f.median)} ms, p95 ${n(f.p95)}, worst ${n(f.worst)}, ${n(f.fps, 0)} fps, gpu median ${n(f.gpu)} ms, p95 ${n(f.gpu95)}, ${n(f.steps)} substeps/frame, sim/real ${n(f.ratio, 2)}`);
   if (benchRows.length) {
     L.push('');
-    L.push('Benchmark (frame ms: median / p95 / worst; fps; substeps a frame; sim/real; clamp hits/s)');
-    for (const r of benchRows) L.push(`${r.res.padEnd(6)} ${r.amount.padEnd(8)} ${r.speed.padEnd(4)} ${String(r.points).padStart(6)} pts ${r.hz} Hz x${r.it}: ${n(r.median)} / ${n(r.p95)} / ${n(r.worst)} ms, ${n(r.fps, 0)} fps, ${n(r.steps)} steps, sim/real ${n(r.ratio, 2)}, clamp ${n(r.clampPerS, 0)}/s`);
+    L.push('Benchmark (frame ms: median / p95 / worst; GPU ms: median / p95; fps; substeps a frame; sim/real; clamp hits/s)');
+    for (const r of benchRows) L.push(`${r.res.padEnd(6)} ${r.amount.padEnd(8)} ${r.speed.padEnd(4)} ${String(r.points).padStart(6)} pts ${r.hz} Hz x${r.it}: ${n(r.median)} / ${n(r.p95)} / ${n(r.worst)} ms, gpu ${n(r.gpu)} / ${n(r.gpu95)} ms, ${n(r.fps, 0)} fps, ${n(r.steps)} steps, sim/real ${n(r.ratio, 2)}, clamp ${n(r.clampPerS, 0)}/s`);
   } else L.push('Benchmark: not run');
   if (flowResult) {
     const r = flowResult;
@@ -1116,6 +1121,12 @@ window.__lab = {
   /** n substeps worth of simulated seconds */
   steps: sec => Math.round(sec * S.hz),
   stats: () => fullStats(),
+  /** The material points' positions, relative to the neck (cells, y up): [x0, y0, x1, y1, ...]. */
+  async positions() {
+    const d = await solver.readParticles(), out = new Array(solver.count * 2);
+    for (let i = 0; i < solver.count; i++) { out[2 * i] = d[i * PARTICLE_WORDS] - glass.cx; out[2 * i + 1] = d[i * PARTICLE_WORDS + 1] - glass.cy; }
+    return out;
+  },
   heapAngle: o => heapAngle(o),
   flip() { doFlip(); },
   flipping: () => flip.active,

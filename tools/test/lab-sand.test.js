@@ -13,10 +13,11 @@
  *   2 heaps     a column released in the lower bulb settles to a heap:
  *               coarse sand at 28 to 38 degrees, fine sand lower than
  *               coarse, water nearly flat (under 5)
- *   3 lean      a settled coarse heap leaned 20 degrees keeps its shape in
- *               the glass (its surface turns with the glass, its centre of
- *               mass stays) and its slope against gravity; water (control)
- *               levels; leaned 45 degrees the sand avalanches
+ *   3 lean      a settled coarse heap leaned 20 degrees: the flank made
+ *               steeper avalanches back to about the repose angle, the other
+ *               holds, the centre of mass hardly moves (no block sliding or
+ *               turning, no deep slump); water (control) levels; leaned 45
+ *               degrees the sand avalanches
  *   4 spin      gravity turning 360 degrees a second for 10 s, then 3 to 5 g
  *               shakes for 3 s: finite, nothing leaves the glass, every
  *               material point kept; at rest within about 2 s after
@@ -167,9 +168,17 @@ async function main() {
     log('  surface turned in the glass: sand ' + f1(dTiltSand) + ' deg, water ' + f1(dTiltWater) + ' deg; centre of mass moved: sand ' + f1(moveSand) + ', water ' + f1(moveWater) + ' cells');
     check(dTiltWater > 14, 'water (control) levels when leaned 20 degrees (its surface turns ' + f1(dTiltWater) + ' degrees in the glass)');
     check(dTiltSand < 8, 'sand does not level: its surface turns under 8 degrees in the glass (' + f1(dTiltSand) + ')');
-    // what moves is the flank the lean made too steep, which avalanches; a bed that turned or slid as a block would carry its centre as far as the water's
-    check(moveSand < 0.25 * moveWater, 'sand does not turn or slide as a block: its centre moves ' + f1(moveSand) + ' cells, under a quarter of the water\'s ' + f1(moveWater));
-    check(Math.abs(c.at20.g.tilt) >= 0.6 * 20, 'sand keeps most of the lean as a slope against gravity: its surface stands at ' + f1(Math.abs(c.at20.g.tilt)) + ' degrees to the field (at least 12 of the 20)');
+    // What real dry sand does. Gravity turns 20 degrees to the right: the right
+    // flank is 20 degrees steeper against gravity, past the angle of repose, so it
+    // fails and avalanches back to about that angle; the left flank is 20 degrees
+    // shallower and holds. Only the wedge that fails moves: for this heap in this
+    // bowl, an ideal granular bed (every slope capped at the repose angle, area
+    // kept, no inertia) moves its centre of mass about 2 cells. A bed that slides
+    // or turns as a block, or slumps deep, moves its centre much further.
+    check(moveSand < 4 && moveSand < 0.5 * moveWater, 'sand does not turn, slide or slump as a block: its centre moves ' + f1(moveSand) + ' cells (under 4, and under half the water\'s ' + f1(moveWater) + ')');
+    check(c.at20.g.mean > 0.6 * c.before.g.mean, 'sand keeps most of its slope against gravity: flanks ' + f1(c.at20.g.mean) + ' degrees on average, at least 0.6 of the upright ' + f1(c.before.g.mean));
+    check(c.at20.g.right >= 0.75 * c.before.g.mean, 'the flank the lean steepened fails back to about the repose angle, not lower: ' + f1(c.at20.g.right) + ' degrees (at least 0.75 of ' + f1(c.before.g.mean) + ')');
+    check(Math.abs(c.at20.g.left - (c.before.g.left - 20)) <= 6, 'the flank the lean made shallower holds: ' + f1(c.at20.g.left) + ' degrees, about ' + f1(c.before.g.left) + ' - 20');
     var down45 = (c.at45.st.com[0] - c.at20.st.com[0]);
     check(c.at45.g.steepest <= 40 && down45 > 2, 'leaned 45 degrees it avalanches: steepest flank ' + f1(c.at45.g.steepest) + ' <= 40 degrees, centre moved ' + f1(down45) + ' cells downhill');
   }
