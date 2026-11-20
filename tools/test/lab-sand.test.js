@@ -535,6 +535,29 @@ async function main() {
     await page.waitForTimeout(400);
     var landOff = await L(function () { return window.__lab.landscape(); });
     check(landOn && !landOff, 'turned to landscape the page asks for Portrait Orientation Lock, and the note goes in portrait');
+    // the phone's own path: drawn to the WebGPU canvas, not offscreen. Here
+    // (Chromium with SwiftShader) every mapAsync fails on that path, even in a
+    // 20-line page, so this is the browser's fault, not the lab's; what the
+    // lab owes is to say so, never to report "none" while its live numbers
+    // are dead. Where the readbacks work, they must be counted as working.
+    var p3 = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    var p3errors = [];
+    p3.on('pageerror', function (e) { p3errors.push(e.message); });
+    await p3.goto(URL0.replace('offscreen=1&', ''));
+    await p3.evaluate(function () { return window.__lab.ready; });
+    await p3.waitForTimeout(4000);
+    var cv = await p3.evaluate(async function () {
+      var rep = String(await window.__lab.report());
+      return { err: rep.split('\n').filter(function (l) { return /^Errors/.test(l); })[0] || '', status: (document.getElementById('status') || {}).textContent || '', hud: document.getElementById('hud').textContent };
+    });
+    var rbm = /live readbacks (\d+) ok, (\d+) failed/.exec(cv.err) || [0, -1, -1];
+    var rbOk = +rbm[1], rbBad = +rbm[2];
+    log('  canvas path: ' + cv.err.replace(/^Errors: /, '') + (cv.status ? '; status "' + cv.status + '"' : ''));
+    check(rbOk >= 0 && rbBad >= 0 && rbOk + rbBad > 0, 'on the canvas path the report counts the live readbacks (' + rbOk + ' ok, ' + rbBad + ' failed)');
+    check(rbBad === 0 || (/FAILING/.test(cv.hud) && /failing/.test(cv.status) && /mapAsync|\(/.test(cv.err)),
+          'if the live readbacks fail, the HUD, the status line and the report say so');
+    check(p3errors.length === 0, 'no page errors on the canvas path' + (p3errors.length ? ' (' + p3errors.length + ': ' + p3errors[0] + ')' : ''));
+    await p3.close();
   }
 
   /* ---- 9 ------------------------------------------------------------ */

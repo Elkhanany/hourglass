@@ -89,6 +89,9 @@ const gpuLog = [];                // { t, ms }: from a frame's submit until the 
 const clampLog = [];              // { t, n }
 let behindS = 0;
 let startError = '', lostReason = '';
+// the live loop's per-frame readbacks (the tally): counted, so a browser where
+// they fail says so in the HUD and in Copy results instead of reading "none"
+let readbackOk = 0, readbackFails = 0, readbackErr = '', readbackWarned = false;
 
 const set = () => ({ hz: rate.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis,
   material: S.override ? { ...MATERIALS[S.material], ...S.override } : MATERIALS[S.material] });
@@ -771,8 +774,14 @@ function loop(now) {
   acc -= steps / hz;
   const p = solver.run(steps, set(), fieldAt, enc => renderer.encode(enc, solver.count));
   const tSim = simTime, tSub = performance.now();
-  gpu.device.queue.onSubmittedWorkDone().then(() => { gpuLog.push({ t: now, ms: performance.now() - tSub }); while (gpuLog.length && now - gpuLog[0].t > 4000) gpuLog.shift(); });
-  if (p) p.then(t => t && onTally(t, tSim, now), e => console.error(e));
+  gpu.device.queue.onSubmittedWorkDone().then(() => { gpuLog.push({ t: now, ms: performance.now() - tSub }); while (gpuLog.length && now - gpuLog[0].t > 4000) gpuLog.shift(); }, () => {});   // (a failure shows as a missing gpu lag)
+  if (p) p.then(t => { if (t) { readbackOk++; onTally(t, tSim, now); } }, e => {
+    if (!readbackFails++) { readbackErr = String(e && e.message || e); console.error(e); }
+    if (!readbackWarned && readbackFails >= 30 && readbackFails > 10 * readbackOk) {
+      readbackWarned = true;
+      setStatus('Live measurements are failing on this browser: the HUD, Flow test and auto Hz need them. Copy results has the error.');
+    }
+  });
   renderer.present();
   drawGlass();
   frames.push({ t: now, dt: since * 1000, work: performance.now() - t0, steps, hz, sim: steps / hz, real: since, capped: dropped > 1e-6 });
@@ -841,6 +850,7 @@ function hud() {
   const cr = clampRate();
   lines.push(`points ${solver.count.toLocaleString('en-US')}  clamp ${cr > 0 ? Math.round(cr) + '/s HIT' : '0'}  fastest ${t ? Math.round(t.maxSpeed) : 0} cells/s`);
   lines.push(`grid ${RES_NAME[S.res]} ${glass.W}x${glass.H}  neck ${glass.neckCells.toFixed(1)}${glass.neckWidened > 0.005 ? ' (+' + Math.round(glass.neckWidened * 100) + '%)' : ''}  g ${Math.round(gCells())}/s²${S.speed === 'real' ? ' (11 cm)' : ''}`);
+  if (readbackFails) lines.push(`readbacks FAILING ${readbackFails} (ok ${readbackOk}): live numbers stale`);
   if (S.input === 'motion') lines.push(motion.seen ? `motion (${motion.gx.toFixed(2)}, ${motion.gy.toFixed(2)}) g  turn ${motion.w.toFixed(1)}/s  sign ${motion.sign || '?'}  axis ${motion.rSign < 0 ? '-' : ''}${motion.rAxis || '?'}${motion.rLearnt ? '' : '?'}` : 'motion: no readings yet');
   $('hud').textContent = lines.join('\n');
 }
@@ -1002,7 +1012,7 @@ function reportText() {
   const i = gpu?.info || {};
   L.push(`WebGPU adapter: vendor=${i.vendor || '?'} architecture=${i.architecture || '?'} device=${i.device || '?'} description=${i.description || '?'}${i.fallback ? ' (fallback)' : ''}`);
   L.push(`Screen: ${screen.width}x${screen.height} CSS px, devicePixelRatio ${window.devicePixelRatio}, window ${innerWidth}x${innerHeight}, screen angle ${screenAngle()}, standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`);
-  L.push(`Errors: start ${startError || 'none'}; GPU lost ${lostReason || 'no'}; WebGPU ${solver?.errors?.length ? solver.errors.join(' | ') : 'none'}`);
+  L.push(`Errors: start ${startError || 'none'}; GPU lost ${lostReason || 'no'}; WebGPU ${solver?.errors?.length ? solver.errors.join(' | ') : 'none'}; live readbacks ${readbackOk} ok, ${readbackFails} failed${readbackErr ? ' (' + readbackErr + ')' : ''}`);
   L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations (auto Hz ${S.auto ? 'on, up to ' + hzTop() + ' Hz; highest since reset ' + rate.peak : 'off'}), cap ${S.cap}/frame at the base rate, clamp ${S.maxStep} cell; jolts at app speed ${S.impulse ? 'played slowed like a film (x' + (1 / Math.sqrt(lamNow())).toFixed(1) + ' longer)' : 'plain'}`);
   L.push(`Motion: input ${S.input}, readings ${motion.seen ? 'yes' : 'no'}, sign ${motion.sign || 'not learnt'}, units ${motion.unit ? (motion.unit > 1 ? 'g' : 'm/s²') : '?'}, turn axis ${motion.rAxis || '?'} sign ${motion.rSign} (${motion.rLearnt ? 'learnt' : 'assumed'})`);
   const f = frameStats();
