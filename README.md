@@ -1150,7 +1150,8 @@ quarters of a display frame (measured as it runs), so what is on screen
 follows the phone within about two frames (at the old pace three frames of
 work queued, and the sand trailed the phone by 350 to 730 ms); when the GPU
 cannot keep up the sand runs slower than real time instead, and the HUD
-says BEHIND (GPU budget).
+says BEHIND (GPU budget). (More, "1 in flight" and "GPU budget", go back
+toward the old pace, to compare: up to 3 frames in flight, no budget.)
 **Benchmark** and **Flow test** measure the phone, and **Copy results**
 puts a plain-text report on the clipboard to send back: it opens with the
 pace and the last two seconds (frames drawn, display rate, lag in display

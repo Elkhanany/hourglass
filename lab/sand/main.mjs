@@ -50,7 +50,9 @@ const CYCLE = {
   impulse: [true, false],
   blur: [1, 0.5, 0],
   spread: [true, false],
-  yieldIn: [false, true]
+  yieldIn: [false, true],
+  queue: [1, 2, 3],
+  budget: [true, false]
 };
 const FLIP_S = 1.2;
 const GATE_S = 0.5;                                    // the neck stays closed this long after a Reset
@@ -950,9 +952,9 @@ function hud() {
   const f = frameStats(), t = lastTally;
   const lines = [];
   if (f) lines.push(`drawn ${f.fps.toFixed(0)} fps (display ${Number.isFinite(f.display) ? f.display.toFixed(0) : '-'})  skipped ${Math.round(f.skipped * 100)}%${behindWhy(f)}`);
-  if (f) lines.push(`frame ms ${f.median.toFixed(1)} med ${f.p95.toFixed(1)} p95 ${f.worst.toFixed(1)} max  lag ${Number.isFinite(f.gpu) ? f.gpu.toFixed(0) + ' ms (' + f.lagFrames.toFixed(1) + ' fr)' : '-'}`);
+  if (f) lines.push(`frame ms ${f.median.toFixed(1)} med ${f.p95.toFixed(1)} p95 ${f.worst.toFixed(1)} max  lag ${Number.isFinite(f.gpu) ? f.gpu.toFixed(0) + ' (' + f.lagFrames.toFixed(1) + ' fr)' : '-'}`);
   if (f) lines.push(`steps ${f.steps.toFixed(1)}/frame  ${rate.hz} Hz${S.auto ? (rate.held ? ' HELD (wants ' + rate.held + ')' : rate.hz > S.hz ? ' auto↑' : ' auto') : ''} x${S.iterations}  sim/real ${f.ratio.toFixed(2)}`);
-  if (f) lines.push(`gpu ${Number.isFinite(f.msStep) ? f.msStep.toFixed(2) + ' ms/step' : '-'}  budget ${S.budget ? (Number.isFinite(pace.budget) ? pace.budget + '/frame' : '-') : 'off'}  ${dispatchesPerSubstep(S.iterations, set().material)} disp/step  in flight ≤${S.queue}`);
+  if (f) lines.push(`gpu ${Number.isFinite(f.msStep) ? f.msStep.toFixed(2) + ' ms/step' : '-'}  budget ${S.budget ? (Number.isFinite(pace.budget) ? pace.budget + '/fr' : '-') : 'off'}  ${dispatchesPerSubstep(S.iterations, set().material)} disp  ≤${S.queue} queued`);
   const cr = clampRate();
   lines.push(`points ${solver.count.toLocaleString('en-US')}  clamp ${cr > 0 ? Math.round(cr) + '/s HIT' : '0'}  fastest ${t ? Math.round(t.maxSpeed) : 0} cells/s`);
   lines.push(`grid ${RES_NAME[S.res]} ${glass.W}x${glass.H}  neck ${glass.neckCells.toFixed(1)}${glass.neckWidened > 0.005 ? ' (+' + Math.round(glass.neckWidened * 100) + '%)' : ''}  g ${Math.round(gCells())}/s²${S.speed === 'real' ? ' (11 cm)' : ''}`);
@@ -1268,7 +1270,7 @@ function syncUI() {
   }
   for (const b of document.querySelectorAll('.cyc')) {
     const k = b.dataset.key, v = S[k];
-    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'impulse' ? `jolts ${v ? 'slowed' : 'plain'}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : k === 'spread' ? `spread ${v ? 'on' : 'off'}` : k === 'yieldIn' ? `yield ${v ? 'in loop' : 'at end'}` : `Coriolis ${v ? 'on' : 'off'}`;
+    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'impulse' ? `jolts ${v ? 'slowed' : 'plain'}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : k === 'spread' ? `spread ${v ? 'on' : 'off'}` : k === 'yieldIn' ? `yield ${v ? 'in loop' : 'at end'}` : k === 'queue' ? `${v} in flight` : k === 'budget' ? `GPU budget ${v ? 'on' : 'off'}` : `Coriolis ${v ? 'on' : 'off'}`;
   }
   $('b-hud').classList.toggle('on', S.hud);
   $('hud').classList.toggle('off', !S.hud);
