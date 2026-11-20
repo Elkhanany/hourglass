@@ -11,8 +11,11 @@
  *               nothing outside the glass, nothing not finite; without
  *               WebGPU it says what is needed (control)
  *   2 heaps     a column released in the lower bulb settles to a heap:
- *               coarse sand at 28 to 38 degrees, fine sand lower than
- *               coarse, water nearly flat (under 5)
+ *               coarse sand at 30 to 37 degrees (the brief's range), fine
+ *               sand at 27 to 33 (about 30) and lower than coarse, water
+ *               nearly flat (under 5); a narrow column, whose heap does
+ *               not reach the wall, is logged (the wall's share of the
+ *               angle)
  *   3 lean      a settled coarse heap leaned 20 degrees: the flank made
  *               steeper avalanches back to about the repose angle, the other
  *               holds, the centre of mass hardly moves (no block sliding or
@@ -20,10 +23,14 @@
  *               degrees the sand avalanches
  *   4 spin      gravity turning 360 degrees a second for 10 s, then 3 to 5 g
  *               shakes for 3 s: finite, nothing leaves the glass, every
- *               material point kept; at rest within about 2 s after
+ *               material point kept; 1 s after the shake (the brief: about
+ *               a second) at rest: mean speed under 3 cells/s, and the
+ *               centre of mass still over the next second (under 0.5 cell)
  *   5 flip      the Flip pours the sand through the neck into the other
- *               bulb, with a crater above and a cone below, until nearly
- *               all of it has crossed; and back again
+ *               bulb, with a crater above and a cone below (25 to 45
+ *               degrees, measured a third of the way through, without the
+ *               falling stream), until nearly all of it has crossed; and
+ *               back again
  *   6 flow      the rate through the neck of an upright glass, with the top
  *               three-quarters and a quarter full: sand about the same
  *               (ratio near 1, as in a real hourglass), water (control)
@@ -31,14 +38,24 @@
  *   7 inputs    a push to the right throws the sand to the left wall, a
  *               tilt to the right sends it right; through the scripted
  *               field, the finger drag and DeviceMotion readings (both
- *               sign conventions)
+ *               sign conventions); the turning rate is read from the axis
+ *               that carries it (alpha by the spec, gamma on iOS), and a
+ *               pitch of the phone adds no turning
  *   8 tools     a short benchmark gives its rows; the report has the user
- *               agent, the adapter, the rows and the flow numbers
+ *               agent, the adapter, the rows and the flow numbers; the
+ *               frames per second counted are frames drawn (against the
+ *               GPU submits counted in the page); turning the page to
+ *               landscape shows how to lock portrait
+ *   9 packing   sand keeps its volume: a flat bed at rest for 3 s keeps its
+ *               area within 3 %; a 3 g press and release leaves it no
+ *               thicker; a shaken bed settles back within 10 % of its area;
+ *               held at 25 degrees (below repose) for 3 s it does not creep:
+ *               centre under 0.5 cell, surface within 1 degree
  *
  * Screenshots of the key moments go to --shots (a phone-like 390 x 844
  * viewport, device scale 1).
  *
- *   node tools/test/lab-sand.test.js [--port <n>] [--only 2,6] [--shots <dir>]
+ *   node tools/test/lab-sand.test.js [--port <n>] [--only 2,6,9] [--shots <dir>]
  */
 'use strict';
 var path = require('path');
@@ -64,6 +81,10 @@ function check(cond, what) {
   else { failures++; log('  FAIL  ' + what); }
   return cond;
 }
+// the bed's area: occupied 1 x 1 cells; positions [x0, y0, x1, y1, ...]
+function bedArea(p) { var o = {}; for (var i = 0; i < p.length; i += 2) o[Math.floor(p[i]) + ',' + Math.floor(p[i + 1])] = 1; return Object.keys(o).length; }
+// the top of the bed on the glass's axis (within 3 cells of it)
+function bedTop(p) { var t = -1e9; for (var i = 0; i < p.length; i += 2) if (Math.abs(p[i]) < 3) t = Math.max(t, p[i + 1]); return t; }
 var f1 = function (v) { return typeof v === 'number' && isFinite(v) ? v.toFixed(1) : String(v); };
 var f2 = function (v) { return typeof v === 'number' && isFinite(v) ? v.toFixed(2) : String(v); };
 
@@ -72,6 +93,11 @@ async function main() {
   var browser = await playwright.chromium.launch({ channel: 'chromium', args: ['--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader'] });
   var errors = [];
   var page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  // count the GPU submits that draw, to check the page's frames-per-second against them
+  await page.addInitScript(function () {
+    window.__submits = 0;
+    if (window.GPUQueue) { var sub = GPUQueue.prototype.submit; GPUQueue.prototype.submit = function () { window.__submits++; return sub.apply(this, arguments); }; }
+  });
   page.on('pageerror', function (e) { errors.push(e.message); });
   page.on('console', function (m) { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
   var L = function (fn, a) { return page.evaluate(fn, a); };
@@ -126,9 +152,14 @@ async function main() {
       await shot('02-heap-' + m);
     }
     if (run(2)) {
-      check(heap.coarse.mean >= 28 && heap.coarse.mean <= 38, 'coarse sand heaps at 28 to 38 degrees (' + f1(heap.coarse.mean) + ')');
-      check(heap.fine.mean < heap.coarse.mean, 'fine sand lower than coarse (' + f1(heap.fine.mean) + ' < ' + f1(heap.coarse.mean) + ')');
+      check(heap.coarse.mean >= 30 && heap.coarse.mean <= 37, 'coarse sand heaps at 30 to 37 degrees (' + f1(heap.coarse.mean) + ')');
+      check(heap.fine.mean >= 27 && heap.fine.mean <= 33 && heap.fine.mean < heap.coarse.mean, 'fine sand heaps at about 30 (27 to 33), lower than coarse (' + f1(heap.fine.mean) + ' < ' + f1(heap.coarse.mean) + ')');
       check(heap.water.mean < 5, 'water nearly flat (' + f1(heap.water.mean) + ' < 5)');
+      // the wall's share: a narrow column, whose heap does not reach the wall (logged, not checked)
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); var i = window.__lab.info(); return window.__lab.reset({ fill: 'column', material: 'coarse', width: 0.3 * i.glass.Rc, height: 0.45 * i.glass.Rc }); });
+      await sec(2.5);
+      var hn = await L(function () { return window.__lab.heapAngle({ bulb: 'lower' }); });
+      log('  coarse, a narrow column (its toe off the wall): flanks ' + f1(hn.left) + '/' + f1(hn.right) + ', mean ' + f1(hn.mean) + ' degrees (logged)');
     }
   }
 
@@ -217,11 +248,10 @@ async function main() {
     await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
     var settle = [];
     for (var q = 0; q < 6; q++) { await sec(0.5); settle.push(await L(function () { return window.__lab.stats(); })); }
-    var vRef = Math.sqrt(2 * settle[0].g * 10);         // the speed of a fall of 10 cells
-    log('  settling (mean speed, cells/s, every 0.5 s): ' + settle.map(function (x) { return f1(x.meanSpeed); }).join(', ') + '; reference ' + f1(vRef));
-    var restAt = -1;
-    for (var r = 0; r < settle.length; r++) if (settle[r].meanSpeed < 0.05 * vRef) { restAt = (r + 1) * 0.5; break; }
-    check(restAt > 0 && restAt <= 2, 'at rest within about 2 s after the shake (mean speed under 5 % of a 10-cell fall at ' + restAt + ' s)');
+    log('  settling (mean speed, cells/s, every 0.5 s): ' + settle.map(function (x) { return f1(x.meanSpeed); }).join(', ') + '; centre y ' + settle.map(function (x) { return f1(x.com[1]); }).join(', '));
+    // at rest 1 s after the shake: slow, and the centre of mass still over the next second (a creeping bed fails)
+    var drift = Math.hypot(settle[3].com[0] - settle[1].com[0], settle[3].com[1] - settle[1].com[1]);
+    check(settle[1].meanSpeed < 3 && drift < 0.5, 'at rest 1 s after the shake: mean speed ' + f1(settle[1].meanSpeed) + ' cells/s (under 3), centre moves ' + f2(drift) + ' cells over the next second (under 0.5)');
   }
 
   /* ---- 5 ------------------------------------------------------------ */
@@ -254,8 +284,9 @@ async function main() {
         await sec(0.5); t += 0.5;
         var st = await L(function () { return window.__lab.stats(); });
         series.push(st[key]);
-        if (t >= 2 && !mid) {
-          mid = { crater: await crater(fromAbove ? 1 : -1), cone: await L(function (b) { return window.__lab.heapAngle({ bulb: b }); }, fromAbove ? 'lower' : 'upper') };
+        // mid-pour: a third of the sand across (the cone has grown), the falling stream left out of the cone (grains slower than 20 cells/s)
+        if (st[key] >= 0.33 * st.count && !mid) {
+          mid = { crater: await crater(fromAbove ? 1 : -1), cone: await L(function (b) { return window.__lab.heapAngle({ bulb: b, vMax: 20 }); }, fromAbove ? 'lower' : 'upper') };
           await shot(fromAbove ? '05-flip-back-pouring' : '05-flip-pouring');
         }
         if (st[key] >= 0.97 * st.count) break;
@@ -273,7 +304,7 @@ async function main() {
     var f1r = await pour('flipped', false);
     var f2r;
     check(f1r.st.above >= 0.95 * a0.count && f1r.st.nan === 0, 'the sand pours through the neck into the other bulb, until ' + f1r.st.above + ' of ' + a0.count + ' have crossed');
-    check(f1r.mid && f1r.mid.crater > 1 && f1r.mid.cone.steepest > 25, 'while it pours: a crater above (' + f1(f1r.mid && f1r.mid.crater) + ' cells deep) and a cone below (' + f1(f1r.mid && f1r.mid.cone.steepest) + ' degrees)');
+    check(f1r.mid && f1r.mid.crater > 1 && f1r.mid.cone.steepest > 25 && f1r.mid.cone.steepest < 45, 'while it pours: a crater above (' + f1(f1r.mid && f1r.mid.crater) + ' cells deep) and a cone below (' + f1(f1r.mid && f1r.mid.cone.steepest) + ' degrees, 25 to 45)');
     await L(function () { window.__lab.flip(); });
     f2r = await pour('flipped back', true);
     check(f2r.st.below >= 0.95 * a0.count, 'and pours back the other way, until ' + f2r.st.below + ' of ' + a0.count + ' have crossed');
@@ -378,6 +409,36 @@ async function main() {
     log('  DeviceMotion lean right, WebKit signs: learnt sign ' + webkit.sign + ', felt (' + f2(webkit.g[0]) + ', ' + f2(webkit.g[1]) + ') g, centre x ' + f1(webkit.m0.com[0]) + ' -> ' + f1(webkit.m1.com[0]));
     check(w3c.sign === 1 && webkit.sign === -1, 'the sign of the readings is learnt (W3C +1, WebKit -1)');
     check(w3c.m1.com[0] > w3c.m0.com[0] + 1 && webkit.m1.com[0] > webkit.m0.com[0] + 1, 'a phone leaned right sends the sand right, either convention');
+    // The turning rate. The phone held upright twists back and forth in the screen's plane (its
+    // gravity turns on the screen), with the rate in alpha (the spec) or in gamma (WebKit on iOS
+    // fills alpha, beta, gamma from the x, y, z rates); and a pitch flick (rate about the screen's
+    // x axis: beta by the spec, alpha on iOS) with gravity unchanged must add no turning.
+    var rotCase = async function (twistAxis, pitchAxis) {
+      await L(function () { window.__lab.motionReset(); window.__lab.setInput({ mode: 'motion' }); });
+      var r = await L(function (o) {
+        var g0 = 9.81, dt = 0.004, A = 0.5, prev = 0, peak = 0;
+        var ev = function (phi, rate, pitch) {
+          var rr = { alpha: 0, beta: 0, gamma: 0 };
+          rr[o.twist] = -rate * 180 / Math.PI;            // + clockwise turn: the spec's alpha is counter-clockwise +
+          if (pitch) rr[o.pitch] = pitch;
+          window.dispatchEvent(new DeviceMotionEvent('devicemotion', { accelerationIncludingGravity: { x: -g0 * Math.sin(phi), y: g0 * Math.cos(phi), z: 0 }, acceleration: null, rotationRate: rr, interval: 4 }));
+        };
+        for (var i = 0; i < 30; i++) ev(0, 0, 0);
+        for (var j = 1; j <= 600; j++) { var phi = A * Math.sin(2 * Math.PI * j / 150); ev(phi, (phi - prev) / dt, 0); prev = phi; }
+        var m = window.__lab.motion();
+        for (var k = 0; k < 80; k++) ev(0, 0, 0);
+        // the pitch flick: 300 deg/s about x for 0.1 s
+        for (var q = 0; q < 25; q++) { ev(0, 0, 300); var w = Math.abs(window.__lab.motion().w); if (w > peak) peak = w; }
+        return { axis: m.rAxis, sign: m.rSign, learnt: m.rLearnt, pitchTurn: peak };
+      }, { twist: twistAxis, pitch: pitchAxis });
+      return r;
+    };
+    var rw = await rotCase('alpha', 'beta'), ri = await rotCase('gamma', 'alpha');
+    log('  turning rate, twist in alpha (spec): axis ' + rw.axis + ' sign ' + rw.sign + (rw.learnt ? ' learnt' : ' assumed') + ', pitch flick in beta gives ' + f2(rw.pitchTurn) + ' rad/s of turn');
+    log('  turning rate, twist in gamma (iOS): axis ' + ri.axis + ' sign ' + ri.sign + (ri.learnt ? ' learnt' : ' assumed') + ', pitch flick in alpha gives ' + f2(ri.pitchTurn) + ' rad/s of turn');
+    check(rw.learnt && rw.axis === 'alpha' && rw.sign === 1 && ri.learnt && ri.axis === 'gamma' && ri.sign === 1, 'the turning rate is read from the axis that carries it (alpha by the spec, gamma as iOS fills it)');
+    check(rw.pitchTurn < 0.2 && ri.pitchTurn < 0.2, 'a pitch of the phone adds no turning (under 0.2 rad/s: ' + f2(rw.pitchTurn) + ', ' + f2(ri.pitchTurn) + ')');
+    await L(function () { window.__lab.motionReset(); });
     await L(function () { window.__lab.setInput({ mode: 'upright' }); });
   }
 
@@ -385,7 +446,8 @@ async function main() {
   if (run(8)) {
     log('8 tools');
     await L(function () { window.__lab.manual(false); });
-    var rows = await L(function () { return window.__lab.benchmark({ res: ['S'], amounts: ['minute'], speeds: ['app', 'real'], warm: 0.3, measure: 1 }); });
+    // (a frame takes a second or more on the software GPU at real speed: measure long enough to see a few)
+    var rows = await L(function () { return window.__lab.benchmark({ res: ['S'], amounts: ['minute'], speeds: ['app', 'real'], warm: 1, measure: 5 }); });
     rows.forEach(function (r) { log('  bench (software GPU, not a phone) ' + r.res + ' ' + r.amount + ' ' + r.speed + ': ' + r.points + ' points, median ' + f1(r.median) + ' ms, sim/real ' + f2(r.ratio) + ', steps ' + f1(r.steps)); });
     check(rows.length === 2 && rows.every(function (r) { return r.points > 0 && isFinite(r.median); }), 'the benchmark gives a row per setting');
     await L(function () { window.__lab.manual(true); });
@@ -395,6 +457,73 @@ async function main() {
     var sheet = await L(function () { var t = document.querySelector('#sheet-body textarea'); return t ? t.value : ''; });
     check(/Hourglass sand lab results/.test(sheet), 'Copy results shows the report too');
     await L(function () { document.getElementById('sheet').hidden = true; });
+    // frames per second are frames drawn: against the submits counted in the page (each frame drawn is one submit)
+    await L(function () { window.__lab.manual(false); });
+    await page.waitForTimeout(1000);
+    var sub0 = await L(function () { return window.__submits; });
+    await page.waitForTimeout(3000);
+    var sub1 = await L(function () { return window.__submits; });
+    var fs8 = await L(function () { return window.__lab.frameStats(3000); });
+    await L(function () { window.__lab.manual(true); });
+    var drawn = (sub1 - sub0) / 3;
+    log('  live loop (software GPU): ' + f1(drawn) + ' submits a second; the page counts ' + f1(fs8 && fs8.fps) + ' fps drawn, ' + Math.round(100 * (fs8 ? fs8.skipped : 0)) + '% skipped, display ' + f1(fs8 && fs8.display) + ' Hz');
+    check(fs8 && Math.abs(fs8.fps - drawn) <= Math.max(1, 0.3 * drawn), 'the fps counted are frames drawn (' + f1(fs8 && fs8.fps) + ' against ' + f1(drawn) + ' submits a second)');
+    // turned to landscape, the page says how to keep it upright
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.waitForTimeout(400);
+    var landOn = await L(function () { return window.__lab.landscape(); });
+    await shot('08-landscape');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(400);
+    var landOff = await L(function () { return window.__lab.landscape(); });
+    check(landOn && !landOff, 'turned to landscape the page asks for Portrait Orientation Lock, and the note goes in portrait');
+  }
+
+  /* ---- 9 ------------------------------------------------------------ */
+  if (run(9)) {
+    log('9 packing (a flat bed, coarse sand)');
+    var flat = async function () {
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.reset({ fill: 'lower', material: 'coarse' }); });
+      await sec(0.5);
+    };
+    var snap = async function () { var p = await L(function () { return window.__lab.positions(); }); var st = await L(function () { return window.__lab.stats(); }); return { area: bedArea(p), top: bedTop(p), com: st.com, v: st.meanSpeed }; };
+    await flat();
+    var p0 = await snap();
+    await sec(3);
+    var p3 = await snap();
+    await shot('09-rest-3s');
+    log('  at rest 3 s: area ' + p0.area + ' -> ' + p3.area + ' cells, top ' + f1(p0.top) + ' -> ' + f1(p3.top) + ', mean speed ' + f1(p3.v) + ' cells/s');
+    check(Math.abs(p3.area / p0.area - 1) <= 0.03, 'a bed at rest keeps its volume: area within 3 % over 3 s (' + f2(100 * (p3.area / p0.area - 1)) + ' %)');
+    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], accel: [0, -2] }); });   // 3 g, pressing it down
+    await sec(0.5);
+    var pp = await snap();
+    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+    await sec(1);
+    var pr = await snap();
+    log('  3 g press: top ' + f1(p3.top) + ' -> ' + f1(pp.top) + ' while pressed, ' + f1(pr.top) + ' 1 s after; area ' + p3.area + ' -> ' + pr.area);
+    check(pr.top <= p3.top + 0.5 && pr.area <= 1.03 * p3.area, 'a 3 g press and release leaves the bed no thicker (top ' + f1(pr.top) + ' against ' + f1(p3.top) + ', area ' + pr.area + ' against ' + p3.area + ')');
+    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], shake: { g: 3, hz: 5, axis: [1, 0] } }); });
+    await sec(1);
+    await shot('09-shaken');
+    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+    await sec(1);
+    var ps = await snap();
+    await shot('09-shaken-settled');
+    log('  shaken 3 g at 5 Hz for 1 s, then 1 s: area ' + pr.area + ' -> ' + ps.area + ' cells');
+    check(ps.area <= 1.10 * pr.area, 'a shaken bed settles back within 10 % of its area (' + f2(100 * (ps.area / pr.area - 1)) + ' %)');
+    // creep below repose: a flat bed held at 25 degrees
+    await flat();
+    var a25 = 25 * Math.PI / 180;
+    await L(function (a) { window.__lab.setInput({ mode: 'manual', gravity: [Math.sin(a), Math.cos(a)] }); }, a25);
+    await sec(0.25);
+    var c0 = await L(function () { return window.__lab.stats(); }), h0 = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
+    await sec(3);
+    var c3 = await L(function () { return window.__lab.stats(); }), h3 = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
+    await shot('09-held-25');
+    var cm = Math.hypot(c3.com[0] - c0.com[0], c3.com[1] - c0.com[1]);
+    log('  held at 25 degrees from 0.25 s to 3.25 s: centre moves ' + f2(cm) + ' cells, surface ' + f1(h0.tilt) + ' -> ' + f1(h3.tilt) + ' degrees to gravity, mean speed ' + f1(c3.meanSpeed) + ' cells/s');
+    check(cm < 0.5 && Math.abs(h3.tilt - h0.tilt) <= 1, 'below its angle of repose the bed holds: centre under 0.5 cell (' + f2(cm) + '), surface within 1 degree (' + f1(Math.abs(h3.tilt - h0.tilt)) + ')');
+    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
   }
 
   check(errors.length === 0, 'no page errors through the run' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));

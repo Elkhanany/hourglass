@@ -65,6 +65,10 @@ struct SimConstants {
     // x: 1 while the neck is closed, y: the neck's half-width, cells
     gate: vec2f,
     material: MaterialParams,
+    // sand: x, y, z: unused; w: how far loose sand may be compressed freely, as a
+    // share of its looseness (0: not at all; it packs down at the rate its load
+    // gets through the constraint)
+    sand: vec4f,
 };
 
 fn divUp(threadCount : u32, divisor : u32) -> u32

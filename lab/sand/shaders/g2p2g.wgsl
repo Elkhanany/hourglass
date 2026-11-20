@@ -6,7 +6,9 @@
 // drains and mouse are gone; gravity along -y became the glass-frame body
 // force (bodyForce in common.inc); a particle at the glass wall keeps Coulomb
 // friction; particles are never deleted, only put back inside the glass; a
-// closed neck holds the top bulb's sand.
+// closed neck holds the top bulb's sand; sand measures how tightly it is
+// packed from the grid, so that loose sand packs back down under load
+// (EA's per-particle expansion memory is replaced by that measure).
 //-----------------------------------------------------------------------------
 
 //!include common.inc
@@ -105,6 +107,8 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
             var B = ZeroMatrix;
             var d = vec2f(0);
             var volume = 0.0;
+            // sand: the packing of the densest grid node around the particle (1: the fill's packing)
+            var packing = 0.0;
             for(var i = 0; i < 3; i++)
             {
                 for(var j = 0; j < 3; j++)
@@ -125,7 +129,9 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
 
                     if(g_simConstants.useGridVolumeForLiquid != 0)
                     {
-                        volume += weight * decodeFixedPoint(atomicLoad(&s_tileData[gridVertexIdx + 3]), g_simConstants.fixedPointMultiplier);
+                        let nodeVolume = decodeFixedPoint(atomicLoad(&s_tileData[gridVertexIdx + 3]), g_simConstants.fixedPointMultiplier);
+                        volume += weight * nodeVolume;
+                        packing = max(packing, nodeVolume);
                     }
                 }
             }
@@ -172,26 +178,32 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                         // https://doi.org/10.1145/2897824.2925906
                         let sinPhi = sin(materialParams.physical.x/180.0 * 3.14159);
                         let alpha = sqrt(2.0/3.0)*2.0*sinPhi/(3.0 - sinPhi);
-                        // how much of an expansion loose sand remembers (EA: 0.5); mechanical.y for sand
-                        let beta = materialParams.mechanical.y;
+                        // How loose the sand is (log of its volume over its rest volume, >= 0), measured on
+                        // the grid: the packing of the densest node around the particle. (Not the mean over
+                        // the nodes: at a free surface or a wall the nodes outside the sand would make dense
+                        // sand look loose; the densest node is inside it.) EA kept a per-particle memory of
+                        // expansion instead (logJp = beta * trace); in this solver that memory decayed
+                        // within a few substeps, while the over-relaxed constraint below kept pushing points
+                        // apart, so a bed swelled at rest and never packed back down.
+                        // rest packing: mechanical.y for sand (1: as filled)
+                        let restPacking = materialParams.mechanical.y;
+                        let loose = select(0.0, clamp(log(restPacking / max(packing, 1e-3)), 0.0, 1.5), g_simConstants.useGridVolumeForLiquid != 0);
 
                         let eDiag = log(max(abs(svdResult.Sigma), vec2f(1e-6)));
-
-                        let eps = diag(eDiag);
-                        let trace = tr(eps) + particle.logJp;
-
-                        let eHat = eps - (trace / 2) * Identity;
-                        let frobNrm = length(vec2f(eHat[0][0], eHat[1][1]));
+                        // compression up to the looseness only fills voids: it is plastic and costs nothing
+                        let trace = eDiag.x + eDiag.y + loose;
 
                         if(trace >= 0.0)
                         {
-                            // expansion: no resistance at all; forget the deformation
+                            // expansion, or compaction of loose sand: no resistance; forget the deformation
                             svdResult.Sigma = vec2f(1);
-                            particle.logJp = beta * trace;
                         }
                         else
                         {
-                            particle.logJp = 0;
+                            // the compression beyond what the voids took is elastic
+                            let e2 = eDiag + vec2f(0.5 * loose);
+                            let eHat = e2 - vec2f(trace * 0.5);
+                            let frobNrm = length(eHat);
                             // (d lambda + 2 mu) / (2 mu) of Klar et al.: EA used elasticityRatio + 1;
                             // the lab sets it from Poisson's ratio (mechanical.w for sand)
                             let coneK = select(materialParams.mechanical.z + 1.0, materialParams.mechanical.w, materialParams.mechanical.w > 0.0);
@@ -199,10 +211,15 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                             if(deltaGammaI > 0)
                             {
                                 // Project to cone surface.
-                                let h = eDiag - deltaGammaI/max(frobNrm, 0.000001) * (eDiag - (trace*0.5)) ;
-                                svdResult.Sigma = exp(h);
+                                svdResult.Sigma = exp(e2 - deltaGammaI/max(frobNrm, 0.000001) * eHat);
+                            }
+                            else
+                            {
+                                svdResult.Sigma = exp(e2);
                             }
                         }
+                        // carried to the next substep's constraint: loose sand may be compressed this far
+                        particle.logJp = loose;
                     }
                     else if(particle.material == MaterialVisco)
                     {
@@ -259,10 +276,14 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
             let F =  (Identity + particle.deformationDisplacement) * particle.deformationGradient;
             var svdResult = svd(F);
 
-            if(particle.logJp == 0)
-            {
-                svdResult.Sigma = clamp(svdResult.Sigma, vec2f(1, 1), vec2f(1000, 1000));
-            }
+            // Resist compression. EA resisted none while the particle remembered an expansion,
+            // so loose sand fell freely until it was packed again, and in this solver the bed
+            // then bounced in place. Here loose sand is resisted too (sand.w = 0) and packs down
+            // only as fast as its load gets through this constraint; the return map keeps that
+            // compaction instead of pushing it back. (sand.w = 1: loose sand may be compressed
+            // as far as its looseness, freely.)
+            let floorSigma = exp(-0.5 * g_simConstants.sand.w * max(particle.logJp, 0.0));
+            svdResult.Sigma = clamp(svdResult.Sigma, vec2f(floorSigma), vec2f(1000, 1000));
 
             // Closest matrix to F with det == 1
             let df = det(F);
@@ -276,6 +297,7 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
 
             let deviatoric = -1.0*(particle.deformationDisplacement + transpose(particle.deformationDisplacement));
             particle.deformationDisplacement += materialParams.mechanical.x*0.5*deviatoric;
+
         }
 
         // P2G

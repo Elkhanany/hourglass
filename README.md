@@ -1138,10 +1138,16 @@ the glass, **Flip** and **Reset** move the sand; the buttons choose the
 material (coarse and fine sand, water, syrup), the speed (the app's slow
 motion, or true gravity for a glass 11 cm tall), the amount and the grid.
 **Benchmark** and **Flow test** measure the phone, and **Copy results**
-puts a plain-text report on the clipboard to send back. It has no service
-worker and loads nothing from anywhere else. Its solver keeps Smoosh's MIT
-and EA's BSD-3-Clause notices (`lab/sand/LICENSES.md`).
-`node tools/test/lab-sand.test.js [--port <n>] [--only 2,6] [--shots <dir>]`
+puts a plain-text report on the clipboard to send back. To test: turn on
+Portrait Orientation Lock in Control Center (otherwise turning the phone
+turns the page, and the page says so), and turn Low Power Mode off (it
+halves the display rate). It loads nothing from anywhere else and registers
+no service worker of its own; but on the site the app's service worker
+(`sw.js`, whose scope covers `lab/`) serves the lab's files from its cache
+first, so after an update the new version shows on the second visit. Its
+solver keeps Smoosh's MIT and EA's BSD-3-Clause notices
+(`lab/sand/LICENSES.md`).
+`node tools/test/lab-sand.test.js [--port <n>] [--only 2,6,9] [--shots <dir>]`
 runs it headless in Chromium with WebGPU in software (SwiftShader), on its
 coarse grid with little sand and the clock driven by the test; it takes about
 20 minutes, and its speeds say nothing about a phone.

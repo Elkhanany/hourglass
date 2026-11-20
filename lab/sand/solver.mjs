@@ -87,14 +87,23 @@ const LAYOUTS = {
  * by a viscous skin. Sand takes EA's elasticity ratio of 1, not Smoosh's 0.5:
  * at 0.5 the sand was too soft to stand (heaps of 5 to 24 degrees whatever
  * its friction angle, and creeping); at 1 a heap stands. In this 2-D solver
- * a heap stands about 5 degrees steeper than the friction angle it is given
- * (measured: 30 -> 35.5, 31 -> 36.4, 33 -> 39.2 on the coarse grid), so the
- * friction angles below are set for heaps of about 35 (coarse) and 31 (fine)
- * degrees.
+ * a heap stands steeper than the friction angle it is given, and with the
+ * packing measure below the step is steep: measured 2.5 s after a column is
+ * released on the coarse grid, 26 -> 26.4, 27.5 -> 29.3, 28.5 -> 31.5,
+ * 29 -> 35.1, 30 -> 39.3 degrees. So the friction angles below are set for
+ * heaps of about 31 to 35 (coarse) and 29 to 31 (fine) degrees. (Heaps keep
+ * steepening by 2 to 5 degrees over the next second: an open issue.)
+ *
+ * Sand also measures how tightly it is packed, from the grid (g2p2g.wgsl):
+ * restPacking is the packing it settles back to (1: as filled), and loose
+ * sand packs down under load instead of keeping every expansion (without it
+ * a bed at rest swelled by half in 3 s, and a shaken heap to 2.5 times its
+ * size). floorLoose: 0, loose sand packs down only as fast as its load gets
+ * through the constraint (1: freely, which made the bed bounce in place).
  */
 export const MATERIALS = {
-  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 30, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0 },
-  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 26, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.42, wallDrag: 0 },
+  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 28.5, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0 },
+  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 27.5, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.42, wallDrag: 0 },
   water:  { label: 'Water',       model: 0, frictionAngle: 0,  viscosity: 0.01,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.002 },
   syrup:  { label: 'Syrup',       model: 0, frictionAngle: 0,  viscosity: 0.35,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.05 }
 };
@@ -246,8 +255,9 @@ export class Solver {
     F[o + 24] = this.lastHz ? 1 / this.lastHz : 1 / set.hz;
     F[o + 25] = this.glass.cy;
     F[o + 26] = f.gate ? 1 : 0; F[o + 27] = this.glass.rn;
-    F[o + 28] = m.viscosity; F[o + 29] = m.model === 2 ? (m.beta ?? 0.5) : m.relaxation; F[o + 30] = m.elasticity; F[o + 31] = m.model === 2 ? (m.coneK || 0) : m.plasticity;
+    F[o + 28] = m.viscosity; F[o + 29] = m.model === 2 ? (m.restPacking ?? 1) : m.relaxation; F[o + 30] = m.elasticity; F[o + 31] = m.model === 2 ? (m.coneK || 0) : m.plasticity;
     F[o + 32] = m.frictionAngle; F[o + 33] = m.density; F[o + 34] = m.stiffness; F[o + 35] = m.model;
+    F[o + 36] = 0; F[o + 37] = 0; F[o + 38] = 0; F[o + 39] = m.floorLoose ?? 0;
   }
 
   /**

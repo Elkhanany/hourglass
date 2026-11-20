@@ -5,7 +5,9 @@
  * the app's classic glass, driven by the phone's motion, a finger on the
  * glass, a Flip, and scripted tests. It is not the app and changes nothing
  * in it. Everything it needs is in this folder; nothing is fetched from
- * anywhere else, and there is no service worker.
+ * anywhere else. It registers no service worker of its own, but on the
+ * site the app's service worker (sw.js, scope /hourglass/) also answers for
+ * this folder, from its cache first, so a new version shows one visit late.
  *
  * Part of the Hourglass project. License: GPL-3.0. The solver (solver.mjs,
  * shaders/) derives from Smoosh (MIT) and EA's PB-MPM (BSD-3-Clause): see
@@ -30,7 +32,9 @@ const APP_G = 3300;                                    // physics.js: this.G, ce
 const REAL_HEIGHT_MM = 110;                            // the glass, end to end inside, as drawn on a phone
 const MM_PER_PX = 0.16;                                // app.js: an iPhone CSS px
 const KPX = MM_PER_PX * 1e-3 / 9.81;                   // g per px/s² of the glass's acceleration on screen
-const SPEED_DEFAULTS = { app: { hz: 480, iterations: 5, cap: 8 }, real: { hz: 960, iterations: 5, cap: 24 } };
+// cap: the most substeps one frame may run, three 60 Hz frames' worth, so that a late or
+// missed frame, or a 30 Hz display (Low Power Mode), does not slow the sand
+const SPEED_DEFAULTS = { app: { hz: 480, iterations: 5, cap: 24 }, real: { hz: 960, iterations: 5, cap: 48 } };
 const CYCLE = {
   hz: [240, 360, 480, 720, 960, 1440, 1920],
   iterations: [3, 4, 5, 6, 8],
@@ -48,7 +52,7 @@ const ACC_TAU = 0.012;                                 // s: the glass's acceler
  * ------------------------------------------------------------------ */
 const S = {
   res: 'M', amount: 'quarter', material: 'coarse', speed: 'app', input: 'upright', hud: true,
-  hz: 480, iterations: 5, cap: 8, maxStep: 1, coriolis: true, neckMin: 5.5
+  hz: 480, iterations: 5, cap: 24, maxStep: 1, coriolis: true, neckMin: 5.5
 };
 let gpu = null, solver = null, renderer = null, glass = null;
 const glassCache = new Map();
@@ -62,16 +66,20 @@ const pose = { x: 0, y: 0, vx: 0, vy: 0, theta: 0, omega: 0, alpha: 0, ax: 0, ay
 const flip = { active: false, t0: 0, from: 0, to: 0 };
 const finger = { down: false, id: -1, x: 0, y: 0, ox: 0, oy: 0 };
 const view = { W: 1, H: 1, dpr: 1, hx: 0, hy: 0, k: 1 };
-const frames = [];                // { t, dt, work, steps, sim } over the last few seconds
+const frames = [];                // frames drawn (submitted): { t, dt, work, steps, sim, real, capped } over the last few seconds
+const skips = [];                 // { t }: animation frames skipped because the GPU was still busy
 const gpuLog = [];                // { t, ms }: from a frame's submit until the GPU has finished it (simulation and drawing)
 const clampLog = [];              // { t, n }
 let behindS = 0;
+let startError = '', lostReason = '';
 
 const set = () => ({ hz: S.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis,
   material: S.override ? { ...MATERIALS[S.material], ...S.override } : MATERIALS[S.material] });
 
-/** True g in solver cells/s², for a glass 11 cm tall. */
+/** True g in solver cells/s², for a glass 11 cm tall (the brief's 10 to 12 cm; a phone draws it smaller, see drawnMM). */
 function gReal() { return glass ? 9810 / (REAL_HEIGHT_MM / (2 * glass.HBc)) : 1; }
+/** How tall the glass is drawn, inside, mm (app.js: MM_PER_PX). */
+function drawnMM() { return glass ? 2 * glass.HBc * view.k * MM_PER_PX : 0; }
 /** Gravity in solver cells/s²: the app's slow-motion pull, or true g. */
 function gCells() {
   if (!glass) return 1;
@@ -86,9 +94,16 @@ function gCells() {
  * ------------------------------------------------------------------ */
 const motion = {
   on: false, seen: false, sign: 0, votes: 0, voteSum: 0, unit: 0, ubuf: [],
-  gx: 0, gy: 1, w: 0, a: 0, wPrev: 0, tPrev: -1, rSign: 1, rCorr: 0,
+  gx: 0, gy: 1, w: 0, a: 0, wPrev: 0, tPrev: -1,
+  // the in-plane turning rate: which of rotationRate's alpha, beta, gamma carries it, and its sign
+  // (the spec puts it in alpha; WebKit on iOS fills alpha, beta, gamma from the x, y, z rates, so
+  // there it is gamma), learnt by correlation with the turning of gravity on the screen
+  rAxis: '', rSign: 1, rLearnt: false, rStats: null,
   dn: null, dnT: -1, heading: NaN, hT: -1, hRate: 0, lp: false
 };
+const R_AXES = ['alpha', 'beta', 'gamma'];
+function rotationPrior() { return iosLike() ? 'gamma' : 'alpha'; }
+const DEAD_G = 0.06;               // g: the dead zone of the pull in the screen's plane
 function iosLike() {
   const n = navigator, ua = n.userAgent || '';
   return /iPhone|iPad|iPod/.test(ua) || (n.platform === 'MacIntel' && n.maxTouchPoints > 1);
@@ -153,11 +168,17 @@ function onMotion(e) {
   let [px, py] = toPage(fx, -fy, screenAngle());           // the page: x right, y down
   const mag = Math.hypot(px, py);
   if (mag > 8) { px *= 8 / mag; py *= 8 / mag; }
+  // a soft dead zone (motion.js has one too): with the phone lying flat the pull in the screen's
+  // plane is near zero, and an accelerometer's bias of a few hundredths of a g would otherwise
+  // slide the weightless sand (a real glass on its back is held by friction on its back face)
+  else if (mag < DEAD_G) { const k = (mag / DEAD_G) ** 2; px *= k; py *= k; }
   const k = 1 - Math.exp(-dt / 0.006);
   if (!motion.lp) { motion.gx = px; motion.gy = py; motion.lp = true; }
   else { motion.gx += (px - motion.gx) * k; motion.gy += (py - motion.gy) * k; }
-  // turning in the screen's plane, rad/s, + clockwise: rotationRate.alpha is about the screen's normal
-  // (counter-clockwise + by the spec); its sign is checked against the heading of gravity on the screen
+  // turning in the screen's plane, rad/s, + clockwise. The rate about the screen's normal is
+  // rotationRate.alpha by the spec (counter-clockwise +) but gamma on iOS; which axis, and its sign,
+  // are learnt from how fast gravity's heading on the screen turns (hRate), while the phone is
+  // upright enough for that heading to mean something.
   const inPlane = Math.hypot(motion.gx, motion.gy);
   const heading = Math.atan2(motion.gx, motion.gy);
   let hRate = 0, hOk = false;
@@ -166,13 +187,26 @@ function onMotion(e) {
     hRate = dh / dt; hOk = true;
   }
   motion.heading = inPlane > 0.5 ? heading : NaN;
+  motion.hRate = hRate;
   let w = 0;
-  if (R && Number.isFinite(R.alpha)) {
-    const wr = -R.alpha * Math.PI / 180;
-    if (hOk && Math.abs(wr) > 0.5 && Math.abs(hRate) > 0.5) motion.rCorr = motion.rCorr * 0.98 + Math.sign(wr * hRate) * 0.02;
-    if (motion.rCorr < -0.3) motion.rSign = -1; else if (motion.rCorr > 0.3) motion.rSign = 1;
-    w = wr * motion.rSign;
-  } else if (hOk) w = hRate;
+  const rates = R ? R_AXES.map(k => Number.isFinite(R[k]) ? -R[k] * Math.PI / 180 : NaN) : null;
+  if (rates && rates.some(Number.isFinite)) {
+    if (!motion.rAxis) motion.rAxis = rotationPrior();
+    if (hOk && Math.abs(hRate) > 0.4) {
+      // correlation of each axis with the heading rate, over the last second or two of turning
+      const st = motion.rStats || (motion.rStats = { xy: [0, 0, 0], xx: [0, 0, 0], yy: 0, n: 0 });
+      const f = 0.97;
+      st.yy = st.yy * f + hRate * hRate; st.n++;
+      rates.forEach((r, i) => { if (Number.isFinite(r)) { st.xy[i] = st.xy[i] * f + r * hRate; st.xx[i] = st.xx[i] * f + r * r; } });
+      if (st.n >= 12) {
+        const corr = st.xy.map((xy, i) => xy / Math.sqrt(Math.max(1e-9, st.xx[i] * st.yy)));
+        let best = 0; for (let i = 1; i < 3; i++) if (Math.abs(corr[i]) > Math.abs(corr[best])) best = i;
+        if (Math.abs(corr[best]) > 0.7) { motion.rAxis = R_AXES[best]; motion.rSign = corr[best] > 0 ? 1 : -1; motion.rLearnt = true; }
+      }
+    }
+    const r = rates[R_AXES.indexOf(motion.rAxis)];
+    w = Number.isFinite(r) ? r * motion.rSign : (hOk ? hRate : 0);
+  } else if (hOk) { w = hRate; motion.rAxis = 'heading'; }
   motion.w += (w - motion.w) * (1 - Math.exp(-dt / 0.04));
   const al = (motion.w - motion.wPrev) / dt; motion.wPrev = motion.w;
   motion.a += (al - motion.a) * (1 - Math.exp(-dt / 0.05));
@@ -375,7 +409,10 @@ async function resetSand(opts = {}) {
 async function switchMaterial(id) {
   S.material = id;
   if (!solver?.count) return;
-  const data = await solver.readParticles(), m = MATERIALS[id];
+  busy = true;                                   // the frame loop waits: the sand must not move while it is read back
+  let data;
+  try { data = await solver.readParticles(); } finally { busy = false; }
+  const m = MATERIALS[id];
   for (let i = 0; i < solver.count; i++) {
     const o = i * PARTICLE_WORDS;
     data[o + 4] = 1; data[o + 5] = 0; data[o + 6] = 0; data[o + 7] = 1;
@@ -591,19 +628,26 @@ function drawGlass(force) {
 /* ------------------------------------------------------------------ *
  *  The frame loop
  * ------------------------------------------------------------------ */
-let lastNow = 0, acc = 0, rafOn = false;
+let lastNow = 0, lastDrawn = 0, acc = 0, rafOn = false;
+const rafLog = [];                // rAF timestamps, for the display's own rate
 function loop(now) {
   requestAnimationFrame(loop);
   const t0 = performance.now();
   const dtReal = lastNow ? Math.min((now - lastNow) / 1000, 0.25) : 1 / 60;
   lastNow = now;
-  if (!solver || !glass || hidden || busy || manual) return;
+  rafLog.push(now); while (rafLog.length && now - rafLog[0] > 2000) rafLog.shift();
+  if (!solver || !glass || hidden || busy || manual) { lastDrawn = 0; return; }
   if (solver.readbacks.every(r => r.pending)) {             // the GPU is behind: skip a frame rather than queue more
-    frames.push({ t: now, dt: dtReal * 1000, work: 0, steps: 0, sim: 0, real: dtReal });
-    behindS += dtReal;
+    skips.push({ t: now });                                 // (nothing is drawn: it is not a frame)
+    const avail = acc + dtReal;                             // the next frame drawn catches up, up to the cap
+    acc = Math.min(avail, S.cap / S.hz);
+    behindS += avail - acc;
     trimFrames(now);
     return;
   }
+  // wall time since the last frame drawn (skipped animation frames included; for the statistics, not capped)
+  const since = lastDrawn ? (now - lastDrawn) / 1000 : dtReal;
+  lastDrawn = now;
   const available = acc + dtReal;
   acc = Math.min(available, S.cap / S.hz);
   const dropped = available - acc;
@@ -616,11 +660,14 @@ function loop(now) {
   if (p) p.then(t => t && onTally(t, tSim, now), e => console.error(e));
   renderer.present();
   drawGlass();
-  frames.push({ t: now, dt: dtReal * 1000, work: performance.now() - t0, steps, sim: steps / S.hz, real: dtReal });
+  frames.push({ t: now, dt: since * 1000, work: performance.now() - t0, steps, sim: steps / S.hz, real: since, capped: dropped > 1e-6 });
   trimFrames(now);
   if (benchRun) benchRun.onFrame?.(now);
 }
-function trimFrames(now) { while (frames.length && now - frames[0].t > 4000) frames.shift(); }
+function trimFrames(now) {
+  while (frames.length && now - frames[0].t > 4000) frames.shift();
+  while (skips.length && now - skips[0].t > 4000) skips.shift();
+}
 
 function onTally(t, tSim, now) {
   t.simTime = tSim;
@@ -630,21 +677,38 @@ function onTally(t, tSim, now) {
   if (flowRec) flowRec.add(t);
 }
 
-function frameStats(windowMs = 2000, list = frames) {
-  const now = list.length ? list[list.length - 1].t : 0;
+/**
+ * The frames drawn over the last windowMs: fps drawn, the time between frames drawn (median,
+ * p95, worst), the share of animation frames skipped because the GPU was busy, substeps a frame,
+ * simulated over real time, and how often the per-frame cap held the simulation back.
+ */
+function frameStats(windowMs = 2000, list = frames, skipList = skips) {
+  // up to the latest frame, drawn or skipped (with every frame skipped, the last drawn may be long ago)
+  const now = Math.max(list.length ? list[list.length - 1].t : 0, skipList.length ? skipList[skipList.length - 1].t : 0);
   const f = list.filter(x => now - x.t <= windowMs);
-  if (!f.length) return null;
+  if (!f.length) return skipList.length ? { n: 0, fps: 0, skipped: 1, capped: 0, display: NaN, median: NaN, p95: NaN, worst: NaN, gpu: NaN, gpu95: NaN, steps: 0, ratio: 0, work: NaN } : null;
   const d = f.map(x => x.dt).sort((a, b) => a - b);
   const q = p => d[Math.min(d.length - 1, Math.floor(p * (d.length - 1) + 0.5))];
   const real = f.reduce((s, x) => s + x.real, 0), sim = f.reduce((s, x) => s + x.sim, 0);
   const t0 = f[0].t, g = gpuLog.filter(x => x.t >= t0 && x.t <= now).map(x => x.ms).sort((a, b) => a - b);
   const gq = p => g.length ? g[Math.min(g.length - 1, Math.floor(p * (g.length - 1) + 0.5))] : NaN;
+  const skipped = skipList.filter(x => x.t >= t0 - 1 && x.t <= now).length;
+  const r = rafLog.filter(x => now - x <= windowMs);
   return {
     gpu: gq(0.5), gpu95: gq(0.95),
     n: f.length, median: q(0.5), p95: q(0.95), worst: d[d.length - 1], fps: f.length / Math.max(real, 1e-6),
+    skipped: skipped / (skipped + f.length), capped: f.filter(x => x.capped).length / f.length,
+    display: r.length > 1 ? (r.length - 1) / ((r[r.length - 1] - r[0]) / 1000) : NaN,
     steps: f.reduce((s, x) => s + x.steps, 0) / f.length, ratio: sim / Math.max(real, 1e-6),
     work: f.map(x => x.work).sort((a, b) => a - b)[Math.floor(f.length / 2)]
   };
+}
+/** Why the simulation runs slower than real time, if it does. */
+function behindWhy(f) {
+  if (!f || f.ratio >= 0.97) return '';
+  if (f.skipped > 0.05) return '  BEHIND (GPU)';
+  if (f.capped > 0.2) return '  BEHIND (cap at ' + Math.round(f.display || 0) + ' Hz)';
+  return '  BEHIND';
 }
 function clampRate() {
   if (clampLog.length < 2) return 0;
@@ -656,12 +720,13 @@ function hud() {
   if (!S.hud || !glass) return;
   const f = frameStats(), t = lastTally;
   const lines = [];
-  if (f) lines.push(`frame ${f.median.toFixed(1)} ms med  ${f.p95.toFixed(1)} p95  ${f.worst.toFixed(1)} worst  ${f.fps.toFixed(0)} fps  gpu ${Number.isFinite(f.gpu) ? f.gpu.toFixed(1) : '-'}`);
-  if (f) lines.push(`steps ${f.steps.toFixed(1)}/frame  ${S.hz} Hz x${S.iterations} it  cap ${S.cap}  sim/real ${f.ratio.toFixed(2)}${f.ratio < 0.97 ? '  BEHIND' : ''}`);
+  if (f) lines.push(`drawn ${f.fps.toFixed(0)} fps (display ${Number.isFinite(f.display) ? f.display.toFixed(0) : '-'})  skipped ${Math.round(f.skipped * 100)}%${behindWhy(f)}`);
+  if (f) lines.push(`frame ms ${f.median.toFixed(1)} med ${f.p95.toFixed(1)} p95 ${f.worst.toFixed(1)} max  gpu lag ${Number.isFinite(f.gpu) ? f.gpu.toFixed(0) : '-'}`);
+  if (f) lines.push(`steps ${f.steps.toFixed(1)}/frame  ${S.hz} Hz x${S.iterations}  cap ${S.cap}  sim/real ${f.ratio.toFixed(2)}`);
   const cr = clampRate();
-  lines.push(`points ${solver.count.toLocaleString('en-US')}  clamp ${cr > 0 ? Math.round(cr) + ' nodes/s HIT' : '0'}  fastest ${t ? Math.round(t.maxSpeed) : 0} cells/s`);
-  lines.push(`grid ${RES_NAME[S.res]} ${glass.W}x${glass.H}  neck ${glass.neckCells.toFixed(1)}${glass.neckWidened > 0.005 ? ' (+' + Math.round(glass.neckWidened * 100) + '%)' : ''}  g ${Math.round(gCells())}/s²  ${S.speed}`);
-  if (S.input === 'motion') lines.push(motion.seen ? `motion g (${motion.gx.toFixed(2)}, ${motion.gy.toFixed(2)})  turn ${motion.w.toFixed(1)} rad/s  sign ${motion.sign || '?'}` : 'motion: no readings yet');
+  lines.push(`points ${solver.count.toLocaleString('en-US')}  clamp ${cr > 0 ? Math.round(cr) + '/s HIT' : '0'}  fastest ${t ? Math.round(t.maxSpeed) : 0} cells/s`);
+  lines.push(`grid ${RES_NAME[S.res]} ${glass.W}x${glass.H}  neck ${glass.neckCells.toFixed(1)}${glass.neckWidened > 0.005 ? ' (+' + Math.round(glass.neckWidened * 100) + '%)' : ''}  g ${Math.round(gCells())}/s²${S.speed === 'real' ? ' (11 cm)' : ''}`);
+  if (S.input === 'motion') lines.push(motion.seen ? `motion (${motion.gx.toFixed(2)}, ${motion.gy.toFixed(2)}) g  turn ${motion.w.toFixed(1)}/s  sign ${motion.sign || '?'}  axis ${motion.rSign < 0 ? '-' : ''}${motion.rAxis || '?'}${motion.rLearnt ? '' : '?'}` : 'motion: no readings yet');
   $('hud').textContent = lines.join('\n');
 }
 
@@ -777,17 +842,19 @@ async function benchmark(opts = {}) {
       benchRun = { t0: simTime };
       clampLog.length = 0;
       await sleep(warm * 1000);
-      const from = performance.now(), c0 = lastTally?.clamped ?? 0, behind0 = behindS;
+      const from = performance.now(), c0 = lastTally?.clamped ?? 0, behind0 = behindS, hiddenAt0 = hiddenCount;
       await sleep(measure * 1000);
-      const list = frames.filter(f => f.t >= from);
-      const st = frameStats(1e9, list) || {};
+      const list = frames.filter(f => f.t >= from), skipList = skips.filter(f => f.t >= from);
+      const st = frameStats(1e9, list, skipList) || {};
       const c1 = lastTally?.clamped ?? c0;
       benchRows.push({
         res: RES_NAME[c.res], amount: AMOUNT_NAME[c.amount], speed: c.speed, points: solver.count, hz: S.hz, it: S.iterations, cap: S.cap,
-        median: st.median, p95: st.p95, worst: st.worst, fps: st.fps, steps: st.steps, ratio: st.ratio, work: st.work, gpu: st.gpu, gpu95: st.gpu95,
-        clampPerS: (c1 - c0) / measure, behind: behindS - behind0
+        median: st.median, p95: st.p95, worst: st.worst, fps: st.fps, skipped: st.skipped, capped: st.capped, display: st.display,
+        steps: st.steps, ratio: st.ratio, work: st.work, gpu: st.gpu, gpu95: st.gpu95,
+        clampPerS: (c1 - c0) / measure, behind: behindS - behind0, interrupted: hiddenCount !== hiddenAt0
       });
       benchRun = null;
+      if (hiddenCount !== hiddenAt0) { setStatus('Benchmark stopped: the page was hidden'); break; }
     }
   } finally {
     benchRun = null; btn.classList.remove('busy');
@@ -799,12 +866,12 @@ async function benchmark(opts = {}) {
 }
 function benchTable(rows) {
   const n = (v, d = 1) => Number.isFinite(v) ? v.toFixed(d) : '—';
-  return '<table><tr><th>grid</th><th>sand</th><th>speed</th><th>points</th><th>Hz</th><th>med</th><th>p95</th><th>worst</th><th>gpu</th><th>fps</th><th>steps</th><th>sim/real</th><th>clamp/s</th></tr>' +
-    rows.map(r => `<tr><td>${r.res}</td><td>${r.amount}</td><td>${r.speed}</td><td>${r.points}</td><td>${r.hz}</td><td>${n(r.median)}</td><td>${n(r.p95)}</td><td>${n(r.worst)}</td><td>${n(r.gpu)}</td><td>${n(r.fps, 0)}</td><td>${n(r.steps)}</td><td>${n(r.ratio, 2)}</td><td>${n(r.clampPerS, 0)}</td></tr>`).join('') + '</table>';
+  return '<table><tr><th>grid</th><th>sand</th><th>speed</th><th>points</th><th>Hz</th><th>fps</th><th>skip</th><th>med</th><th>p95</th><th>worst</th><th>lag</th><th>steps</th><th>sim/real</th><th>clamp/s</th></tr>' +
+    rows.map(r => `<tr><td>${r.res}${r.interrupted ? ' (hidden)' : ''}</td><td>${r.amount}</td><td>${r.speed}</td><td>${r.points}</td><td>${r.hz}</td><td>${n(r.fps, 0)}</td><td>${n(100 * r.skipped, 0)}%</td><td>${n(r.median)}</td><td>${n(r.p95)}</td><td>${n(r.worst)}</td><td>${n(r.gpu)}</td><td>${n(r.steps)}</td><td>${n(r.ratio, 2)}</td><td>${n(r.clampPerS, 0)}</td></tr>`).join('') + '</table>';
 }
 function showBench() {
   const d = document.createElement('div');
-  d.innerHTML = '<p>Frame times in ms over a few seconds of shaken sand (median, 95th percentile, worst); gpu: the median time from a frame\'s submit until the GPU has done it. sim/real under 1 means the simulation fell behind; clamp/s counts grid nodes held to the one-cell-per-substep limit.</p>' + benchTable(benchRows);
+  d.innerHTML = '<p>Over a few seconds of shaken sand: fps, the frames drawn a second; skip, the share of display frames skipped because the GPU was still busy; the time between frames drawn in ms (median, 95th percentile, worst); lag, the median time from a frame\'s submit until the GPU has done it (it includes frames waiting in the queue, so it is not the GPU\'s cost of one frame). sim/real under 1 means the simulation fell behind; clamp/s counts grid nodes held to the per-substep speed limit.</p>' + benchTable(benchRows);
   showSheet('Benchmark', d);
 }
 
@@ -819,14 +886,16 @@ function reportText() {
   L.push('Device: ' + navigator.userAgent);
   const i = gpu?.info || {};
   L.push(`WebGPU adapter: vendor=${i.vendor || '?'} architecture=${i.architecture || '?'} device=${i.device || '?'} description=${i.description || '?'}${i.fallback ? ' (fallback)' : ''}`);
-  L.push(`Screen: ${screen.width}x${screen.height} CSS px, devicePixelRatio ${window.devicePixelRatio}, standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`);
-  L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed, ${S.hz} Hz x ${S.iterations} iterations, cap ${S.cap}/frame, clamp ${S.maxStep} cell`);
+  L.push(`Screen: ${screen.width}x${screen.height} CSS px, devicePixelRatio ${window.devicePixelRatio}, window ${innerWidth}x${innerHeight}, screen angle ${screenAngle()}, standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`);
+  L.push(`Errors: start ${startError || 'none'}; GPU lost ${lostReason || 'no'}; WebGPU ${solver?.errors?.length ? solver.errors.join(' | ') : 'none'}`);
+  L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations, cap ${S.cap}/frame, clamp ${S.maxStep} cell`);
+  L.push(`Motion: input ${S.input}, readings ${motion.seen ? 'yes' : 'no'}, sign ${motion.sign || 'not learnt'}, units ${motion.unit ? (motion.unit > 1 ? 'g' : 'm/s²') : '?'}, turn axis ${motion.rAxis || '?'} sign ${motion.rSign} (${motion.rLearnt ? 'learnt' : 'assumed'})`);
   const f = frameStats();
-  if (f) L.push(`Last 2 s: frame median ${n(f.median)} ms, p95 ${n(f.p95)}, worst ${n(f.worst)}, ${n(f.fps, 0)} fps, gpu median ${n(f.gpu)} ms, p95 ${n(f.gpu95)}, ${n(f.steps)} substeps/frame, sim/real ${n(f.ratio, 2)}`);
+  if (f) L.push(`Last 2 s: ${n(f.fps, 0)} frames drawn a second, display ${n(f.display, 0)} Hz, ${n(100 * f.skipped, 0)}% skipped (GPU busy), ${n(100 * f.capped, 0)}% held by the cap; between frames median ${n(f.median)} ms, p95 ${n(f.p95)}, worst ${n(f.worst)}; submit-to-done lag median ${n(f.gpu)} ms, p95 ${n(f.gpu95)}; ${n(f.steps)} substeps/frame, sim/real ${n(f.ratio, 2)}`);
   if (benchRows.length) {
     L.push('');
-    L.push('Benchmark (frame ms: median / p95 / worst; GPU ms: median / p95; fps; substeps a frame; sim/real; clamp hits/s)');
-    for (const r of benchRows) L.push(`${r.res.padEnd(6)} ${r.amount.padEnd(8)} ${r.speed.padEnd(4)} ${String(r.points).padStart(6)} pts ${r.hz} Hz x${r.it}: ${n(r.median)} / ${n(r.p95)} / ${n(r.worst)} ms, gpu ${n(r.gpu)} / ${n(r.gpu95)} ms, ${n(r.fps, 0)} fps, ${n(r.steps)} steps, sim/real ${n(r.ratio, 2)}, clamp ${n(r.clampPerS, 0)}/s`);
+    L.push('Benchmark (frames drawn a second; % skipped, GPU busy; ms between frames drawn: median / p95 / worst; submit-to-done lag ms: median / p95; substeps a frame; sim/real; clamp hits/s)');
+    for (const r of benchRows) L.push(`${r.res.padEnd(6)} ${r.amount.padEnd(8)} ${r.speed.padEnd(4)} ${String(r.points).padStart(6)} pts ${r.hz} Hz x${r.it} cap ${r.cap}: ${n(r.fps, 0)} fps, ${n(100 * r.skipped, 0)}% skipped, ${n(r.median)} / ${n(r.p95)} / ${n(r.worst)} ms, lag ${n(r.gpu)} / ${n(r.gpu95)} ms, ${n(r.steps)} steps, sim/real ${n(r.ratio, 2)}, clamp ${n(r.clampPerS, 0)}/s${r.interrupted ? ' (page hidden: not valid)' : ''}`);
   } else L.push('Benchmark: not run');
   if (flowResults.length) for (const r of flowResults) {
     const k = 1 / (PPC * PPC) / (RES[r.res] * RES[r.res]);
@@ -839,26 +908,27 @@ function reportText() {
 }
 function copyResults() {
   const text = reportText();
-  let ok = false;
-  // The write must start inside the tap (iOS)
-  try {
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).then(() => setStatus('Results copied'), () => fallbackCopy(text));
-      ok = true;
-    }
-  } catch (e) { ok = false; }
-  if (!ok) fallbackCopy(text);
   const d = document.createElement('div');
-  d.innerHTML = '<p>Copied to the clipboard. If not, select the text below and copy it.</p>';
+  const note = document.createElement('p'); note.textContent = 'Copying…'; d.appendChild(note);
   const ta = document.createElement('textarea'); ta.value = text; ta.readOnly = true; d.appendChild(ta);
   showSheet('Results', d);
+  const byHand = () => {
+    note.textContent = 'Not copied: select the text below and copy it.';
+    setStatus('Copy the text by hand');
+    try { ta.focus(); ta.setSelectionRange(0, text.length); } catch (e) { /* selection is optional */ }
+  };
+  const copied = () => { note.textContent = 'Copied to the clipboard. The text is below too.'; setStatus('Results copied'); };
+  // The write must start inside the tap (iOS); success is reported only once it has happened
+  let started = false;
+  try {
+    if (navigator.clipboard?.writeText) { navigator.clipboard.writeText(text).then(copied, () => fallbackCopy(ta) ? copied() : byHand()); started = true; }
+  } catch (e) { started = false; }
+  if (!started) { if (fallbackCopy(ta)) copied(); else byHand(); }
   return text;
 }
-function fallbackCopy(text) {
-  const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-  document.body.appendChild(ta); ta.select();
-  try { document.execCommand('copy'); setStatus('Results copied'); } catch (e) { setStatus('Copy the text by hand'); }
-  ta.remove();
+/** The old way, from the visible text box: true only if the browser says it copied. */
+function fallbackCopy(ta) {
+  try { ta.focus(); ta.setSelectionRange(0, ta.value.length); return document.execCommand('copy') === true; } catch (e) { return false; }
 }
 
 /* ------------------------------------------------------------------ *
@@ -869,7 +939,7 @@ let statusTimer = 0;
 function setStatus(t) {
   $('status').textContent = t;
   clearTimeout(statusTimer);
-  if (t && /copied|by hand/.test(t)) statusTimer = setTimeout(() => ($('status').textContent = ''), 2500);
+  if (t && /copied|by hand|Real motion on/.test(t)) statusTimer = setTimeout(() => ($('status').textContent = ''), /Real motion/.test(t) ? 6000 : 2500);
 }
 function showSheet(title, node) {
   $('sheet-title').textContent = title;
@@ -897,7 +967,7 @@ function bindUI() {
         if (val === 'motion') {
           // the permission request must go out inside this tap
           askMotion().then(r => {
-            if (r === 'granted' || r === 'unavailable') { motionStart(); S.input = 'motion'; if (r === 'unavailable') setStatus('This browser gives no motion readings'); }
+            if (r === 'granted' || r === 'unavailable') { motionStart(); S.input = 'motion'; setStatus(r === 'unavailable' ? 'This browser gives no motion readings' : 'Real motion on. Keep Portrait Orientation Lock on (Control Center).'); }
             else { S.input = 'upright'; setStatus('Motion access was not allowed'); }
             syncUI();
           }, () => { S.input = 'upright'; setStatus('Motion access could not be asked for'); syncUI(); });
@@ -942,10 +1012,28 @@ function bindUI() {
   window.addEventListener('resize', () => requestAnimationFrame(layout));
   document.addEventListener('visibilitychange', () => {
     hidden = document.hidden;
-    if (!hidden) { lastNow = 0; acc = 0; }
+    if (hidden) hiddenCount++;
+    if (!hidden) { lastNow = 0; lastDrawn = 0; acc = 0; }
   });
+  // turning the phone sideways turns the page too, unless Portrait Orientation Lock is on
+  const land = matchMedia('(orientation: landscape)');
+  const onLand = () => landscapeNotice(land.matches || screenAngle() !== 0);
+  land.addEventListener?.('change', onLand);
+  window.addEventListener('orientationchange', onLand);
+  onLand();
 }
 function busyUI() { return !!benchRun || !!flowRec || busy; }
+let hiddenCount = 0;
+/** The page has turned to landscape: the glass would shrink and gravity would jump. Say how to stop it. */
+function landscapeNotice(on) {
+  const n = $('turn');
+  if (!n) return;
+  n.hidden = !on;
+  if (on) n.innerHTML = `<h2>Turn on Portrait Orientation Lock</h2>
+    <p>The phone turned the page sideways, so the glass shrank and the sand's "down" jumped with it.</p>
+    <p>Open Control Center (swipe down from the top-right corner), tap the lock with the circular arrow, then turn the phone back upright.</p>
+    <p>With the lock on, turn the phone as far as you like: the sand follows, and the page stays put.</p>`;
+}
 function doFlip() {
   if (flip.active) return;
   flip.active = true; flip.t0 = simTime; flip.from = pose.theta; flip.to = pose.theta + Math.PI;
@@ -1013,7 +1101,7 @@ async function heapAngle(opts = {}) {
   const bins = new Map();
   let count = 0;
   // grains in the air (the falling thread, spray) are not the bed: faster than a fall of 3 cells
-  const dt = 1 / S.hz, gr = lastField.gravity, vFly = Math.sqrt(2 * gCells() * 3);
+  const dt = 1 / S.hz, gr = lastField.gravity, vFly = opts.vMax ?? Math.sqrt(2 * gCells() * 3);
   for (let i = 0; i < n; i++) {
     const o = i * PARTICLE_WORDS, x = d[o] - glass.cx, y = d[o + 1] - glass.cy;
     if (bulb === 'lower' ? y > 0 : y < 0) continue;
@@ -1066,6 +1154,7 @@ async function heapAngle(opts = {}) {
  *  Start
  * ------------------------------------------------------------------ */
 function noGPU(e) {
+  startError = String(e && e.message || e);
   const n = $('notice');
   n.innerHTML = `<h2>This test needs WebGPU</h2>
     <p>On an iPhone that means iOS 26 or later, in Safari. To see your version: Settings, General, About.</p>
@@ -1094,13 +1183,14 @@ async function boot() {
     Object.assign(S, SPEED_DEFAULTS[S.speed]);
     await resetSand({});
     layout();
-    gpu.device.lost.then(info => { if (info.reason !== 'destroyed') setStatus('The GPU was lost: ' + info.message); });
+    gpu.device.lost.then(info => { if (info.reason !== 'destroyed') { lostReason = `${info.reason}: ${info.message}`; setStatus('The GPU was lost. Reload the page.'); } });
     setInterval(hud, 250);
     if (!rafOn) { rafOn = true; requestAnimationFrame(loop); }
     readyResolve(info());
   } catch (e) {
     console.error(e);
-    setStatus('Could not start: ' + (e.message || e));
+    startError = String(e && e.message || e);
+    setStatus('Could not start: ' + startError + ' (Copy results has the details)');
     readyReject(e);
   }
 }
@@ -1126,11 +1216,16 @@ window.__lab = {
     else { scriptInput = null; S.input = o.mode; if (o.mode === 'motion') motionStart(); syncUI(); }
   },
   /** Forget what the motion readings taught (sign, units, filters). */
-  motionReset() { Object.assign(motion, { sign: 0, votes: 0, voteSum: 0, locked: false, unit: 0, ubuf: [], lp: false, gx: 0, gy: 1, w: 0, a: 0, wPrev: 0, tPrev: -1, heading: NaN }); },
+  motionReset() { Object.assign(motion, { sign: 0, votes: 0, voteSum: 0, locked: false, unit: 0, ubuf: [], lp: false, gx: 0, gy: 1, w: 0, a: 0, wPrev: 0, tPrev: -1, heading: NaN, rAxis: '', rSign: 1, rLearnt: false, rStats: null }); },
+  /** The live loop's frame statistics over the last windowMs (frames drawn, skipped, cap). */
+  frameStats: (ms = 2000) => frameStats(ms),
+  landscape: () => !$('turn').hidden,
   settings(o = {}) {
-    for (const k of ['hz', 'iterations', 'maxStep', 'coriolis', 'neckMin', 'gScale', 'override']) if (o[k] !== undefined) S[k] = o[k];
-    if (o.speed) { S.speed = o.speed; if (o.hz === undefined) Object.assign(S, SPEED_DEFAULTS[o.speed]); }
-    if (o.cap !== undefined && o.cap !== S.cap) { S.cap = o.cap; solver.allocUniforms(S.cap); }
+    // a speed brings its defaults first; hz, iterations and cap given with it then override them
+    const capWas = S.cap;
+    if (o.speed) { S.speed = o.speed; Object.assign(S, SPEED_DEFAULTS[o.speed]); }
+    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'neckMin', 'gScale', 'override']) if (o[k] !== undefined) S[k] = o[k];
+    if (S.cap !== capWas || solver.cap !== S.cap) solver.allocUniforms(S.cap);
     syncUI(); return { ...S };
   },
   manual(on = true) { manual = !!on; if (!on) { lastNow = 0; acc = 0; } },
@@ -1142,6 +1237,16 @@ window.__lab = {
   async positions() {
     const d = await solver.readParticles(), out = new Array(solver.count * 2);
     for (let i = 0; i < solver.count; i++) { out[2 * i] = d[i * PARTICLE_WORDS] - glass.cx; out[2 * i + 1] = d[i * PARTICLE_WORDS + 1] - glass.cy; }
+    return out;
+  },
+  /** Per material point: x, y (relative to the neck, cells, y up), vx, vy (cells/s), looseness (sand: log of volume over rest volume). */
+  async particles() {
+    const d = await solver.readParticles(), n = solver.count, dt = 1 / S.hz, gr = lastField.gravity, out = new Array(n * 5);
+    for (let i = 0; i < n; i++) {
+      const o = i * PARTICLE_WORDS;
+      out[5 * i] = d[o] - glass.cx; out[5 * i + 1] = d[o + 1] - glass.cy;
+      out[5 * i + 2] = d[o + 2] / dt - gr[0] * dt; out[5 * i + 3] = d[o + 3] / dt - gr[1] * dt; out[5 * i + 4] = d[o + 13];
+    }
     return out;
   },
   heapAngle: o => heapAngle(o),
