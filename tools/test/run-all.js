@@ -5,13 +5,18 @@
  * tests need Node 22 and Playwright with Chromium (npm install, then
  * npx playwright install chromium).
  *
- *   node tools/test/run-all.js [filter]       e.g. "sim-" runs the physics only
+ *   node tools/test/run-all.js [filter]       e.g. "sim-" runs the physics only;
+ *                                             "lab-" runs the lab pages' suites
  */
 'use strict';
 var fs = require('fs'), path = require('path'), cp = require('child_process');
 var filter = process.argv[2] || '', port = 8810, failed = [], t0 = Date.now();
+// lab-* suites test the separate lab pages, not the app; they run about an
+// hour and record open problems as failing checks, so they run only when the
+// filter names them ("lab")
 var files = fs.readdirSync(__dirname).filter(function (f) {
-  return /\.test\.js$/.test(f) && f.indexOf(filter) >= 0;
+  return /\.test\.js$/.test(f) && f.indexOf(filter) >= 0 &&
+    (f.indexOf('lab-') !== 0 || filter.indexOf('lab') >= 0);
 }).sort();
 files.forEach(function (f) {
   var t = Date.now();

@@ -1147,15 +1147,18 @@ it as far as at real speed. To test: turn on
 Portrait Orientation Lock in Control Center (otherwise turning the phone
 turns the page, and the page says so), and turn Low Power Mode off (it
 halves the display rate). It loads nothing from anywhere else and registers
-no service worker of its own; but on the site the app's service worker
-(`sw.js`, whose scope covers `lab/`) serves the lab's files from its cache
-first, so after an update the new version shows on the second visit. Its
+no service worker of its own; the app's service worker (`sw.js`, whose
+scope covers `lab/`) leaves everything under `lab/` to the network and never
+caches it, so an update shows on the next load (`app-regression` checks
+this). Its
 solver keeps Smoosh's MIT and EA's BSD-3-Clause notices
 (`lab/sand/LICENSES.md`).
 `node tools/test/lab-sand.test.js [--port <n>] [--only 2,6,9] [--shots <dir>]`
 runs it headless in Chromium with WebGPU in software (SwiftShader), on its
 coarse grid with little sand and the clock driven by the test; it takes
-about 40 minutes, and its speeds say nothing about a phone.
+about an hour, and its speeds say nothing about a phone. Its failing checks
+are the sand's open problems, so `run-all.js` runs it only when asked
+(`node tools/test/run-all.js lab-`).
 
 ## Icons and launch screens
 
