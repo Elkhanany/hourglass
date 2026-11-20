@@ -71,7 +71,7 @@
  *               it (<= 0.25 cell) nor hop when let go (<= 0.5)
  *  16 stream    an upright pour: the grains as drawn (with their streaks) cover
  *               >= 85 % of the 1-cell rows on the axis below the neck; drawn as
- *               dots, logged
+ *               dots (control) <= 60 %
  *  17 syrup     the flow test: syrup drains in >= 3 x water's time and >= 0.45 x
  *               coarse sand's (it ran nearly as fast as water)
  *  18 creep     a 1-minute bed held at 25 degrees, 0.5 to 3.5 s: centre <= 1.15
@@ -817,11 +817,10 @@ async function main() {
     var m1 = M.mean(cov1), m0 = M.mean(cov0);
     log('  ' + cov1.length + ' frames: rows covered on the axis ' + f2(m1) + ' with the blur, ' + f2(m0) + ' as dots; longest gap ' + gap1 + ' rows');
     check(cov1.length >= 8 && m1 >= 0.85, 'the falling stream is drawn as a thread: >= 85 % of the rows covered (' + f2(m1) + ')');
-    // (Drawn as dots the stream was broken at 5cc11b3: 0.45 of the rows, the scoreboard's pixel measure,
-    // at 510 points/s through the neck. Since sand yields inside the solver it runs at about 2,400
-    // points/s, near Beverloo's rate for this neck, and its points alone already fill the axis, so the
-    // dots are logged, not judged: the check above is what catches a dotted stream.)
-    log('  drawn as dots (logged): ' + f2(m0) + ' of the rows (5cc11b3: 0.45, a sparser stream)');
+    // control: the same frames drawn as dots. (With More, "yield: in loop", sand runs at about 2,400
+    // points/s, near Beverloo's rate for this neck, and its points alone fill the axis: 0.98 measured;
+    // this control holds for the default, where the stream is sparser: 5cc11b3 drew 0.45.)
+    check(m0 <= 0.6, 'control: drawn as dots the stream is broken (' + f2(m0) + ' <= 0.6; 5cc11b3: 0.45)');
   }
 
   if (run(17)) {
