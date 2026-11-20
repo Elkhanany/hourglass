@@ -145,7 +145,11 @@ const LAYOUTS = {
  * more dispatch a substep) x g x loadScale. Meant to stop a settled bed
  * being stronger than a fresh heap. Measured: it does not stop the block
  * slide (1.5: heap 27.6, the bed still turns as a block from 35 to 60
- * degrees). (yieldStep 1, this substep's compression alone: no strength.)
+ * degrees). yieldStep 3 keeps the cone of yieldLoop for compressed sand and
+ * gives loosened sand that still carries a load its friction (the same load
+ * pass): measured at 2, a heap of 28.6 and a fast turn no less liquid (face
+ * 18.9 degrees 0.4 s after, against 21.5 without). (yieldStep 1, this
+ * substep's compression alone: no strength, heaps flat.)
  *
  * Syrup wets the glass (wallDrag 1: no slip) and is three times as viscous as
  * before, so it oozes; its viscosity term is at its ceiling (1), so it still
@@ -320,7 +324,7 @@ export class Solver {
     F[o + 36] = 0; F[o + 37] = 0; F[o + 38] = 0; F[o + 39] = m.floorLoose ?? 0;
     F[o + 40] = m.spread ?? 0; F[o + 41] = m.spreadThr ?? 0.8; F[o + 42] = m.spreadCap ?? 0.05; F[o + 43] = 0;
     F[o + 44] = m.compact ?? 0; F[o + 45] = m.packMax ?? 1; F[o + 46] = m.dilate ?? 1; F[o + 47] = 0;
-    F[o + 48] = m.yieldLoop ?? 0; F[o + 49] = m.yieldScale ?? 1; F[o + 50] = m.yieldStep ?? 0; F[o + 51] = m.yieldStep === 2 ? (m.loadScale ?? 2) : (m.yieldStepScale ?? 1);
+    F[o + 48] = m.yieldLoop ?? 0; F[o + 49] = m.yieldScale ?? 1; F[o + 50] = m.yieldStep ?? 0; F[o + 51] = m.yieldStep >= 2 ? (m.loadScale ?? 2) : (m.yieldStepScale ?? 1);
   }
 
   /**
@@ -347,7 +351,7 @@ export class Solver {
       else pass.dispatchWorkgroupsIndirect(size, 0);
     };
     const solid = set.material.model !== 0 ? P.g2p2gSolid : P.g2p2g;
-    const useLoad = set.material.model === 2 && set.material.yieldLoop && set.material.yieldStep === 2;
+    const useLoad = set.material.model === 2 && set.material.yieldLoop && set.material.yieldStep >= 2;
     if (steps && this.lastHz && this.lastHz !== set.hz && this.count) go(P.rescale, G.rescale, 0, n64);
     if (this.count) for (let s = 0; s < steps; s++) {
       const base = s * MAX_IT;

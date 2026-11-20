@@ -331,12 +331,39 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                 let alphaY = sqrt(2.0/3.0)*2.0*sinPhiY/(3.0 - sinPhiY);
                 let coneKY = select(materialParams.mechanical.z + 1.0, materialParams.mechanical.w, materialParams.mechanical.w > 0.0);
                 var keep = eps;
+                // the load's compression (yieldp.z >= 2): the depth of sand above the point (load.wgsl)
+                // times g, in the solver's strain units (g dt^2 per cell of depth), times yieldp.w
+                // (loadScale); +1 cell: a point at the surface carries about its own cell's weight
+                var loadTr = 0.0;
+                if (g_simConstants.yieldp.z > 1.5)
+                {
+                    var h = 0.0;
+                    for (var i = 0; i < 3; i++)
+                    {
+                        for (var j = 0; j < 3; j++)
+                        {
+                            let c = vec2u(vec2i(weightInfo.cellIndex) + vec2i(i, j));
+                            h += weightInfo.weights[i].x * weightInfo.weights[j].y * g_load[c.y * g_simConstants.gridSize.x + c.x];
+                        }
+                    }
+                    let dtY = g_simConstants.deltaTime;
+                    loadTr = g_simConstants.yieldp.w * (h + 1.0) * length(g_simConstants.gravity) * dtY * dtY;
+                }
+                if (trY >= 0.0 && g_simConstants.yieldp.z > 2.5)
+                {
+                    // yieldp.z = 3: loosened (dilated) sand that still carries the sand above it keeps
+                    // its friction, sized by that load: a flowing layer is not a liquid. (Without it,
+                    // sand that dilated had no strength at all, and a bed thrown by a fast turn ran
+                    // out to 13 to 16 degrees.) Its expansion stays free.
+                    let dgL = nrmY - coneKY * loadTr * alphaY * g_simConstants.yieldp.y;
+                    keep = vec2f(trY * 0.5) + select(vec2f(0.0), eHatY * (dgL / max(nrmY, 1e-6)), dgL > 0.0);
+                }
                 if (trY < 0.0)
                 {
                     // the compression the cone is sized by: the whole trial strain's (yieldp.z = 0), or
                     // only this substep's, the stored part of F taken out, times yieldp.w (yieldp.z = 1)
                     var trC = trY;
-                    if (g_simConstants.yieldp.z > 1.5)
+                    if (g_simConstants.yieldp.z > 1.5 && g_simConstants.yieldp.z < 2.5)
                     {
                         // yieldp.z = 2: no more than the load allows. Sand's friction is in proportion to
                         // the weight of the sand above the point: its depth along "up" (load.wgsl) times
@@ -345,19 +372,9 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                         // lain, so a settled bed was stronger than a fresh heap: it held past its angle
                         // and then turned in the glass as one block. (+1 cell: a point at the surface
                         // carries about its own cell's weight through the stencil.)
-                        var h = 0.0;
-                        for (var i = 0; i < 3; i++)
-                        {
-                            for (var j = 0; j < 3; j++)
-                            {
-                                let c = vec2u(vec2i(weightInfo.cellIndex) + vec2i(i, j));
-                                h += weightInfo.weights[i].x * weightInfo.weights[j].y * g_load[c.y * g_simConstants.gridSize.x + c.x];
-                            }
-                        }
-                        let dtY = g_simConstants.deltaTime;
-                        trC = max(trY, -g_simConstants.yieldp.w * (h + 1.0) * length(g_simConstants.gravity) * dtY * dtY);
+                        trC = max(trY, -loadTr);
                     }
-                    else if (g_simConstants.yieldp.z > 0.5)
+                    else if (g_simConstants.yieldp.z > 0.5 && g_simConstants.yieldp.z < 1.5)
                     {
                         trC = min(0.0, g_simConstants.yieldp.w * (trY - log(max(abs(det(particle.deformationGradient)), 1e-6))));
                     }

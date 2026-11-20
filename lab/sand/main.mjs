@@ -48,7 +48,8 @@ const CYCLE = {
   coriolis: [true, false],
   auto: [true, false],
   impulse: [true, false],
-  blur: [1, 0.5, 0]
+  blur: [1, 0.5, 0],
+  spread: [true, false]
 };
 const FLIP_S = 1.2;
 const GATE_S = 0.5;                                    // the neck stays closed this long after a Reset
@@ -64,7 +65,9 @@ const S = {
   res: 'M', amount: 'quarter', material: 'coarse', speed: 'app', input: 'upright', hud: true,
   hz: 480, iterations: 5, cap: 24, maxStep: 1, coriolis: true, neckMin: 5.5, auto: true, impulse: true,
   // motion blur: a grain is drawn as the streak it makes in this many display frames (60 Hz); 0: off
-  blur: 1
+  blur: 1,
+  // sand's spread pass (3 dispatches a substep): crowded points step apart inside a cell
+  spread: true
 };
 // the substep rate in use (S.hz, raised by auto Hz while the sand is fast), and its history
 const rate = { hz: 480, downAt: 0, grow: 0, tPrev: null, peak: 480 };
@@ -98,7 +101,10 @@ let readbackOk = 0, readbackFails = 0, readbackErr = '', readbackWarned = false;
 
 /** A material's parameters, with the settings' override for the one in use (the tests' hook). */
 const matNow = (id = S.material) => S.override && id === S.material ? { ...MATERIALS[id], ...S.override } : MATERIALS[id];
-const set = () => ({ hz: rate.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis, material: matNow() });
+const set = () => {
+  const m = matNow();
+  return { hz: rate.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis, material: S.spread || !m.spread ? m : { ...m, spread: 0 } };
+};
 
 /** True g in solver cells/s², for a glass 11 cm tall (the brief's 10 to 12 cm; a phone draws it smaller, see drawnMM). */
 function gReal() { return glass ? 9810 / (REAL_HEIGHT_MM / (2 * glass.HBc)) : 1; }
@@ -1019,7 +1025,7 @@ function reportText() {
   L.push(`WebGPU adapter: vendor=${i.vendor || '?'} architecture=${i.architecture || '?'} device=${i.device || '?'} description=${i.description || '?'}${i.fallback ? ' (fallback)' : ''}`);
   L.push(`Screen: ${screen.width}x${screen.height} CSS px, devicePixelRatio ${window.devicePixelRatio}, window ${innerWidth}x${innerHeight}, screen angle ${screenAngle()}, standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`);
   L.push(`Errors: start ${startError || 'none'}; GPU lost ${lostReason || 'no'}; WebGPU ${solver?.errors?.length ? solver.errors.join(' | ') : 'none'}; live readbacks ${readbackOk} ok, ${readbackFails} failed${readbackErr ? ' (' + readbackErr + ')' : ''}`);
-  L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations (auto Hz ${S.auto ? 'on, up to ' + hzTop() + ' Hz; highest since reset ' + rate.peak : 'off'}), cap ${S.cap}/frame at the base rate, clamp ${S.maxStep} cell; jolts at app speed ${S.impulse ? 'played slowed like a film (x' + (1 / Math.sqrt(lamNow())).toFixed(1) + ' longer)' : 'plain'}`);
+  L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations (auto Hz ${S.auto ? 'on, up to ' + hzTop() + ' Hz; highest since reset ' + rate.peak : 'off'}), cap ${S.cap}/frame at the base rate, clamp ${S.maxStep} cell; jolts at app speed ${S.impulse ? 'played slowed like a film (x' + (1 / Math.sqrt(lamNow())).toFixed(1) + ' longer)' : 'plain'}; spread ${S.spread ? 'on' : 'off'}; blur ${S.blur ? S.blur + ' frame' : 'off'}`);
   L.push(`Motion: input ${S.input}, readings ${motion.seen ? 'yes' : 'no'}, sign ${motion.sign || 'not learnt'}, units ${motion.unit ? (motion.unit > 1 ? 'g' : 'm/s²') : '?'}, turn axis ${motion.rAxis || '?'} sign ${motion.rSign} (${motion.rLearnt ? 'learnt' : 'assumed'})`);
   const f = frameStats();
   if (f) L.push(`Last 2 s: ${n(f.fps, 0)} frames drawn a second, display ${n(f.display, 0)} Hz, ${n(100 * f.skipped, 0)}% skipped (GPU busy), ${n(100 * f.capped, 0)}% held by the cap; between frames median ${n(f.median)} ms, p95 ${n(f.p95)}, worst ${n(f.worst)}; submit-to-done lag median ${n(f.gpu)} ms, p95 ${n(f.gpu95)}; ${n(f.steps)} substeps/frame, sim/real ${n(f.ratio, 2)}`);
@@ -1084,7 +1090,7 @@ function syncUI() {
   }
   for (const b of document.querySelectorAll('.cyc')) {
     const k = b.dataset.key, v = S[k];
-    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'impulse' ? `jolts ${v ? 'slowed' : 'plain'}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : `Coriolis ${v ? 'on' : 'off'}`;
+    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'impulse' ? `jolts ${v ? 'slowed' : 'plain'}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : k === 'spread' ? `spread ${v ? 'on' : 'off'}` : `Coriolis ${v ? 'on' : 'off'}`;
   }
   $('b-hud').classList.toggle('on', S.hud);
   $('hud').classList.toggle('off', !S.hud);
@@ -1372,7 +1378,7 @@ window.__lab = {
     // a speed brings its defaults first; hz, iterations and cap given with it then override them
     const capWas = S.cap;
     if (o.speed) { S.speed = o.speed; Object.assign(S, SPEED_DEFAULTS[o.speed]); }
-    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'impulse', 'neckMin', 'gScale', 'override', 'blur']) if (o[k] !== undefined) S[k] = o[k];
+    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'impulse', 'neckMin', 'gScale', 'override', 'blur', 'spread']) if (o[k] !== undefined) S[k] = o[k];
     if (solver.cap !== capAlloc()) solver.allocUniforms(capAlloc());
     resetRate();
     syncUI(); return { ...S };

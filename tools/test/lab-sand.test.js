@@ -55,6 +55,27 @@
  *               and down, it settles back within 10 % of its area; held at
  *               25 degrees (below repose) for 3 s it does not creep: centre
  *               under 0.5 cell, surface within 1 degree
+ *  10 rest      a 1-minute flat bed at rest 0.5 to 4 s: area within 3 %, interior
+ *               packing no looser than -3 % (it swelled 6.5 %)
+ *  11 slowturn  a 1-minute bed, gravity turned 0 to 90 degrees at 30 deg/s with the
+ *               glass: first failure at 30 to 40 degrees; from 65 to 90 it fails in
+ *               surface sheets (lower half / top quarter move <= 0.3); the face 1 s
+ *               after the turn >= 26 degrees (no liquid run-out)
+ *  12 fastturn  a quarter glass turned 180 deg/s to 90: face >= 22 degrees and mean
+ *               speed <= 5 cells/s at +2 s; holes in the drawn bed <= 4 % at +0.2 s
+ *  13 jerk      a quarter glass jerked 2 g: holes <= 1 % at +0.15 s; mean speed at
+ *               +1 s <= 29.4 cells/s; no node clamped
+ *  14 shake     a 1-minute bed shaken up and down 2 g at 10 Hz for 2 s: interior
+ *               packing does not fall; the same with compaction off is logged
+ *  15 press     real speed, a 3 g press for 0.5 s: the surface does not rise under
+ *               it (<= 0.25 cell) nor hop when let go (<= 0.5)
+ *  16 stream    an upright pour: the grains as drawn (with their streaks) cover
+ *               >= 85 % of the 1-cell rows on the axis below the neck; drawn as
+ *               dots, logged
+ *  17 syrup     the flow test: syrup drains in >= 3 x water's time and >= 0.45 x
+ *               coarse sand's (it ran nearly as fast as water)
+ *  18 creep     a 1-minute bed held at 25 degrees, 0.5 to 3.5 s: centre <= 1.15
+ *               cells, surface within 1 degree
  *
  * Screenshots of the key moments go to --shots (a phone-like 390 x 844
  * viewport, device scale 1).
@@ -329,7 +350,7 @@ async function main() {
 
   /* ---- 6 ------------------------------------------------------------ */
   var flows = {};
-  if (run(6) || run(8)) {
+  if (run(6) || run(8) || run(17)) {
     log('6 flow through the neck (upright, from a full top bulb of 5,000 points)');
     for (var m6 of ['coarse', 'water']) {
       await L(function () { window.__lab.setInput({ mode: 'upright' }); });
@@ -629,6 +650,207 @@ async function main() {
       await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
     }
     await L(function () { return window.__lab.settings({ speed: 'app' }); });
+  }
+
+  /* ---- 10 to 18: this round's realism checks (the scoreboard's scenarios and measures) ---- */
+  var M = require('./lib/sand-measures.js');
+  var D2R = Math.PI / 180;
+  var reset10 = async function (o) {
+    await L(function (o) { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.reset(o); }, Object.assign({ fill: 'lower', material: 'coarse' }, o));
+  };
+  var speed10 = function (sp, extra) { return L(function (o) { return window.__lab.settings(o); }, Object.assign({ speed: sp, override: null }, extra || {})); };
+  var pos = function () { return L(function () { return window.__lab.positions(); }); };
+  var stat = function () { return L(function () { return window.__lab.stats(); }); };
+  var inp = function (o) { return L(function (o) { window.__lab.setInput(o); }, o); };
+  // the glass shaken through its own path (the phone's), updated 120 times a simulated second
+  var glassShake = function (g, hz, axis, dur) {
+    return L(async function (o) {
+      for (var i = 0; i < o.n; i++) {
+        var a = o.g * Math.sin(2 * Math.PI * o.hz * (i + 0.5) / 120);
+        window.__lab.setInput({ mode: 'manual', gravity: [0, 1], glass: [a * o.axis[0], a * o.axis[1]] });
+        await window.__lab.advance(1 / 120);
+      }
+      window.__lab.setInput({ mode: 'manual', gravity: [0, 1] });
+    }, { g: g, hz: hz, axis: axis, n: Math.round(dur * 120) });
+  };
+
+  if (run(10)) {
+    log('10 rest (a 1-minute flat bed, coarse sand, app speed, 0.5 s to 4 s after the fill)');
+    await speed10('app');
+    await reset10({ amount: 'minute' });
+    await sec(0.5);
+    var k0 = M.packing(await pos());
+    await sec(3.5);
+    var k1 = M.packing(await pos());
+    var dA = 100 * (k1.area / k0.area - 1), dP = 100 * (k1.packing / k0.packing - 1);
+    log('  area ' + k0.area + ' -> ' + k1.area + ' cells (' + f2(dA) + ' %), interior packing ' + f2(k0.packing) + ' -> ' + f2(k1.packing) + ' (' + f2(dP) + ' %)');
+    check(Math.abs(dA) <= 3 && dP >= -3, 'a bed at rest does not swell: area within 3 % (' + f2(dA) + ') and packing no looser than -3 % (' + f2(dP) + ') (5cc11b3: +6.5 / -4.2)');
+  }
+
+  if (run(11)) {
+    log('11 a slow turn (a 1-minute bed, gravity turned 0 to 90 degrees at 30 deg/s with the glass)');
+    await speed10('app');
+    await reset10({ amount: 'minute' });
+    await sec(1);
+    var w11 = 30 * D2R, p11 = await pos(), steps11 = [], t11 = 0;
+    await inp({ mode: 'manual', gravity: [0, 1], gravitySpin: w11, omega: -w11 });
+    for (var a11 = 5; a11 <= 90; a11 += 5) {
+      await sec(a11 / 30 - t11); t11 = a11 / 30;
+      var q11 = await pos(), up11 = [Math.sin(a11 * D2R), Math.cos(a11 * D2R)], mv11 = M.stepMove(p11, q11, up11, 1 / 6);
+      steps11.push({ a: a11, top: mv11.topMove, low: mv11.lowMove, ratio: mv11.ratio, face: M.faceFit(q11, up11, function (x, y) { return y < -1; }) });
+      p11 = q11;
+    }
+    await inp({ mode: 'manual', gravity: [-1, Math.cos(90 * D2R)] });
+    await sec(1);
+    var face11 = M.faceFit(await pos(), [1, 0], function (x, y) { return y < -1; });
+    var drift11 = M.median(steps11.filter(function (s) { return s.a <= 20; }).map(function (s) { return s.top; }));
+    var thr11 = Math.max(1, 2 * drift11), fails11 = steps11.filter(function (s) { return s.top >= thr11; });
+    log('  per 5 degrees (top quarter / lower half median move, cells; face): ' + steps11.map(function (s) { return s.a + ':' + f1(s.top) + '/' + f1(s.low) + ' ' + Math.round(s.face); }).join('  '));
+    var first11 = fails11.length ? fails11[0].a : NaN;
+    var late11 = fails11.filter(function (s) { return s.a >= 65; }), lateRatio = late11.length ? Math.max.apply(null, late11.map(function (s) { return s.ratio; })) : NaN;
+    var deep11 = steps11.filter(function (s) { return s.a >= 40 && s.a <= 70; }).map(function (s) { return s.low; }), deepMax11 = Math.max.apply(null, deep11);
+    log('  first failure at ' + first11 + ' degrees; lower/top in the failures from 65 to 90: ' + f2(lateRatio) + '; the lower half\'s largest move from 40 to 70: ' + f2(deepMax11) + ' cells (logged); face 1 s after the turn ' + f1(face11) + ' degrees');
+    check(first11 >= 30 && first11 <= 40, 'the bed first fails at 30 to 40 degrees of turn (' + first11 + ')');
+    check(lateRatio <= 0.3, 'from 65 to 90 degrees it fails in surface sheets: lower half / top quarter <= 0.3 (' + f2(lateRatio) + '; 5cc11b3: 0.8 to 1.5)');
+    check(face11 >= 26, 'the avalanche stops near its repose angle: face 1 s after >= 26 degrees (' + f1(face11) + ')');
+    await inp({ mode: 'manual', gravity: [0, 1] });
+  }
+
+  if (run(12)) {
+    log('12 a fast turn (a quarter glass, 180 deg/s to 90 degrees, held)');
+    await speed10('app');
+    await reset10({ amount: 'quarter' });
+    await sec(1);
+    var w12 = 180 * D2R;
+    await inp({ mode: 'manual', gravity: [0, 1], gravitySpin: w12, omega: -w12 });
+    await sec(0.5);
+    await inp({ mode: 'manual', gravity: [-1, Math.cos(90 * D2R)] });
+    await sec(0.2);
+    var v12 = M.voids(await pos());
+    await sec(1.8);
+    var face12 = M.faceFit(await pos(), [1, 0], function (x, y) { return y < -1; }), s12 = await stat();
+    log('  +0.2 s: holes ' + f2(100 * v12.holes) + ' % of the interior (' + v12.holeCount + ', biggest ' + f2(v12.biggestHole) + ' cell²); +2 s: face ' + f1(face12) + ' degrees, mean speed ' + f1(s12.meanSpeed) + ' cells/s');
+    check(face12 >= 22 && s12.meanSpeed <= 5, 'after a fast turn it stops as sand, not a liquid: face >= 22 degrees (' + f1(face12) + '; 5cc11b3: 13.2) and mean speed <= 5 cells/s at +2 s (' + f1(s12.meanSpeed) + '; 9.5)');
+    check(v12.holes <= 0.04, 'the bed does not tear in the turn: holes <= 4 % at +0.2 s (' + f2(100 * v12.holes) + ' %; 5cc11b3: 16.3)');
+  }
+
+  if (run(13)) {
+    log('13 a jerk (a quarter glass, 2 g for 50 ms each way through the glass)');
+    await speed10('app');
+    await reset10({ amount: 'quarter' });
+    await sec(1);
+    var c13 = (await stat()).clamped;
+    await inp({ mode: 'manual', gravity: [0, 1], glass: [2, 0] }); await sec(0.05);
+    await inp({ mode: 'manual', gravity: [0, 1], glass: [-2, 0] }); await sec(0.05);
+    await inp({ mode: 'manual', gravity: [0, 1] });
+    await sec(0.05);
+    var v13 = M.voids(await pos());
+    await sec(0.85);
+    var s13 = await stat();
+    log('  +0.15 s: holes ' + f2(100 * v13.holes) + ' %; +1 s: mean speed ' + f1(s13.meanSpeed) + ' cells/s; clamp hits ' + (s13.clamped - c13));
+    check(v13.holes <= 0.01, 'a jerk does not tear the bed: holes <= 1 % at +0.15 s (' + f2(100 * v13.holes) + ' %; 5cc11b3: 6.8)');
+    check(s13.meanSpeed <= 29.4 && s13.clamped - c13 === 0, 'it settles no slower than before (mean speed at +1 s ' + f1(s13.meanSpeed) + ' <= 29.4) and no node is clamped (' + (s13.clamped - c13) + ')');
+  }
+
+  if (run(14)) {
+    log('14 shaking packs (a 1-minute bed shaken up and down 2 g at 10 Hz for 2 s through the glass, then 1.5 s)');
+    var res14 = {};
+    for (var cmp of [null, 0]) {
+      await speed10('app', cmp === null ? {} : { override: { compact: 0 } });
+      await reset10({ amount: 'minute' });
+      await sec(1.5);
+      var b14 = M.packing(await pos());
+      await glassShake(2, 10, [0, 1], 2);
+      await sec(1.5);
+      var e14 = M.packing(await pos());
+      res14[cmp === null ? 'on' : 'off'] = 100 * (e14.packing / b14.packing - 1);
+      log('  compaction ' + (cmp === null ? 'as set' : 'off') + ': interior packing ' + f2(b14.packing) + ' -> ' + f2(e14.packing) + ' (' + f2(res14[cmp === null ? 'on' : 'off']) + ' %), area ' + b14.area + ' -> ' + e14.area);
+    }
+    await speed10('app');
+    log('  the compaction law\'s share: ' + f2(res14.on - res14.off) + ' % (logged)');
+    check(res14.on >= 0, 'shaken sand packs or holds: packing change >= 0 (' + f2(res14.on) + ' %; 5cc11b3: -4.3 after the scoreboard\'s press and sideways shake)');
+  }
+
+  if (run(15)) {
+    log('15 a 3 g press at real speed (a 1-minute bed, pressed 0.5 s, released)');
+    await speed10('real');
+    await reset10({ amount: 'minute' });
+    await sec(2);
+    var sf15 = M.meanSurface(await pos());
+    await inp({ mode: 'manual', gravity: [0, 3] });
+    await sec(0.5);
+    var ul15 = M.meanSurface(await pos()) - sf15;
+    await inp({ mode: 'manual', gravity: [0, 1] });
+    var hop15 = -Infinity;
+    for (var k15 = 0; k15 < 10; k15++) { await sec(0.05); hop15 = Math.max(hop15, M.meanSurface(await pos()) - sf15); }
+    log('  surface under the press ' + f2(ul15) + ' cells; highest after the release ' + f2(hop15) + ' cells');
+    check(ul15 <= 0.25 && hop15 <= 0.5, 'pressed, the bed does not swell (' + f2(ul15) + ' <= 0.25 cell; 5cc11b3: +1.49) nor hop when let go (' + f2(hop15) + ' <= 0.5; 1.80)');
+    await speed10('app');
+  }
+
+  if (run(16)) {
+    log('16 the drawn stream (an upright pour of the 1-minute amount; grains drawn as their streaks)');
+    await speed10('app');
+    await reset10({ fill: 'top', amount: 'minute' });
+    var inf16 = await L(function () { return window.__lab.info(); }), rn16 = inf16.glass.neckCells / 2, vs16 = Math.sqrt(2 * inf16.g * 3) / 60;
+    var cov1 = [], cov0 = [], gap1 = 0, a016 = null, none16 = 0, last16 = null;
+    for (var t16 = 0; t16 < 12; t16 += 0.1) {
+      await sec(0.1);
+      var s16 = await stat();
+      if (a016 === null && s16.simTime >= 0.5) a016 = s16.above;
+      // (the stream from when it has formed, a fifth of a second after the neck opens, while 95 to
+      // 25 % of the sand is above the neck; the sand runs out in a second or two at app speed)
+      if (!a016 || s16.simTime < 0.7 || s16.above > 0.95 * a016) continue;
+      if (s16.above < 0.25 * a016) break;
+      var S16 = await L(async function (g) {
+        if (window.__lab.streaks) return window.__lab.streaks();
+        // (a page without streaks(): rebuild them from the velocities; upright, the field is straight down)
+        var P = await window.__lab.particles(), hz = window.__lab.rate().hz, out = [];
+        for (var i = 0; i < P.length; i += 5) out.push(P[i], P[i + 1], P[i + 2] / 60, (P[i + 3] - g / hz) / 60);
+        return out;
+      }, inf16.g);
+      var d1 = M.drawnStream(S16, rn16, vs16, 1), d0 = M.drawnStream(S16, rn16, vs16, 0);
+      if (d1) { cov1.push(d1.covered); cov0.push(d0.covered); gap1 = Math.max(gap1, d1.gap); } else none16++;
+      last16 = s16;
+    }
+    log('  (above the neck at the gate: ' + a016 + '; last frame at ' + f2(last16 && last16.simTime) + ' s with ' + (last16 && last16.above) + ' above; ' + none16 + ' frames without room for the stream)');
+    var m1 = M.mean(cov1), m0 = M.mean(cov0);
+    log('  ' + cov1.length + ' frames: rows covered on the axis ' + f2(m1) + ' with the blur, ' + f2(m0) + ' as dots; longest gap ' + gap1 + ' rows');
+    check(cov1.length >= 8 && m1 >= 0.85, 'the falling stream is drawn as a thread: >= 85 % of the rows covered (' + f2(m1) + ')');
+    // (Drawn as dots the stream was broken at 5cc11b3: 0.45 of the rows, the scoreboard's pixel measure,
+    // at 510 points/s through the neck. Since sand yields inside the solver it runs at about 2,400
+    // points/s, near Beverloo's rate for this neck, and its points alone already fill the axis, so the
+    // dots are logged, not judged: the check above is what catches a dotted stream.)
+    log('  drawn as dots (logged): ' + f2(m0) + ' of the rows (5cc11b3: 0.45, a sparser stream)');
+  }
+
+  if (run(17)) {
+    log('17 syrup oozes (the flow test, 5,000 points from a full top bulb)');
+    for (var m17 of ['coarse', 'water', 'syrup']) {
+      if (flows[m17]) continue;
+      await L(function () { window.__lab.setInput({ mode: 'upright' }); });
+      flows[m17] = await L(function (m) { return window.__lab.flowTest({ material: m, points: 5000, chunk: 24, limit: 40 }); }, m17);
+    }
+    var dc = flows.coarse && flows.coarse.duration, dw = flows.water && flows.water.duration, dsy = flows.syrup && flows.syrup.duration;
+    log('  drained in: coarse ' + f1(dc) + ' s, water ' + f1(dw) + ' s, syrup ' + f1(dsy) + ' s');
+    check(dsy >= 3 * dw && dsy >= 0.45 * dc, 'syrup oozes: drains in >= 3 x water\'s time (' + f2(dsy / dw) + ' x) and >= 0.45 x coarse sand\'s (' + f2(dsy / dc) + ' x; 5cc11b3: 1.47 x water)');
+  }
+
+  if (run(18)) {
+    log('18 creep (a 1-minute flat bed held at 25 degrees, below repose, app speed)');
+    await speed10('app');
+    await reset10({ amount: 'minute' });
+    await sec(1);
+    var g18 = [Math.sin(25 * D2R), Math.cos(25 * D2R)];
+    await inp({ mode: 'manual', gravity: g18 });
+    await sec(0.5);
+    var a18 = await stat(), h18a = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
+    await sec(3);
+    var c18 = await stat(), h18c = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
+    var d18 = Math.hypot(c18.com[0] - a18.com[0], c18.com[1] - a18.com[1]);
+    log('  centre moves ' + f2(d18) + ' cells from 0.5 s to 3.5 s; surface ' + f1(h18a.tilt) + ' -> ' + f1(h18c.tilt) + ' degrees');
+    check(d18 <= 1.15 && Math.abs(h18c.tilt - h18a.tilt) <= 1, 'below repose it creeps no more than before: centre <= 1.15 cells (' + f2(d18) + '; 5cc11b3: 1.40), surface within 1 degree (' + f2(Math.abs(h18c.tilt - h18a.tilt)) + '; 1.03)');
+    await inp({ mode: 'manual', gravity: [0, 1] });
   }
 
   check(errors.length === 0, 'no page errors through the run' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));

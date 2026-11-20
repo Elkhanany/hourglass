@@ -1145,7 +1145,17 @@ substep; at app speed the glass's jolts (the finger's, the phone's) reach
 the slowed sand slowed too, as in a slowed film of them, so a jerk throws
 it as far as at real speed. A grain is drawn as the streak it makes in one
 display frame, as the eye sees a falling grain, so the stream through the
-neck reads as a thread (More, "blur", shortens it or turns it off). To test: turn on
+neck reads as a thread (More, "blur", shortens it or turns it off). Sand
+yields inside the solver's iterations (it holds a slope until the friction
+cone is exceeded, then that shear flows), each grain remembers how tightly
+it is packed (shaking packs it), and grains that crowd inside a cell step
+apart (the spread pass), so a bed at rest no longer swells and a fast turn
+or a jerk no longer tears it. Still open: turned slowly, the bed fails
+first at about 35 degrees but then slides round the glass as a block from
+40 to 60 and fails in thin surface sheets only near 90; after a fast turn it
+runs out to about 16 degrees; held below its angle it still creeps (about a
+cell in 3 s). More, "spread", turns the spread pass off (three fewer
+dispatches a substep). To test: turn on
 Portrait Orientation Lock in Control Center (otherwise turning the phone
 turns the page, and the page says so), and turn Low Power Mode off (it
 halves the display rate). It loads nothing from anywhere else and registers
@@ -1158,7 +1168,10 @@ solver keeps Smoosh's MIT and EA's BSD-3-Clause notices
 `node tools/test/lab-sand.test.js [--port <n>] [--only 2,6,9] [--shots <dir>]`
 runs it headless in Chromium with WebGPU in software (SwiftShader), on its
 coarse grid with little sand and the clock driven by the test; it takes
-about an hour, and its speeds say nothing about a phone. Its failing checks
+about an hour and a half, and its speeds say nothing about a phone. Cases 10
+to 18 measure the realism found wanting in November 2026 (a bed at rest, a
+slow and a fast turn, a jerk, shaking, a press at real speed, the drawn
+stream, syrup, creep), with the measures in `tools/test/lib/sand-measures.js`. Its failing checks
 are the sand's open problems, so `run-all.js` runs it only when asked
 (`node tools/test/run-all.js lab-`).
 
