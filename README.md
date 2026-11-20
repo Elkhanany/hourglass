@@ -1137,18 +1137,40 @@ later, which has WebGPU). The phone's motion (**Real motion**), a finger on
 the glass, **Flip** and **Reset** move the sand; the buttons choose the
 material (coarse and fine sand, water, syrup), the speed (the app's slow
 motion, or true gravity for a glass 11 cm tall), the amount and the grid.
+It opens on the coarse grid with the 1-minute amount, the most an iPhone
+holds in real time: on the owner's (iOS 26.5), the medium grid with a
+quarter glass ran 8 frames a second at 0.39 of real time, and only the
+1-minute amounts kept up. On the first visit it times that for a couple of
+seconds and moves up to the largest amount and grid the phone keeps up with
+(scaled from that timing by a cost model fitted to the owner's phone), and
+says what it picked; an amount or grid chosen by hand is kept for the next
+visit instead (Copy results says which). A frame's work goes to the GPU only once the one
+before it is done, and its substeps are held to what the GPU does in three
+quarters of a display frame (measured as it runs), so what is on screen
+follows the phone within about two frames (at the old pace three frames of
+work queued, and the sand trailed the phone by 350 to 730 ms); when the GPU
+cannot keep up the sand runs slower than real time instead, and the HUD
+says BEHIND (GPU budget).
 **Benchmark** and **Flow test** measure the phone, and **Copy results**
-puts a plain-text report on the clipboard to send back. While the sand
+puts a plain-text report on the clipboard to send back: it opens with the
+pace and the last two seconds (frames drawn, display rate, lag in display
+frames, the GPU's time a substep), and after a Benchmark with the answers:
+whether the default holds real time at each speed, and what each costly
+option (spread, blur, 8 iterations, yield in the loop) costs against it.
+While the sand
 moves fast the page runs more substeps a second (auto Hz, shown in the HUD),
 so a falling stream or a thrown bed is not held to the solver's one cell a
-substep; at app speed the glass's jolts (the finger's, the phone's) reach
+substep, but only as far as the GPU's budget allows (HELD in the HUD); at
+real speed true g wants more substeps than a phone gives, so there the
+fastest grains are held to a cell a substep and fall slower than real, and
+the HUD says so; at app speed the glass's jolts (the finger's, the phone's) reach
 the slowed sand slowed too, as in a slowed film of them, so a jerk throws
 it as far as at real speed. A grain is drawn as the streak it makes in one
 display frame, as the eye sees a falling grain, so the stream through the
 neck reads as a thread (More, "blur", shortens it or turns it off). Each
 grain remembers how tightly it is packed (shaking packs it), and grains
 that crowd inside a cell step apart (the spread pass; More, "spread", turns
-it off, three fewer dispatches a substep), so a bed at rest no longer
+it off, two fewer dispatches a substep, 14 instead of 16), so a bed at rest no longer
 swells and a fast turn or a jerk no longer tears it. More, "yield", lets
 sand yield inside the solver's iterations: a slowly turned bed then fails
 first at about 35 degrees instead of 40 and stands lower while it moves,
@@ -1171,7 +1193,9 @@ coarse grid with little sand and the clock driven by the test; it takes
 about an hour and a half, and its speeds say nothing about a phone. Cases 10
 to 18 measure the realism found wanting in November 2026 (a bed at rest, a
 slow and a fast turn, a jerk, shaking, a press at real speed, the drawn
-stream, syrup, creep), with the measures in `tools/test/lib/sand-measures.js`. Its failing checks
+stream, syrup, creep), with the measures in `tools/test/lib/sand-measures.js`;
+case 19 the live loop's pace (one frame of work in flight, the lag within two
+display frames, against the old pace as its control). Its failing checks
 are the sand's open problems, so `run-all.js` runs it only when asked
 (`node tools/test/run-all.js lab-`).
 

@@ -14,7 +14,7 @@
  * LICENSES.md.
  */
 import { buildGlass, sampleField, traceOutline, APP_Q } from './glass.mjs';
-import { Solver, ShaderLibrary, createDevice, MATERIALS, PARTICLE_WORDS } from './solver.mjs';
+import { Solver, ShaderLibrary, createDevice, MATERIALS, PARTICLE_WORDS, dispatchesPerSubstep } from './solver.mjs';
 import { palette } from './palette.mjs';
 
 const $ = id => document.getElementById(id);
@@ -58,22 +58,44 @@ const BODY = { fw: 30, fz: 0.85, hw: 7, hz: 0.6 };     // app.js: the finger's h
 const ACC_TAU = 0.012;                                 // s: the glass's acceleration as the sand feels it
 const FILM_QUIET = 0.04;                               // g: a jolt weaker than this is skipped in the slowed playback
 const FILM_LAG = 0.5;                                  // s: the slowed playback never falls further behind than this
+// The GPU's pace in the frame loop. A frame is submitted only when fewer than S.queue frames of
+// GPU work are still in flight (1: the one before is done), and its substeps are held to what
+// the GPU does in GPU_SHARE of a display frame, from the measured submit-to-done time: when the
+// GPU cannot keep up the sand runs slower than real time, rather than the work queueing up and
+// what is on screen trailing the phone (an iPhone at 5cc11b3: 350 to 730 ms behind, 3 frames of
+// work queued). Auto Hz rises only as far as that budget allows (rate.held says when it is held).
+const GPU_SHARE = 0.75;
 
 /* ------------------------------------------------------------------ *
  *  State
  * ------------------------------------------------------------------ */
+// The page's default grid and amount: the most an iPhone holds in real time. Measured on the
+// owner's (iOS 26.5, 5cc11b3): medium grid, quarter glass ran 8 frames a second at 0.39 of real
+// time, 350 to 730 ms behind; only the 1-minute amounts ran in real time. Predicted from the
+// cost fitted to those rows (about 16 us a dispatch, 47 us per 1000 points a substep), with the
+// spread pass: coarse, 1 minute about 0.6 ms a substep, real time with auto Hz up to 960 at
+// 30 and 60 Hz displays (1440, the pour's peak, would take about 90 % of the GPU); medium,
+// 1 minute up to 720 Hz; coarse or medium quarter not even at 480 Hz with room to spare.
+const DEFAULT_SETUP = { res: 'S', amount: 'minute' };
 const S = {
-  res: 'M', amount: 'quarter', material: 'coarse', speed: 'app', input: 'upright', hud: true,
+  res: DEFAULT_SETUP.res, amount: DEFAULT_SETUP.amount, material: 'coarse', speed: 'app', input: 'upright', hud: true,
   hz: 480, iterations: 5, cap: 24, maxStep: 1, coriolis: true, neckMin: 5.5, auto: true, impulse: true,
   // motion blur: a grain is drawn as the streak it makes in this many display frames (60 Hz); 0: off
   blur: 1,
   // sand's spread pass (3 dispatches a substep): crowded points step apart inside a cell
   spread: true,
   // sand yields inside the solver's iterations (solver.mjs yieldLoop); off by default
-  yieldIn: false
+  yieldIn: false,
+  // frames of GPU work allowed in flight (1; 5cc11b3 allowed 3), and the substeps of a frame held
+  // to the GPU's measured time (on); queue 3 with budget off is the old pace (a test's control)
+  queue: 1, budget: true
 };
 // the substep rate in use (S.hz, raised by auto Hz while the sand is fast), and its history
-const rate = { hz: 480, downAt: 0, grow: 0, tPrev: null, peak: 480 };
+const rate = { hz: 480, downAt: 0, grow: 0, tPrev: null, peak: 480, held: 0, want: 480 };
+// the GPU's pace (see GPU_SHARE): frames in flight, the last frames' substeps and submit-to-done
+// times, the substeps a frame may run (budget), and a ceiling learnt when a frame overran
+const pace = { inflight: 0, tSub: 0, log: [], budget: Infinity, ceil: Infinity, ceilUntil: 0, msStep: NaN, overran: 0, peakInflight: 0, lastSkip: -1e9 };
+function paceReset() { Object.assign(pace, { log: [], budget: Infinity, ceil: Infinity, ceilUntil: 0, msStep: NaN, overran: 0, peakInflight: 0 }); }
 // the glass's linear acceleration, filtered as the sand feels it (see glassFelt)
 const imp = { x1: 0, y1: 0, jx: 0, jy: 0 };
 // app speed: the glass's jolts, recorded each substep and played back slowed (see glassFelt)
@@ -318,7 +340,8 @@ function capAlloc() { return Math.max(S.cap, Math.ceil(S.cap * hzTop() / S.hz));
  * what a jolt of the glass (known here at once) adds over 50 ms. The rate goes up at once, and
  * down only after 0.3 s (simulated) with room at the lower rate.
  */
-function chooseRate(t) {
+function chooseRate(t, hzCap = Infinity) {
+  rate.held = 0;
   if (!S.auto) { rate.hz = S.hz; return; }
   if (t && t !== rate.tPrev) { rate.grow = Math.max(0, t.maxSpeed - (rate.tPrev ? rate.tPrev.maxSpeed : t.maxSpeed)); rate.tPrev = t; }
   const v = t ? t.maxSpeed : 0;
@@ -326,12 +349,16 @@ function chooseRate(t) {
   const need = (v + 2 * (rate.grow || 0) + jolt) / (CFL * S.maxStep);
   const top = hzTop();
   const rates = HZ_BOOST.map(b => Math.round(S.hz * b)).filter(h => h <= top);
-  const want = rates.find(h => h >= need) ?? rates[rates.length - 1];
+  let want = rates.find(h => h >= need) ?? rates[rates.length - 1];
+  rate.want = want;
+  // the live loop's GPU budget (hzCap: the substeps a second it allows): no higher than that
+  // (but never below the base rate); the clamp then holds the fastest grains back
+  if (want > hzCap) { const w = rates.filter(h => h <= hzCap).pop() ?? rates[0]; if (w < want) { rate.held = want; want = w; } }
   if (want >= rate.hz) { rate.hz = want; rate.downAt = simTime + 0.3; }
-  else if (simTime >= rate.downAt) { rate.hz = want; rate.downAt = simTime + 0.3; }
+  else if (simTime >= rate.downAt || rate.held) { rate.hz = want; rate.downAt = simTime + 0.3; }
   if (rate.hz > rate.peak) rate.peak = rate.hz;
 }
-function resetRate() { Object.assign(rate, { hz: S.hz, downAt: 0, grow: 0, tPrev: null, peak: S.hz }); }
+function resetRate() { Object.assign(rate, { hz: S.hz, downAt: 0, grow: 0, tPrev: null, peak: S.hz, held: 0, want: S.hz }); paceReset(); }
 
 /** G / g: how slowed the world is (1 at real speed); the app's lambda. */
 function lamNow() { return Math.min(1, gCells() / gReal()); }
@@ -539,6 +566,7 @@ async function resetSand(opts = {}) {
 /** A new material for the sand where it lies. */
 async function switchMaterial(id) {
   S.material = id;
+  paceReset();
   if (!solver?.count) return;
   busy = true;                                   // the frame loop waits: the sand must not move while it is read back
   let data;
@@ -770,10 +798,13 @@ function loop(now) {
   lastNow = now;
   rafLog.push(now); while (rafLog.length && now - rafLog[0] > 2000) rafLog.shift();
   if (!solver || !glass || hidden || busy || manual) { lastDrawn = 0; return; }
-  if (solver.readbacks.every(r => r.pending)) {             // the GPU is behind: skip a frame rather than queue more
-    skips.push({ t: now });                                 // (nothing is drawn: it is not a frame)
-    const avail = acc + dtReal;                             // the next frame drawn catches up, up to the cap
-    acc = Math.min(avail, capNow() / rate.hz);
+  // a promise of work done that never came (a lost device): let the loop go on after 3 s
+  if (pace.inflight && t0 - pace.tSub > 3000) pace.inflight = 0;
+  // the GPU is behind: skip a frame rather than queue more (nothing is drawn: it is not a frame)
+  if (pace.inflight >= S.queue || solver.readbacks.every(r => r.pending)) {
+    skips.push({ t: now }); pace.lastSkip = t0;
+    const avail = acc + dtReal;                             // the next frame drawn catches up, up to its cap
+    acc = Math.min(avail, capFrame() / rate.hz);
     behindS += avail - acc;
     trimFrames(now);
     return;
@@ -781,8 +812,9 @@ function loop(now) {
   // wall time since the last frame drawn (skipped animation frames included; for the statistics, not capped)
   const since = lastDrawn ? (now - lastDrawn) / 1000 : dtReal;
   lastDrawn = now;
-  chooseRate(lastTally);
-  const hz = rate.hz, cap = capNow();
+  const T = displayMs();
+  chooseRate(lastTally, S.budget && Number.isFinite(pace.budget) ? pace.budget * 1000 / T : Infinity);
+  const hz = rate.hz, cap = capFrame();
   const available = acc + dtReal;
   acc = Math.min(available, cap / hz);
   const dropped = available - acc;
@@ -791,7 +823,13 @@ function loop(now) {
   acc -= steps / hz;
   const p = solver.run(steps, set(), fieldAt, enc => renderer.encode(enc, solver.count));
   const tSim = simTime, tSub = performance.now();
-  gpu.device.queue.onSubmittedWorkDone().then(() => { gpuLog.push({ t: now, ms: performance.now() - tSub }); while (gpuLog.length && now - gpuLog[0].t > 4000) gpuLog.shift(); }, () => {});   // (a failure shows as a missing gpu lag)
+  pace.inflight++; pace.tSub = tSub; pace.peakInflight = Math.max(pace.peakInflight, pace.inflight);
+  gpu.device.queue.onSubmittedWorkDone().then(() => {
+    pace.inflight = Math.max(0, pace.inflight - 1);
+    const ms = performance.now() - tSub;
+    gpuLog.push({ t: now, ms, steps }); while (gpuLog.length && now - gpuLog[0].t > 4000) gpuLog.shift();
+    paceAfter(steps, ms, T);
+  }, () => { pace.inflight = Math.max(0, pace.inflight - 1); });   // (a failure shows as a missing gpu lag)
   if (p) p.then(t => { if (t) { readbackOk++; onTally(t, tSim, now); } }, e => {
     if (!readbackFails++) { readbackErr = String(e && e.message || e); console.error(e); }
     if (!readbackWarned && readbackFails >= 30 && readbackFails > 10 * readbackOk) {
@@ -801,10 +839,52 @@ function loop(now) {
   });
   renderer.present();
   drawGlass();
-  frames.push({ t: now, dt: since * 1000, work: performance.now() - t0, steps, hz, sim: steps / hz, real: since, capped: dropped > 1e-6 });
+  const gpuHeld = dropped > 1e-6 && cap < capNow();
+  frames.push({ t: now, dt: since * 1000, work: performance.now() - t0, steps, hz, sim: steps / hz, real: since, capped: dropped > 1e-6 && !gpuHeld, gpuHeld, held: rate.held, T });
   trimFrames(now);
   if (benchRun) benchRun.onFrame?.(now);
 }
+/** The display's frame, ms: the median time between animation frames over the last second. */
+function displayMs() {
+  const r = rafLog.slice(-61), d = [];
+  for (let i = 1; i < r.length; i++) d.push(r[i] - r[i - 1]);
+  if (d.length < 3) return 1000 / 60;
+  d.sort((a, b) => a - b);
+  return Math.max(4, Math.min(100, d[d.length >> 1]));
+}
+/** The substeps this frame may run: the cap, and the GPU's budget. */
+function capFrame() { return S.budget && Number.isFinite(pace.budget) ? Math.max(1, Math.min(capNow(), pace.budget)) : capNow(); }
+/**
+ * A frame's work is done: steps substeps took ms from submit (with 1 frame in flight the queue
+ * was empty, so that is the frame's own GPU time). The budget: the substeps the GPU does in
+ * GPU_SHARE of a display frame (T ms), per substep from the last frames (their per-frame costs
+ * shared out, so an upper bound). Done in under 0.9 T: the budget is that measure. Over 1.2 T (it
+ * overran): less, and no more than 0.9 of that for 2 s. In between, where a browser that reports
+ * the work done only at the next display frame would put every frame: up 5 % a frame while the
+ * budget or auto Hz is what holds the sand back, and down 10 % a frame while frames are being
+ * skipped for want of the GPU (the last 0.5 s).
+ */
+function paceAfter(steps, ms, T) {
+  if (!steps) return;
+  pace.log.push({ steps, ms }); if (pace.log.length > 8) pace.log.shift();
+  const per = pace.log.reduce((s, x) => s + x.ms, 0) / pace.log.reduce((s, x) => s + x.steps, 0);
+  pace.msStep = per;
+  if (!S.budget) return;
+  const now = performance.now(), fit = Math.max(1, Math.floor(GPU_SHARE * T / per));
+  if (now > pace.ceilUntil) pace.ceil = Infinity;
+  const top = Math.min(capAllocHz(), Math.max(1, Math.floor(0.9 * pace.ceil)));
+  if (ms > 1.2 * T) {                                     // it overran a display frame: less
+    pace.overran++; pace.ceil = steps; pace.ceilUntil = now + 2000;
+    pace.budget = Math.max(1, Math.min(Number.isFinite(pace.budget) ? pace.budget : steps, fit, Math.floor(0.8 * steps)));
+  } else if (ms < 0.9 * T) pace.budget = Math.min(top, fit); // done with time to spare: the measure holds
+  else {
+    const b = Number.isFinite(pace.budget) ? pace.budget : steps;
+    if (now - pace.lastSkip < 500) pace.budget = Math.max(1, b - Math.max(1, Math.ceil(0.1 * b)));
+    else if (!Number.isFinite(pace.budget) || steps >= pace.budget || rate.held) pace.budget = Math.min(top, b + Math.max(1, Math.ceil(0.05 * b)));
+  }
+}
+/** The most substeps a frame could want: the cap at the highest rate. */
+function capAllocHz() { return Math.max(1, Math.round(S.cap * hzTop() / S.hz)); }
 function trimFrames(now) {
   while (frames.length && now - frames[0].t > 4000) frames.shift();
   while (skips.length && now - skips[0].t > 4000) skips.shift();
@@ -827,26 +907,34 @@ function frameStats(windowMs = 2000, list = frames, skipList = skips) {
   // up to the latest frame, drawn or skipped (with every frame skipped, the last drawn may be long ago)
   const now = Math.max(list.length ? list[list.length - 1].t : 0, skipList.length ? skipList[skipList.length - 1].t : 0);
   const f = list.filter(x => now - x.t <= windowMs);
-  if (!f.length) return skipList.length ? { n: 0, fps: 0, skipped: 1, capped: 0, display: NaN, median: NaN, p95: NaN, worst: NaN, gpu: NaN, gpu95: NaN, steps: 0, ratio: 0, work: NaN } : null;
+  if (!f.length) return skipList.length ? { n: 0, fps: 0, skipped: 1, capped: 0, gpuHeld: 0, held: 0, display: NaN, median: NaN, p95: NaN, worst: NaN, gpu: NaN, gpu95: NaN, msStep: NaN, lagFrames: NaN, steps: 0, ratio: 0, work: NaN, hzMax: 0, wantMax: 0 } : null;
   const d = f.map(x => x.dt).sort((a, b) => a - b);
   const q = p => d[Math.min(d.length - 1, Math.floor(p * (d.length - 1) + 0.5))];
   const real = f.reduce((s, x) => s + x.real, 0), sim = f.reduce((s, x) => s + x.sim, 0);
-  const t0 = f[0].t, g = gpuLog.filter(x => x.t >= t0 && x.t <= now).map(x => x.ms).sort((a, b) => a - b);
+  const t0 = f[0].t, gl = gpuLog.filter(x => x.t >= t0 && x.t <= now), g = gl.map(x => x.ms).sort((a, b) => a - b);
+  // the GPU's time a substep: submit-to-done over substeps (with 1 frame in flight, the frame's own
+  // time; it includes the frame's drawing, so it is an upper bound)
+  const glS = gl.reduce((s, x) => s + (x.steps || 0), 0), msStep = glS ? gl.reduce((s, x) => s + (x.steps ? x.ms : 0), 0) / glS : NaN;
   const gq = p => g.length ? g[Math.min(g.length - 1, Math.floor(p * (g.length - 1) + 0.5))] : NaN;
   const skipped = skipList.filter(x => x.t >= t0 - 1 && x.t <= now).length;
   const r = rafLog.filter(x => now - x <= windowMs);
-  return {
-    gpu: gq(0.5), gpu95: gq(0.95),
+  const out = {
+    gpu: gq(0.5), gpu95: gq(0.95), msStep,
+    gpuHeld: f.filter(x => x.gpuHeld).length / f.length, held: f.filter(x => x.held).length / f.length,
+    hzMax: Math.max(...f.map(x => x.hz)), wantMax: Math.max(...f.map(x => x.held || x.hz)),
     n: f.length, median: q(0.5), p95: q(0.95), worst: d[d.length - 1], fps: f.length / Math.max(real, 1e-6),
     skipped: skipped / (skipped + f.length), capped: f.filter(x => x.capped).length / f.length,
     display: r.length > 1 ? (r.length - 1) / ((r[r.length - 1] - r[0]) / 1000) : NaN,
     steps: f.reduce((s, x) => s + x.steps, 0) / f.length, ratio: sim / Math.max(real, 1e-6),
     work: f.map(x => x.work).sort((a, b) => a - b)[Math.floor(f.length / 2)]
   };
+  out.lagFrames = out.gpu / (1000 / (out.display || 60));
+  return out;
 }
 /** Why the simulation runs slower than real time, if it does. */
 function behindWhy(f) {
   if (!f || f.ratio >= 0.97) return '';
+  if (f.gpuHeld > 0.2) return '  BEHIND (GPU budget)';
   if (f.skipped > 0.05) return '  BEHIND (GPU)';
   if (f.capped > 0.2) return '  BEHIND (cap at ' + Math.round(f.display || 0) + ' Hz)';
   return '  BEHIND';
@@ -862,11 +950,13 @@ function hud() {
   const f = frameStats(), t = lastTally;
   const lines = [];
   if (f) lines.push(`drawn ${f.fps.toFixed(0)} fps (display ${Number.isFinite(f.display) ? f.display.toFixed(0) : '-'})  skipped ${Math.round(f.skipped * 100)}%${behindWhy(f)}`);
-  if (f) lines.push(`frame ms ${f.median.toFixed(1)} med ${f.p95.toFixed(1)} p95 ${f.worst.toFixed(1)} max  gpu lag ${Number.isFinite(f.gpu) ? f.gpu.toFixed(0) : '-'}`);
-  if (f) lines.push(`steps ${f.steps.toFixed(1)}/frame  ${rate.hz} Hz${S.auto ? (rate.hz > S.hz ? ' auto↑' : ' auto') : ''} x${S.iterations}  sim/real ${f.ratio.toFixed(2)}`);
+  if (f) lines.push(`frame ms ${f.median.toFixed(1)} med ${f.p95.toFixed(1)} p95 ${f.worst.toFixed(1)} max  lag ${Number.isFinite(f.gpu) ? f.gpu.toFixed(0) + ' ms (' + f.lagFrames.toFixed(1) + ' fr)' : '-'}`);
+  if (f) lines.push(`steps ${f.steps.toFixed(1)}/frame  ${rate.hz} Hz${S.auto ? (rate.held ? ' HELD (wants ' + rate.held + ')' : rate.hz > S.hz ? ' auto↑' : ' auto') : ''} x${S.iterations}  sim/real ${f.ratio.toFixed(2)}`);
+  if (f) lines.push(`gpu ${Number.isFinite(f.msStep) ? f.msStep.toFixed(2) + ' ms/step' : '-'}  budget ${S.budget ? (Number.isFinite(pace.budget) ? pace.budget + '/frame' : '-') : 'off'}  ${dispatchesPerSubstep(S.iterations, set().material)} disp/step  in flight ≤${S.queue}`);
   const cr = clampRate();
   lines.push(`points ${solver.count.toLocaleString('en-US')}  clamp ${cr > 0 ? Math.round(cr) + '/s HIT' : '0'}  fastest ${t ? Math.round(t.maxSpeed) : 0} cells/s`);
   lines.push(`grid ${RES_NAME[S.res]} ${glass.W}x${glass.H}  neck ${glass.neckCells.toFixed(1)}${glass.neckWidened > 0.005 ? ' (+' + Math.round(glass.neckWidened * 100) + '%)' : ''}  g ${Math.round(gCells())}/s²${S.speed === 'real' ? ' (11 cm)' : ''}`);
+  if (S.speed === 'real' && rate.held && cr > 0) lines.push(`real speed: this GPU gives ${rate.hz} Hz, true g wants ${rate.held}: the fastest grains are held back`);
   if (readbackFails) lines.push(`readbacks FAILING ${readbackFails} (ok ${readbackOk}): live numbers stale`);
   if (S.input === 'motion') lines.push(motion.seen ? `motion (${motion.gx.toFixed(2)}, ${motion.gy.toFixed(2)}) g  turn ${motion.w.toFixed(1)}/s  sign ${motion.sign || '?'}  axis ${motion.rSign < 0 ? '-' : ''}${motion.rAxis || '?'}${motion.rLearnt ? '' : '?'}` : 'motion: no readings yet');
   $('hud').textContent = lines.join('\n');
@@ -968,19 +1058,85 @@ function showFlow(r) {
 }
 
 /* ------------------------------------------------------------------ *
+ *  The setup on first load: the largest amount and grid this device holds in real time
+ * ------------------------------------------------------------------ */
+// points a fill makes and grid nodes, per grid and amount (the page's own fills)
+const SETUP_POINTS = { S: { minute: 4752, quarter: 16971, full: 40731 }, M: { minute: 7175, quarter: 25626, full: 61502 }, L: { minute: 11211, quarter: 40040, full: 96097 } };
+const SETUP_NODES = { S: 137 * 302, M: 165 * 369, L: 203 * 457 };
+const SETUP_KEY = 'hourglass-lab-sand-setup';
+const SETUP_HZ = 960;            // app speed: the rate a fast turn needs (its peak was 720 Hz here) with room
+/**
+ * GPU time a substep (us), as fitted to the owner's iPhone at 5cc11b3 (18 dispatches, no spread):
+ * about 16 us a dispatch, 47 us per 1000 points (5 iterations), 1.5 us per 1000 grid nodes; the
+ * spread's two point passes and its sub-cell clear a guess (7 us per 1000 points, 0.1 per 1000
+ * sub-cell nodes). Only its ratios between setups are used here, against a timing of this device.
+ */
+function costModelUs(res, amount, iterations = S.iterations) {
+  const m = { ...matNow('coarse'), spread: S.spread ? matNow('coarse').spread : 0 };
+  const n = SETUP_POINTS[res][amount] / 1000, nodes = SETUP_NODES[res] / 1000, fine = 4 * nodes;
+  const pointUs = 47 * (0.3 + 0.17 * iterations) / (0.3 + 0.17 * 5);
+  return 290 / 18 * dispatchesPerSubstep(iterations, m) + pointUs * n + 1.5 * nodes + (m.spread ? 7 * n + 0.1 * fine : 0);
+}
+const setupInfo = { state: 'none', text: '' };
+function setupSaved() { try { return JSON.parse(localStorage.getItem(SETUP_KEY) || 'null'); } catch (e) { return null; } }
+function setupSave(o) { try { localStorage.setItem(SETUP_KEY, JSON.stringify(o)); } catch (e) { /* the choice is only for this visit */ } }
+/**
+ * Time the default for a couple of seconds as it pours (the live loop, GPU budget on), then pick
+ * the largest amount and grid whose substeps, scaled from that timing by the cost model, take
+ * under GPU_SHARE of the GPU at SETUP_HZ; say what was picked. Runs once: the pick, or the
+ * owner's own choice of amount or grid afterwards, is kept for the next visit.
+ */
+async function autoSetup() {
+  setupInfo.state = 'timing';
+  setStatus('Timing this phone for a moment…');
+  await sleep(2600);
+  const f = frameStats(2000);
+  if (!f || !Number.isFinite(f.msStep) || hidden || S.res !== DEFAULT_SETUP.res || S.amount !== DEFAULT_SETUP.amount) {
+    setupInfo.state = 'skipped'; setupInfo.text = 'not timed (the page was hidden or changed)'; setStatus(''); return;
+  }
+  const ms0 = f.msStep, us0 = costModelUs(S.res, S.amount);
+  const order = [];
+  for (const amount of ['minute', 'quarter', 'full']) for (const res of ['S', 'M', 'L']) order.push({ res, amount });
+  const scored = order.map(c => ({ ...c, ms: ms0 * costModelUs(c.res, c.amount) / us0 })).map(c => ({ ...c, load: c.ms * SETUP_HZ / 1000 }));
+  const fits = scored.filter(c => c.load <= GPU_SHARE);
+  const pick = fits.length ? fits[fits.length - 1] : { res: DEFAULT_SETUP.res, amount: DEFAULT_SETUP.amount, ms: ms0, load: ms0 * SETUP_HZ / 1000 };
+  const name = c => `${RES_NAME[c.res]} grid, ${AMOUNT_NAME[c.amount]}`;
+  setupInfo.state = 'auto';
+  setupInfo.text = `picked ${name(pick)} on first load: the default (${name(DEFAULT_SETUP)}) took ${ms0.toFixed(2)} ms of GPU a substep here (display ${Math.round(f.display || 0)} Hz); scaled by the cost model, ${name(pick)} takes ${Math.round(pick.load * 100)}% of the GPU at ${SETUP_HZ} Hz (the most it may: ${Math.round(GPU_SHARE * 100)}%)` +
+    (scored.length > fits.length ? `; the next, ${name(scored[fits.length] || scored[scored.length - 1])}, ${Math.round((scored[fits.length] || scored[scored.length - 1]).load * 100)}%` : '');
+  setupSave({ res: pick.res, amount: pick.amount, by: 'auto', ms: +ms0.toFixed(3) });
+  if (pick.res !== S.res || pick.amount !== S.amount) await resetSand({ res: pick.res, amount: pick.amount });
+  setStatus(fits.length ? `Set up for this phone: ${name(pick)} (it keeps up in real time). The buttons change it.` : `This device is slow for the sand: even ${name(pick)} runs slower than real time. The buttons change it.`);
+}
+
+/* ------------------------------------------------------------------ *
  *  Benchmark
  * ------------------------------------------------------------------ */
+// the costly options the Benchmark times at the page's default, against it
+const BENCH_OPTIONS = [
+  { tag: 'spread off', set: { spread: false } },
+  { tag: 'blur off', set: { blur: 0 } },
+  { tag: '8 iterations', set: { iterations: 8 } },
+  { tag: 'yield in loop', set: { yieldIn: true } }
+];
 async function benchmark(opts = {}) {
   const warm = opts.warm ?? 0.7, measure = opts.measure ?? 2.5;
-  const keep = { res: S.res, amount: S.amount, speed: S.speed, hz: S.hz, iterations: S.iterations, cap: S.cap, material: S.material };
+  const keep = { res: S.res, amount: S.amount, speed: S.speed, hz: S.hz, iterations: S.iterations, cap: S.cap, material: S.material, spread: S.spread, blur: S.blur, yieldIn: S.yieldIn };
   const combos = [];
+  // first the page's default (grid, amount) at both speeds, and the costly options at it (app
+  // speed): in the Benchmark from the button, or when asked for
+  if (opts.options ?? !opts.res) {
+    for (const speed of ['app', 'real']) combos.push({ res: DEFAULT_SETUP.res, amount: DEFAULT_SETUP.amount, speed, tag: 'default' });
+    for (const o of BENCH_OPTIONS) combos.push({ res: DEFAULT_SETUP.res, amount: DEFAULT_SETUP.amount, speed: 'app', ...o });
+  }
   for (const res of opts.res || ['S', 'M', 'L']) for (const amount of opts.amounts || ['minute', 'quarter', 'full']) for (const speed of opts.speeds || ['app', 'real']) combos.push({ res, amount, speed });
   benchRows = [];
   const btn = $('b-bench'); btn.classList.add('busy');
   try {
     for (const [i, c] of combos.entries()) {
-      setStatus(`Benchmark ${i + 1}/${combos.length}: ${RES_NAME[c.res]} grid, ${AMOUNT_NAME[c.amount]}, ${c.speed} speed`);
-      await resetSand({ res: c.res, amount: c.amount, speed: c.speed, ...SPEED_DEFAULTS[c.speed], material: keep.material, gate: 0 });
+      setStatus(`Benchmark ${i + 1}/${combos.length}: ${RES_NAME[c.res]} grid, ${AMOUNT_NAME[c.amount]}, ${c.speed} speed${c.tag ? ', ' + c.tag : ''}`);
+      Object.assign(S, { spread: keep.spread, blur: keep.blur, yieldIn: keep.yieldIn }, c.set || {});
+      await resetSand({ res: c.res, amount: c.amount, speed: c.speed, ...SPEED_DEFAULTS[c.speed], ...(c.set?.iterations ? { iterations: c.set.iterations } : {}), material: keep.material, gate: 0 });
       benchRun = { t0: simTime };
       clampLog.length = 0; rate.peak = rate.hz;
       await sleep(warm * 1000);
@@ -990,9 +1146,10 @@ async function benchmark(opts = {}) {
       const st = frameStats(1e9, list, skipList) || {};
       const c1 = lastTally?.clamped ?? c0;
       benchRows.push({
-        res: RES_NAME[c.res], amount: AMOUNT_NAME[c.amount], speed: c.speed, points: solver.count, hz: S.hz, peakHz: rate.peak, it: S.iterations, cap: S.cap,
+        res: RES_NAME[c.res], amount: AMOUNT_NAME[c.amount], speed: c.speed, tag: c.tag || '', points: solver.count, hz: S.hz, peakHz: rate.peak, it: S.iterations, cap: S.cap,
         median: st.median, p95: st.p95, worst: st.worst, fps: st.fps, skipped: st.skipped, capped: st.capped, display: st.display,
-        steps: st.steps, ratio: st.ratio, work: st.work, gpu: st.gpu, gpu95: st.gpu95,
+        steps: st.steps, ratio: st.ratio, work: st.work, gpu: st.gpu, gpu95: st.gpu95, lagFrames: st.lagFrames,
+        msStep: st.msStep, gpuHeld: st.gpuHeld, held: st.held, hzMax: st.hzMax, wantMax: st.wantMax, dispatches: dispatchesPerSubstep(S.iterations, set().material),
         clampPerS: (c1 - c0) / measure, behind: behindS - behind0, interrupted: hiddenCount !== hiddenAt0
       });
       benchRun = null;
@@ -1000,6 +1157,7 @@ async function benchmark(opts = {}) {
     }
   } finally {
     benchRun = null; btn.classList.remove('busy');
+    Object.assign(S, { spread: keep.spread, blur: keep.blur, yieldIn: keep.yieldIn });
     await resetSand({ ...keep, gate: GATE_S });
     setStatus('');
   }
@@ -1008,12 +1166,12 @@ async function benchmark(opts = {}) {
 }
 function benchTable(rows) {
   const n = (v, d = 1) => Number.isFinite(v) ? v.toFixed(d) : '—';
-  return '<table><tr><th>grid</th><th>sand</th><th>speed</th><th>points</th><th>Hz</th><th>fps</th><th>skip</th><th>med</th><th>p95</th><th>worst</th><th>lag</th><th>steps</th><th>sim/real</th><th>clamp/s</th></tr>' +
-    rows.map(r => `<tr><td>${r.res}${r.interrupted ? ' (hidden)' : ''}</td><td>${r.amount}</td><td>${r.speed}</td><td>${r.points}</td><td>${r.hz}${r.peakHz > r.hz ? '–' + r.peakHz : ''}</td><td>${n(r.fps, 0)}</td><td>${n(100 * r.skipped, 0)}%</td><td>${n(r.median)}</td><td>${n(r.p95)}</td><td>${n(r.worst)}</td><td>${n(r.gpu)}</td><td>${n(r.steps)}</td><td>${n(r.ratio, 2)}</td><td>${n(r.clampPerS, 0)}</td></tr>`).join('') + '</table>';
+  return '<table><tr><th>grid</th><th>sand</th><th>speed</th><th>points</th><th>Hz</th><th>fps</th><th>skip</th><th>med</th><th>p95</th><th>worst</th><th>lag</th><th>steps</th><th>sim/real</th><th>gpu ms/step</th><th>clamp/s</th></tr>' +
+    rows.map(r => `<tr><td>${r.res}${r.tag ? ' (' + r.tag + ')' : ''}${r.interrupted ? ' (hidden)' : ''}</td><td>${r.amount}</td><td>${r.speed}</td><td>${r.points}</td><td>${r.hz}${r.peakHz > r.hz ? '–' + r.peakHz : ''}${r.wantMax > r.hzMax ? ' (held; wants ' + r.wantMax + ')' : ''}</td><td>${n(r.fps, 0)}</td><td>${n(100 * r.skipped, 0)}%</td><td>${n(r.median)}</td><td>${n(r.p95)}</td><td>${n(r.worst)}</td><td>${n(r.gpu)}</td><td>${n(r.steps)}</td><td>${n(r.ratio, 2)}</td><td>${n(r.msStep, 2)}</td><td>${n(r.clampPerS, 0)}</td></tr>`).join('') + '</table>';
 }
 function showBench() {
   const d = document.createElement('div');
-  d.innerHTML = '<p>Over a few seconds of shaken sand: fps, the frames drawn a second; skip, the share of display frames skipped because the GPU was still busy; the time between frames drawn in ms (median, 95th percentile, worst); lag, the median time from a frame\'s submit until the GPU has done it (it includes frames waiting in the queue, so it is not the GPU\'s cost of one frame). sim/real under 1 means the simulation fell behind; clamp/s counts grid nodes held to the per-substep speed limit.</p>' + benchTable(benchRows);
+  d.innerHTML = '<p>Over a few seconds of sand pouring and shaken: fps, the frames drawn a second; skip, the share of display frames skipped because the GPU was still busy; the time between frames drawn in ms (median, 95th percentile, worst); lag, the median time from a frame\'s submit until the GPU has done it (with one frame in flight, the frame\'s own GPU time); gpu ms/step, that lag over the frame\'s substeps (its drawing included). sim/real under 1 means the simulation fell behind; "held" means auto Hz stayed below the rate the sand wanted because the GPU could not afford it; clamp/s counts grid nodes held to the per-substep speed limit. The first rows are the page\'s default and its costly options.</p>' + benchTable(benchRows);
   showSheet('Benchmark', d);
 }
 
@@ -1033,11 +1191,24 @@ function reportText() {
   L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations (auto Hz ${S.auto ? 'on, up to ' + hzTop() + ' Hz; highest since reset ' + rate.peak : 'off'}), cap ${S.cap}/frame at the base rate, clamp ${S.maxStep} cell; jolts at app speed ${S.impulse ? 'played slowed like a film (x' + (1 / Math.sqrt(lamNow())).toFixed(1) + ' longer)' : 'plain'}; spread ${S.spread ? 'on' : 'off'}; yield ${S.yieldIn ? 'in loop' : 'at end'}; blur ${S.blur ? S.blur + ' frame' : 'off'}`);
   L.push(`Motion: input ${S.input}, readings ${motion.seen ? 'yes' : 'no'}, sign ${motion.sign || 'not learnt'}, units ${motion.unit ? (motion.unit > 1 ? 'g' : 'm/s²') : '?'}, turn axis ${motion.rAxis || '?'} sign ${motion.rSign} (${motion.rLearnt ? 'learnt' : 'assumed'})`);
   const f = frameStats();
-  if (f) L.push(`Last 2 s: ${n(f.fps, 0)} frames drawn a second, display ${n(f.display, 0)} Hz, ${n(100 * f.skipped, 0)}% skipped (GPU busy), ${n(100 * f.capped, 0)}% held by the cap; between frames median ${n(f.median)} ms, p95 ${n(f.p95)}, worst ${n(f.worst)}; submit-to-done lag median ${n(f.gpu)} ms, p95 ${n(f.gpu95)}; ${n(f.steps)} substeps/frame, sim/real ${n(f.ratio, 2)}`);
+  L.push(`Setup: ${setupInfo.text || (setupInfo.state === 'none' ? 'from the address (no timing)' : setupInfo.state)}`);
+  L.push(`Pace: at most ${S.queue} frame${S.queue > 1 ? 's' : ''} of GPU work in flight; GPU budget ${S.budget ? 'on (' + Math.round(GPU_SHARE * 100) + '% of a display frame' + (Number.isFinite(pace.budget) ? ', now ' + pace.budget + ' substeps a frame' : '') + ')' : 'off'}; ${dispatchesPerSubstep(S.iterations, set().material)} dispatches a substep; frames that overran a display frame since reset: ${pace.overran}`);
+  if (f) L.push(`Last 2 s: ${n(f.fps, 0)} frames drawn a second, display ${n(f.display, 0)} Hz, ${n(100 * f.skipped, 0)}% skipped (GPU busy), ${n(100 * f.capped, 0)}% held by the cap, ${n(100 * f.gpuHeld, 0)}% held by the GPU budget, auto Hz held back in ${n(100 * f.held, 0)}% (rate ${f.hzMax}${f.wantMax > f.hzMax ? ', wanted ' + f.wantMax : ''}); between frames median ${n(f.median)} ms, p95 ${n(f.p95)}, worst ${n(f.worst)}; submit-to-done lag median ${n(f.gpu)} ms (${n(f.lagFrames)} display frames), p95 ${n(f.gpu95)}; GPU ${n(f.msStep, 2)} ms a substep; ${n(f.steps)} substeps/frame, sim/real ${n(f.ratio, 2)}`);
+  const def = benchRows.filter(r => r.tag === 'default'), opt = benchRows.filter(r => r.tag && r.tag !== 'default');
+  if (def.length) {
+    L.push('');
+    L.push('Answers (from the Benchmark: sand pouring and shaken, a few seconds a row)');
+    for (const r of def) {
+      const holds = r.ratio >= 0.95;
+      L.push(`Default, ${r.res} grid, ${r.amount}, ${r.speed} speed: ${holds ? 'HOLDS real time' : 'does NOT hold real time'} (sim/real ${n(r.ratio, 2)}, ${n(r.fps, 0)} frames a second on a ${n(r.display, 0)} Hz display, ${n(100 * r.skipped, 0)}% skipped); substep rate ${r.hz}${r.peakHz > r.hz ? ' to ' + r.peakHz : ''} Hz${r.wantMax > r.hzMax ? ', held below the ' + r.wantMax + ' Hz the sand wanted in ' + n(100 * r.held, 0) + '% of frames' : ', never held back'}; lag ${n(r.gpu, 0)} ms = ${n(r.lagFrames)} display frames (p95 ${n(r.gpu95, 0)} ms); GPU ${n(r.msStep, 2)} ms a substep, so the sand's peak rate of ${r.wantMax} Hz would take ${n(r.msStep * r.wantMax / 10, 0)}% of the GPU; clamp ${n(r.clampPerS, 0)}/s${r.speed === 'real' && r.clampPerS > 0 ? ' (true g needs more substeps than this phone gives: the fastest grains are held to ' + S.maxStep + ' cell a substep and fall slower than real)' : ''}`);
+    }
+    const base = def.find(r => r.speed === 'app');
+    if (base && opt.length) L.push('Costly options at the default (app speed), GPU time a substep against the default: ' + opt.map(r => `${r.tag} ${n(r.msStep, 2)} ms (x${n(r.msStep / base.msStep, 2)}), sim/real ${n(r.ratio, 2)}, rate ${r.hzMax}${r.wantMax > r.hzMax ? ' held' : ''}`).join('; '));
+  }
   if (benchRows.length) {
     L.push('');
-    L.push('Benchmark (frames drawn a second; % skipped, GPU busy; ms between frames drawn: median / p95 / worst; submit-to-done lag ms: median / p95; substeps a frame; sim/real; clamp hits/s)');
-    for (const r of benchRows) L.push(`${r.res.padEnd(6)} ${r.amount.padEnd(8)} ${r.speed.padEnd(4)} ${String(r.points).padStart(6)} pts ${r.hz}${r.peakHz > r.hz ? '-' + r.peakHz : ''} Hz x${r.it} cap ${r.cap}: ${n(r.fps, 0)} fps, ${n(100 * r.skipped, 0)}% skipped, ${n(r.median)} / ${n(r.p95)} / ${n(r.worst)} ms, lag ${n(r.gpu)} / ${n(r.gpu95)} ms, ${n(r.steps)} steps, sim/real ${n(r.ratio, 2)}, clamp ${n(r.clampPerS, 0)}/s${r.interrupted ? ' (page hidden: not valid)' : ''}`);
+    L.push('Benchmark (frames drawn a second; % skipped, GPU busy; ms between frames drawn: median / p95 / worst; submit-to-done lag ms: median / p95; substeps a frame; sim/real; GPU ms a substep (lag over substeps, drawing included); clamp hits/s)');
+    for (const r of benchRows) L.push(`${r.res.padEnd(6)} ${r.amount.padEnd(8)} ${r.speed.padEnd(4)} ${String(r.points).padStart(6)} pts ${r.hz}${r.peakHz > r.hz ? '-' + r.peakHz : ''} Hz${r.wantMax > r.hzMax ? ' (held; wanted ' + r.wantMax + ')' : ''} x${r.it} cap ${r.cap}${r.tag ? ' [' + r.tag + ']' : ''}: ${n(r.fps, 0)} fps, ${n(100 * r.skipped, 0)}% skipped, ${n(r.median)} / ${n(r.p95)} / ${n(r.worst)} ms, lag ${n(r.gpu)} / ${n(r.gpu95)} ms, ${n(r.steps)} steps, sim/real ${n(r.ratio, 2)}, gpu ${n(r.msStep, 3)} ms/substep (${r.dispatches} dispatches), clamp ${n(r.clampPerS, 0)}/s${r.interrupted ? ' (page hidden: not valid)' : ''}`);
   } else L.push('Benchmark: not run');
   if (flowResults.length) for (const r of flowResults) {
     const k = 1 / (PPC * PPC) / (RES[r.res] * RES[r.res]);
@@ -1119,7 +1290,10 @@ function bindUI() {
       }
       if (key === 'material') { switchMaterial(val); return; }
       if (key === 'speed') { S.speed = val; Object.assign(S, SPEED_DEFAULTS[val]); solver.allocUniforms(capAlloc()); resetRate(); syncUI(); return; }
-      if (key === 'amount' || key === 'res') { resetSand({ [key]: val }); return; }
+      if (key === 'amount' || key === 'res') {
+        resetSand({ [key]: val }).then(() => { setupSave({ res: S.res, amount: S.amount, by: 'owner' }); setupInfo.state = 'owner'; setupInfo.text = `chosen by hand: ${RES_NAME[S.res]} grid, ${AMOUNT_NAME[S.amount]}`; });
+        return;
+      }
     });
   }
   for (const b of document.querySelectorAll('.cyc')) b.addEventListener('click', () => {
@@ -1337,6 +1511,14 @@ async function boot() {
     await renderer.init(solver.shaders);
     const q = new URLSearchParams(location.search);
     for (const k of ['res', 'amount', 'material', 'speed']) if (q.get(k)) S[k] = q.get(k);
+    // the amount and grid: from the address, or as picked (or chosen) on an earlier visit, or timed now
+    // (?setup times it again whatever was kept; tests load with offscreen or a grid and amount: no timing)
+    const saved = q.has('setup') ? null : setupSaved(), fromUrl = !q.has('setup') && (q.has('res') || q.has('amount') || q.has('offscreen') || q.has('nosetup'));
+    if (!fromUrl && saved && SETUP_POINTS[saved.res]?.[saved.amount]) {
+      S.res = saved.res; S.amount = saved.amount;
+      setupInfo.state = saved.by === 'owner' ? 'owner' : 'saved';
+      setupInfo.text = saved.by === 'owner' ? `chosen by hand on an earlier visit: ${RES_NAME[S.res]} grid, ${AMOUNT_NAME[S.amount]}` : `picked on an earlier visit (${saved.ms} ms a substep at the default): ${RES_NAME[S.res]} grid, ${AMOUNT_NAME[S.amount]}`;
+    }
     Object.assign(S, SPEED_DEFAULTS[S.speed]);
     await resetSand({});
     layout();
@@ -1344,6 +1526,7 @@ async function boot() {
     setInterval(hud, 250);
     if (!rafOn) { rafOn = true; requestAnimationFrame(loop); }
     readyResolve(info());
+    if (setupInfo.state === 'none' && !fromUrl) autoSetup().catch(e => { setupInfo.state = 'failed'; setupInfo.text = String(e && e.message || e); });
   } catch (e) {
     console.error(e);
     startError = String(e && e.message || e);
@@ -1377,13 +1560,15 @@ window.__lab = {
   /** The live loop's frame statistics over the last windowMs (frames drawn, skipped, cap). */
   frameStats: (ms = 2000) => frameStats(ms),
   /** Why the live loop might not draw: hidden, busy, manual, readbacks in flight. */
-  loopState: () => ({ hidden, busy, manual, pending: solver?.readbacks.map(r => r.pending), frames: frames.length, skips: skips.length }),
+  loopState: () => ({ hidden, busy, manual, pending: solver?.readbacks.map(r => r.pending), frames: frames.length, skips: skips.length, inflight: pace.inflight, peakInflight: pace.peakInflight, budget: pace.budget, msStep: pace.msStep, overran: pace.overran, held: rate.held, hz: rate.hz, displayMs: displayMs(), dispatched: solver?.dispatched }),
+  /** The live loop's submit-to-done log over the last 4 s: { t, ms, steps }. */
+  gpuLog: () => gpuLog.map(x => ({ ...x })),
   landscape: () => !$('turn').hidden,
   settings(o = {}) {
     // a speed brings its defaults first; hz, iterations and cap given with it then override them
     const capWas = S.cap;
     if (o.speed) { S.speed = o.speed; Object.assign(S, SPEED_DEFAULTS[o.speed]); }
-    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'impulse', 'neckMin', 'gScale', 'override', 'blur', 'spread', 'yieldIn']) if (o[k] !== undefined) S[k] = o[k];
+    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'impulse', 'neckMin', 'gScale', 'override', 'blur', 'spread', 'yieldIn', 'queue', 'budget']) if (o[k] !== undefined) S[k] = o[k];
     if (solver.cap !== capAlloc()) solver.allocUniforms(capAlloc());
     resetRate();
     syncUI(); return { ...S };

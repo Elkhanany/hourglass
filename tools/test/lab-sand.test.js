@@ -76,6 +76,14 @@
  *               coarse sand's (it ran nearly as fast as water)
  *  18 creep     a 1-minute bed held at 25 degrees, 0.5 to 3.5 s: centre <= 1.15
  *               cells, surface within 1 degree
+ *  19 pace      the live loop (a small bed pouring and shaken): at most one frame
+ *               of GPU work in flight, and the submit-to-done lag within two
+ *               display frames (on an iPhone at 5cc11b3, 350 to 730 ms: three
+ *               frames of work queued); the GPU budget holds the substeps and
+ *               auto Hz back, and the report says so; control: the old pace (3
+ *               frames in flight, no budget) breaks the bound. The Benchmark's
+ *               rows for the default and its costly options, and the report's
+ *               answers from them
  *
  * Screenshots of the key moments go to --shots (a phone-like 390 x 844
  * viewport, device scale 1).
@@ -850,6 +858,44 @@ async function main() {
     log('  centre moves ' + f2(d18) + ' cells from 0.5 s to 3.5 s; surface ' + f1(h18a.tilt) + ' -> ' + f1(h18c.tilt) + ' degrees');
     check(d18 <= 1.15 && Math.abs(h18c.tilt - h18a.tilt) <= 1, 'below repose it creeps no more than before: centre <= 1.15 cells (' + f2(d18) + '; 5cc11b3: 1.40), surface within 1 degree (' + f2(Math.abs(h18c.tilt - h18a.tilt)) + '; 1.03)');
     await inp({ mode: 'manual', gravity: [0, 1] });
+  }
+
+  /* ---- 19 ----------------------------------------------------------- */
+  if (run(19)) {
+    log('19 pace (the live loop on the software GPU: a 600-point bed pouring from the top, shaken)');
+    var pace19 = async function (set) {
+      await L(function (o) { window.__lab.manual(true); window.__lab.settings(o); window.__lab.setInput({ mode: 'manual', gravity: [0, 1], shake: { g: 2, hz: 4, axis: [1, 0] } }); return window.__lab.reset({ fill: 'top', material: 'coarse', points: 600, gate: 0 }); }, set);
+      // (the stream is falling fast before the live loop takes over: auto Hz wants to rise)
+      await L(function () { return window.__lab.advance(0.8); });
+      await L(function () { window.__lab.manual(false); });
+      await page.waitForTimeout(6500);
+      var r = await L(function () { return { f: window.__lab.frameStats(4000), ls: window.__lab.loopState(), rep: window.__lab.report() }; });
+      await L(function () { window.__lab.manual(true); window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+      // (the old pace leaves frames queued on the software GPU: let them finish)
+      await page.waitForFunction(function () { var s = window.__lab.loopState(); return s.inflight === 0; }, null, { timeout: 120000, polling: 250 }).catch(function () {});
+      return r;
+    };
+    var desc19 = function (r) { return 'lag ' + f1(r.f.gpu) + ' ms = ' + f2(r.f.lagFrames) + ' display frames (display ' + f1(r.f.display) + ' Hz), ' + f1(r.f.fps) + ' fps, ' + f1(r.f.steps) + ' substeps a frame, sim/real ' + f2(r.f.ratio) + ', ' + Math.round(100 * r.f.gpuHeld) + '% of frames held by the GPU budget, auto Hz ' + r.f.hzMax + (r.f.wantMax > r.f.hzMax ? ' (wanted ' + r.f.wantMax + ', held in ' + Math.round(100 * r.f.held) + '%)' : '') + ', up to ' + r.ls.peakInflight + ' frames in flight'; };
+    var now19 = await pace19({ queue: 1, budget: true });
+    log('  default pace: ' + desc19(now19));
+    var old19 = await pace19({ queue: 3, budget: false });
+    log('  old pace (control): ' + desc19(old19));
+    await L(function () { return window.__lab.settings({ queue: 1, budget: true }); });
+    check(now19.ls.peakInflight <= 1 && now19.f.lagFrames <= 2, 'what is drawn trails the sand by at most two display frames: one frame of work in flight (' + now19.ls.peakInflight + '), lag ' + f2(now19.f.lagFrames) + ' frames (' + f1(now19.f.gpu) + ' ms)');
+    check(old19.ls.peakInflight > 1 && old19.f.lagFrames > 2, 'control: the old pace queues frames and breaks that bound (' + old19.ls.peakInflight + ' in flight, lag ' + f2(old19.f.lagFrames) + ' frames)');
+    check(now19.f.gpuHeld > 0 && now19.f.wantMax > now19.f.hzMax && now19.f.held > 0 && /held by the GPU budget/.test(now19.rep) && /auto Hz held back in [1-9]/.test(now19.rep),
+      'the GPU budget holds the substeps and auto Hz back here, and the report says so (' + Math.round(100 * now19.f.gpuHeld) + '% of frames, rate ' + now19.f.hzMax + ' for ' + now19.f.wantMax + ')');
+    // the Benchmark's default and option rows, and the report's answers (short rows: the software GPU is slow)
+    await L(function () { window.__lab.manual(false); });
+    var rows19 = await L(function () { return window.__lab.benchmark({ options: true, res: [], warm: 0.5, measure: 2 }); });
+    await L(function () { window.__lab.manual(true); });
+    var text19 = await L(function () { return window.__lab.report(); });
+    rows19.forEach(function (r) { log('  bench (software GPU, not a phone) ' + r.res + ' ' + r.amount + ' ' + r.speed + (r.tag ? ' [' + r.tag + ']' : '') + ': ' + r.points + ' points, ' + r.dispatches + ' dispatches a substep, ' + f2(r.msStep) + ' ms a substep, sim/real ' + f2(r.ratio)); });
+    var tags19 = rows19.map(function (r) { return r.tag; }).join(',');
+    check(tags19 === 'default,default,spread off,blur off,8 iterations,yield in loop' && rows19.every(function (r) { return isFinite(r.msStep) && r.msStep > 0; }) && rows19[2].dispatches === rows19[0].dispatches - 2,
+      'the Benchmark times the default at both speeds and each costly option, with the GPU time a substep (' + tags19 + ')');
+    check(/\nAnswers /.test(text19) && /Default, coarse grid, 1-minute, app speed: (HOLDS|does NOT hold) real time/.test(text19) && /Default, coarse grid, 1-minute, real speed: /.test(text19) && /Costly options at the default .*spread off .*blur off .*8 iterations/.test(text19) && /\nPace: at most 1 frame of GPU work in flight/.test(text19),
+      'Copy results answers: does the default hold real time at each speed, the lag, the display rate, and what each option costs');
   }
 
   check(errors.length === 0, 'no page errors through the run' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));

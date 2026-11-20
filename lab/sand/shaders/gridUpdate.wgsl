@@ -5,7 +5,9 @@
 // Hourglass sand lab changes (GPL-3.0 project): no rigid bodies or shapes;
 // the glass wall has slip-stick Coulomb friction (tangential motion is cut
 // by mu times the motion into the wall, and stops when that is more); the
-// one-cell-per-substep clamp is a setting and is counted; a closed neck.
+// one-cell-per-substep clamp is a setting and is counted; a closed neck; it
+// also zeroes the next grid at the same node (gridClear's work, folded in to
+// save a dispatch: the two touch different buffers).
 //-----------------------------------------------------------------------------
 //!include common.inc
 //!include domain.inc
@@ -19,6 +21,8 @@
 @group(0) @binding(5) var<storage,read_write> wallPress: array<f32>;
 // [0] nodes clamped (cumulative), [1] largest node move (cells x 1000, cumulative max)
 @group(0) @binding(6) var<storage,read_write> counters: array<atomic<u32>>;
+// the grid this iteration's G2P2G writes into: zeroed here, node for node as gridClear.wgsl does
+@group(0) @binding(7) var<storage,read_write> nextGrid: array<i32>;
 
 @compute @workgroup_size(64)
 fn csMain(@builtin(global_invocation_id) invocation: vec3u) {
@@ -29,6 +33,7 @@ fn csMain(@builtin(global_invocation_id) invocation: vec3u) {
     if (any(id >= g_simConstants.gridSize)) { return; }
     let nodeIndex = id.y * g_simConstants.gridSize.x + id.x;
     let address = gridVertexIndex(id, g_simConstants.gridSize);
+    nextGrid[address] = 0; nextGrid[address+1] = 0; nextGrid[address+2] = 0; nextGrid[address+3] = 0;
     let fpm = g_simConstants.fixedPointMultiplier;
     let mass = decodeFixedPoint(grid[address+2], fpm);
     if (mass < 1e-5) {

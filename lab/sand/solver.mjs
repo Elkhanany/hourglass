@@ -15,7 +15,11 @@
  * - the substep rate, iterations, per-frame cap and per-substep clamp are
  *   settings, and the clamp is counted;
  * - a whole frame is one compute pass (bucket clears are dispatches), with
- *   uniforms chosen by dynamic offset;
+ *   uniforms chosen by dynamic offset; clears are folded into the dispatch
+ *   before them where that is exact (gridUpdate zeroes the next grid,
+ *   prepare the spread's sub-cell grid): 16 dispatches a substep with the
+ *   spread pass, 14 without (21 and 18 before), since on a phone each
+ *   dispatch costs about as much as 350 points' work (dispatchesPerSubstep);
  * - a per-frame tally (counts, speeds) is read back for the HUD and tests.
  */
 
@@ -70,16 +74,15 @@ export class ShaderLibrary {
 
 // Binding kinds: u uniform (dynamic offset), r read-only storage, s storage
 const LAYOUTS = {
-  prepare: 'usssss',
+  prepare: 'ussssss',
   bukkitCount: 'urrs',
   bukkitAllocate: 'urssssss',
   bukkitInsert: 'ursrsr',
   gridClear: 'usrr',
-  gridUpdate: 'usrrrss',
+  gridUpdate: 'usrrrsss',
   g2p2g: 'usrsrrr',
   load: 'urrrs',
   rescale: 'urs',
-  spreadClear: 'us',
   spreadSplat: 'urrs',
   spreadShift: 'ursrr',
   tally: 'urrrs'
@@ -167,6 +170,18 @@ export const MATERIALS = {
   syrup:  { label: 'Syrup',       model: 0, frictionAngle: 0,  viscosity: 1,     relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 1 }
 };
 
+/**
+ * Dispatches a substep, as run() encodes them: prepare and the 3 bucket passes; per
+ * iteration a G2P2G after the grid's clear (the first) or its update (which clears too);
+ * the load pass (yieldStep 2 or 3, with yield in the loop); the spread's splat and shift.
+ * With 5 iterations: 16 with the spread, 14 without. (Per frame, a tally; and a rescale
+ * when the rate changes.)
+ */
+export function dispatchesPerSubstep(iterations, m) {
+  const sand = m.model === 2;
+  return 4 + 2 * iterations + (sand && m.yieldLoop && m.yieldStep >= 2 ? 1 : 0) + (sand && m.spread ? 2 : 0);
+}
+
 export class Solver {
   static async create(device, shaderBase) {
     const s = new Solver(device, new ShaderLibrary(shaderBase));
@@ -180,6 +195,7 @@ export class Solver {
     this.frame = 0; this.gridIndex = 0; this.count = 0;
     this.lastHz = null;
     this.uniformData = null;
+    this.dispatched = 0;               // dispatches encoded since the page loaded (counted by run)
     this.errors = [];
     device.addEventListener?.('uncapturederror', e => { if (this.errors.length < 8) this.errors.push(String(e.error?.message || e.error)); });
   }
@@ -273,16 +289,16 @@ export class Solver {
       entries: [uni, ...list].map((r, binding) => ({ binding, resource: r.buffer ? r : { buffer: r } }))
     });
     this.groups = {
-      prepare: group('prepare', [b.bucketCount, b.bucketInsertCount, b.allocator, b.bucketArgs, b.gridArgs]),
+      prepare: group('prepare', [b.bucketCount, b.bucketInsertCount, b.allocator, b.bucketArgs, b.gridArgs, b.fine]),
       count: group('bukkitCount', [b.count, b.particles, b.bucketCount]),
       allocate: group('bukkitAllocate', [b.bucketCount, b.bucketArgs, b.bucketData, b.allocator, b.bucketStarts, b.gridArgs, b.gridBuckets]),
       insert: group('bukkitInsert', [b.count, b.bucketInsertCount, b.particles, b.bucketData, b.bucketStarts]),
       clear: [b.grid0, b.grid1].map(g => group('gridClear', [g, b.gridBuckets, b.gridArgs])),
-      update: [b.grid0, b.grid1].map(g => group('gridUpdate', [g, b.domain, b.gridBuckets, b.gridArgs, b.wall, b.counters])),
+      // update[i]: grid i's update, which also zeroes the other grid (the next iteration's)
+      update: [0, 1].map(i => group('gridUpdate', [i ? b.grid1 : b.grid0, b.domain, b.gridBuckets, b.gridArgs, b.wall, b.counters, i ? b.grid0 : b.grid1])),
       solve: [0, 1].map(i => group('g2p2g', [b.particles, i ? b.grid1 : b.grid0, i ? b.grid0 : b.grid1, b.bucketData, b.domain, b.load])),
       load: [b.grid0, b.grid1].map(g => group('load', [g, b.gridBuckets, b.gridArgs, b.load])),
       rescale: group('rescale', [b.count, b.particles]),
-      spreadClear: group('spreadClear', [b.fine]),
       spreadSplat: group('spreadSplat', [b.count, b.particles, b.fine]),
       spreadShift: group('spreadShift', [b.count, b.particles, b.fine, b.domain]),
       tally: group('tally', [b.count, b.particles, b.domain, b.tally])
@@ -350,16 +366,18 @@ export class Solver {
     const pass = enc.beginComputePass({ label: 'lab PB-MPM' });
     const n64 = Math.ceil(this.count / 64);
     const go = (pipe, group, slot, size) => {
-      pass.setPipeline(pipe); pass.setBindGroup(0, group, [slot * SLOT]);
+      pass.setPipeline(pipe); pass.setBindGroup(0, group, [slot * SLOT]); this.dispatched++;
       if (Array.isArray(size)) pass.dispatchWorkgroups(...size); else if (typeof size === 'number') pass.dispatchWorkgroups(size);
       else pass.dispatchWorkgroupsIndirect(size, 0);
     };
     const solid = set.material.model !== 0 ? P.g2p2gSolid : P.g2p2g;
     const useLoad = set.material.model === 2 && set.material.yieldLoop && set.material.yieldStep >= 2;
     if (steps && this.lastHz && this.lastHz !== set.hz && this.count) go(P.rescale, G.rescale, 0, n64);
+    const spread = set.material.model === 2 && !!set.material.spread;
     if (this.count) for (let s = 0; s < steps; s++) {
       const base = s * MAX_IT;
-      go(P.prepare, G.prepare, base, Math.ceil(this.bucketCount / 64));
+      // (with the spread on, prepare also clears the sub-cell grid: one thread a node of it)
+      go(P.prepare, G.prepare, base, Math.ceil(Math.max(this.bucketCount, spread ? this.fineCount : 0) / 64));
       go(P.bukkitCount, G.count, base, n64);
       go(P.bukkitAllocate, G.allocate, base, [Math.ceil(this.bucketX / 8), Math.ceil(this.bucketY / 8)]);
       go(P.bukkitInsert, G.insert, base, n64);
@@ -367,14 +385,15 @@ export class Solver {
       if (useLoad) go(P.load, G.load[this.gridIndex], base, b.gridArgs);
       for (let it = 0; it < its; it++) {
         const next = 1 - this.gridIndex;
-        go(P.gridClear, G.clear[next], base + it, b.gridArgs);
+        // the next grid is zeroed where this substep's sand can reach: by gridClear before the
+        // first iteration, then by each grid update (which zeroes it node for node as it goes)
         if (it) go(P.gridUpdate, G.update[this.gridIndex], base + it, b.gridArgs);
+        else go(P.gridClear, G.clear[next], base + it, b.gridArgs);
         go(solid, G.solve[this.gridIndex], base + it, b.bucketArgs);
         this.gridIndex = next;
       }
       // sand points that crowd together inside a cell move apart (spreadShift.wgsl)
-      if (set.material.model === 2 && set.material.spread) {
-        go(P.spreadClear, G.spreadClear, base, Math.ceil(this.fineCount / 64));
+      if (spread) {
         go(P.spreadSplat, G.spreadSplat, base, n64);
         go(P.spreadShift, G.spreadShift, base, n64);
       }
