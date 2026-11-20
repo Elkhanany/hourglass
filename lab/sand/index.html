@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0c0e">
+<meta name="robots" content="noindex">
+<title>Sand lab</title>
+<link rel="stylesheet" href="lab.css">
+</head>
+<body>
+<!--
+  Hourglass sand lab: a test page for a new sand engine (position-based MPM
+  on WebGPU). It is not the app and changes nothing in it.
+  Part of the Hourglass project (GPL-3.0); the solver derives from Smoosh
+  (MIT) and EA's PB-MPM (BSD-3-Clause): see LICENSES.md.
+-->
+<div id="stage">
+  <canvas id="c-back"></canvas>
+  <canvas id="c-gpu"></canvas>
+  <canvas id="c-front"></canvas>
+</div>
+
+<header id="top">
+  <div id="title"><b>Sand lab</b> <span>a test page, not the app</span></div>
+  <pre id="hud" aria-live="off"></pre>
+  <div id="status"></div>
+</header>
+
+<div id="notice" hidden></div>
+
+<nav id="panel" aria-label="Controls">
+  <div class="row">
+    <div class="seg" data-key="input">
+      <button data-val="upright" class="on">Upright</button>
+      <button data-val="motion">Real motion</button>
+    </div>
+    <button id="b-flip" class="act">Flip</button>
+    <button id="b-reset" class="act">Reset</button>
+  </div>
+  <div class="row">
+    <div class="seg wide" data-key="material">
+      <button data-val="coarse" class="on">Coarse sand</button>
+      <button data-val="fine">Fine sand</button>
+      <button data-val="water">Water</button>
+      <button data-val="syrup">Syrup</button>
+    </div>
+  </div>
+  <div class="row">
+    <div class="seg" data-key="speed">
+      <button data-val="app" class="on">App speed</button>
+      <button data-val="real">Real speed</button>
+    </div>
+    <div class="seg" data-key="amount">
+      <button data-val="minute">1 min</button>
+      <button data-val="quarter" class="on">¼</button>
+      <button data-val="full">Full</button>
+    </div>
+  </div>
+  <div class="row">
+    <div class="seg" data-key="res">
+      <span class="lbl">Grid</span>
+      <button data-val="S">Coarse</button>
+      <button data-val="M" class="on">Medium</button>
+      <button data-val="L">Fine</button>
+    </div>
+    <button id="b-more" class="act small">More</button>
+  </div>
+  <div class="row" id="more" hidden>
+    <button class="act small cyc" data-key="hz"></button>
+    <button class="act small cyc" data-key="iterations"></button>
+    <button class="act small cyc" data-key="cap"></button>
+    <button class="act small cyc" data-key="maxStep"></button>
+    <button class="act small cyc" data-key="coriolis"></button>
+  </div>
+  <div class="row">
+    <button id="b-hud" class="act small on">HUD</button>
+    <button id="b-bench" class="act small">Benchmark</button>
+    <button id="b-flow" class="act small">Flow test</button>
+    <button id="b-copy" class="act small">Copy results</button>
+  </div>
+</nav>
+
+<div id="sheet" hidden>
+  <div id="sheet-box">
+    <div id="sheet-head"><b id="sheet-title"></b><button id="sheet-close" class="act small">Close</button></div>
+    <div id="sheet-body"></div>
+  </div>
+</div>
+
+<script type="module" src="main.mjs"></script>
+</body>
+</html>

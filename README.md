@@ -1125,6 +1125,27 @@ GPU to composite, while here the main thread copies them in software and
 another thread composites them. `e2e-perf` with `--trace` notes how each
 stretch was spent, telling the app's own work from that.
 
+### Lab: sand test page
+
+`lab/sand/` is a separate test page, **not the app**: nothing in the app
+loads it, and it changes nothing in the app. It tries a different sand
+engine, position-based MPM (EA's PB-MPM, by way of the Smoosh solver) on
+WebGPU, in the app's classic glass, so the sand can be judged by eye and by
+hand on an iPhone before anything in the app changes. Open
+`https://elkhanany.github.io/hourglass/lab/sand/` in Safari (iOS 26 or
+later, which has WebGPU). The phone's motion (**Real motion**), a finger on
+the glass, **Flip** and **Reset** move the sand; the buttons choose the
+material (coarse and fine sand, water, syrup), the speed (the app's slow
+motion, or true gravity for a glass 11 cm tall), the amount and the grid.
+**Benchmark** and **Flow test** measure the phone, and **Copy results**
+puts a plain-text report on the clipboard to send back. It has no service
+worker and loads nothing from anywhere else. Its solver keeps Smoosh's MIT
+and EA's BSD-3-Clause notices (`lab/sand/LICENSES.md`).
+`node tools/test/lab-sand.test.js [--port <n>] [--only 2,6] [--shots <dir>]`
+runs it headless in Chromium with WebGPU in software (SwiftShader), on its
+coarse grid with little sand and the clock driven by the test; it takes
+several minutes, and its speeds say nothing about a phone.
+
 ## Icons and launch screens
 
 `icons/` holds the SVG source and the PNG sizes the manifest and iOS need.
