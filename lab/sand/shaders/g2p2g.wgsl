@@ -21,6 +21,8 @@
 @group(0) @binding(3) var<storage, read_write> g_gridDst : array<atomic<i32>>;
 @group(0) @binding(4) var<storage> g_bucketData : array<u32>;
 @group(0) @binding(5) var<storage> g_domain : array<vec4f>;
+// per grid node: the depth of sand above it along "up", cells (load.wgsl; read with yieldp.z = 2)
+@group(0) @binding(6) var<storage> g_load : array<f32>;
 
 override enableSolidMaterials: bool = false;
 
@@ -308,15 +310,74 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
             // only as fast as its load gets through this constraint; the return map keeps that
             // compaction instead of pushing it back. (sand.w = 1: loose sand may be compressed
             // as far as its looseness, freely.)
-            let floorSigma = exp(-0.5 * g_simConstants.sand.w * max(particle.logJp, 0.0));
-            svdResult.Sigma = clamp(svdResult.Sigma, vec2f(floorSigma), vec2f(1000, 1000));
+            var tgt: mat2x2f;
+            if (g_simConstants.yieldp.x > 0.5)
+            {
+                // Yield inside the iterations (yieldp.x = 1). EA's target clamps the trial strain's
+                // principal stretches at 1 from below: compression is resisted, extension is free, so
+                // a shear (stretches e^g, e^-g) becomes a dilation (e^g, 1), and that dilation, about
+                // 45 degrees' worth, was the sand's only resistance to shear inside the solve: a bed
+                // turned as one block and, once failed, ran out like a liquid. Here the target is the
+                // trial strain projected onto the Drucker-Prager cone of its own compression: expansion
+                // stays free; under compression, shear inside the cone is corrected (the sand holds)
+                // and only the shear beyond it is kept, as plastic flow, with no volume change. The
+                // cone is yieldp.y (yieldScale) of the return map's, which also acts at the end of
+                // the substep: together they give the heap's angle.
+                let eps = log(max(abs(svdResult.Sigma), vec2f(1e-6)));
+                let trY = eps.x + eps.y;
+                let eHatY = eps - vec2f(trY * 0.5);
+                let nrmY = length(eHatY);
+                let sinPhiY = sin(materialParams.physical.x/180.0 * 3.14159);
+                let alphaY = sqrt(2.0/3.0)*2.0*sinPhiY/(3.0 - sinPhiY);
+                let coneKY = select(materialParams.mechanical.z + 1.0, materialParams.mechanical.w, materialParams.mechanical.w > 0.0);
+                var keep = eps;
+                if (trY < 0.0)
+                {
+                    // the compression the cone is sized by: the whole trial strain's (yieldp.z = 0), or
+                    // only this substep's, the stored part of F taken out, times yieldp.w (yieldp.z = 1)
+                    var trC = trY;
+                    if (g_simConstants.yieldp.z > 1.5)
+                    {
+                        // yieldp.z = 2: no more than the load allows. Sand's friction is in proportion to
+                        // the weight of the sand above the point: its depth along "up" (load.wgsl) times
+                        // g, in the solver's strain units (g dt^2 per cell of depth), times yieldp.w
+                        // (loadScale). The stored compression alone grows with the time the sand has
+                        // lain, so a settled bed was stronger than a fresh heap: it held past its angle
+                        // and then turned in the glass as one block. (+1 cell: a point at the surface
+                        // carries about its own cell's weight through the stencil.)
+                        var h = 0.0;
+                        for (var i = 0; i < 3; i++)
+                        {
+                            for (var j = 0; j < 3; j++)
+                            {
+                                let c = vec2u(vec2i(weightInfo.cellIndex) + vec2i(i, j));
+                                h += weightInfo.weights[i].x * weightInfo.weights[j].y * g_load[c.y * g_simConstants.gridSize.x + c.x];
+                            }
+                        }
+                        let dtY = g_simConstants.deltaTime;
+                        trC = max(trY, -g_simConstants.yieldp.w * (h + 1.0) * length(g_simConstants.gravity) * dtY * dtY);
+                    }
+                    else if (g_simConstants.yieldp.z > 0.5)
+                    {
+                        trC = min(0.0, g_simConstants.yieldp.w * (trY - log(max(abs(det(particle.deformationGradient)), 1e-6))));
+                    }
+                    let dgY = nrmY + coneKY * trC * alphaY * g_simConstants.yieldp.y;
+                    keep = select(vec2f(0.0), eHatY * (dgY / max(nrmY, 1e-6)), dgY > 0.0);
+                }
+                tgt = svdResult.U*mat2x2f(exp(keep.x), 0, 0, exp(keep.y))*svdResult.Vt;
+            }
+            else
+            {
+                let floorSigma = exp(-0.5 * g_simConstants.sand.w * max(particle.logJp, 0.0));
+                svdResult.Sigma = clamp(svdResult.Sigma, vec2f(floorSigma), vec2f(1000, 1000));
 
-            // Closest matrix to F with det == 1
-            let df = det(F);
-            let cdf = clamp(abs(df), 0.1, 1);
-            let Q = (1.0f/(select(-1.0, 1.0, df >= 0.0)*sqrt(cdf)))*F;
-            let alpha = materialParams.mechanical.z;
-            let tgt = alpha*(svdResult.U*mat2x2f(svdResult.Sigma.x, 0, 0, svdResult.Sigma.y)*svdResult.Vt) + (1.0-alpha)*Q;
+                // Closest matrix to F with det == 1
+                let df = det(F);
+                let cdf = clamp(abs(df), 0.1, 1);
+                let Q = (1.0f/(select(-1.0, 1.0, df >= 0.0)*sqrt(cdf)))*F;
+                let alpha = materialParams.mechanical.z;
+                tgt = alpha*(svdResult.U*mat2x2f(svdResult.Sigma.x, 0, 0, svdResult.Sigma.y)*svdResult.Vt) + (1.0-alpha)*Q;
+            }
 
             let diff = (tgt*inverse(particle.deformationGradient) - Identity) - particle.deformationDisplacement;
             particle.deformationDisplacement += materialParams.physical.z*diff;

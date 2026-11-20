@@ -76,7 +76,9 @@ struct SimConstants {
     // z: how fast plastic shear loosens it back toward the fill's packing; w: unused
     compaction: vec4f,
     // sand's yield inside the iterations (g2p2g.wgsl): x: 1 on (0: EA's clamp target); y: the
-    // share of the friction cone it uses there (yieldScale); z, w: unused
+    // share of the friction cone it uses there (yieldScale); z: what sizes the cone: 0 the trial
+    // strain's compression, 1 this substep's compression only (times w, yieldStepScale), 2 the
+    // load, the depth of sand above the point (load.wgsl) times g (times w, loadScale)
     yieldp: vec4f,
 };
 
