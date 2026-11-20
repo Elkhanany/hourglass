@@ -139,6 +139,10 @@ const LAYOUTS = {
  * in surface sheets from 55 degrees and stops at 28.5, at 0.8 only from 85. No
  * setting gave both a heap of 30 or more and sheets early in the turn, so 0.8
  * keeps the heaps right; the turn's block slide from 40 to 60 degrees remains.
+ * It is OFF by default (More, "yield": in loop / at end): with it the Flip's
+ * cone at rest fell to 19.7 degrees (flanks 25.7 / 13.8; 34.6 without it, 29.8
+ * at 5cc11b3) and its young cone to 6 to 10, at 0.8 and at 0.85 alike (1.0
+ * heaps at 47), and a fast turn still ran out to 16 degrees.
  *
  * yieldStep 2, loadScale (off by default; an experiment): the cone no larger
  * than the load allows, the depth of sand above the point (load.wgsl, one
@@ -157,8 +161,8 @@ const LAYOUTS = {
  * at 0.42 a jerk threw it up the wall in a curling tongue.
  */
 export const MATERIALS = {
-  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 31, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 1, yieldScale: 0.8 },
-  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 30, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 1, yieldScale: 0.8 },
+  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 31, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8 },
+  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 30, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8 },
   water:  { label: 'Water',       model: 0, frictionAngle: 0,  viscosity: 0.01,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.002 },
   syrup:  { label: 'Syrup',       model: 0, frictionAngle: 0,  viscosity: 1,     relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 1 }
 };

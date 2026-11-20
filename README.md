@@ -1145,17 +1145,17 @@ substep; at app speed the glass's jolts (the finger's, the phone's) reach
 the slowed sand slowed too, as in a slowed film of them, so a jerk throws
 it as far as at real speed. A grain is drawn as the streak it makes in one
 display frame, as the eye sees a falling grain, so the stream through the
-neck reads as a thread (More, "blur", shortens it or turns it off). Sand
-yields inside the solver's iterations (it holds a slope until the friction
-cone is exceeded, then that shear flows), each grain remembers how tightly
-it is packed (shaking packs it), and grains that crowd inside a cell step
-apart (the spread pass), so a bed at rest no longer swells and a fast turn
-or a jerk no longer tears it. Still open: turned slowly, the bed fails
-first at about 35 degrees but then slides round the glass as a block from
-40 to 60 and fails in thin surface sheets only near 90; after a fast turn it
-runs out to about 16 degrees; held below its angle it still creeps (about a
-cell in 3 s). More, "spread", turns the spread pass off (three fewer
-dispatches a substep). To test: turn on
+neck reads as a thread (More, "blur", shortens it or turns it off). Each
+grain remembers how tightly it is packed (shaking packs it), and grains
+that crowd inside a cell step apart (the spread pass; More, "spread", turns
+it off, three fewer dispatches a substep), so a bed at rest no longer
+swells and a fast turn or a jerk no longer tears it. More, "yield", lets
+sand yield inside the solver's iterations: a slowly turned bed then fails
+first at about 35 degrees instead of 40 and stands lower while it moves,
+but the Flip's cone spreads to about 20 degrees, so it is off by default.
+Still open: a turned bed slides round the glass as a block before it fails
+in surface sheets, a fast turn runs out like a heavy liquid, and a bed held
+below its angle still creeps. To test: turn on
 Portrait Orientation Lock in Control Center (otherwise turning the phone
 turns the page, and the page says so), and turn Low Power Mode off (it
 halves the display rate). It loads nothing from anywhere else and registers
