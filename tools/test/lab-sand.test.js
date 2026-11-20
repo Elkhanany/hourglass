@@ -30,7 +30,9 @@
  *               bulb, with a crater above and a cone below (25 to 45
  *               degrees, measured a third of the way through, without the
  *               falling stream), until nearly all of it has crossed; and
- *               back again
+ *               back again, with the same checks; each cone at rest after
+ *               its pour stands at the repose angle (mean 25 to 37, its
+ *               steeper flank under 40)
  *   6 flow      the rate through the neck of an upright glass, with the top
  *               three-quarters and a quarter full: sand about the same
  *               (ratio near 1, as in a real hourglass), water (control)
@@ -46,11 +48,13 @@
  *               frames per second counted are frames drawn (against the
  *               GPU submits counted in the page); turning the page to
  *               landscape shows how to lock portrait
- *   9 packing   sand keeps its volume: a flat bed at rest for 3 s keeps its
- *               area within 3 %; a 3 g press and release leaves it no
- *               thicker; a shaken bed settles back within 10 % of its area;
- *               held at 25 degrees (below repose) for 3 s it does not creep:
- *               centre under 0.5 cell, surface within 1 degree
+ *   9 packing   sand keeps its volume, at app speed and at real speed: a
+ *               flat bed at rest for 3 s keeps its area within 3 %; a 3 g
+ *               press and release leaves it no thicker; after a 2 g jerk of
+ *               the glass, a 3 g sideways shake, and (a heap) a 2 g shake up
+ *               and down, it settles back within 10 % of its area; held at
+ *               25 degrees (below repose) for 3 s it does not creep: centre
+ *               under 0.5 cell, surface within 1 degree
  *
  * Screenshots of the key moments go to --shots (a phone-like 390 x 844
  * viewport, device scale 1).
@@ -95,8 +99,10 @@ async function main() {
   var page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   // count the GPU submits that draw, to check the page's frames-per-second against them
   await page.addInitScript(function () {
-    window.__submits = 0;
+    window.__submits = 0; window.__draws = 0;
     if (window.GPUQueue) { var sub = GPUQueue.prototype.submit; GPUQueue.prototype.submit = function () { window.__submits++; return sub.apply(this, arguments); }; }
+    // a frame drawn: a command encoder that begins a render pass
+    if (window.GPUCommandEncoder) { var brp = GPUCommandEncoder.prototype.beginRenderPass; GPUCommandEncoder.prototype.beginRenderPass = function () { window.__draws++; return brp.apply(this, arguments); }; }
   });
   page.on('pageerror', function (e) { errors.push(e.message); });
   page.on('console', function (m) { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
@@ -106,9 +112,8 @@ async function main() {
     fs.mkdirSync(SHOTS, { recursive: true });
     await page.screenshot({ path: path.join(SHOTS, name + '.png') });
   };
-  var sec = async function (s, chunk) {           // simulated seconds, in chunks
-    var n = await L(function (s) { return window.__lab.steps(s); }, s);
-    return L(function (n) { return window.__lab.step(n); }, n);
+  var sec = function (s) {                         // simulated seconds (the substep rate may change on the way: auto Hz)
+    return L(function (s) { return window.__lab.advance(s); }, s);
   };
   var run = function (k) { return !ONLY.length || ONLY.indexOf(k) >= 0; };
 
@@ -284,16 +289,23 @@ async function main() {
         await sec(0.5); t += 0.5;
         var st = await L(function () { return window.__lab.stats(); });
         series.push(st[key]);
-        // mid-pour: a third of the sand across (the cone has grown), the falling stream left out of the cone (grains slower than 20 cells/s)
+        // mid-pour: a third of the sand across (the cone has grown), the falling stream left out of
+        // the cone: grains faster than 20 cells/s, and the column where the stream lands on the
+        // cone's top (its grains have slowed there, but they are the stream, not the cone): a
+        // neck's width either side of the axis
         if (st[key] >= 0.33 * st.count && !mid) {
-          mid = { crater: await crater(fromAbove ? 1 : -1), cone: await L(function (b) { return window.__lab.heapAngle({ bulb: b, vMax: 20 }); }, fromAbove ? 'lower' : 'upper') };
+          mid = { crater: await crater(fromAbove ? 1 : -1), cone: await L(function (b) { return window.__lab.heapAngle({ bulb: b, vMax: 20, skipAxis: window.__lab.info().glass.neckCells }); }, fromAbove ? 'lower' : 'upper') };
           await shot(fromAbove ? '05-flip-back-pouring' : '05-flip-pouring');
         }
         if (st[key] >= 0.97 * st.count) break;
         if (series.length >= 4 && series[series.length - 1] === series[series.length - 4]) break;   // stopped
       }
-      log('  ' + label + ': crossed every 0.5 s ' + series.join(' ') + ' of ' + st.count + ' (' + t + ' s after the turn began); crater above ' + f1(mid && mid.crater) + ' cells deep, cone below ' + f1(mid && mid.cone.left) + '/' + f1(mid && mid.cone.right) + ' degrees');
-      return { st: st, t: t, mid: mid, series: series };
+      // the cone at rest, 1.5 s after the pour (real sand cannot stand steeper than its repose angle)
+      await sec(1.5);
+      var rest = await L(function (b) { return window.__lab.heapAngle({ bulb: b }); }, fromAbove ? 'lower' : 'upper');
+      await shot(fromAbove ? '05-flip-back-rest' : '05-flip-rest');
+      log('  ' + label + ': crossed every 0.5 s ' + series.join(' ') + ' of ' + st.count + ' (' + t + ' s after the turn began); crater above ' + f1(mid && mid.crater) + ' cells deep, cone below ' + f1(mid && mid.cone.left) + '/' + f1(mid && mid.cone.right) + ' degrees; at rest after ' + f1(rest.left) + '/' + f1(rest.right) + ' (mean ' + f1(rest.mean) + ')');
+      return { st: st, t: t, mid: mid, series: series, rest: rest };
     };
     await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.reset({ fill: 'lower', material: 'coarse', points: 3000 }); });
     await sec(0.5);
@@ -308,6 +320,10 @@ async function main() {
     await L(function () { window.__lab.flip(); });
     f2r = await pour('flipped back', true);
     check(f2r.st.below >= 0.95 * a0.count, 'and pours back the other way, until ' + f2r.st.below + ' of ' + a0.count + ' have crossed');
+    check(f2r.mid && f2r.mid.crater > 1 && f2r.mid.cone.steepest > 25 && f2r.mid.cone.steepest < 45, 'and back: a crater above (' + f1(f2r.mid && f2r.mid.crater) + ' cells deep) and a cone below (' + f1(f2r.mid && f2r.mid.cone.steepest) + ' degrees, 25 to 45)');
+    // at rest, each cone stands at the repose angle (the brief's 30 to 37), no steeper (its steeper flank under 40)
+    var restOk = function (r) { return r.rest.mean >= 25 && r.rest.mean <= 37 && r.rest.steepest <= 40; };
+    check(restOk(f1r) && restOk(f2r), 'each cone at rest stands at about the repose angle, no steeper: ' + f1(f1r.rest.mean) + ' (steeper flank ' + f1(f1r.rest.steepest) + ') and ' + f1(f2r.rest.mean) + ' (' + f1(f2r.rest.steepest) + '); mean 25 to 37, steeper flank under 40');
     check(f2r.st.outside === 0 && f2r.st.nan === 0, 'nothing outside the glass, nothing not finite');
   }
 
@@ -355,22 +371,53 @@ async function main() {
     var tilt = await L(function () { return window.__lab.stats(); });
     log('  tilt right 30 deg: centre x ' + f1(b0.com[0]) + ' -> ' + f1(tilt.com[0]));
     check(tilt.com[0] > b0.com[0] + 1, 'a tilt to the right sends the sand to the right');
-    // the finger: a quick flick of the glass, to the right and (control) to the left.
-    // While the glass speeds up the sand lags behind it, so in the glass it moves
-    // the other way. (A flick of 90 px moves the glass at about 1 g for some 50 ms,
-    // too short a push to show; this one is a fast flick, about 3 g.)
-    var flick = async function (dx) {
+    // The finger: a quick flick of the glass, to the right and (control) to the left.
+    // While the glass speeds up the sand lags behind it, so in the glass it moves the
+    // other way. The glass follows the finger on a spring (app.js's), so a flick's push
+    // on the sand is the spring's: 200 px in 60 ms peaks at 0.67 g for some 40 ms, under
+    // the sand's own failure point (tan 32 degrees, 0.62 g, for a moment): real sand
+    // hardly moves for it (logged); 300 px in 40 ms peaks at 1.5 g (checked). At app
+    // speed the world runs slowed, 1 / sqrt(lambda) (about 3.5) times, and the glass's
+    // jolts are played back slowed like a film of them, so the sand's answer to the
+    // first 0.1 s of the flick shows at 0.1 / sqrt(lambda) s.
+    var flick = async function (dx, ms, tag) {
       var b = await bed();
-      await L(function (dx) { window.__lab.setInput({ mode: 'upright' }); window.__lab.drag({ dx: dx, dy: 0, ms: 60 }); }, dx);
+      var lam = await L(function () { var i = window.__lab.info(); return i.settings.speed === 'app' ? i.g / i.gReal : 1; });
+      var at = 0.1 / Math.sqrt(lam);
+      await L(function (o) { window.__lab.setInput({ mode: 'upright' }); window.__lab.drag({ dx: o.dx, dy: 0, ms: o.ms }); }, { dx: dx, ms: ms });
+      await sec(0.1);
+      var pz = await L(function () { return window.__lab.pose(); });
+      var s01 = await L(function () { return window.__lab.stats(); });
+      await sec(at - 0.1);
+      var st = await L(function () { return window.__lab.stats(); });
+      if (tag) await shot(tag);
+      return { dx: st.com[0] - b.com[0], dx01: s01.com[0] - b.com[0], x: pz.x, at: at };
+    };
+    var fr0 = await flick(200, 60), fl0 = await flick(-200, 60);
+    log('  finger flick 200 px in 60 ms (0.67 g at the glass; logged): glass at x ' + f1(fr0.x) + ' px after 0.1 s, sand centre moved ' + f2(fr0.dx01) + ' cells at 0.1 s, ' + f2(fr0.dx) + ' at ' + f2(fr0.at) + ' s; to the left: ' + f2(fl0.dx01) + ', ' + f2(fl0.dx));
+    var fr7 = await flick(300, 40, '07-flick-right'), fl7 = await flick(-300, 40);
+    log('  finger flick 300 px in 40 ms (1.5 g at the glass): glass at x ' + f1(fr7.x) + ' px after 0.1 s, sand centre moved ' + f2(fr7.dx) + ' cells at ' + f2(fr7.at) + ' s (' + f2(fr7.dx01) + ' at 0.1 s); flick left (control): glass at ' + f1(fl7.x) + ', sand ' + f2(fl7.dx));
+    check(fr7.x > 20 && fr7.dx < -0.5 && fl7.dx > 0.5, 'a flick of the glass to the right throws its sand to the left, a flick to the left throws it right');
+    // A jerk of the glass (2 g for 50 ms, then -2 g for 50 ms), through the same path as the
+    // finger's and the phone's: while the glass speeds up, it throws the bed against the
+    // trailing wall. Checked at app speed, 0.2 s after the jerk began (in the slowed world, the
+    // first 0.06 s of it): before the slowed playback, app speed gave it a 3-cell wobble. Real
+    // speed is logged: there the whole jerk is over in 0.1 s, and the stop throws the bed back.
+    var jerk = async function (speed) {
+      await L(function (sp) { return window.__lab.settings({ speed: sp }); }, speed);
+      var b = await bed();
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], glass: [2, 0] }); }); await sec(0.05);
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], glass: [-2, 0] }); }); await sec(0.05);
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
       await sec(0.1);
       var st = await L(function () { return window.__lab.stats(); });
-      var pz = await L(function () { return window.__lab.pose(); });
-      if (dx > 0) await shot('07-flick-right');
-      return { dx: st.com[0] - b.com[0], x: pz.x };
+      if (speed === 'app') await shot('07-jerk-app');
+      return st.com[0] - b.com[0];
     };
-    var fr7 = await flick(200), fl7 = await flick(-200);
-    log('  finger flick right 200 px in 60 ms: glass at x ' + f1(fr7.x) + ' px after 0.1 s, sand centre moved ' + f1(fr7.dx) + ' cells; flick left (control): glass at ' + f1(fl7.x) + ', sand ' + f1(fl7.dx));
-    check(fr7.x > 20 && fr7.dx < -0.5 && fl7.dx > 0.5, 'a flick of the glass to the right throws its sand to the left, a flick to the left throws it right');
+    var jApp = await jerk('app'), jReal = await jerk('real');
+    await L(function () { return window.__lab.settings({ speed: 'app' }); });
+    log('  2 g jerk of the glass to the right, 50 ms each way: sand centre ' + f1(jApp) + ' cells at app speed, ' + f1(jReal) + ' at real speed (logged), 0.2 s after it began');
+    check(jApp < -8, 'at app speed a jerk of the glass throws the bed against the trailing wall (centre ' + f1(jApp) + ' cells, over 8)');
     await sec(1.5);
     // a real pointer drag moves the glass (live loop, a few frames)
     await L(function () { window.__lab.manual(false); });
@@ -446,28 +493,39 @@ async function main() {
   if (run(8)) {
     log('8 tools');
     await L(function () { window.__lab.manual(false); });
-    // (a frame takes a second or more on the software GPU at real speed: measure long enough to see a few)
+    // (a frame takes a second or more on the software GPU at real speed: measure long enough to
+    // see a few, and with auto Hz off, which would triple the substeps of a shaken frame here)
+    await L(function () { return window.__lab.settings({ auto: false }); });
     var rows = await L(function () { return window.__lab.benchmark({ res: ['S'], amounts: ['minute'], speeds: ['app', 'real'], warm: 1, measure: 5 }); });
+    await L(function () { return window.__lab.settings({ auto: true }); });
     rows.forEach(function (r) { log('  bench (software GPU, not a phone) ' + r.res + ' ' + r.amount + ' ' + r.speed + ': ' + r.points + ' points, median ' + f1(r.median) + ' ms, sim/real ' + f2(r.ratio) + ', steps ' + f1(r.steps)); });
     check(rows.length === 2 && rows.every(function (r) { return r.points > 0 && isFinite(r.median); }), 'the benchmark gives a row per setting');
     await L(function () { window.__lab.manual(true); });
     var text = await L(function () { return window.__lab.report(); });
-    check(/Device: Mozilla/.test(text) && /WebGPU adapter: vendor=/.test(text) && /Benchmark \(frame ms/.test(text) && (!flows.coarse || /Flow test: Coarse sand/.test(text)), 'the report has the user agent, the adapter, the benchmark' + (flows.coarse ? ' and the flow test' : ''));
+    // (the user agent, the adapter, the benchmark's header and a row of it, every flow test run)
+    check(/Device: Mozilla/.test(text) && /WebGPU adapter: vendor=/.test(text) && /\nBenchmark \(frames drawn a second/.test(text) && /\ncoarse +1-minute app /.test(text) && /\ncoarse +1-minute real /.test(text) &&
+      (!flows.coarse || /Flow test: Coarse sand/.test(text)) && (!flows.water || /Flow test: Water/.test(text)), 'the report has the user agent, the adapter, the benchmark' + (flows.coarse ? ' and the flow tests' : ''));
     await page.click('#b-copy');
     var sheet = await L(function () { var t = document.querySelector('#sheet-body textarea'); return t ? t.value : ''; });
     check(/Hourglass sand lab results/.test(sheet), 'Copy results shows the report too');
     await L(function () { document.getElementById('sheet').hidden = true; });
     // frames per second are frames drawn: against the submits counted in the page (each frame drawn is one submit)
+    // (a small load, so the software GPU draws a few frames a second; the page's own submits for
+    // readbacks are not frames, so the frames drawn are counted against the submits that draw)
+    await L(function () { window.__lab.setInput({ mode: 'upright' }); return window.__lab.reset({ fill: 'lower', material: 'coarse', points: 600 }); });
     await L(function () { window.__lab.manual(false); });
-    await page.waitForTimeout(1000);
-    var sub0 = await L(function () { return window.__submits; });
-    await page.waitForTimeout(3000);
-    var sub1 = await L(function () { return window.__submits; });
-    var fs8 = await L(function () { return window.__lab.frameStats(3000); });
+    // (the software GPU may still be working through the benchmark's last frames: wait for it)
+    await page.waitForFunction(function () { var s = window.__lab.loopState(); return s.pending && !s.pending.every(Boolean); }, null, { timeout: 120000, polling: 250 }).catch(function () {});
+    await page.waitForTimeout(1500);
+    var sub0 = await L(function () { return window.__draws; });
+    await page.waitForTimeout(4000);
+    var sub1 = await L(function () { return window.__draws; });
+    var fs8 = await L(function () { return window.__lab.frameStats(4000); });
+    var ls8 = await L(function () { return window.__lab.loopState(); });
     await L(function () { window.__lab.manual(true); });
-    var drawn = (sub1 - sub0) / 3;
-    log('  live loop (software GPU): ' + f1(drawn) + ' submits a second; the page counts ' + f1(fs8 && fs8.fps) + ' fps drawn, ' + Math.round(100 * (fs8 ? fs8.skipped : 0)) + '% skipped, display ' + f1(fs8 && fs8.display) + ' Hz');
-    check(fs8 && Math.abs(fs8.fps - drawn) <= Math.max(1, 0.3 * drawn), 'the fps counted are frames drawn (' + f1(fs8 && fs8.fps) + ' against ' + f1(drawn) + ' submits a second)');
+    var drawn = (sub1 - sub0) / 4;
+    log('  live loop (software GPU): ' + f1(drawn) + ' frames drawn a second (render passes submitted); the page counts ' + f1(fs8 && fs8.fps) + ' fps drawn, ' + Math.round(100 * (fs8 ? fs8.skipped : 0)) + '% skipped, display ' + f1(fs8 && fs8.display) + ' Hz; loop ' + JSON.stringify(ls8));
+    check(drawn > 0.5 && fs8 && Math.abs(fs8.fps - drawn) <= Math.max(1, 0.3 * drawn), 'the fps counted are frames drawn (' + f1(fs8 && fs8.fps) + ' against ' + f1(drawn) + ' drawn a second, and some were drawn)');
     // turned to landscape, the page says how to keep it upright
     await page.setViewportSize({ width: 844, height: 390 });
     await page.waitForTimeout(400);
@@ -481,49 +539,73 @@ async function main() {
 
   /* ---- 9 ------------------------------------------------------------ */
   if (run(9)) {
-    log('9 packing (a flat bed, coarse sand)');
-    var flat = async function () {
-      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.reset({ fill: 'lower', material: 'coarse' }); });
+    for (var sp9 of ['app', 'real']) {
+      log('9 packing (a flat bed, coarse sand, ' + sp9 + ' speed)');
+      await L(function (sp) { return window.__lab.settings({ speed: sp }); }, sp9);
+      var flat = async function () {
+        await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.reset({ fill: 'lower', material: 'coarse', amount: 'minute' }); });
+        await sec(0.5);
+      };
+      var snap = async function () { var p = await L(function () { return window.__lab.positions(); }); var st = await L(function () { return window.__lab.stats(); }); return { area: bedArea(p), top: bedTop(p), com: st.com, v: st.meanSpeed }; };
+      await flat();
+      var p0 = await snap();
+      await sec(3);
+      var p3 = await snap();
+      await shot('09-' + sp9 + '-rest-3s');
+      log('  at rest 3 s: area ' + p0.area + ' -> ' + p3.area + ' cells, top ' + f1(p0.top) + ' -> ' + f1(p3.top) + ', mean speed ' + f1(p3.v) + ' cells/s');
+      check(Math.abs(p3.area / p0.area - 1) <= 0.03, sp9 + ' speed: a bed at rest keeps its volume: area within 3 % over 3 s (' + f2(100 * (p3.area / p0.area - 1)) + ' %)');
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], accel: [0, -2] }); });   // 3 g, pressing it down
       await sec(0.5);
-    };
-    var snap = async function () { var p = await L(function () { return window.__lab.positions(); }); var st = await L(function () { return window.__lab.stats(); }); return { area: bedArea(p), top: bedTop(p), com: st.com, v: st.meanSpeed }; };
-    await flat();
-    var p0 = await snap();
-    await sec(3);
-    var p3 = await snap();
-    await shot('09-rest-3s');
-    log('  at rest 3 s: area ' + p0.area + ' -> ' + p3.area + ' cells, top ' + f1(p0.top) + ' -> ' + f1(p3.top) + ', mean speed ' + f1(p3.v) + ' cells/s');
-    check(Math.abs(p3.area / p0.area - 1) <= 0.03, 'a bed at rest keeps its volume: area within 3 % over 3 s (' + f2(100 * (p3.area / p0.area - 1)) + ' %)');
-    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], accel: [0, -2] }); });   // 3 g, pressing it down
-    await sec(0.5);
-    var pp = await snap();
-    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
-    await sec(1);
-    var pr = await snap();
-    log('  3 g press: top ' + f1(p3.top) + ' -> ' + f1(pp.top) + ' while pressed, ' + f1(pr.top) + ' 1 s after; area ' + p3.area + ' -> ' + pr.area);
-    check(pr.top <= p3.top + 0.5 && pr.area <= 1.03 * p3.area, 'a 3 g press and release leaves the bed no thicker (top ' + f1(pr.top) + ' against ' + f1(p3.top) + ', area ' + pr.area + ' against ' + p3.area + ')');
-    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], shake: { g: 3, hz: 5, axis: [1, 0] } }); });
-    await sec(1);
-    await shot('09-shaken');
-    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
-    await sec(1);
-    var ps = await snap();
-    await shot('09-shaken-settled');
-    log('  shaken 3 g at 5 Hz for 1 s, then 1 s: area ' + pr.area + ' -> ' + ps.area + ' cells');
-    check(ps.area <= 1.10 * pr.area, 'a shaken bed settles back within 10 % of its area (' + f2(100 * (ps.area / pr.area - 1)) + ' %)');
-    // creep below repose: a flat bed held at 25 degrees
-    await flat();
-    var a25 = 25 * Math.PI / 180;
-    await L(function (a) { window.__lab.setInput({ mode: 'manual', gravity: [Math.sin(a), Math.cos(a)] }); }, a25);
-    await sec(0.25);
-    var c0 = await L(function () { return window.__lab.stats(); }), h0 = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
-    await sec(3);
-    var c3 = await L(function () { return window.__lab.stats(); }), h3 = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
-    await shot('09-held-25');
-    var cm = Math.hypot(c3.com[0] - c0.com[0], c3.com[1] - c0.com[1]);
-    log('  held at 25 degrees from 0.25 s to 3.25 s: centre moves ' + f2(cm) + ' cells, surface ' + f1(h0.tilt) + ' -> ' + f1(h3.tilt) + ' degrees to gravity, mean speed ' + f1(c3.meanSpeed) + ' cells/s');
-    check(cm < 0.5 && Math.abs(h3.tilt - h0.tilt) <= 1, 'below its angle of repose the bed holds: centre under 0.5 cell (' + f2(cm) + '), surface within 1 degree (' + f1(Math.abs(h3.tilt - h0.tilt)) + ')');
-    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+      var pp = await snap();
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+      await sec(1);
+      var pr = await snap();
+      log('  3 g press: top ' + f1(p3.top) + ' -> ' + f1(pp.top) + ' while pressed, ' + f1(pr.top) + ' 1 s after; area ' + p3.area + ' -> ' + pr.area);
+      check(pr.top <= p3.top + 0.5 && pr.area <= 1.03 * p3.area, sp9 + ' speed: a 3 g press and release leaves the bed no thicker (top ' + f1(pr.top) + ' against ' + f1(p3.top) + ', area ' + pr.area + ' against ' + p3.area + ')');
+      // a jerk of the glass, 2 g for 50 ms each way
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], glass: [2, 0] }); }); await sec(0.05);
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], glass: [-2, 0] }); }); await sec(0.05);
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+      await sec(1);
+      var pj = await snap();
+      log('  2 g jerk, 50 ms each way, then 1 s: area ' + pr.area + ' -> ' + pj.area + ' cells');
+      check(pj.area <= 1.10 * pr.area, sp9 + ' speed: a jerked bed settles back within 10 % of its area (' + f2(100 * (pj.area / pr.area - 1)) + ' %)');
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], shake: { g: 3, hz: 5, axis: [1, 0] } }); });
+      await sec(1);
+      await shot('09-' + sp9 + '-shaken');
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+      await sec(1);
+      var ps = await snap();
+      await shot('09-' + sp9 + '-shaken-settled');
+      log('  shaken 3 g at 5 Hz for 1 s, then 1 s: area ' + pj.area + ' -> ' + ps.area + ' cells');
+      check(ps.area <= 1.10 * pj.area, sp9 + ' speed: a shaken bed settles back within 10 % of its area (' + f2(100 * (ps.area / pj.area - 1)) + ' %)');
+      // a heap shaken up and down, 2 g at 10 Hz for 2 s (it may flatten: shaken sand flows)
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.reset({ fill: 'column', material: 'coarse', amount: 'minute' }); });
+      await sec(2.5);
+      var ph = await snap();
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], shake: { g: 2, hz: 10, axis: [0, 1] } }); });
+      await sec(2);
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+      await sec(1.5);
+      var pv = await snap();
+      await shot('09-' + sp9 + '-vshaken-settled');
+      log('  a heap shaken up and down 2 g at 10 Hz for 2 s, then 1.5 s: area ' + ph.area + ' -> ' + pv.area + ' cells');
+      check(pv.area <= 1.10 * ph.area, sp9 + ' speed: a heap shaken up and down settles back within 10 % of its area (' + f2(100 * (pv.area / ph.area - 1)) + ' %)');
+      // creep below repose: a flat bed held at 25 degrees
+      await flat();
+      var a25 = 25 * Math.PI / 180;
+      await L(function (a) { window.__lab.setInput({ mode: 'manual', gravity: [Math.sin(a), Math.cos(a)] }); }, a25);
+      await sec(0.25);
+      var c0 = await L(function () { return window.__lab.stats(); }), h0 = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
+      await sec(3);
+      var c3 = await L(function () { return window.__lab.stats(); }), h3 = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
+      await shot('09-' + sp9 + '-held-25');
+      var cm = Math.hypot(c3.com[0] - c0.com[0], c3.com[1] - c0.com[1]);
+      log('  held at 25 degrees from 0.25 s to 3.25 s: centre moves ' + f2(cm) + ' cells, surface ' + f1(h0.tilt) + ' -> ' + f1(h3.tilt) + ' degrees to gravity, mean speed ' + f1(c3.meanSpeed) + ' cells/s');
+      check(cm < 0.5 && Math.abs(h3.tilt - h0.tilt) <= 1, sp9 + ' speed: below its angle of repose the bed holds: centre under 0.5 cell (' + f2(cm) + '), surface within 1 degree (' + f1(Math.abs(h3.tilt - h0.tilt)) + ')');
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+    }
+    await L(function () { return window.__lab.settings({ speed: 'app' }); });
   }
 
   check(errors.length === 0, 'no page errors through the run' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));

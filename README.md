@@ -1138,7 +1138,12 @@ the glass, **Flip** and **Reset** move the sand; the buttons choose the
 material (coarse and fine sand, water, syrup), the speed (the app's slow
 motion, or true gravity for a glass 11 cm tall), the amount and the grid.
 **Benchmark** and **Flow test** measure the phone, and **Copy results**
-puts a plain-text report on the clipboard to send back. To test: turn on
+puts a plain-text report on the clipboard to send back. While the sand
+moves fast the page runs more substeps a second (auto Hz, shown in the HUD),
+so a falling stream or a thrown bed is not held to the solver's one cell a
+substep; at app speed the glass's jolts (the finger's, the phone's) reach
+the slowed sand slowed too, as in a slowed film of them, so a jerk throws
+it as far as at real speed. To test: turn on
 Portrait Orientation Lock in Control Center (otherwise turning the phone
 turns the page, and the page says so), and turn Low Power Mode off (it
 halves the display rate). It loads nothing from anywhere else and registers
@@ -1149,8 +1154,8 @@ solver keeps Smoosh's MIT and EA's BSD-3-Clause notices
 (`lab/sand/LICENSES.md`).
 `node tools/test/lab-sand.test.js [--port <n>] [--only 2,6,9] [--shots <dir>]`
 runs it headless in Chromium with WebGPU in software (SwiftShader), on its
-coarse grid with little sand and the clock driven by the test; it takes about
-20 minutes, and its speeds say nothing about a phone.
+coarse grid with little sand and the clock driven by the test; it takes
+about 40 minutes, and its speeds say nothing about a phone.
 
 ## Icons and launch screens
 

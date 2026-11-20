@@ -35,25 +35,42 @@ const KPX = MM_PER_PX * 1e-3 / 9.81;                   // g per px/s² of the gl
 // cap: the most substeps one frame may run, three 60 Hz frames' worth, so that a late or
 // missed frame, or a 30 Hz display (Low Power Mode), does not slow the sand
 const SPEED_DEFAULTS = { app: { hz: 480, iterations: 5, cap: 24 }, real: { hz: 960, iterations: 5, cap: 48 } };
+// The substep rate rises while the sand moves fast (auto Hz), so that it is not held to the
+// clamp of maxStep cells a substep: the base rate times one of these, up to HZ_MAX
+const HZ_BOOST = [1, 1.5, 2, 3];
+const HZ_MAX = { app: 1440, real: 2880 };
+const CFL = 0.7;                                       // the speed a rate may carry: CFL x maxStep cells a substep
 const CYCLE = {
   hz: [240, 360, 480, 720, 960, 1440, 1920],
   iterations: [3, 4, 5, 6, 8],
   cap: [4, 8, 12, 16, 24, 32, 48, 64],
   maxStep: [1, 1.5, 2],
-  coriolis: [true, false]
+  coriolis: [true, false],
+  auto: [true, false],
+  impulse: [true, false]
 };
 const FLIP_S = 1.2;
 const GATE_S = 0.5;                                    // the neck stays closed this long after a Reset
 const BODY = { fw: 30, fz: 0.85, hw: 7, hz: 0.6 };     // app.js: the finger's hold, and home
 const ACC_TAU = 0.012;                                 // s: the glass's acceleration as the sand feels it
+const FILM_QUIET = 0.04;                               // g: a jolt weaker than this is skipped in the slowed playback
+const FILM_LAG = 0.5;                                  // s: the slowed playback never falls further behind than this
 
 /* ------------------------------------------------------------------ *
  *  State
  * ------------------------------------------------------------------ */
 const S = {
   res: 'M', amount: 'quarter', material: 'coarse', speed: 'app', input: 'upright', hud: true,
-  hz: 480, iterations: 5, cap: 24, maxStep: 1, coriolis: true, neckMin: 5.5
+  hz: 480, iterations: 5, cap: 24, maxStep: 1, coriolis: true, neckMin: 5.5, auto: true, impulse: true
 };
+// the substep rate in use (S.hz, raised by auto Hz while the sand is fast), and its history
+const rate = { hz: 480, downAt: 0, grow: 0, tPrev: null, peak: 480 };
+// the glass's linear acceleration, filtered as the sand feels it (see glassFelt)
+const imp = { x1: 0, y1: 0, jx: 0, jy: 0 };
+// app speed: the glass's jolts, recorded each substep and played back slowed (see glassFelt)
+const FILM_N = 8192;
+const film = { t: new Float64Array(FILM_N), x: new Float32Array(FILM_N), y: new Float32Array(FILM_N), w: 0, i: 0, tp: 0 };
+function filmReset(t) { film.w = 0; film.i = 0; film.tp = t; }
 let gpu = null, solver = null, renderer = null, glass = null;
 const glassCache = new Map();
 let simTime = 0, gateUntil = 0, manual = false, busy = false, hidden = document.hidden;
@@ -62,7 +79,7 @@ let fillCount = 0, flowRec = null, benchRun = null, flowResult = null, benchRows
 const flowResults = [];           // every flow test of this visit, for the report
 let scriptInput = null;           // __lab.setInput({ mode: 'manual', ... })
 let fingerScript = null;          // __lab.drag(...)
-const pose = { x: 0, y: 0, vx: 0, vy: 0, theta: 0, omega: 0, alpha: 0, ax: 0, ay: 0, axLP: 0, ayLP: 0 };
+const pose = { x: 0, y: 0, vx: 0, vy: 0, theta: 0, omega: 0, alpha: 0, ax: 0, ay: 0 };
 const flip = { active: false, t0: 0, from: 0, to: 0 };
 const finger = { down: false, id: -1, x: 0, y: 0, ox: 0, oy: 0 };
 const view = { W: 1, H: 1, dpr: 1, hx: 0, hy: 0, k: 1 };
@@ -73,7 +90,7 @@ const clampLog = [];              // { t, n }
 let behindS = 0;
 let startError = '', lostReason = '';
 
-const set = () => ({ hz: S.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis,
+const set = () => ({ hz: rate.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis,
   material: S.override ? { ...MATERIALS[S.material], ...S.override } : MATERIALS[S.material] });
 
 /** True g in solver cells/s², for a glass 11 cm tall (the brief's 10 to 12 cm; a phone draws it smaller, see drawnMM). */
@@ -94,7 +111,7 @@ function gCells() {
  * ------------------------------------------------------------------ */
 const motion = {
   on: false, seen: false, sign: 0, votes: 0, voteSum: 0, unit: 0, ubuf: [],
-  gx: 0, gy: 1, w: 0, a: 0, wPrev: 0, tPrev: -1,
+  gx: 0, gy: 1, w: 0, a: 0, wPrev: 0, tPrev: -1, lx: 0, ly: 0, hasLin: false,
   // the in-plane turning rate: which of rotationRate's alpha, beta, gamma carries it, and its sign
   // (the spec puts it in alpha; WebKit on iOS fills alpha, beta, gamma from the x, y, z rates, so
   // there it is gamma), learnt by correlation with the turning of gravity on the screen
@@ -166,6 +183,15 @@ function onMotion(e) {
   // what the sand feels, device axes (x right, y up), in g: gravity less the phone's acceleration
   const fx = -s * ax, fy = -s * ay;
   let [px, py] = toPage(fx, -fy, screenAngle());           // the page: x right, y down
+  // The phone's own acceleration (acceleration, without gravity; same sign convention as
+  // accelerationIncludingGravity), when the browser gives it: taken out of the pull here and
+  // fed to the sand as the glass's acceleration (glassFelt), like the finger's. Without it the
+  // whole pull counts as gravity.
+  const A = e.acceleration;
+  if (A && Number.isFinite(A.x) && Number.isFinite(A.y)) {
+    [motion.lx, motion.ly] = toPage(s * A.x * K, -s * A.y * K, screenAngle());
+    px += motion.lx; py += motion.ly; motion.hasLin = true;
+  } else { motion.lx = 0; motion.ly = 0; }
   const mag = Math.hypot(px, py);
   if (mag > 8) { px *= 8 / mag; py *= 8 / mag; }
   // a soft dead zone (motion.js has one too): with the phone lying flat the pull in the screen's
@@ -256,19 +282,102 @@ function stepPose(dt) {
   pose.ay = w * w * (ty - pose.y) - 2 * z * w * pose.vy;
   pose.vx += pose.ax * dt; pose.vy += pose.ay * dt;
   pose.x += pose.vx * dt; pose.y += pose.vy * dt;
-  const k = 1 - Math.exp(-dt / ACC_TAU);
-  pose.axLP += (pose.ax - pose.axLP) * k; pose.ayLP += (pose.ay - pose.ayLP) * k;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Auto Hz: the substep rate follows the sand's speed
+ * ------------------------------------------------------------------ */
+/** The highest rate auto Hz may use. */
+function hzTop() { return S.auto ? Math.max(S.hz, Math.min(HZ_MAX[S.speed], S.hz * HZ_BOOST[HZ_BOOST.length - 1])) : S.hz; }
+/** The per-frame substep cap at the rate in use (S.cap is set for the base rate). */
+function capNow() { return Math.max(1, Math.round(S.cap * rate.hz / S.hz)); }
+/** Uniform slots to allocate: the cap at the highest rate. */
+function capAlloc() { return Math.max(S.cap, Math.ceil(S.cap * hzTop() / S.hz)); }
+/**
+ * Before a frame: the substep rate the sand needs. The clamp holds a grid node to maxStep cells
+ * a substep, so the rate must carry the fastest grain with room to spare (CFL): its speed from
+ * the latest readback, plus twice what it grew by since the one before (a fall speeds up), plus
+ * what a jolt of the glass (known here at once) adds over 50 ms. The rate goes up at once, and
+ * down only after 0.3 s (simulated) with room at the lower rate.
+ */
+function chooseRate(t) {
+  if (!S.auto) { rate.hz = S.hz; return; }
+  if (t && t !== rate.tPrev) { rate.grow = Math.max(0, t.maxSpeed - (rate.tPrev ? rate.tPrev.maxSpeed : t.maxSpeed)); rate.tPrev = t; }
+  const v = t ? t.maxSpeed : 0;
+  const jolt = Math.hypot(imp.jx, imp.jy) * gCells() * 0.05;
+  const need = (v + 2 * (rate.grow || 0) + jolt) / (CFL * S.maxStep);
+  const top = hzTop();
+  const rates = HZ_BOOST.map(b => Math.round(S.hz * b)).filter(h => h <= top);
+  const want = rates.find(h => h >= need) ?? rates[rates.length - 1];
+  if (want >= rate.hz) { rate.hz = want; rate.downAt = simTime + 0.3; }
+  else if (simTime >= rate.downAt) { rate.hz = want; rate.downAt = simTime + 0.3; }
+  if (rate.hz > rate.peak) rate.peak = rate.hz;
+}
+function resetRate() { Object.assign(rate, { hz: S.hz, downAt: 0, grow: 0, tPrev: null, peak: S.hz }); }
+
+/** G / g: how slowed the world is (1 at real speed); the app's lambda. */
+function lamNow() { return Math.min(1, gCells() / gReal()); }
+/**
+ * The glass's own linear acceleration (g, page axes) as the sand feels it, for the substep
+ * starting at simulated time t.
+ *
+ * At real speed it is the acceleration itself, smoothed over ACC_TAU.
+ *
+ * At app speed the world runs slowed: gravity, and with it every force, is scaled by lambda
+ * (about 0.08), so a fall takes 1 / sqrt(lambda) (about 3.5) times longer than real. A jolt of
+ * the glass scaled the same way but lasting its real time T gives the sand only lambda a T of
+ * speed, where a slowed film of the real event gives sqrt(lambda) a T: a flick barely moved the
+ * sand (0.2 cells). So the glass's acceleration is recorded and played back slowed by
+ * sqrt(lambda), as in a slowed film: a jolt lasts T / sqrt(lambda), its peak against gravity is
+ * the real one, the sand gets the film's speed, and a flick's push and its stop come as far
+ * apart as in the film. (Scaling the jolt up by 1 / sqrt(lambda) instead gave the right speed,
+ * but threw the sand back past the middle when the glass stopped; splitting off a steady part
+ * with a high-pass filter pushed the sand back after every jolt.) Quiet stretches (under
+ * FILM_QUIET) are played fast, so the playback catches up between jolts, and it never falls more
+ * than FILM_LAG behind: a steady push ends up played at its own pace, scaled like gravity.
+ */
+function glassFelt(ax, ay, dt, t) {
+  const k1 = 1 - Math.exp(-dt / ACC_TAU);
+  imp.x1 += (ax - imp.x1) * k1; imp.y1 += (ay - imp.y1) * k1;
+  let jx = imp.x1, jy = imp.y1;
+  if (S.speed === 'app' && S.impulse) {
+    const j = film.w % FILM_N;
+    film.t[j] = t; film.x[j] = jx; film.y[j] = jy; film.w++;
+    if (film.w - film.i > FILM_N - 2) film.i = film.w - (FILM_N - 2);
+    // the play head: slowed while it plays a jolt, fast over quiet stretches
+    const at = tp => {
+      while (film.i + 1 < film.w && film.t[(film.i + 1) % FILM_N] <= tp) film.i++;
+      const a = film.i % FILM_N, b = (film.i + 1) % FILM_N;
+      if (film.i + 1 >= film.w || film.t[b] <= film.t[a]) return [film.x[a], film.y[a]];
+      const u = Math.min(1, Math.max(0, (tp - film.t[a]) / (film.t[b] - film.t[a])));
+      return [film.x[a] + (film.x[b] - film.x[a]) * u, film.y[a] + (film.y[b] - film.y[a]) * u];
+    };
+    let p = at(film.tp);
+    if (Math.hypot(p[0], p[1]) < FILM_QUIET) {
+      // quiet: skip ahead to the next sample that is not (never over one: a jolt that changes
+      // sign passes through zero, and its second half must still be played)
+      while (film.i + 1 < film.w && Math.hypot(film.x[(film.i + 1) % FILM_N], film.y[(film.i + 1) % FILM_N]) < FILM_QUIET) film.i++;
+      film.tp = Math.max(film.tp, film.i + 1 < film.w ? film.t[(film.i + 1) % FILM_N] : t);
+    } else film.tp += dt * Math.sqrt(lamNow());
+    film.tp = Math.min(t, Math.max(t - FILM_LAG, film.tp));
+    p = at(film.tp);
+    jx = p[0]; jy = p[1];
+  } else filmReset(t);
+  imp.jx = jx; imp.jy = jy;
+  return [jx, jy];
 }
 
 /** The field for the next substep, in the glass's frame (advances the clock). */
 function fieldAt() {
-  const dt = 1 / S.hz;
+  const dt = 1 / rate.hz;
   stepPose(dt);
   // what the sand feels on the screen (x right, y down), in g, and the glass's turning (+ clockwise)
   let gx = 0, gy = 1, w = pose.omega, a = pose.alpha;
+  // the glass's own acceleration, g, page axes: the finger's spring, the phone's, a scripted one
+  let lax = KPX * pose.ax, lay = KPX * pose.ay;
   const mode = scriptInput ? 'manual' : (benchRun ? 'bench' : S.input);
   if (mode === 'motion') {
-    if (motion.seen) { gx = motion.gx; gy = motion.gy; w += motion.w; a += motion.a; }
+    if (motion.seen) { gx = motion.gx; gy = motion.gy; w += motion.w; a += motion.a; lax += motion.lx; lay += motion.ly; }
   } else if (mode === 'manual') {
     const m = scriptInput, t = simTime - m.t0;
     let g = m.gravity || [0, 1];
@@ -280,19 +389,21 @@ function fieldAt() {
       gx -= ax[0] * amp; gy -= ax[1] * amp;
     }
     w += m.omega || 0; a += m.alpha || 0;
+    if (m.glass) { lax += m.glass[0]; lay += m.glass[1]; }
   } else if (mode === 'bench') {
     const t = simTime - benchRun.t0;
     gx -= 1.5 * Math.sin(2 * Math.PI * 3 * t);
     gy -= 0.5 * Math.sin(2 * Math.PI * 2.2 * t + 1);
   }
-  gx -= KPX * pose.axLP; gy -= KPX * pose.ayLP;
+  const [fax, fay] = glassFelt(lax, lay, dt, simTime);
+  gx -= fax; gy -= fay;
   const c = Math.cos(pose.theta), s = Math.sin(pose.theta);
   const lx = c * gx + s * gy, ly = -s * gx + c * gy;      // into the glass (still y down)
   const G = gCells();
   // The turning terms at the glass's true size, as the app takes them (app.js lamNow): a
   // centrifugal pull of w² r is (w² r / g) g, so in the slow-motion world it is scaled by
   // G / g like every other force (1 at real speed). Coriolis scales the same way.
-  const lam = G / gReal(), rl = Math.sqrt(lam);
+  const lam = lamNow(), rl = Math.sqrt(lam);
   simTime += dt;
   lastField = { gravity: [lx * G, -ly * G], omega: -w * rl, alpha: -a * lam, cor: rl, gate: simTime < gateUntil };
   return lastField;
@@ -382,9 +493,9 @@ async function resetSand(opts = {}) {
   for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis']) if (opts[k] !== undefined) S[k] = opts[k];
   const g = getGlass(S.res);
   const maxPts = Math.ceil(AMOUNTS.full / APP_CAPACITY * g.bulbArea * PPC * PPC * 1.05) + 1024;
-  if (g !== glass || !solver.buffers.particles || solver.maxParticles < maxPts || solver.cap !== S.cap) {
+  if (g !== glass || !solver.buffers.particles || solver.maxParticles < maxPts || solver.cap !== capAlloc()) {
     glass = g;
-    solver.configure(g, maxPts, S.cap);
+    solver.configure(g, maxPts, capAlloc());
     renderer.bind(solver.buffers.particles);
     layout();
   }
@@ -397,10 +508,12 @@ async function resetSand(opts = {}) {
   simTime = 0;
   gateUntil = kind === 'top' ? (opts.gate ?? GATE_S) : 0;
   if (!opts.keepPose) {
-    Object.assign(pose, { x: 0, y: 0, vx: 0, vy: 0, theta: 0, omega: 0, alpha: 0, ax: 0, ay: 0, axLP: 0, ayLP: 0 });
+    Object.assign(pose, { x: 0, y: 0, vx: 0, vy: 0, theta: 0, omega: 0, alpha: 0, ax: 0, ay: 0 });
     flip.active = false;
   }
   lastTally = null; clampLog.length = 0; behindS = 0;
+  resetRate();
+  Object.assign(imp, { x1: 0, y1: 0, jx: 0, jy: 0 }); filmReset(0);
   syncUI();
   drawGlass();
 }
@@ -640,7 +753,7 @@ function loop(now) {
   if (solver.readbacks.every(r => r.pending)) {             // the GPU is behind: skip a frame rather than queue more
     skips.push({ t: now });                                 // (nothing is drawn: it is not a frame)
     const avail = acc + dtReal;                             // the next frame drawn catches up, up to the cap
-    acc = Math.min(avail, S.cap / S.hz);
+    acc = Math.min(avail, capNow() / rate.hz);
     behindS += avail - acc;
     trimFrames(now);
     return;
@@ -648,19 +761,21 @@ function loop(now) {
   // wall time since the last frame drawn (skipped animation frames included; for the statistics, not capped)
   const since = lastDrawn ? (now - lastDrawn) / 1000 : dtReal;
   lastDrawn = now;
+  chooseRate(lastTally);
+  const hz = rate.hz, cap = capNow();
   const available = acc + dtReal;
-  acc = Math.min(available, S.cap / S.hz);
+  acc = Math.min(available, cap / hz);
   const dropped = available - acc;
   behindS += dropped;
-  const steps = Math.min(S.cap, Math.floor((acc + 1e-9) * S.hz));
-  acc -= steps / S.hz;
+  const steps = Math.min(cap, Math.floor((acc + 1e-9) * hz));
+  acc -= steps / hz;
   const p = solver.run(steps, set(), fieldAt, enc => renderer.encode(enc, solver.count));
   const tSim = simTime, tSub = performance.now();
   gpu.device.queue.onSubmittedWorkDone().then(() => { gpuLog.push({ t: now, ms: performance.now() - tSub }); while (gpuLog.length && now - gpuLog[0].t > 4000) gpuLog.shift(); });
   if (p) p.then(t => t && onTally(t, tSim, now), e => console.error(e));
   renderer.present();
   drawGlass();
-  frames.push({ t: now, dt: since * 1000, work: performance.now() - t0, steps, sim: steps / S.hz, real: since, capped: dropped > 1e-6 });
+  frames.push({ t: now, dt: since * 1000, work: performance.now() - t0, steps, hz, sim: steps / hz, real: since, capped: dropped > 1e-6 });
   trimFrames(now);
   if (benchRun) benchRun.onFrame?.(now);
 }
@@ -722,7 +837,7 @@ function hud() {
   const lines = [];
   if (f) lines.push(`drawn ${f.fps.toFixed(0)} fps (display ${Number.isFinite(f.display) ? f.display.toFixed(0) : '-'})  skipped ${Math.round(f.skipped * 100)}%${behindWhy(f)}`);
   if (f) lines.push(`frame ms ${f.median.toFixed(1)} med ${f.p95.toFixed(1)} p95 ${f.worst.toFixed(1)} max  gpu lag ${Number.isFinite(f.gpu) ? f.gpu.toFixed(0) : '-'}`);
-  if (f) lines.push(`steps ${f.steps.toFixed(1)}/frame  ${S.hz} Hz x${S.iterations}  cap ${S.cap}  sim/real ${f.ratio.toFixed(2)}`);
+  if (f) lines.push(`steps ${f.steps.toFixed(1)}/frame  ${rate.hz} Hz${S.auto ? (rate.hz > S.hz ? ' auto↑' : ' auto') : ''} x${S.iterations}  sim/real ${f.ratio.toFixed(2)}`);
   const cr = clampRate();
   lines.push(`points ${solver.count.toLocaleString('en-US')}  clamp ${cr > 0 ? Math.round(cr) + '/s HIT' : '0'}  fastest ${t ? Math.round(t.maxSpeed) : 0} cells/s`);
   lines.push(`grid ${RES_NAME[S.res]} ${glass.W}x${glass.H}  neck ${glass.neckCells.toFixed(1)}${glass.neckWidened > 0.005 ? ' (+' + Math.round(glass.neckWidened * 100) + '%)' : ''}  g ${Math.round(gCells())}/s²${S.speed === 'real' ? ' (11 cm)' : ''}`);
@@ -840,7 +955,7 @@ async function benchmark(opts = {}) {
       setStatus(`Benchmark ${i + 1}/${combos.length}: ${RES_NAME[c.res]} grid, ${AMOUNT_NAME[c.amount]}, ${c.speed} speed`);
       await resetSand({ res: c.res, amount: c.amount, speed: c.speed, ...SPEED_DEFAULTS[c.speed], material: keep.material, gate: 0 });
       benchRun = { t0: simTime };
-      clampLog.length = 0;
+      clampLog.length = 0; rate.peak = rate.hz;
       await sleep(warm * 1000);
       const from = performance.now(), c0 = lastTally?.clamped ?? 0, behind0 = behindS, hiddenAt0 = hiddenCount;
       await sleep(measure * 1000);
@@ -848,7 +963,7 @@ async function benchmark(opts = {}) {
       const st = frameStats(1e9, list, skipList) || {};
       const c1 = lastTally?.clamped ?? c0;
       benchRows.push({
-        res: RES_NAME[c.res], amount: AMOUNT_NAME[c.amount], speed: c.speed, points: solver.count, hz: S.hz, it: S.iterations, cap: S.cap,
+        res: RES_NAME[c.res], amount: AMOUNT_NAME[c.amount], speed: c.speed, points: solver.count, hz: S.hz, peakHz: rate.peak, it: S.iterations, cap: S.cap,
         median: st.median, p95: st.p95, worst: st.worst, fps: st.fps, skipped: st.skipped, capped: st.capped, display: st.display,
         steps: st.steps, ratio: st.ratio, work: st.work, gpu: st.gpu, gpu95: st.gpu95,
         clampPerS: (c1 - c0) / measure, behind: behindS - behind0, interrupted: hiddenCount !== hiddenAt0
@@ -867,7 +982,7 @@ async function benchmark(opts = {}) {
 function benchTable(rows) {
   const n = (v, d = 1) => Number.isFinite(v) ? v.toFixed(d) : '—';
   return '<table><tr><th>grid</th><th>sand</th><th>speed</th><th>points</th><th>Hz</th><th>fps</th><th>skip</th><th>med</th><th>p95</th><th>worst</th><th>lag</th><th>steps</th><th>sim/real</th><th>clamp/s</th></tr>' +
-    rows.map(r => `<tr><td>${r.res}${r.interrupted ? ' (hidden)' : ''}</td><td>${r.amount}</td><td>${r.speed}</td><td>${r.points}</td><td>${r.hz}</td><td>${n(r.fps, 0)}</td><td>${n(100 * r.skipped, 0)}%</td><td>${n(r.median)}</td><td>${n(r.p95)}</td><td>${n(r.worst)}</td><td>${n(r.gpu)}</td><td>${n(r.steps)}</td><td>${n(r.ratio, 2)}</td><td>${n(r.clampPerS, 0)}</td></tr>`).join('') + '</table>';
+    rows.map(r => `<tr><td>${r.res}${r.interrupted ? ' (hidden)' : ''}</td><td>${r.amount}</td><td>${r.speed}</td><td>${r.points}</td><td>${r.hz}${r.peakHz > r.hz ? '–' + r.peakHz : ''}</td><td>${n(r.fps, 0)}</td><td>${n(100 * r.skipped, 0)}%</td><td>${n(r.median)}</td><td>${n(r.p95)}</td><td>${n(r.worst)}</td><td>${n(r.gpu)}</td><td>${n(r.steps)}</td><td>${n(r.ratio, 2)}</td><td>${n(r.clampPerS, 0)}</td></tr>`).join('') + '</table>';
 }
 function showBench() {
   const d = document.createElement('div');
@@ -888,14 +1003,14 @@ function reportText() {
   L.push(`WebGPU adapter: vendor=${i.vendor || '?'} architecture=${i.architecture || '?'} device=${i.device || '?'} description=${i.description || '?'}${i.fallback ? ' (fallback)' : ''}`);
   L.push(`Screen: ${screen.width}x${screen.height} CSS px, devicePixelRatio ${window.devicePixelRatio}, window ${innerWidth}x${innerHeight}, screen angle ${screenAngle()}, standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`);
   L.push(`Errors: start ${startError || 'none'}; GPU lost ${lostReason || 'no'}; WebGPU ${solver?.errors?.length ? solver.errors.join(' | ') : 'none'}`);
-  L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations, cap ${S.cap}/frame, clamp ${S.maxStep} cell`);
+  L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations (auto Hz ${S.auto ? 'on, up to ' + hzTop() + ' Hz; highest since reset ' + rate.peak : 'off'}), cap ${S.cap}/frame at the base rate, clamp ${S.maxStep} cell; jolts at app speed ${S.impulse ? 'played slowed like a film (x' + (1 / Math.sqrt(lamNow())).toFixed(1) + ' longer)' : 'plain'}`);
   L.push(`Motion: input ${S.input}, readings ${motion.seen ? 'yes' : 'no'}, sign ${motion.sign || 'not learnt'}, units ${motion.unit ? (motion.unit > 1 ? 'g' : 'm/s²') : '?'}, turn axis ${motion.rAxis || '?'} sign ${motion.rSign} (${motion.rLearnt ? 'learnt' : 'assumed'})`);
   const f = frameStats();
   if (f) L.push(`Last 2 s: ${n(f.fps, 0)} frames drawn a second, display ${n(f.display, 0)} Hz, ${n(100 * f.skipped, 0)}% skipped (GPU busy), ${n(100 * f.capped, 0)}% held by the cap; between frames median ${n(f.median)} ms, p95 ${n(f.p95)}, worst ${n(f.worst)}; submit-to-done lag median ${n(f.gpu)} ms, p95 ${n(f.gpu95)}; ${n(f.steps)} substeps/frame, sim/real ${n(f.ratio, 2)}`);
   if (benchRows.length) {
     L.push('');
     L.push('Benchmark (frames drawn a second; % skipped, GPU busy; ms between frames drawn: median / p95 / worst; submit-to-done lag ms: median / p95; substeps a frame; sim/real; clamp hits/s)');
-    for (const r of benchRows) L.push(`${r.res.padEnd(6)} ${r.amount.padEnd(8)} ${r.speed.padEnd(4)} ${String(r.points).padStart(6)} pts ${r.hz} Hz x${r.it} cap ${r.cap}: ${n(r.fps, 0)} fps, ${n(100 * r.skipped, 0)}% skipped, ${n(r.median)} / ${n(r.p95)} / ${n(r.worst)} ms, lag ${n(r.gpu)} / ${n(r.gpu95)} ms, ${n(r.steps)} steps, sim/real ${n(r.ratio, 2)}, clamp ${n(r.clampPerS, 0)}/s${r.interrupted ? ' (page hidden: not valid)' : ''}`);
+    for (const r of benchRows) L.push(`${r.res.padEnd(6)} ${r.amount.padEnd(8)} ${r.speed.padEnd(4)} ${String(r.points).padStart(6)} pts ${r.hz}${r.peakHz > r.hz ? '-' + r.peakHz : ''} Hz x${r.it} cap ${r.cap}: ${n(r.fps, 0)} fps, ${n(100 * r.skipped, 0)}% skipped, ${n(r.median)} / ${n(r.p95)} / ${n(r.worst)} ms, lag ${n(r.gpu)} / ${n(r.gpu95)} ms, ${n(r.steps)} steps, sim/real ${n(r.ratio, 2)}, clamp ${n(r.clampPerS, 0)}/s${r.interrupted ? ' (page hidden: not valid)' : ''}`);
   } else L.push('Benchmark: not run');
   if (flowResults.length) for (const r of flowResults) {
     const k = 1 / (PPC * PPC) / (RES[r.res] * RES[r.res]);
@@ -953,7 +1068,7 @@ function syncUI() {
   }
   for (const b of document.querySelectorAll('.cyc')) {
     const k = b.dataset.key, v = S[k];
-    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : `Coriolis ${v ? 'on' : 'off'}`;
+    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'impulse' ? `jolts ${v ? 'slowed' : 'plain'}` : `Coriolis ${v ? 'on' : 'off'}`;
   }
   $('b-hud').classList.toggle('on', S.hud);
   $('hud').classList.toggle('off', !S.hud);
@@ -976,14 +1091,15 @@ function bindUI() {
         S.input = val; syncUI(); return;
       }
       if (key === 'material') { switchMaterial(val); return; }
-      if (key === 'speed') { S.speed = val; Object.assign(S, SPEED_DEFAULTS[val]); solver.allocUniforms(S.cap); syncUI(); return; }
+      if (key === 'speed') { S.speed = val; Object.assign(S, SPEED_DEFAULTS[val]); solver.allocUniforms(capAlloc()); resetRate(); syncUI(); return; }
       if (key === 'amount' || key === 'res') { resetSand({ [key]: val }); return; }
     });
   }
   for (const b of document.querySelectorAll('.cyc')) b.addEventListener('click', () => {
     const k = b.dataset.key, list = CYCLE[k], i = list.indexOf(S[k]);
     S[k] = list[(i + 1) % list.length];
-    if (k === 'cap') solver.allocUniforms(S.cap);
+    if (solver.cap !== capAlloc()) solver.allocUniforms(capAlloc());
+    resetRate();
     syncUI();
   });
   $('b-more').addEventListener('click', () => { $('more').hidden = !$('more').hidden; $('b-more').classList.toggle('on', !$('more').hidden); requestAnimationFrame(layout); });
@@ -1043,17 +1159,28 @@ function doFlip() {
 /* ------------------------------------------------------------------ *
  *  Manual stepping and measuring (for the tests)
  * ------------------------------------------------------------------ */
-async function stepN(n) {
+/**
+ * Advance the simulation, as the frame loop would, but awaiting the GPU: n substeps, or (until
+ * given) up to the simulated time until. With auto Hz, a 60 Hz frame's worth of substeps at a
+ * time, the rate chosen before each from the readback of the one before (deterministic).
+ */
+async function stepN(n, until) {
   manual = true;
   let p = null, last = null;
-  while (n > 0) {
+  const more = () => until !== undefined ? simTime < until - 0.25 / rate.hz : n > 0;
+  while (more()) {
     while (solver.readbacks.every(r => r.pending)) await gpu.device.queue.onSubmittedWorkDone();
-    const k = Math.min(n, solver.cap);
+    chooseRate(lastTally);
+    let k = S.auto ? Math.max(1, Math.round(rate.hz / 60)) : capNow();
+    k = Math.min(k, capNow(), until !== undefined ? Math.max(1, Math.round((until - simTime) * rate.hz)) : n);
     n -= k;
-    p = solver.run(k, set(), fieldAt, n <= 0 ? enc => renderer.encode(enc, solver.count) : null);
+    // (the last chunk draws; simTime advances inside run, so this is decided before it)
+    const lastChunk = until !== undefined ? simTime + k / rate.hz >= until - 0.25 / rate.hz : n <= 0;
+    p = solver.run(k, set(), fieldAt, lastChunk ? enc => renderer.encode(enc, solver.count) : null);
     const tSim = simTime;
     if (p) { p = p.then(t => { if (t) onTally(t, tSim); return t; }); last = p; }
     await gpu.device.queue.onSubmittedWorkDone();
+    if (S.auto && p) await p;
   }
   await renderer.present();
   drawGlass();
@@ -1062,7 +1189,7 @@ async function stepN(n) {
 
 /** Everything about the material points, read back. */
 async function fullStats() {
-  const d = await solver.readParticles(), n = solver.count, dt = 1 / S.hz, gr = lastField.gravity;
+  const d = await solver.readParticles(), n = solver.count, dt = 1 / (solver.lastHz || rate.hz), gr = lastField.gravity;
   let outside = 0, nan = 0, above = 0, below = 0, maxSpeed = 0, sumSpeed = 0, cx = 0, cy = 0, minDist = Infinity;
   for (let i = 0; i < n; i++) {
     const o = i * PARTICLE_WORDS, x = d[o], y = d[o + 1], vx = d[o + 2] / dt - gr[0] * dt, vy = d[o + 3] / dt - gr[1] * dt;
@@ -1087,7 +1214,8 @@ async function fullStats() {
  * against the horizontal of the present field (the angle of repose);
  * 'glass': against the glass's own horizontal. Returns the flanks either
  * side of the peak, their mean, and the tilt of one line fitted across the
- * whole surface (signed, + rising to the right).
+ * whole surface (signed, + rising to the right). opts: bulb, frame, vMax (grains faster than
+ * this, cells/s, are in the air), skipAxis (cells either side of the axis left out), surface.
  */
 async function heapAngle(opts = {}) {
   const d = await solver.readParticles(), n = solver.count;
@@ -1101,7 +1229,7 @@ async function heapAngle(opts = {}) {
   const bins = new Map();
   let count = 0;
   // grains in the air (the falling thread, spray) are not the bed: faster than a fall of 3 cells
-  const dt = 1 / S.hz, gr = lastField.gravity, vFly = opts.vMax ?? Math.sqrt(2 * gCells() * 3);
+  const dt = 1 / (solver.lastHz || rate.hz), gr = lastField.gravity, vFly = opts.vMax ?? Math.sqrt(2 * gCells() * 3);
   for (let i = 0; i < n; i++) {
     const o = i * PARTICLE_WORDS, x = d[o] - glass.cx, y = d[o + 1] - glass.cy;
     if (bulb === 'lower' ? y > 0 : y < 0) continue;
@@ -1113,7 +1241,9 @@ async function heapAngle(opts = {}) {
     else { e.n++; if (b > e.top) { e.top2 = e.top; e.top = b; } else if (b > e.top2) e.top2 = b; }
     count++;
   }
-  const keys = [...bins.keys()].filter(k => bins.get(k).n >= 3).sort((p, q) => p - q);
+  // opts.skipAxis: leave out the surface within this many cells of the glass's axis (where a
+  // stream from the neck lands on a cone: its grains slow there, but they are not the cone)
+  const keys = [...bins.keys()].filter(k => bins.get(k).n >= 3 && !(opts.skipAxis && Math.abs(k + 0.5) < opts.skipAxis)).sort((p, q) => p - q);
   if (keys.length < 6) return { left: NaN, right: NaN, mean: NaN, tilt: NaN, n: count };
   const surf = keys.map(k => ({ a: k + 0.5, b: bins.get(k).top2 }));
   // fit helpers
@@ -1197,7 +1327,7 @@ async function boot() {
 function info() {
   return {
     adapter: gpu?.info, glass: glass && { W: glass.W, H: glass.H, s: glass.s, neckCells: glass.neckCells, neckWidened: glass.neckWidened, HBc: glass.HBc, Rc: glass.Rc, cx: glass.cx, cy: glass.cy, bulbArea: glass.bulbArea },
-    settings: { ...S }, count: solver?.count, g: gCells(), simTime, view: { ...view }, pose: { ...pose }, errors: solver?.errors
+    settings: { ...S }, count: solver?.count, g: gCells(), gReal: gReal(), rate: { ...rate, tPrev: undefined }, simTime, view: { ...view }, pose: { ...pose }, errors: solver?.errors
   };
 }
 
@@ -1219,19 +1349,26 @@ window.__lab = {
   motionReset() { Object.assign(motion, { sign: 0, votes: 0, voteSum: 0, locked: false, unit: 0, ubuf: [], lp: false, gx: 0, gy: 1, w: 0, a: 0, wPrev: 0, tPrev: -1, heading: NaN, rAxis: '', rSign: 1, rLearnt: false, rStats: null }); },
   /** The live loop's frame statistics over the last windowMs (frames drawn, skipped, cap). */
   frameStats: (ms = 2000) => frameStats(ms),
+  /** Why the live loop might not draw: hidden, busy, manual, readbacks in flight. */
+  loopState: () => ({ hidden, busy, manual, pending: solver?.readbacks.map(r => r.pending), frames: frames.length, skips: skips.length }),
   landscape: () => !$('turn').hidden,
   settings(o = {}) {
     // a speed brings its defaults first; hz, iterations and cap given with it then override them
     const capWas = S.cap;
     if (o.speed) { S.speed = o.speed; Object.assign(S, SPEED_DEFAULTS[o.speed]); }
-    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'neckMin', 'gScale', 'override']) if (o[k] !== undefined) S[k] = o[k];
-    if (S.cap !== capWas || solver.cap !== S.cap) solver.allocUniforms(S.cap);
+    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'impulse', 'neckMin', 'gScale', 'override']) if (o[k] !== undefined) S[k] = o[k];
+    if (solver.cap !== capAlloc()) solver.allocUniforms(capAlloc());
+    resetRate();
     syncUI(); return { ...S };
   },
   manual(on = true) { manual = !!on; if (!on) { lastNow = 0; acc = 0; } },
   step: n => stepN(n),
-  /** n substeps worth of simulated seconds */
-  steps: sec => Math.round(sec * S.hz),
+  /** Advance sec simulated seconds (the substep rate may change on the way: auto Hz). */
+  advance: sec => stepN(0, simTime + sec),
+  /** n substeps worth of simulated seconds, at the rate in use */
+  steps: sec => Math.round(sec * rate.hz),
+  /** The substep rate in use, the highest since the last reset, and the base. */
+  rate: () => ({ hz: rate.hz, peak: rate.peak, base: S.hz, auto: S.auto }),
   stats: () => fullStats(),
   /** The material points' positions, relative to the neck (cells, y up): [x0, y0, x1, y1, ...]. */
   async positions() {
@@ -1241,7 +1378,7 @@ window.__lab = {
   },
   /** Per material point: x, y (relative to the neck, cells, y up), vx, vy (cells/s), looseness (sand: log of volume over rest volume). */
   async particles() {
-    const d = await solver.readParticles(), n = solver.count, dt = 1 / S.hz, gr = lastField.gravity, out = new Array(n * 5);
+    const d = await solver.readParticles(), n = solver.count, dt = 1 / (solver.lastHz || rate.hz), gr = lastField.gravity, out = new Array(n * 5);
     for (let i = 0; i < n; i++) {
       const o = i * PARTICLE_WORDS;
       out[5 * i] = d[o] - glass.cx; out[5 * i + 1] = d[o + 1] - glass.cy;
