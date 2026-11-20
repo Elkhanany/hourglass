@@ -47,7 +47,8 @@ const CYCLE = {
   maxStep: [1, 1.5, 2],
   coriolis: [true, false],
   auto: [true, false],
-  impulse: [true, false]
+  impulse: [true, false],
+  blur: [1, 0.5, 0]
 };
 const FLIP_S = 1.2;
 const GATE_S = 0.5;                                    // the neck stays closed this long after a Reset
@@ -61,7 +62,9 @@ const FILM_LAG = 0.5;                                  // s: the slowed playback
  * ------------------------------------------------------------------ */
 const S = {
   res: 'M', amount: 'quarter', material: 'coarse', speed: 'app', input: 'upright', hud: true,
-  hz: 480, iterations: 5, cap: 24, maxStep: 1, coriolis: true, neckMin: 5.5, auto: true, impulse: true
+  hz: 480, iterations: 5, cap: 24, maxStep: 1, coriolis: true, neckMin: 5.5, auto: true, impulse: true,
+  // motion blur: a grain is drawn as the streak it makes in this many display frames (60 Hz); 0: off
+  blur: 1
 };
 // the substep rate in use (S.hz, raised by auto Hz while the sand is fast), and its history
 const rate = { hz: 480, downAt: 0, grow: 0, tPrev: null, peak: 480 };
@@ -93,8 +96,9 @@ let startError = '', lostReason = '';
 // they fail says so in the HUD and in Copy results instead of reading "none"
 let readbackOk = 0, readbackFails = 0, readbackErr = '', readbackWarned = false;
 
-const set = () => ({ hz: rate.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis,
-  material: S.override ? { ...MATERIALS[S.material], ...S.override } : MATERIALS[S.material] });
+/** A material's parameters, with the settings' override for the one in use (the tests' hook). */
+const matNow = (id = S.material) => S.override && id === S.material ? { ...MATERIALS[id], ...S.override } : MATERIALS[id];
+const set = () => ({ hz: rate.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis, material: matNow() });
 
 /** True g in solver cells/s², for a glass 11 cm tall (the brief's 10 to 12 cm; a phone draws it smaller, see drawnMM). */
 function gReal() { return glass ? 9810 / (REAL_HEIGHT_MM / (2 * glass.HBc)) : 1; }
@@ -467,7 +471,7 @@ function makeFill(kind, opts = {}) {
   return pts;
 }
 function packParticles(pts, material) {
-  const m = MATERIALS[material], n = pts.length / 2, data = new Float32Array(n * PARTICLE_WORDS), r = rand32(99);
+  const m = matNow(material), n = pts.length / 2, data = new Float32Array(n * PARTICLE_WORDS), r = rand32(99);
   for (let i = 0; i < n; i++) {
     const o = i * PARTICLE_WORDS;
     data[o] = pts[2 * i]; data[o + 1] = pts[2 * i + 1];
@@ -528,7 +532,7 @@ async function switchMaterial(id) {
   busy = true;                                   // the frame loop waits: the sand must not move while it is read back
   let data;
   try { data = await solver.readParticles(); } finally { busy = false; }
-  const m = MATERIALS[id];
+  const m = matNow(id);
   for (let i = 0; i < solver.count; i++) {
     const o = i * PARTICLE_WORDS;
     data[o + 4] = 1; data[o + 5] = 0; data[o + 6] = 0; data[o + 7] = 1;
@@ -583,11 +587,13 @@ class GrainRenderer {
     v[0] = 2 * k * c / W; v[1] = 2 * k * s / W; v[2] = -2 * k * s / H; v[3] = 2 * k * c / H;
     v[4] = 2 / W * (hx - k * c * g.cx - k * s * g.cy) - 1;
     v[5] = 1 - 2 / H * (hy - k * s * g.cx + k * c * g.cy);
-    const liquid = MATERIALS[S.material].model === 0;
+    const liquid = matNow().model === 0;
     const rc = liquid ? 0.62 : 0.36;                          // grain radius, cells
     const rpx = Math.max(rc * k, 0.75 / view.dpr);            // CSS px, at least most of a device pixel
     v[6] = 2 * rpx / W; v[7] = 2 * rpx / H;
-    v[8] = liquid ? 1 : 0; v[9] = liquid ? 0.75 : 1; v[10] = 0; v[11] = 0;
+    // motion blur: the streak a grain makes in S.blur display frames (of simulated time at the
+    // sim/real ratio of 1), per cell of its displacement in a substep
+    v[8] = liquid ? 1 : 0; v[9] = liquid ? 0.75 : 1; v[10] = (S.blur || 0) / 60 * (solver.lastHz || rate.hz); v[11] = 0;
     this.device.queue.writeBuffer(this.viewBuf, 0, v);
     let target;
     if (this.offscreen) {
@@ -1078,7 +1084,7 @@ function syncUI() {
   }
   for (const b of document.querySelectorAll('.cyc')) {
     const k = b.dataset.key, v = S[k];
-    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'impulse' ? `jolts ${v ? 'slowed' : 'plain'}` : `Coriolis ${v ? 'on' : 'off'}`;
+    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'impulse' ? `jolts ${v ? 'slowed' : 'plain'}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : `Coriolis ${v ? 'on' : 'off'}`;
   }
   $('b-hud').classList.toggle('on', S.hud);
   $('hud').classList.toggle('off', !S.hud);
@@ -1366,7 +1372,7 @@ window.__lab = {
     // a speed brings its defaults first; hz, iterations and cap given with it then override them
     const capWas = S.cap;
     if (o.speed) { S.speed = o.speed; Object.assign(S, SPEED_DEFAULTS[o.speed]); }
-    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'impulse', 'neckMin', 'gScale', 'override']) if (o[k] !== undefined) S[k] = o[k];
+    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'impulse', 'neckMin', 'gScale', 'override', 'blur']) if (o[k] !== undefined) S[k] = o[k];
     if (solver.cap !== capAlloc()) solver.allocUniforms(capAlloc());
     resetRate();
     syncUI(); return { ...S };
@@ -1384,6 +1390,16 @@ window.__lab = {
   async positions() {
     const d = await solver.readParticles(), out = new Array(solver.count * 2);
     for (let i = 0; i < solver.count; i++) { out[2 * i] = d[i * PARTICLE_WORDS] - glass.cx; out[2 * i + 1] = d[i * PARTICLE_WORDS + 1] - glass.cy; }
+    return out;
+  },
+  /** Per material point: x, y (relative to the neck, cells, y up) and the streak it is drawn with at
+   *  blur 1 (cells; grains.wgsl: its displacement x substeps/s / 60): [x0, y0, sx0, sy0, ...]. */
+  async streaks() {
+    const d = await solver.readParticles(), n = solver.count, k = (solver.lastHz || rate.hz) / 60, out = new Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      const o = i * PARTICLE_WORDS;
+      out[4 * i] = d[o] - glass.cx; out[4 * i + 1] = d[o + 1] - glass.cy; out[4 * i + 2] = d[o + 2] * k; out[4 * i + 3] = d[o + 3] * k;
+    }
     return out;
   },
   /** Per material point: x, y (relative to the neck, cells, y up), vx, vy (cells/s), looseness (sand: log of volume over rest volume). */

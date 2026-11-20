@@ -1143,7 +1143,9 @@ moves fast the page runs more substeps a second (auto Hz, shown in the HUD),
 so a falling stream or a thrown bed is not held to the solver's one cell a
 substep; at app speed the glass's jolts (the finger's, the phone's) reach
 the slowed sand slowed too, as in a slowed film of them, so a jerk throws
-it as far as at real speed. To test: turn on
+it as far as at real speed. A grain is drawn as the streak it makes in one
+display frame, as the eye sees a falling grain, so the stream through the
+neck reads as a thread (More, "blur", shortens it or turns it off). To test: turn on
 Portrait Orientation Lock in Control Center (otherwise turning the phone
 turns the page, and the page says so), and turn Low Power Mode off (it
 halves the display rate). It loads nothing from anywhere else and registers
