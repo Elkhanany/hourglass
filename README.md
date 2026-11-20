@@ -1125,6 +1125,41 @@ GPU to composite, while here the main thread copies them in software and
 another thread composites them. `e2e-perf` with `--trace` notes how each
 stretch was spent, telling the app's own work from that.
 
+### Lab: sand test page
+
+`lab/sand/` is a separate test page, **not the app**: nothing in the app
+loads it, and it changes nothing in the app. It tries a different sand
+engine, position-based MPM (EA's PB-MPM, by way of the Smoosh solver) on
+WebGPU, in the app's classic glass, so the sand can be judged by eye and by
+hand on an iPhone before anything in the app changes. Open
+`https://elkhanany.github.io/hourglass/lab/sand/` in Safari (iOS 26 or
+later, which has WebGPU). The phone's motion (**Real motion**), a finger on
+the glass, **Flip** and **Reset** move the sand; the buttons choose the
+material (coarse and fine sand, water, syrup), the speed (the app's slow
+motion, or true gravity for a glass 11 cm tall), the amount and the grid.
+**Benchmark** and **Flow test** measure the phone, and **Copy results**
+puts a plain-text report on the clipboard to send back. While the sand
+moves fast the page runs more substeps a second (auto Hz, shown in the HUD),
+so a falling stream or a thrown bed is not held to the solver's one cell a
+substep; at app speed the glass's jolts (the finger's, the phone's) reach
+the slowed sand slowed too, as in a slowed film of them, so a jerk throws
+it as far as at real speed. To test: turn on
+Portrait Orientation Lock in Control Center (otherwise turning the phone
+turns the page, and the page says so), and turn Low Power Mode off (it
+halves the display rate). It loads nothing from anywhere else and registers
+no service worker of its own; the app's service worker (`sw.js`, whose
+scope covers `lab/`) leaves everything under `lab/` to the network and never
+caches it, so an update shows on the next load (`app-regression` checks
+this). Its
+solver keeps Smoosh's MIT and EA's BSD-3-Clause notices
+(`lab/sand/LICENSES.md`).
+`node tools/test/lab-sand.test.js [--port <n>] [--only 2,6,9] [--shots <dir>]`
+runs it headless in Chromium with WebGPU in software (SwiftShader), on its
+coarse grid with little sand and the clock driven by the test; it takes
+about an hour, and its speeds say nothing about a phone. Its failing checks
+are the sand's open problems, so `run-all.js` runs it only when asked
+(`node tools/test/run-all.js lab-`).
+
 ## Icons and launch screens
 
 `icons/` holds the SVG source and the PNG sizes the manifest and iOS need.

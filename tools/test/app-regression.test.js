@@ -148,6 +148,27 @@ async function testServiceWorker(s, root) {
     var SWV = /VERSION = '([^']+)'/.exec(require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'sw.js'), 'utf8'))[1];
     s.check('SW: the cache is ' + SWV + ' (sw.js VERSION)', c.keys.indexOf(SWV) >= 0, JSON.stringify(c.keys));
     s.check('SW: ... and it holds ./motion.js', c.files.indexOf('/motion.js') >= 0, c.files.length + ' files');
+    // the lab test pages are not the app: the worker must pass them to the
+    // network and never cache them, so a new version shows on the next load
+    var lab = await t.eval(function () {
+      var ctl = !!navigator.serviceWorker.controller;
+      return fetch('lab/sand/index.html', { cache: 'no-store' }).then(function (r) {
+        return r.text().then(function (txt) { return { ok: r.ok, lab: txt.indexOf('Sand lab') >= 0 }; });
+      }).then(function (res) {
+        return new Promise(function (r) { setTimeout(r, 800); }).then(function () {
+          return caches.keys();
+        }).then(function (keys) {
+          return Promise.all(keys.map(function (k) {
+            return caches.open(k).then(function (cache) { return cache.keys(); });
+          }));
+        }).then(function (lists) {
+          var paths = [].concat.apply([], lists).map(function (q) { return new URL(q.url).pathname; });
+          return { ctl: ctl, ok: res.ok, lab: res.lab, cachedLab: paths.filter(function (p) { return p.indexOf('/lab/') === 0; }), n: paths.length };
+        });
+      });
+    });
+    s.check('SW: the page is controlled by the worker', lab.ctl, JSON.stringify(lab));
+    s.check('SW: lab/ pages come from the network and are never cached', lab.ok && lab.lab && lab.cachedLab.length === 0, JSON.stringify(lab));
     s.check('SW: no page or console errors', t.errors.length === 0, t.errors.slice(0, 3).join(' | '));
     await t.close();
   } finally {

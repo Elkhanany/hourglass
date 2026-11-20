@@ -7,7 +7,7 @@
 'use strict';
 
 // Bump on every release: a new name retires the previous cache.
-var VERSION = 'hourglass-v1.8.1';
+var VERSION = 'hourglass-v1.8.2';
 
 var SHELL = [
   './',
@@ -59,6 +59,9 @@ self.addEventListener('fetch', function (event) {
   if (url.origin !== self.location.origin) return;
   var scopePath = new URL(self.registration.scope).pathname;
   if (url.pathname.indexOf(scopePath) !== 0) return;
+  // test pages under lab/ are not part of the app: always from the network,
+  // never cached, never answered with the app shell
+  if (url.pathname.indexOf(scopePath + 'lab/') === 0) return;
 
   event.respondWith(
     caches.open(VERSION).then(function (cache) {
