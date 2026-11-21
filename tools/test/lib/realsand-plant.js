@@ -212,7 +212,7 @@ function runCase(Valve, o) {
         var fb = v.nTop, there2 = clk.remAt(v.total - fb);
         v.completeFlip(); rem = there2; arm(10, v.total - fb, 'swap', fb); eventThisFrame = true;
         // (a Flip after the end starts the glass again: app.js stateAfterSwap)
-        if (state === 'done' && there2 > 0) { state = 'running'; res.reruns++; }
+        if (state === 'done' && there2 > 0) { state = 'running'; res.reruns++; zeroFrame = -1; }
         if (!exactAvailable()) { pendingExpected = true; res.pendingSwaps++; }
       }
       if (t >= flip.until) flip.active = false;

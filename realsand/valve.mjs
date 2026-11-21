@@ -441,12 +441,15 @@ export class Valve {
         this.lastOpenT = this.gT;
       }
     }
-    if (this.zeroAt !== null && this.zeroAt <= now) this.zeroAt = null;
+    // (a run of 0 substeps stands for no time: its span, and the moment of 00:00.0 if it holds
+    // it, carry to the next run, as the lab's loop carries the time to the next frame)
+    if (S && this.zeroAt !== null && this.zeroAt <= now) this.zeroAt = null;
     const r = { seq: ++this.seq, gen: this.gen, epoch: this.epoch, parity: this.parity, evN: this.evN, open: offered,
       pTend, pTmin, appended, vcap, to: now, read: false };
     this.recs.push(r);
     if (this.recs.length > KEEP_RECORDS) this.recs.shift();
-    this.gpuParity = this.parity; this.appended = [0, 0]; this.lastRunNow = now;
+    this.gpuParity = this.parity; this.appended = [0, 0];
+    if (S) this.lastRunNow = now;
     this.n.runs++;
     return this.last = { seq: r.seq, flip, vcap, allow, flags: NECK_ON, targets, appended, steps: S, closed, from: w0, to: now };
   }

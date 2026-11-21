@@ -35,7 +35,8 @@
  * for its own); in the bulk under 0.5 % of runs end short of their
  * target, by at most 3 points (not for the fastest rests, whose breathing asks more than the
  * open neck gives, nor with readbacks 15 frames late). Directly: the units, the closed words,
- * a mirrored pour, pourable (room, maxTotal, the brim). Control: the first version's
+ * a mirrored pour, the zero target in the substep that holds 00:00.0 also when the frame that
+ * holds it runs 0 substeps, pourable (room, maxTotal, the brim). Control: the first version's
  * bookkeeping (an append wrote tally[1] and allow carried the pour: counted twice) must let
  * points cross below the target in every pour into an open neck.
  *
@@ -84,6 +85,25 @@ async function main() {
   var pr = c.pour(10);
   check(c.nTop === 10 && c.flipPending && pr.mirrored && pr.points === 17 && c.run({ steps: 8, now: 33.3, simDt: 8 / 480 }).flip && !c.flipPending,
     'a swap waits for its flip pass: a pour then is appended mirrored (17 points for 10 grains), and the next run carries the flip pass');
+
+  // the zero target in the substep that holds 00:00.0, also when the frame that holds it runs 0
+  // substeps (the lab's loop steps floor(acc hz): 0 for two animation frames 1 ms apart)
+  function zeroSub(zeroSteps) {
+    var z = new Valve({ ppg: 1.69 }); z.fill(10, 10);
+    var rem = 100, now = 1000, w = null, held = null;
+    [16.67, 16.67, 16.67, 16.67, 16.67, 16, 1, 16.67].forEach(function (d) {
+      now += d; rem = Math.max(0, rem - d);
+      z.plan({ now: now, target: rem > 0 ? Math.ceil(10 * Math.pow(rem / 100, 1.7)) : 0, gateOpen: true, deepRelease: rem <= 0, rem: rem, tailMs: 100 });
+      var steps = d < 2 ? zeroSteps : Math.round(d * 0.48);
+      w = z.run({ steps: steps, now: now, simDt: steps / 480 });
+      if (w.steps && !held && Array.prototype.indexOf.call(w.targets, 0) >= 0) held = w;
+    });
+    var i = Array.prototype.indexOf.call(held.targets, 0), sub = (held.to - held.from) / held.steps;
+    return { from: held.from + i * sub, to: held.from + (i + 1) * sub };
+  }
+  var zs = [zeroSub(1), zeroSub(0)];
+  check(zs.every(function (x) { return x.from <= 1100 + 1e-6 && 1100 < x.to; }),
+    'the zero target falls in the substep that holds 00:00.0, also when that frame runs 0 substeps (' + zs.map(function (x) { return f1(x.from - 1100) + ' to ' + f1(x.to - 1100) + ' ms'; }).join('; ') + ')');
 
   // the brim and the room: pourable
   var b = new Valve({ ppg: 1.69 }); b.fill(1000, 1000);
