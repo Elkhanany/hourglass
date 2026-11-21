@@ -67,7 +67,7 @@
  *      time carry to the next run). Returns:
  *        seq      hand it back with the run's readback
  *        flip     begin the encoder with the flip pass; then counters[3] = tally[2] (in a run
- *                 that re-indexes), else counters[3] = tally[1]; then clear counters[2, 4, 5]
+ *                 that re-indexes), else counters[3] = tally[1]; then clear counters[2, 4, 5, 6]
  *        vcap     uniform word 36 for every substep and iteration (cells/s of simulated time;
  *                 0 shut, VCAP_OPEN open)
  *        allow    Float32Array, uniform word 37 of substep s (an exact integer; ALLOW_SHUT when

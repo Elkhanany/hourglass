@@ -90,6 +90,9 @@ fn membrane(particle: ptr<function, Particle>, oldY: f32)
             atomicAdd(&g_counters[4], 1u);
             (*particle).position.y = line + 0.02;
             (*particle).displacement.y = max((*particle).displacement.y, 0.0);
+        } else {
+            // the substep of the run's last crossing (its simFrame + 1): when the last grain left
+            atomicMax(&g_counters[6], g_simConstants.simFrame + 1u);
         }
     } else if (oldY <= line && y > line) {
         atomicAdd(&g_counters[5], 1u);

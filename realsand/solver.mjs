@@ -39,7 +39,8 @@ const BUCKET = 6;
 // counters (atomics the shaders add to): [0] nodes clamped (cumulative), [1] largest node move
 // (cells x 1000, cumulative max); the metered neck's, set at each run's start: [2] crossings this
 // run (tickets taken), [3] the points above at the run's start, [4] crossings refused this run,
-// [5] upward crossings refused this run; [6-7] unused
+// [5] upward crossings refused this run, [6] the substep of the run's last crossing (its frame
+// number + 1; 0: none); [7] unused
 const COUNTER_WORDS = 8;
 // the tally (tally.wgsl), summed afresh by each run
 const TALLY_WORDS = 16;
@@ -435,7 +436,7 @@ export class Solver {
    * words 36-38 are 0, as in the lab): { flip, vcap, allow (per substep), flags }. Give the valve
    * the same number of substeps (no more than the cap). The run begins with the flip pass when
    * flip is set; then counters[3], the points above at the run's start, is the last tally's
-   * count above (below, in a run that flipped: those are now above) and counters[2, 4, 5] are
+   * count above (below, in a run that flipped: those are now above) and counters[2, 4, 5, 6] are
    * cleared. The readback carries what valve.mjs onReadback takes.
    */
   run(steps, set, fieldAt, after, neck = null) {
@@ -459,7 +460,8 @@ export class Solver {
     }
     enc.copyBufferToBuffer(b.tally, flip ? 8 : 4, b.counters, 12, 4);
     enc.clearBuffer(b.counters, 8, 4);
-    enc.clearBuffer(b.counters, 16, 8);
+    enc.clearBuffer(b.counters, 16, 12);
+    const frame0 = this.frame;
     enc.clearBuffer(b.tally);
     enc.clearBuffer(b.surface);
     const pass = enc.beginComputePass({ label: 'lab PB-MPM' });
@@ -515,6 +517,8 @@ export class Solver {
         maxSpeed: u[t + 5] / 4, meanSpeed: u[t] ? u[t + 6] / 4 / u[t] : 0, moving: u[t + 7],
         // the metered neck's (valve.mjs onReadback)
         crossings: u[2], start: u[3], refused: u[4], upward: u[5], queue: u[t + 8], crowdSpeed: u[t + 9] / 4, brim: u[t + 10],
+        // the substep of the run (0 first) in which the last point crossed the line; -1: none crossed
+        lastCross: u[6] ? u[6] - 1 - frame0 : -1,
         // the depth of the lowest point below the counting line, cells (the lab's Timer times the first fall with it)
         deepest: u[t + 11] / 16 };
     }, e => {
