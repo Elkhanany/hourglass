@@ -3,8 +3,10 @@
  *
  * A test of position-based MPM sand (Smoosh's solver, after EA's PB-MPM) in
  * the app's classic glass, driven by the phone's motion, a finger on the
- * glass, a Flip, and scripted tests. It is not the app and changes nothing
- * in it. Everything it needs is in this folder and in the engine's,
+ * glass, a Flip, and scripted tests; the Timer runs an app amount by the
+ * app's clock through the engine's metered neck, with the app's power modes
+ * (timer.mjs); the Rotor probe (?rotor=1) stacks the canvases as the app
+ * will. It is not the app and changes nothing in it. Everything it needs is in this folder and in the engine's,
  * ../../realsand/ (the solver, its shaders, the glass, the palette, the
  * pace, the fills, the grains' drawing, auto Hz and the glass's felt jolts);
  * nothing is fetched from anywhere else. It registers no service
@@ -23,8 +25,26 @@ import { PPC, makeFill, packParticles } from '../../realsand/fill.mjs';
 import { GrainRenderer, FLIGHT, flightOf, exposure } from '../../realsand/grains.mjs';
 import * as Rate from '../../realsand/rate.mjs';
 import { GlassFelt } from '../../realsand/felt.mjs';
+import { Valve, ALLOW_SHUT, NECK_ON } from '../../realsand/valve.mjs';
+import { BUILD } from '../../realsand/build.mjs';
+import { TIMERS, timerById, grainsFor, makeClock, targetAt, MODES, newModes, modesReset, chooseMode, frameMsFor, median, burstCost, gpuShare } from './timer.mjs';
 
 const $ = id => document.getElementById(id);
+const QUERY = new URLSearchParams(location.search);
+const OFFSCREEN = QUERY.has('offscreen');
+// the Rotor probe (?rotor=1): the grains' canvas in a turning div between two WebGL canvases
+const ROTOR = QUERY.get('rotor') === '1';
+// the engine's build stamp this page was written for (realsand/build.mjs; Copy results prints both)
+const BUILD_EXPECTED = '2';
+// the lifecycle log: visibility, device loss, start-up times (ms since the page began)
+const lifeLog = [];
+let lastVisibleAt = 0;
+function life(kind, detail = '') {
+  const t = performance.now();
+  lifeLog.push({ t, kind, detail });
+  if (lifeLog.length > 200) lifeLog.splice(1, 1);        // (the first entry, the start, is kept)
+}
+life('start', document.hidden ? 'hidden' : 'visible');
 
 /* ------------------------------------------------------------------ *
  *  Constants
@@ -55,7 +75,8 @@ const CYCLE = {
   spread: [true, false],
   yieldIn: [false, true],
   queue: [1, 2, 3],
-  budget: [true, false]
+  budget: [true, false],
+  mode: ['full', 'auto', 'calm']
 };
 const FLIP_S = 1.2;
 const GATE_S = 0.5;                                    // the neck stays closed this long after a Reset
@@ -93,7 +114,12 @@ const S = {
   // by the GPU's back-pressure (on; pace.mjs); queue 3 with budget off is the old pace (a test's control)
   queue: QUEUE_DEFAULT, budget: true,
   // a fixed ceiling on auto Hz (0: none; the tests set it to step the sand as a phone's budget holds it)
-  hzMax: 0
+  hzMax: 0,
+  // the power mode (timer.mjs): 'full' (every display frame, auto Hz: the lab as it was), 'calm'
+  // (30 frames a second at the same substep rate, auto Hz off), 'auto' (the app's rules: full,
+  // calm or asleep as the glass needs, with the heat guard). A Timer starts in 'auto' unless the
+  // mode was chosen by hand.
+  mode: 'full', modeChosen: false
 };
 // the substep rate in use (S.hz, raised by auto Hz while the sand is fast), and its history (rate.mjs)
 const rate = Rate.newRate(480);
@@ -125,6 +151,14 @@ let startError = '', lostReason = '';
 // the live loop's per-frame readbacks (the tally): counted, so a browser where
 // they fail says so in the HUD and in Copy results instead of reading "none"
 let readbackOk = 0, readbackFails = 0, readbackErr = '', readbackWarned = false;
+// the power mode's state (timer.mjs chooseMode), and the glass's felt motion at the last substep
+const modes = newModes();
+let feltNow = { a: 0, w: 0, alpha: 0, lean: 0 };
+let sleptFrames = 0, calmFrames = 0;
+// the GPU's cost by a burst (design 9.3), each measured this visit
+const bursts = [];
+// the last fill's data, for a burst's restore
+let lastFill = null;
 
 /** A material's parameters, with the settings' override for the one in use (the tests' hook). */
 const matNow = (id = S.material) => S.override && id === S.material ? { ...MATERIALS[id], ...S.override } : MATERIALS[id];
@@ -300,7 +334,10 @@ function askMotion() {
  *  The glass as a body: the finger, home, the Flip
  * ------------------------------------------------------------------ */
 function stepPose(dt) {
-  if (flip.active) {
+  if (rotor.on) {
+    // the Rotor probe: the glass's angle is set once a frame, by the wall's time (rotorBefore), as
+    // the app's body sets it; the substeps of a frame feel that frame's angle and turning
+  } else if (flip.active) {
     const s = (simTime - flip.t0) / FLIP_S, D = flip.to - flip.from;
     if (s >= 1) { pose.theta = flip.to; pose.omega = 0; pose.alpha = 0; flip.active = false; }
     else {
@@ -340,9 +377,10 @@ function capAlloc() { return Rate.capAlloc(S); }
  * readback t, what a jolt of the glass adds over 50 ms, and the GPU's budget (hzCap: substeps a
  * second; now: its clock, ms).
  */
-function chooseRate(t, hzCap = Infinity, now = simTime * 1000) {
+function chooseRate(t, hzCap = Infinity, now = simTime * 1000, fixed = false) {
   const jolt = Math.hypot(felt.jx, felt.jy) * gCells() * 0.05;
-  Rate.chooseRate(rate, t, { s: S, jolt, time: simTime, hzCap, now });
+  // (fixed: the calm mode, auto Hz off: the base rate)
+  Rate.chooseRate(rate, t, { s: fixed ? { ...S, auto: false } : S, jolt, time: simTime, hzCap, now });
 }
 function resetRate() { Rate.rateReset(rate, S.hz); paceReset(); }
 
@@ -378,6 +416,8 @@ function fieldAt() {
   }
   // the glass's own acceleration as the sand feels it (felt.mjs): at app speed its jolts are
   // played back slowed, as in a slowed film of them
+  // (what the power modes read: the glass's own acceleration, its turning, and the lean of the pull)
+  feltNow = { a: Math.hypot(lax, lay), w, alpha: a, lean: Math.atan2(gx, gy) };
   const [fax, fay] = felt.feel(lax, lay, dt, simTime, S.speed === 'app' && S.impulse, lamNow());
   gx -= fax; gy -= fay;
   const c = Math.cos(pose.theta), s = Math.sin(pose.theta);
@@ -406,6 +446,10 @@ function getGlass(res) {
 }
 
 async function resetSand(opts = {}) {
+  // a refill that is not the Timer's own ends a Timer, or the Rotor probe; readbacks still
+  // waiting to be delivered (the tests' frames) are of the sand before it
+  if (!opts.keepTimer) { timerOff(); rotorOff(); }
+  vq.length = 0;
   if (opts.res) S.res = opts.res;
   if (opts.amount) S.amount = opts.amount;
   if (opts.material) S.material = opts.material;
@@ -423,8 +467,9 @@ async function resetSand(opts = {}) {
   // (fill.mjs: 'top' and 'lower' filled to the amount's points; each grain's colour seed in color.x)
   const pts = makeFill(glass, kind, { ...opts, points: opts.points || amountPoints(opts.amount || S.amount) });
   const data = packParticles(pts, matNow(S.material));
-  solver.upload(data, pts.length / 2);
+  const sides = solver.upload(data, pts.length / 2);
   fillCount = pts.length / 2;
+  lastFill = { data, n: fillCount, sides };
   renderer.setPalette(palette(S.material));
   simTime = 0;
   gateUntil = kind === 'top' ? (opts.gate ?? GATE_S) : 0;
@@ -435,8 +480,10 @@ async function resetSand(opts = {}) {
   lastTally = null; clampLog.length = 0; behindS = 0;
   resetRate();
   felt.reset(0);
+  modesReset(modes, clockNow());
   syncUI();
   drawGlass();
+  return sides;
 }
 
 /** A new material for the sand where it lies. */
@@ -461,6 +508,488 @@ async function switchMaterial(id) {
 }
 
 /* ------------------------------------------------------------------ *
+ *  The Timer: an app amount, timed by the app's clock through the
+ *  metered neck (realsand/valve.mjs), as the app will run it
+ * ------------------------------------------------------------------ */
+const FRAME_MS = 1000 / 60;
+// the fresh bed settles on the shut neck this long (simulated seconds) before the clock starts:
+// the app's glass is at rest when its clock starts, and the lattice fill settles in about 0.4 s
+const TIMER_SETTLE_S = 0.5;
+const timer = { on: false, def: null, gen: 0 };
+// The clock the Timer and the modes run on: the wall's (Date.now, which keeps counting while the
+// phone sleeps, as the app's clock does), or the tests' virtual one (framesN), once they step it.
+let vclock = null;
+function clockNow() { return vclock !== null ? vclock : Date.now(); }
+
+/** The Timer ends (a refill, another Timer, the Rotor probe); the lab's own mode comes back unless one was chosen. */
+function timerOff() {
+  if (timer.on && !S.modeChosen) S.mode = 'full';
+  timer.on = false;
+}
+
+/**
+ * Start a Timer (timer.mjs TIMERS: '10s', '1m', '10m', '60m', '60m-4', '60m-30'): the app's
+ * amount for its glass, in coarse sand at app speed on the grid in use, filled in the top bulb
+ * on the shut neck; the GPU's cost timed on it by a burst (o.burst; not in the headless tests);
+ * then 0.5 s to settle, and the clock starts. o: { ms (time it to this instead), grains, burst,
+ * settle (s) }.
+ */
+async function timerStart(id, o = {}) {
+  const def = timerById(id);
+  if (!def) throw new Error('No such Timer: ' + id);
+  timerOff(); rotorOff();
+  const g = getGlass(S.res);
+  // material points per app grain: PPC^2 s^2 (1.69 on the coarse grid, the app's phone glass's)
+  const ppg = PPC * PPC * g.s * g.s;
+  const N = o.grains ?? grainsFor(def.amountMs);
+  const ms = o.ms ?? def.ms;
+  const valve = new Valve({ ppg });
+  const want = valve.fill(N, N);
+  const sides = await resetSand({ fill: 'top', points: want.top, gate: 0, material: 'coarse', speed: 'app', keepTimer: true });
+  // (the ledger takes the upload's own counts: the fill holds what the bulb holds)
+  valve.fill(N, N, sides.above, sides.below);
+  if (!S.modeChosen) S.mode = 'auto';
+  if (o.burst ?? !OFFSCREEN) { setStatus('Timing the GPU on this bed…'); await burst({ restore: lastFill, label: 'Timer ' + def.label, reps: o.reps }); setStatus(''); }
+  // the depth from the counting line to the glass's floor on its axis (the first fall's length)
+  let floor = 0;
+  while (floor < g.cy - 1 && sampleField(g, g.cx, g.cy - floor - 0.5)[2] > 0) floor += 0.5;
+  Object.assign(timer, {
+    on: true, def, id, ms, N, ppg, valve, clk: makeClock(ms, N), rem: ms, state: 'settle', settleUntil: simTime + (o.settle ?? TIMER_SETTLE_S),
+    gen: timer.gen + 1, lastTick: null, startAt: null, runStart: null, turning: false, swaps: 0, target: N, closed: true, floor,
+    fall: { from: null, wallFrom: null, s: NaN, wall: NaN }, end: null, ends: [], refusedLog: [], last: null, began: clockNow(),
+    n: { frames: 0, runs: 0, open: 0, closedRuns: 0, viol: 0, closedCross: 0, mismatch: 0, audits: 0, auditFails: 0, supplied: 0, countOff: 0,
+      bulk: 0, short: 0, worstShort: 0, qSum: 0, vSum: 0, refused: 0, upward: 0, crossings: 0, pointsOff: 0 }
+  });
+  modesReset(modes, clockNow());
+  syncUI();
+  return timerState();
+}
+
+/**
+ * Once an animation frame, drawn or not, before its run: the app's clock (app.js tickClock: it
+ * stands still while the glass turns and while it lies on its side), the swap at the end of a
+ * Flip (app.js swapEnds), the target with the breathing, and the valve's plan.
+ */
+function timerBefore(now) {
+  const T = timer, v = T.valve;
+  const d = T.lastTick === null ? 0 : Math.max(0, now - T.lastTick);
+  T.lastTick = now; T.n.frames++;
+  if (T.state === 'settle' && simTime >= T.settleUntil) { T.state = 'running'; T.startAt = T.runStart = now; }
+  // the glass's lean (the app's sim.gy): on its side the neck cannot flow and the clock stands still
+  const gy = Math.cos(pose.theta + feltNow.lean);
+  if (flip.active && !T.turning) T.turning = true;
+  if (T.turning && !flip.active) {
+    const before = v.nTop, there = T.clk.remAt(v.total - before);
+    v.completeFlip();
+    // the glass is back upright in its own frame: the next run's flip pass turns the points end for end
+    pose.theta -= Math.PI;
+    T.turning = false; T.swaps++; T.rem = there;
+    if (T.state === 'done' && there > 0) { T.state = 'running'; T.runStart = now; T.end = null; }
+  }
+  if (T.state === 'running' && !T.turning && gy > 0.7) {
+    const r0 = T.rem;
+    T.rem -= d;
+    if (T.rem <= 0) {
+      T.rem = 0; T.state = 'done';
+      T.end = { zeroAt: now - d + r0, last: null, confirmedAt: null, residueAt: null, residue: 0 };
+      T.ends.push(T.end);
+    }
+  }
+  const running = T.state === 'running' && !T.turning, draining = T.state === 'done' && v.nTop > 0 && !T.turning;
+  let target = v.nTop;
+  if (running) target = targetAt(T.clk, T.rem, now);
+  else if (draining) target = 0;
+  const pl = v.plan({ now, target, gateOpen: running || draining, deepRelease: draining || (running && T.rem <= 0), relCap: 0,
+    flipping: T.turning, gy, rem: T.state === 'settle' ? T.ms : T.rem, tailMs: T.clk.tailMs, steps: Math.max(1, Math.round(d * 0.12)) });
+  T.target = target; T.closed = pl.closed;
+  if (running && !pl.closed) { T.n.supplied++; if (v.nTop !== target) T.n.countOff++; }
+  const E = T.end;
+  if (E && E.confirmedAt === null && T.state === 'done' && v.nTop === 0) E.confirmedAt = now;
+  if (E && E.residueAt === null && v.residueDue(now)) { E.residueAt = now; E.residue = v.nTop; }
+}
+
+/** The valve's words for this frame's run (valve.mjs run), tagged with the Timer they belong to. */
+function timerWords(steps, now, hz) {
+  const w = timer.valve.run({ steps, now, simDt: steps / hz });
+  w.gen = timer.gen; w.state = timer.state;
+  return w;
+}
+
+/** A run's readback, to the valve and the Timer's record. tSim: the simulated time at the run's end. */
+function timerReadback(w, t, tSim) {
+  const T = timer;
+  if (!T.on || w.gen !== T.gen) return;
+  const v = T.valve, N = T.n;
+  v.onReadback(w.seq, t);
+  N.runs++;
+  let pTmin = Infinity;
+  for (const x of w.targets) pTmin = Math.min(pTmin, x);
+  const pTend = w.targets[w.targets.length - 1];
+  if (!w.closed) {
+    N.open++;
+    // the membrane's promise: a run in which anything crossed ends with no fewer above than its lowest target
+    if (t.crossings > 0 && t.above < pTmin) N.viol++;
+  } else { N.closedRuns++; N.closedCross += t.crossings; }
+  if (t.start + w.appended - t.crossings !== t.above) N.mismatch++;
+  if (t.points !== v.points || t.above + t.below !== t.points) N.pointsOff++;
+  N.refused += t.refused; N.upward += t.upward; N.crossings += t.crossings;
+  T.refusedLog.push({ t: w.to, n: t.refused });
+  while (T.refusedLog.length > 2 && w.to - T.refusedLog[0].t > 1000) T.refusedLog.shift();
+  if (!w.closed && w.vcap < 1e8 && w.state === 'running') {
+    N.bulk++; N.qSum += t.queue; N.vSum += w.vcap;
+    const sh = t.above - pTend;
+    if (sh > 0) { N.short++; N.worstShort = Math.max(N.worstShort, sh); }
+  }
+  const a = v.audit();
+  if (a) { N.audits++; if (!a.ok) N.auditFails++; }
+  // the first fall: from the first run in which sand crossed into the empty lower bulb, until the
+  // stream's front has reached the floor (tally: the deepest point below the line)
+  const F = T.fall;
+  if (F.from === null && !T.swaps && t.crossings > 0 && t.below === t.crossings) { F.from = tSim; F.wallFrom = w.to; }
+  else if (F.from !== null && !(F.s >= 0) && t.deepest >= T.floor - 1.5) { F.s = tSim - F.from; F.wall = w.to - F.wallFrom; }
+  T.last = { t, w, pTend };
+  // the end: the first run read back with no point above after 00:00.0 holds the last crossing
+  const E = T.end;
+  if (E && !E.last && t.above === 0 && w.to >= E.zeroAt - 1e-6) {
+    let z = -1;
+    for (let i = 0; i < w.targets.length; i++) if (w.targets[i] === 0) { z = i; break; }
+    E.last = { from: w.from, to: w.to, s0: z, S: w.steps, seq: w.seq, k: t.lastCross };
+  }
+}
+
+/** The Timer's state and record, for the HUD, Copy results and the tests. */
+function timerState() {
+  const T = timer;
+  if (!T.def) return null;
+  const v = T.valve, E = T.end, F = T.fall, N = T.n;
+  const endOf = e => {
+    if (!e) return null;
+    let last = null;
+    if (e.last) {
+      // the substep in which the last point crossed (the GPU's record), as a span of the wall's
+      // time: the run's substeps stand for its span, from the run before to its frame
+      const L = e.last, sub = (L.to - L.from) / Math.max(1, L.S), k = L.k >= 0 ? L.k : -1;
+      last = k >= 0 ? { early: L.from + k * sub - e.zeroAt, late: L.from + (k + 1) * sub - e.zeroAt, substep: sub, k, S: L.S }
+        : { early: L.from + Math.max(0, L.s0) * sub - e.zeroAt, late: L.to - e.zeroAt, substep: sub, k: -1, S: L.S };
+    }
+    return { zeroAt: e.zeroAt, last, confirmed: e.confirmedAt === null ? null : e.confirmedAt - e.zeroAt,
+      residue: e.residueAt === null ? 0 : e.residue, residueAt: e.residueAt === null ? null : e.residueAt - e.zeroAt };
+  };
+  return {
+    on: T.on, id: T.id, label: T.def.label, grains: T.N, points: v.points, ppg: T.ppg, ms: T.ms, state: T.turning ? 'turning' : T.state,
+    rem: T.rem, nTop: v.nTop, target: T.target, total: v.total, parity: v.parity, closed: T.closed, swaps: T.swaps,
+    mode: modes.mode, why: modes.why, setting: S.mode, guard: modes.guard, modeMs: { ...modes.ms }, hz: rate.hz,
+    fall: F.s, fallWall: F.wall, floor: T.floor, end: endOf(E), ends: T.ends.map(endOf),
+    n: { ...N }, queue: N.bulk ? N.qSum / N.bulk : NaN, vcap: N.bulk ? N.vSum / N.bulk : NaN, kv: v.kv, refusedPerS: refusedPerS(),
+    valve: v.stats(), clock: { tailMs: T.clk.tailMs, tailGrains: T.clk.tailGrains, rate: T.clk.rate }
+  };
+}
+function refusedPerS() {
+  const L = timer.refusedLog;
+  if (!L || L.length < 2) return 0;
+  const span = (L[L.length - 1].t - L[0].t) / 1000;
+  return span > 0 ? L.slice(1).reduce((s, x) => s + x.n, 0) / span : 0;
+}
+/** m:ss.s for ms. */
+function mmss(ms) {
+  const t = Math.max(0, ms) / 1000, m = Math.floor(t / 60), s = t - 60 * m;
+  return `${m}:${s < 10 ? '0' : ''}${s.toFixed(1)}`;
+}
+function sgn(x) { return (x > 0 ? '+' : '') + x; }
+function vcapText(v) { return v >= 1e8 ? 'open' : v === 0 ? 'shut' : v.toFixed(2); }
+function endText(e) {
+  if (!e) return '';
+  const lp = e.last ? `last point ${e.last.early >= 0 ? '+' : ''}${e.last.early.toFixed(1)} to ${e.last.late >= 0 ? '+' : ''}${e.last.late.toFixed(1)} ms after 00:00.0${e.last.k >= 0 ? ' (substep ' + (e.last.k + 1) + ' of ' + e.last.S + ' of its run)' : ''}` : 'last point not yet out';
+  return `${lp}; nTop 0 ${e.confirmed === null ? 'not yet' : '+' + e.confirmed.toFixed(0) + ' ms'}; residue ${e.residueAt === null ? 'none' : e.residue + ' grains at +' + e.residueAt.toFixed(0) + ' ms'}`;
+}
+function timerHud() {
+  const T = timer, st = timerState(), k = T.last, L = [];
+  const state = st.state === 'settle' ? 'settling' : st.state;
+  L.push(`Timer ${st.label}${T.ms !== T.def.ms ? '' : ''}: ${mmss(st.rem)} ${state}  mode ${st.mode} (${S.mode}${st.guard ? ', HEAT GUARD' : ''})  ${rate.hz} Hz`);
+  L.push(`count ${sgn(st.nTop - st.target)} (nTop ${st.nTop}, target ${st.target})  GPU ${k ? sgn(k.t.above - k.pTend) + ' pts' : '-'}  queue ${k ? k.t.queue : '-'}  vcap ${k ? vcapText(k.w.vcap) : '-'}  refused ${Math.round(st.refusedPerS)}/s`);
+  L.push(`fall ${Number.isFinite(st.fall) ? st.fall.toFixed(2) + ' s' : '-'}  kv ${st.kv.toFixed(1)}  short ${st.n.short}/${st.n.bulk} (worst ${st.n.worstShort})  below target ${st.n.viol}  swaps ${st.swaps}`);
+  if (st.end) L.push('END ' + endText(st.end));
+  return L;
+}
+
+/* ------------------------------------------------------------------ *
+ *  The power modes (timer.mjs): full, calm, asleep
+ * ------------------------------------------------------------------ */
+/** The mode for this frame, from what the glass and the Timer are doing. now: the Timer's clock; ratio: sim/real over the last second. */
+function modeFor(now, ratio) {
+  const t = lastTally, T = timer.on ? timer : null;
+  // still: at most 3 points faster than 2 % of a free fall over the glass (tally word 7; 23 cells/s
+  // on the coarse grid at app speed). The design also asked for the fastest under 3 cells/s, but a
+  // substep's speed jitters on a bed at rest: a 1-minute bed 1.5 to 3 s at rest on SwiftShader read
+  // 0 points moving, the fastest at 5 to 16 cells/s and the mean at 1.4 to 6.7, so neither the
+  // fastest nor the mean tells rest from a slow slide.
+  const still = !!t && t.moving <= 3;
+  const running = !!T && (T.state === 'running' || T.state === 'settle');
+  const draining = !!T && T.state === 'done' && T.valve.nTop > 0;
+  let busy = '';
+  if (flip.active || (T && T.turning) || rotor.on) busy = 'turning';
+  else if (finger.down || fingerScript) busy = 'touched';
+  else if (benchRun || flowRec) busy = 'measuring';
+  else if (T && T.state === 'settle') busy = 'settling';
+  else if (T && T.valve.flipPending) busy = 'swap';
+  else if (T && T.state === 'running' && T.runStart !== null && now - T.runStart < MODES.START_MS) busy = 'start';
+  else if (T && T.state === 'running' && T.rem < T.clk.tailMs + 300) busy = 'tail';
+  else if (T && T.state === 'done' && (draining || (T.end && now - T.end.zeroAt < MODES.HOLD_MS))) busy = 'end';
+  return chooseMode(modes, { now, setting: S.mode, busy, felt: feltNow, active: running || draining || !still, still,
+    pending: !!(T && (T.turning || T.valve.flipPending)), ratio, atBase: rate.hz === S.hz });
+}
+/** Simulated over real time over the last second of frames drawn (NaN: under half a second of them). */
+function ratioLast(now) {
+  let sim = 0, real = 0;
+  for (let i = frames.length - 1; i >= 0 && now - frames[i].t <= 1000; i--) { sim += frames[i].sim; real += frames[i].real; }
+  return real >= 0.5 ? sim / real : NaN;
+}
+/** The tally auto Hz reads: with a Timer, its fastest crowded point (a falling stream does not ask for a higher rate). */
+function rateTally() {
+  const t = lastTally;
+  if (!t || !timer.on) return t;
+  return t.crowd || (t.crowd = { maxSpeed: t.crowdSpeed });
+}
+
+/* ------------------------------------------------------------------ *
+ *  Frames stepped by the tests, on a virtual clock: as the live loop
+ *  runs them (the modes, the Timer, readbacks lag frames late), but
+ *  each awaiting the GPU
+ * ------------------------------------------------------------------ */
+const vq = [];                       // readbacks waiting to be delivered
+let vframe = 0, vLastRun = null, vRunN = 0;
+const vRuns = [];                    // the runs stepped: { frame, mode, steps, hz }
+function deliver(q) {
+  if (!q.t) return;
+  readbackOk++;
+  onTally(q.t, q.tSim);
+  if (q.neck && timer.on) timerReadback(q.neck, q.t, q.tSim);
+  if (q.neck && rotor.on) rotorReadback(q.neck, q.t);
+}
+/**
+ * n frames of 1/60 s on the virtual clock. o: { lag (readbacks delivered this many frames late; 2),
+ * stopAtEnd (stop 0.2 s after the Timer's count reads 0) }. Calm draws every other frame (its
+ * substeps then cover both), asleep runs nothing.
+ */
+async function framesN(n, o = {}) {
+  manual = true;
+  const lag = o.lag ?? 2;
+  if (vclock === null) vclock = Date.now();
+  let ran = 0;
+  for (let k = 0; k < n; k++) {
+    vclock += FRAME_MS; vframe++;
+    const wall = vclock;
+    while (vq.length && vq[0].due <= vframe) deliver(vq.shift());
+    if (timer.on) timerBefore(wall);
+    if (rotor.on) rotorBefore(FRAME_MS / 1000);
+    const mode = modeFor(wall, NaN);
+    if (mode === 'asleep') { sleptFrames++; vLastRun = null; continue; }
+    if (mode === 'calm' && vLastRun !== null && wall - vLastRun < frameMsFor('calm', FRAME_MS) - 0.5 * FRAME_MS) { calmFrames++; if (rotor.on) rotorCss(); continue; }
+    if (rotor.on && rotor.skip3 && ++rotor.frameNo % 3 === 0) { rotor.skips++; rotorCss(); continue; }
+    chooseRate(rateTally(), Infinity, wall, mode === 'calm');
+    const span = vLastRun === null ? FRAME_MS : Math.min(250, wall - vLastRun);
+    vLastRun = wall;
+    const steps = Math.max(1, Math.min(capNow(), Math.round(span * rate.hz / 1000)));
+    const neck = timer.on ? timerWords(steps, wall, rate.hz) : rotor.on ? rotorWords(steps, wall, rate.hz) : null;
+    const draw = k === n - 1 || o.draw;
+    const p = solver.run(steps, set(), fieldAt, draw ? enc => renderer.encode(enc, solver.count, grainLook()) : null, neck);
+    if (rotor.on) rotorDrawn();
+    const tSim = simTime;
+    ran++;
+    vRuns.push({ i: vRunN++, frame: vframe, mode, steps, hz: rate.hz });
+    if (vRuns.length > 4000) vRuns.splice(0, 1000);
+    const t = p ? await p : null;
+    vq.push({ due: vframe + lag, t, tSim, neck });
+    if (o.stopAtEnd && timer.on && timer.end && timer.end.confirmedAt !== null && wall - timer.end.confirmedAt > 200) break;
+  }
+  await renderer.present();
+  drawGlass();
+  return { ran, frame: vframe, mode: modes.mode, timer: timerState() };
+}
+
+/* ------------------------------------------------------------------ *
+ *  The GPU's cost by a burst (design 9.3): with nothing else in
+ *  flight, a submit of 24 substeps and one of 96, each ten times;
+ *  the cost a substep is (median of 96 - median of 24) / 72, which
+ *  removes a submit's fixed latency. The sand is put back after.
+ * ------------------------------------------------------------------ */
+async function burst(o = {}) {
+  if (!solver?.count) return null;
+  const reps = o.reps ?? 10, small = o.small ?? 24, big = o.big ?? 96;
+  const wasBusy = busy;
+  busy = true;
+  try {
+    // nothing else in flight: the live loop's frames done, every readback back
+    for (let i = 0; i < 200 && (pace.inflight > 0 || solver.readbacks.some(r => r.pending)); i++) { await gpu.device.queue.onSubmittedWorkDone(); await sleep(5); }
+    const snap = o.restore || { data: await solver.readParticles(), n: solver.count };
+    const capWas = solver.cap;
+    if (solver.cap < big) solver.allocUniforms(big);
+    const f = { gravity: lastField.gravity.slice(), omega: 0, alpha: 0, cor: 1, gate: false };
+    // (the neck shut, so that nothing crosses while the sand is timed)
+    const neck = { flip: false, vcap: 0, allow: new Float32Array([ALLOW_SHUT]), flags: NECK_ON };
+    const sv = set();
+    const time = async (k, draw) => {
+      const t0 = performance.now();
+      solver.run(k, sv, () => f, draw ? enc => renderer.encode(enc, solver.count, grainLook()) : null, neck);
+      await gpu.device.queue.onSubmittedWorkDone();
+      return performance.now() - t0;
+    };
+    await time(small);
+    const a = [], b = [], dr = [];
+    for (let i = 0; i < reps; i++) { a.push(await time(small)); b.push(await time(big)); dr.push(await time(0, true)); }
+    for (let i = 0; i < 50 && solver.readbacks.some(r => r.pending); i++) await sleep(5);
+    solver.upload(snap.data, snap.n);
+    if (solver.cap !== capWas) solver.allocUniforms(capWas);
+    const msStep = burstCost(a, b, small, big), msDraw = median(dr);
+    const row = { label: o.label || 'this bed', points: snap.n, reps, small, big, msStep, msDraw, smallMs: median(a), bigMs: median(b),
+      hz: S.hz, iterations: S.iterations, dispatches: dispatchesPerSubstep(S.iterations, sv.material),
+      full: gpuShare(msStep, S.hz, msDraw, 60), calm: gpuShare(msStep, S.hz, msDraw, 30) };
+    bursts.push(row);
+    life('burst', `${row.label}: ${row.points} points, ${msStep.toFixed(3)} ms a substep`);
+    return row;
+  } finally { busy = wasBusy; lastNow = 0; lastDrawn = 0; acc = 0; }
+}
+function burstText(r) {
+  const n = (v, d = 2) => Number.isFinite(v) ? v.toFixed(d) : '-';
+  return `${r.label}, ${r.points} points: ${n(r.msStep, 3)} ms a substep ((median ${n(r.bigMs, 1)} ms for ${r.big} - median ${n(r.smallMs, 1)} ms for ${r.small}) / ${r.big - r.small}, ${r.reps} each), a frame's drawing and tally ${n(r.msDraw, 2)} ms; at ${r.hz} Hz x ${r.iterations} (${r.dispatches} dispatches a substep) the GPU's share: full (60 fps) ${n(100 * r.full, 0)} %, calm (30 fps, same substeps) ${n(100 * r.calm, 0)} %; auto Hz in full adds while it is above ${r.hz} Hz`;
+}
+
+/* ------------------------------------------------------------------ *
+ *  The Rotor probe (?rotor=1): the grains' canvas inside a div that
+ *  CSS turns with the glass, between two WebGL canvases (the glass's
+ *  back and its wall), as the app will stack them (design 6.1, 6.6).
+ *  The 60-minute bed turns freely at up to 16 rad/s with the neck
+ *  shut; at each half turn the ledger swaps and the next run's flip
+ *  pass turns the points end for end while the div turns back half a
+ *  turn. A frame whose run is skipped while the picture on the canvas
+ *  is from before a swap turns the canvas itself half a turn.
+ * ------------------------------------------------------------------ */
+const rotor = { on: false, w: 16, skip3: false, frameNo: 0, valve: null, drawnParity: 0, gl: [], swaps: 0, skips: 0, cssTurns: 0, runs: 0,
+  wrong: 0, checked: 0, ruleBad: 0, marker: -1 };
+const ROTOR_SPEEDS = [16, 8, 4, 0];
+/** Start (or restart) the probe. o: { amount (a Timer's id; '60m'), w (rad/s; 16), skip3 }. */
+async function rotorStart(o = {}) {
+  timerOff();
+  const def = timerById(o.amount || QUERY.get('amount') || '60m') || timerById('60m');
+  const g = getGlass(S.res), ppg = PPC * PPC * g.s * g.s, N = grainsFor(def.amountMs);
+  const valve = new Valve({ ppg });
+  const want = valve.fill(N, N);
+  rotor.on = false;
+  const sides = await resetSand({ fill: 'top', points: want.top, gate: 0, material: 'coarse', speed: 'app', keepTimer: true });
+  valve.fill(N, N, sides.above, sides.below);
+  Object.assign(rotor, { on: true, def, valve, drawnParity: valve.parity, w: o.w ?? rotor.w, skip3: o.skip3 ?? rotor.skip3, frameNo: 0,
+    swaps: 0, skips: 0, cssTurns: 0, runs: 0, wrong: 0, checked: 0, ruleBad: 0, marker: -1, points: sides.above });
+  if (o.spun) pose.omega = rotor.w;
+  layout();
+  rotorCss();
+  syncUI();
+}
+function rotorOff() { rotor.on = false; }
+/**
+ * Once an animation frame: the glass's turning rate eases toward rotor.w; its angle moves by the
+ * wall's time (as the app's body); past a half turn the ledger swaps and the angle goes back by pi.
+ */
+function rotorBefore(dt) {
+  const r = rotor, v = r.valve;
+  dt = Math.max(1e-3, Math.min(0.1, dt));
+  const w1 = pose.omega + (r.w - pose.omega) * (1 - Math.exp(-dt / 0.8));
+  pose.alpha = (w1 - pose.omega) / dt; pose.omega = w1;
+  pose.theta += w1 * dt;
+  if (pose.theta >= Math.PI) { pose.theta -= Math.PI; v.completeFlip(); r.swaps++; }
+  v.plan({ now: clockNow(), target: v.nTop, gateOpen: false, flipping: true, gy: 1, rem: 1e9, tailMs: 0 });
+  if (r.marker !== v.parity) glPaint();
+}
+function rotorWords(steps, now, hz) {
+  rotor.runs++;
+  const w = rotor.valve.run({ steps, now, simDt: steps / hz });
+  w.parity = rotor.valve.parity;
+  return w;
+}
+/** The run just encoded draws the bed as the ledger now has it (its flip pass included). */
+function rotorDrawn() { rotor.drawnParity = rotor.valve.parity; rotorCss(); }
+/** The CSS turns of this frame: the div by the glass's angle; the grains' canvas half a turn while its picture is from the other parity. */
+function rotorCss() {
+  const r = rotor, el = $('rotor');
+  if (!el) return;
+  el.style.transform = `rotate(${pose.theta}rad)`;
+  const turn = r.drawnParity !== r.valve.parity;
+  $('c-gpu').style.transform = turn ? 'rotate(180deg)' : '';
+  if (turn) r.cssTurns++;
+}
+/**
+ * A run's readback: the neck is shut, so all of the sand stays in the bulb it was filled in. That
+ * bulb is the grid's top while the ledger's parity is the fill's (0), and its bottom after an odd
+ * number of swaps (the flip pass turns the points end for end at each), so every point is on the
+ * side of the line the run's parity says, none on the other.
+ */
+function rotorReadback(w, t) {
+  const r = rotor, P = r.valve.points;
+  r.checked++;
+  r.valve.onReadback(w.seq, t);
+  const ok = w.parity === 0 ? t.above === P && t.below === 0 : t.below === P && t.above === 0;
+  if (!ok) r.wrong++;
+}
+/** The two WebGL canvases: the glass's back (a faint fill) and its wall, with a mark at the far end of the bulb that holds the sand. */
+function glInit(c) {
+  const gl = c.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true });
+  if (!gl) return null;
+  const sh = (type, src) => { const x = gl.createShader(type); gl.shaderSource(x, src); gl.compileShader(x); return x; };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, 'attribute vec2 p; uniform vec2 k; void main() { gl_Position = vec4(p * k, 0.0, 1.0); }'));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, 'precision mediump float; uniform vec4 c; void main() { gl_FragColor = c; }'));
+  gl.linkProgram(prog);
+  return { gl, prog, buf: gl.createBuffer(), p: gl.getAttribLocation(prog, 'p'), k: gl.getUniformLocation(prog, 'k'), c: gl.getUniformLocation(prog, 'c') };
+}
+/** The glass's outline (cells about its centre, y down), right side from the top tip to the bottom one. */
+function outlineSide(grow) {
+  const pts = [], rec = { moveTo(x, y) { pts.push([x, y]); }, lineTo(x, y) { pts.push([x, y]); }, closePath() {} };
+  traceOutline(rec, glass, grow);
+  return pts.slice(0, pts.length / 2);
+}
+function glPaint() {
+  if (!rotor.gl.length || !glass) return;
+  const D = view.D || 1, kk = 2 * view.k / D;
+  const inner = outlineSide(0), outer = outlineSide(glass.wallCells);
+  const strip = (a, b) => { const o = []; for (let i = 0; i < a.length; i++) o.push(a[i][0], a[i][1], b[i][0], b[i][1]); return new Float32Array(o); };
+  const mirror = a => a.map(p => [-p[0], p[1]]);
+  const disc = (x, y, r) => { const o = [x, y]; for (let i = 0; i <= 24; i++) o.push(x + r * Math.cos(i / 12 * Math.PI), y + r * Math.sin(i / 12 * Math.PI)); return new Float32Array(o); };
+  const sandEnd = (rotor.valve && rotor.valve.parity ? 1 : -1) * glass.HBc * 0.9;
+  rotor.marker = rotor.valve ? rotor.valve.parity : -1;
+  const layers = [
+    [{ tri: strip(inner, mirror(inner)), mode: 'strip', c: [0.05, 0.046, 0.04, 0.05] }],
+    [{ tri: strip(outer, inner), mode: 'strip', c: [0.3, 0.274, 0.24, 0.3] }, { tri: strip(mirror(outer), mirror(inner)), mode: 'strip', c: [0.3, 0.274, 0.24, 0.3] },
+      { tri: disc(0, sandEnd, 2.2), mode: 'fan', c: [0.73, 0.58, 0.36, 0.8] }]
+  ];
+  rotor.gl.forEach((g, i) => {
+    if (!g) return;
+    const gl = g.gl;
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(g.prog);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform2f(g.k, kk, -kk);
+    for (const L of layers[i]) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, g.buf); gl.bufferData(gl.ARRAY_BUFFER, L.tri, gl.STREAM_DRAW);
+      gl.enableVertexAttribArray(g.p); gl.vertexAttribPointer(g.p, 2, gl.FLOAT, false, 0, 0);
+      gl.uniform4f(g.c, ...L.c);
+      gl.drawArrays(L.mode === 'fan' ? gl.TRIANGLE_FAN : gl.TRIANGLE_STRIP, 0, L.tri.length / 2);
+    }
+  });
+}
+/** Build the rotor's stack: back WebGL canvas, the grains' canvas, front WebGL canvas, in a div that turns. */
+function rotorBuild() {
+  const div = document.createElement('div');
+  div.id = 'rotor';
+  const back = document.createElement('canvas'), front = document.createElement('canvas');
+  back.id = 'r-back'; front.id = 'r-front';
+  div.append(back, $('c-gpu'), front);
+  $('stage').appendChild(div);
+  $('c-back').hidden = true; $('c-front').hidden = true;
+  rotor.gl = [glInit(back), glInit(front)];
+  document.body.classList.add('rotor');
+}
+
+/* ------------------------------------------------------------------ *
  *  Drawing: grains on the GPU, the glass in 2-D around them
  * ------------------------------------------------------------------ */
 /**
@@ -469,8 +998,10 @@ async function switchMaterial(id) {
  * its substeps have moved the glass.
  */
 function grainLook() {
-  const g = glass, k = kNow(), c = Math.cos(pose.theta), s = Math.sin(pose.theta);
-  const W = view.W, H = view.H, hx = view.hx + pose.x, hy = view.hy + pose.y;
+  // (the Rotor probe draws the grains in the glass's own frame, centred on its canvas: the div turns them)
+  const g = glass, k = rotor.on ? view.k : kNow(), th = rotor.on ? 0 : pose.theta, c = Math.cos(th), s = Math.sin(th);
+  const W = rotor.on ? view.D : view.W, H = rotor.on ? view.D : view.H;
+  const hx = rotor.on ? view.D / 2 : view.hx + pose.x, hy = rotor.on ? view.D / 2 : view.hy + pose.y;
   const liquid = matNow().model === 0;
   const rc = liquid ? 0.62 : 0.36;                          // grain radius, cells
   const rpx = Math.max(rc * k, 0.75 / view.dpr);            // CSS px, at least most of a device pixel
@@ -506,6 +1037,21 @@ function layout() {
   view.k = Math.min(availH / (2 * halfH), availW / (2 * halfW));
   Object.assign(view, { availW, availH, halfW, halfH });
   view.hx = W / 2; view.hy = top + availH / 2;
+  if (ROTOR) {
+    // the rotor: a square div as wide as the glass is long, so that it fits at every angle
+    view.k = Math.min(availH, availW) / (2 * glass.HBc + 4);
+    const D = Math.round(2 * glass.HBc * view.k + 4);
+    view.D = D;
+    const el = $('rotor');
+    Object.assign(el.style, { width: D + 'px', height: D + 'px', left: (view.hx - D / 2) + 'px', top: (view.hy - D / 2) + 'px' });
+    for (const id of ['r-back', 'c-gpu', 'r-front']) {
+      const c = $(id);
+      c.width = Math.round(D * dpr); c.height = Math.round(D * dpr);
+      c.style.width = D + 'px'; c.style.height = D + 'px';
+    }
+    glPaint();
+    return;
+  }
   drawGlass(true);                                           // (resizing a canvas clears it)
 }
 
@@ -522,7 +1068,7 @@ const WOOD = { hi: [112, 70, 42], mid: [70, 41, 23], lo: [30, 17, 9] };
 let drawnKey = '';
 /** The glass, back (behind the sand) and front (its wall, rims and wooden caps): physics.js _drawBack/_drawFront, simplified. */
 function drawGlass(force) {
-  if (!glass) return;
+  if (!glass || ROTOR) return;
   const kk = kNow();
   const key = [pose.x.toFixed(2), pose.y.toFixed(2), pose.theta.toFixed(4), kk, view.W, view.H, glass.s].join();
   if (key === drawnKey && !force) return;
@@ -606,7 +1152,8 @@ function drawGlass(force) {
 /* ------------------------------------------------------------------ *
  *  The frame loop
  * ------------------------------------------------------------------ */
-let lastNow = 0, lastDrawn = 0, acc = 0, rafOn = false, lastSteps = 0;
+let lastNow = 0, lastDrawn = 0, acc = 0, rafOn = false, lastSteps = 0, firstFrameLogged = false;
+const bootT0 = performance.now();
 const rafLog = [];                // rAF timestamps, for the display's own rate
 function loop(now) {
   requestAnimationFrame(loop);
@@ -618,22 +1165,41 @@ function loop(now) {
   // a promise of work done that never came (a lost device): let the loop go on after 3 s (a late
   // promise from before then is ignored: paceDone)
   paceValve(pace, t0);
-  // the GPU is behind: skip a frame rather than queue more (nothing is drawn: it is not a frame)
-  if (pace.inflight >= S.queue || solver.readbacks.every(r => r.pending)) {
-    skips.push({ t: now }); paceSkip(pace, t0);
+  // the Timer's clock ticks with every animation frame, drawn or not (the count follows the clock,
+  // not the GPU); the Rotor probe's glass turns with the wall's time
+  const wall = clockNow();
+  if (timer.on) timerBefore(wall);
+  if (rotor.on) rotorBefore(dtReal);
+  // the power mode (timer.mjs): asleep runs nothing; calm draws every other frame of a 60 Hz
+  // display, at the same substep rate (the time of the frame not drawn goes to the next)
+  const mode = modeFor(wall, ratioLast(now));
+  if (mode === 'asleep') { sleptFrames++; lastDrawn = 0; acc = 0; if (rotor.on) rotorCss(); return; }
+  const T0 = displayMs(), T = frameMsFor(mode, T0);
+  if (mode === 'calm' && lastDrawn && now - lastDrawn < T - 0.5 * T0) {
+    calmFrames++;
+    acc = Math.min(acc + dtReal, capFrame() / rate.hz);
+    if (rotor.on) rotorCss();
+    return;
+  }
+  // the GPU is behind: skip a frame rather than queue more (nothing is drawn: it is not a frame);
+  // the Rotor probe can also skip every third run itself
+  const forced = rotor.on && rotor.skip3 && ++rotor.frameNo % 3 === 0;
+  if (pace.inflight >= S.queue || solver.readbacks.every(r => r.pending) || forced) {
+    skips.push({ t: now, forced });
+    if (forced) rotor.skips++; else paceSkip(pace, t0);
     const avail = acc + dtReal;                             // the next frame drawn catches up, up to its cap
     acc = Math.min(avail, capFrame() / rate.hz);
     behindS += avail - acc;
     trimFrames(now);
+    if (rotor.on) rotorCss();
     return;
   }
   // wall time since the last frame drawn (skipped animation frames included; for the statistics, not capped)
   const since = lastDrawn ? (now - lastDrawn) / 1000 : dtReal;
   lastDrawn = now;
-  const T = displayMs();
-  // the budget from the GPU's back-pressure; never cut below the base rate's need in a display frame
+  // the budget from the GPU's back-pressure; never cut below the base rate's need in a frame
   if (S.budget) paceBudget(pace, { now: t0, need: Math.ceil(S.hz * T / 1000), top: capAllocHz(), last: lastSteps });
-  chooseRate(lastTally, S.budget && Number.isFinite(pace.budget) ? pace.budget * 1000 / T : Infinity, t0);
+  chooseRate(rateTally(), S.budget && Number.isFinite(pace.budget) ? pace.budget * 1000 / T : Infinity, t0, mode === 'calm');
   const hz = rate.hz, cap = capFrame();
   const available = acc + dtReal;
   acc = Math.min(available, cap / hz);
@@ -641,16 +1207,20 @@ function loop(now) {
   behindS += dropped;
   const steps = Math.min(cap, Math.floor((acc + 1e-9) * hz));
   acc -= steps / hz;
-  const p = solver.run(steps, set(), fieldAt, enc => renderer.encode(enc, solver.count, grainLook()));
+  // the metered neck's words for this run: the Timer's valve, or the Rotor probe's (shut)
+  const neck = timer.on ? timerWords(steps, wall, hz) : rotor.on ? rotorWords(steps, wall, hz) : null;
+  const p = solver.run(steps, set(), fieldAt, enc => renderer.encode(enc, solver.count, grainLook()), neck);
+  if (rotor.on) rotorDrawn();
   const tSim = simTime, tSub = performance.now();
   const seq = paceSubmit(pace, tSub);
   lastSteps = steps;
   gpu.device.queue.onSubmittedWorkDone().then(() => {
     const ms = performance.now() - tSub;
+    if (!firstFrameLogged) { firstFrameLogged = true; life('first frame', `done ${(performance.now() - bootT0).toFixed(0)} ms after the page's start (${ms.toFixed(0)} ms on the GPU)`); }
     if (!paceDone(pace, seq, steps, ms, T)) return;
     gpuLog.push({ t: now, ms, steps }); while (gpuLog.length && now - gpuLog[0].t > 10000) gpuLog.shift();
   }, () => { paceDone(pace, seq, 0, 0, T); });   // (a failure shows as a missing gpu lag)
-  if (p) p.then(t => { if (t) { readbackOk++; onTally(t, tSim, now); } }, e => {
+  if (p) p.then(t => { if (t) { readbackOk++; onTally(t, tSim, now); if (neck && timer.on) timerReadback(neck, t, tSim); if (neck && rotor.on) rotorReadback(neck, t); } }, e => {
     if (!readbackFails++) { readbackErr = String(e && e.message || e); console.error(e); }
     if (!readbackWarned && readbackFails >= 30 && readbackFails > 10 * readbackOk) {
       readbackWarned = true;
@@ -661,7 +1231,7 @@ function loop(now) {
   drawGlass();
   const gpuHeld = dropped > 1e-6 && cap < capNow();
   pace.binding = gpuHeld || !!rate.held;            // the budget held this frame back: it may rise
-  frames.push({ t: now, dt: since * 1000, work: performance.now() - t0, steps, hz, sim: steps / hz, real: since, capped: dropped > 1e-6 && !gpuHeld, gpuHeld, held: rate.held, T });
+  frames.push({ t: now, dt: since * 1000, work: performance.now() - t0, steps, hz, sim: steps / hz, real: since, capped: dropped > 1e-6 && !gpuHeld, gpuHeld, held: rate.held, T, mode });
   trimFrames(now);
   if (benchRun) benchRun.onFrame?.(now);
 }
@@ -741,6 +1311,11 @@ function hud() {
   if (!S.hud || !glass) return;
   const f = frameStats(), t = lastTally;
   const lines = [];
+  // the Timer's and the Rotor probe's lines first (the HUD grows to hold them)
+  if (timer.on) lines.push(...timerHud());
+  if (rotor.on) lines.push(`Rotor: ${pose.omega.toFixed(1)} rad/s, ${rotor.swaps} half-turn swaps, runs ${rotor.runs}, skipped ${rotor.skips} by hand${rotor.skip3 ? ' (every third)' : ''}, canvas turned in ${rotor.cssTurns} frames; sand in the wrong bulb ${rotor.wrong} of ${rotor.checked} readbacks`);
+  if (timer.on || rotor.on || S.mode !== 'full') lines.push(`mode ${modes.mode} (${S.mode}: ${modes.why}${modes.guard ? ', heat guard' : ''})  asleep ${sleptFrames}, calm skips ${calmFrames} frames`);
+  $('hud').classList.toggle('tall', lines.length > 0);
   if (f) lines.push(`drawn ${f.fps.toFixed(0)} fps (display ${Number.isFinite(f.display) ? f.display.toFixed(0) : '-'})  skipped ${Math.round(f.skipped * 100)}%${behindWhy(f)}`);
   if (f) lines.push(`frame ms ${f.median.toFixed(1)} med ${f.p95.toFixed(1)} p95 ${f.worst.toFixed(1)} max  lag ${Number.isFinite(f.gpu) ? f.gpu.toFixed(0) + ' (' + f.lagFrames.toFixed(1) + ' fr)' : '-'}`);
   if (f) lines.push(`steps ${f.steps.toFixed(1)}/frame  ${rate.hz} Hz${S.auto ? (rate.held ? ' HELD (wants ' + rate.held + ')' : rate.hz > S.hz ? ' auto↑' : ' auto') : ''} x${S.iterations}  sim/real ${f.ratio.toFixed(2)}`);
@@ -977,6 +1552,21 @@ function showBench() {
 /* ------------------------------------------------------------------ *
  *  Results for the clipboard
  * ------------------------------------------------------------------ */
+/** The Timer's lines for Copy results. */
+function timerReport(n) {
+  const st = timerState();
+  if (!st) return ['Timer: not run'];
+  const L = [''];
+  const N = st.n;
+  L.push(`Timer: ${st.label} (${st.grains} grains = ${st.points} points at ${st.ppg.toFixed(3)} points a grain, timed to ${mmss(st.ms)}), ${st.on ? st.state : 'stopped'}; ${mmss(st.rem)} left; nTop ${st.nTop}, target ${st.target}; ${st.swaps} swaps; mode setting ${st.setting}, heat guard ${st.guard ? 'engaged' : 'not engaged'}`);
+  L.push(`  clock: tail ${st.clock.tailMs.toFixed(0)} ms, ${st.clock.tailGrains} grains in the tail, ${n(st.clock.rate)} grains/s in the bulk`);
+  L.push(`  the neck: ${N.runs} runs read back (${N.open} open, ${N.closedRuns} shut); runs whose crossings left fewer above than their lowest target ${N.viol}; crossings while shut ${N.closedCross}; start + appended - crossings != above in ${N.mismatch}; point counts off ${N.pointsOff}; the valve's audit failed ${N.auditFails} of ${N.audits}`);
+  L.push(`  the count: nTop off the app's target in ${N.countOff} of ${N.supplied} open running frames; bulk runs short ${N.short} of ${N.bulk} (worst ${N.worstShort} points); mean queue ${n(st.queue)} points, mean vcap ${n(st.vcap, 2)} cells/s, gain kv ${n(st.kv)}; refused ${N.refused} crossings (now ${n(st.refusedPerS, 0)}/s), upward ${N.upward}`);
+  L.push(`  the stream's first fall, neck to floor (${n(st.floor)} cells): ${Number.isFinite(st.fall) ? n(st.fall, 3) + ' s simulated, ' + n(st.fallWall / 1000, 3) + ' s wall' : 'not measured'}`);
+  if (st.ends.length) st.ends.forEach((e, i) => L.push(`  end ${i + 1}: ${endText(e)}${e.last ? ' (a substep is ' + n(e.last.substep, 2) + ' ms)' : ''}`));
+  else L.push('  end: not reached');
+  return L;
+}
 function reportText() {
   const L = [];
   const n = (v, d = 1) => Number.isFinite(v) ? v.toFixed(d) : '-';
@@ -987,12 +1577,24 @@ function reportText() {
   L.push(`WebGPU adapter: vendor=${i.vendor || '?'} architecture=${i.architecture || '?'} device=${i.device || '?'} description=${i.description || '?'}${i.fallback ? ' (fallback)' : ''}`);
   L.push(`Screen: ${screen.width}x${screen.height} CSS px, devicePixelRatio ${window.devicePixelRatio}, window ${innerWidth}x${innerHeight}, screen angle ${screenAngle()}, standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`);
   L.push(`Errors: start ${startError || 'none'}; GPU lost ${lostReason || 'no'}; WebGPU ${solver?.errors?.length ? solver.errors.join(' | ') : 'none'}; live readbacks ${readbackOk} ok, ${readbackFails} failed${readbackErr ? ' (' + readbackErr + ')' : ''}`);
+  L.push(`Engine build: ${BUILD} (realsand/build.mjs); this page was written for ${BUILD_EXPECTED}${BUILD === BUILD_EXPECTED ? '' : ': A MIX OF OLD AND NEW FILES'}`);
   L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations (auto Hz ${S.auto ? 'on, up to ' + hzTop() + ' Hz; highest since reset ' + rate.peak : 'off'}), cap ${S.cap}/frame at the base rate, clamp ${S.maxStep} cell; jolts at app speed ${S.impulse ? 'played slowed like a film (x' + (1 / Math.sqrt(lamNow())).toFixed(1) + ' longer)' : 'plain'}; spread ${S.spread ? 'on' : 'off'}; yield ${S.yieldIn ? 'in loop' : 'at end'}; blur ${S.blur ? S.blur + ' frame' : 'off'}`);
   L.push(`Motion: input ${S.input}, readings ${motion.seen ? 'yes' : 'no'}, sign ${motion.sign || 'not learnt'}, units ${motion.unit ? (motion.unit > 1 ? 'g' : 'm/s²') : '?'}, turn axis ${motion.rAxis || '?'} sign ${motion.rSign} (${motion.rLearnt ? 'learnt' : 'assumed'})`);
   const f = frameStats();
   L.push(`Setup: ${setupInfo.text || (setupInfo.state === 'none' ? 'from the address (no timing)' : setupInfo.state)}`);
   L.push(`Pace: at most ${S.queue} frame${S.queue > 1 ? 's' : ''} of GPU work in flight; GPU budget ${S.budget ? 'on (cut when frames are skipped for want of the GPU, raised while it keeps up, not below the base rate\'s need unless that fails for 1 s' + (Number.isFinite(pace.budget) ? '; now ' + pace.budget + ' substeps a frame, lowest ' + pace.minBudget + ', ' + pace.cuts + ' cuts, ' + pace.raises + ' raises' : '; not needed yet') + ')' : 'off'}; ${dispatchesPerSubstep(S.iterations, set().material)} dispatches a substep; frames whose submit-to-done took over 1.2 display frames since reset: ${pace.overran}${S.hzMax ? '; auto Hz capped at ' + S.hzMax : ''}`);
   if (f) L.push(`Last 2 s: ${n(f.fps, 0)} frames drawn a second, display ${n(f.display, 0)} Hz, ${n(100 * f.skipped, 0)}% skipped (GPU busy), ${n(100 * f.capped, 0)}% held by the cap, ${n(100 * f.gpuHeld, 0)}% held by the GPU budget, auto Hz held back in ${n(100 * f.held, 0)}% (rate ${f.hzMax}${f.wantMax > f.hzMax ? ', wanted ' + f.wantMax : ''}); between frames median ${n(f.median)} ms, p95 ${n(f.p95)}, worst ${n(f.worst)}; submit-to-done lag median ${n(f.gpu)} ms (${n(f.lagFrames)} display frames), p95 ${n(f.gpu95)}; GPU ${n(f.msStep, 2)} ms a substep; ${n(f.steps)} substeps/frame, sim/real ${n(f.ratio, 2)}`);
+  const ms = modes.ms, msAll = ms.full + ms.calm + ms.asleep;
+  L.push(`Mode: ${S.mode}${S.mode === 'auto' ? ' (the app\'s rules: full, calm at 30 frames a second and the same substep rate, asleep)' : ' (set by hand)'}; now ${modes.mode} (${modes.why}); time in each: full ${n(ms.full / 1000)} s, calm ${n(ms.calm / 1000)} s, asleep ${n(ms.asleep / 1000)} s${msAll ? '' : ' (not tracked yet)'}; heat guard ${modes.guard ? 'ENGAGED (full under 0.6 of real time for 20 s)' : 'not engaged'}`);
+  for (const line of timerReport(n)) L.push(line);
+  if (bursts.length) {
+    L.push('');
+    L.push('GPU cost by a burst (design 9.3: with nothing else in flight; the slope removes a submit\'s latency)');
+    for (const r of bursts) L.push('  ' + burstText(r));
+  } else L.push('GPU cost by a burst: not measured (a Timer measures it on its bed before its clock starts; More, "GPU cost", on the bed in the glass)');
+  if (rotor.on || ROTOR) L.push(`Rotor probe: ${rotor.def ? rotor.def.label + ' bed, ' + rotor.points + ' points' : 'not started'}; turning ${pose.omega.toFixed(1)} rad/s (aim ${rotor.w}); ${rotor.swaps} half-turn swaps; ${rotor.runs} runs, ${rotor.skips} skipped by hand${rotor.skip3 ? ' (every third)' : ''}; the grains' canvas turned half a turn in ${rotor.cssTurns} frames (a run skipped since a swap); readbacks with sand in the wrong bulb ${rotor.wrong} of ${rotor.checked}`);
+  L.push('');
+  L.push('Lifecycle (ms since the page began): ' + lifeLog.map(e => `${e.t.toFixed(0)} ${e.kind}${e.detail ? ' (' + e.detail + ')' : ''}`).join('; '));
   const def = benchRows.filter(r => r.tag === 'default'), opt = benchRows.filter(r => r.tag && r.tag !== 'default');
   if (def.length) {
     L.push('');
@@ -1066,8 +1668,11 @@ function syncUI() {
   }
   for (const b of document.querySelectorAll('.cyc')) {
     const k = b.dataset.key, v = S[k];
-    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'impulse' ? `jolts ${v ? 'slowed' : 'plain'}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : k === 'spread' ? `spread ${v ? 'on' : 'off'}` : k === 'yieldIn' ? `yield ${v ? 'in loop' : 'at end'}` : k === 'queue' ? `${v} in flight` : k === 'budget' ? `GPU budget ${v ? 'on' : 'off'}` : `Coriolis ${v ? 'on' : 'off'}`;
+    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'impulse' ? `jolts ${v ? 'slowed' : 'plain'}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : k === 'spread' ? `spread ${v ? 'on' : 'off'}` : k === 'yieldIn' ? `yield ${v ? 'in loop' : 'at end'}` : k === 'queue' ? `${v} in flight` : k === 'budget' ? `GPU budget ${v ? 'on' : 'off'}` : k === 'mode' ? `mode ${v}` : `Coriolis ${v ? 'on' : 'off'}`;
   }
+  if ($('b-spin')) $('b-spin').textContent = `spin ${rotor.w} rad/s`;
+  if ($('b-skip3')) $('b-skip3').textContent = `skip every 3rd run: ${rotor.skip3 ? 'on' : 'off'}`;
+  if ($('b-timer')) $('b-timer').classList.toggle('on', timer.on);
   $('b-hud').classList.toggle('on', S.hud);
   $('hud').classList.toggle('off', !S.hud);
 }
@@ -1099,17 +1704,34 @@ function bindUI() {
   for (const b of document.querySelectorAll('.cyc')) b.addEventListener('click', () => {
     const k = b.dataset.key, list = CYCLE[k], i = list.indexOf(S[k]);
     S[k] = list[(i + 1) % list.length];
+    if (k === 'mode') { S.modeChosen = true; modesReset(modes, clockNow(), 0); }
     if (solver.cap !== capAlloc()) solver.allocUniforms(capAlloc());
     resetRate();
     syncUI();
   });
   $('b-more').addEventListener('click', () => { $('more').hidden = !$('more').hidden; $('b-more').classList.toggle('on', !$('more').hidden); requestAnimationFrame(layout); });
   $('b-flip').addEventListener('click', () => doFlip());
-  $('b-reset').addEventListener('click', () => { if (!busyUI()) resetSand({}); });
+  $('b-reset').addEventListener('click', () => { if (!busyUI()) { if (ROTOR) rotorStart(); else resetSand({}); } });
   $('b-hud').addEventListener('click', () => { S.hud = !S.hud; syncUI(); requestAnimationFrame(layout); });
   $('b-bench').addEventListener('click', () => { if (!busyUI()) benchmark(); });
   $('b-flow').addEventListener('click', () => { if (!busyUI()) flowTest(); });
   $('b-copy').addEventListener('click', () => copyResults());
+  $('b-timer').addEventListener('click', () => { if (!busyUI()) showTimers(); });
+  $('b-cost').addEventListener('click', () => {
+    if (busyUI()) return;
+    if (timer.on && timer.state !== 'done') { setStatus('The GPU cost is timed before a Timer starts, or after it ends'); return; }
+    setStatus('Timing the GPU…');
+    burst({ label: `${AMOUNT_NAME[S.amount] || 'this'} bed` }).then(r => { setStatus(''); if (r) { const d = document.createElement('p'); d.textContent = burstText(r); showSheet('GPU cost', d); } }, e => setStatus('GPU cost failed: ' + (e && e.message || e)));
+  });
+  $('b-rotor').addEventListener('click', () => { location.href = ROTOR ? location.pathname : location.pathname + '?rotor=1'; });
+  if (ROTOR) {
+    for (const k of ['input', 'material', 'speed', 'amount', 'res']) document.querySelector(`.seg[data-key="${k}"]`).style.display = 'none';
+    for (const id of ['b-flip', 'b-timer', 'b-bench', 'b-flow']) $(id).style.display = 'none';
+    $('b-rotor').textContent = 'Back to the lab';
+    $('rotor-row').hidden = false;
+    $('b-spin').addEventListener('click', () => { rotor.w = ROTOR_SPEEDS[(ROTOR_SPEEDS.indexOf(rotor.w) + 1) % ROTOR_SPEEDS.length]; syncUI(); });
+    $('b-skip3').addEventListener('click', () => { rotor.skip3 = !rotor.skip3; syncUI(); });
+  }
   $('sheet-close').addEventListener('click', () => { $('sheet').hidden = true; });
   const stage = $('stage');
   stage.addEventListener('pointerdown', e => {
@@ -1130,8 +1752,11 @@ function bindUI() {
   document.addEventListener('visibilitychange', () => {
     hidden = document.hidden;
     if (hidden) hiddenCount++;
-    if (!hidden) { lastNow = 0; lastDrawn = 0; acc = 0; }
+    if (!hidden) { lastNow = 0; lastDrawn = 0; acc = 0; lastVisibleAt = performance.now(); }
+    life(hidden ? 'hidden' : 'visible');
   });
+  // the lifecycle log: what iOS does to the page on a lock or an app switch
+  for (const k of ['pagehide', 'pageshow', 'freeze', 'resume']) (k === 'freeze' || k === 'resume' ? document : window).addEventListener(k, e => life(k, e.persisted ? 'persisted' : ''));
   // turning the phone sideways turns the page too, unless Portrait Orientation Lock is on
   const land = matchMedia('(orientation: landscape)');
   const onLand = () => landscapeNotice(land.matches || screenAngle() !== 0);
@@ -1151,8 +1776,27 @@ function landscapeNotice(on) {
     <p>Open Control Center (swipe down from the top-right corner), tap the lock with the circular arrow, then turn the phone back upright.</p>
     <p>With the lock on, turn the phone as far as you like: the sand follows, and the page stays put.</p>`;
 }
+/** The Timer's sheet: its glasses, and Stop. */
+function showTimers() {
+  const d = document.createElement('div');
+  const p = document.createElement('p');
+  p.textContent = 'The app\'s amount of sand for a glass (coarse grid, coarse sand, app speed), timed by the app\'s clock through the metered neck. The HUD shows the count against the clock, the queue on the line, the throttle (vcap), refused crossings and the stream\'s first fall; at the end, when the last grain left against 00:00.0. More, "mode", sets full, calm or auto (the app\'s rules, with the heat guard). Copy results has it all.';
+  d.appendChild(p);
+  const row = document.createElement('div'); row.id = 'timers';
+  for (const t of TIMERS) {
+    const b = document.createElement('button'); b.className = 'act small'; b.textContent = t.label;
+    b.addEventListener('click', () => { $('sheet').hidden = true; timerStart(t.id).catch(e => setStatus('Timer failed: ' + (e && e.message || e))); });
+    row.appendChild(b);
+  }
+  const stop = document.createElement('button'); stop.className = 'act small'; stop.textContent = 'Stop';
+  stop.addEventListener('click', () => { $('sheet').hidden = true; timerOff(); if (!S.modeChosen) S.mode = 'full'; syncUI(); });
+  row.appendChild(stop);
+  d.appendChild(row);
+  if (timer.def) { const q = document.createElement('pre'); q.textContent = timerReport((v, k = 1) => Number.isFinite(v) ? v.toFixed(k) : '-').join('\n'); q.style.whiteSpace = 'pre-wrap'; q.style.fontSize = '11px'; d.appendChild(q); }
+  showSheet('Timer', d);
+}
 function doFlip() {
-  if (flip.active) return;
+  if (flip.active || rotor.on) return;
   flip.active = true; flip.t0 = simTime; flip.from = pose.theta; flip.to = pose.theta + Math.PI;
   gateUntil = 0;
 }
@@ -1300,20 +1944,27 @@ const ready = new Promise((r, j) => { readyResolve = r; readyReject = j; });
 ready.catch(() => {});
 
 async function boot() {
+  if (ROTOR) rotorBuild();
   bindUI(); syncUI(); layout();
+  let tb = performance.now();
   try {
     gpu = await createDevice();
-  } catch (e) { noGPU(e); readyReject(e); return; }
+    life('device', `${(performance.now() - tb).toFixed(0)} ms${gpu.info.fallback ? ', a fallback adapter' : ''}`);
+  } catch (e) { life('no device', String(e && e.message || e)); noGPU(e); readyReject(e); return; }
   try {
     const base = new URL('../../realsand/shaders/', import.meta.url);
+    tb = performance.now();
     solver = await Solver.create(gpu.device, base);
-    renderer = new GrainRenderer(gpu.device, $('c-gpu'), { offscreen: new URLSearchParams(location.search).has('offscreen') });
+    life('pipelines', `${(performance.now() - tb).toFixed(0)} ms for the solver's`);
+    renderer = new GrainRenderer(gpu.device, $('c-gpu'), { offscreen: OFFSCREEN });
+    tb = performance.now();
     await renderer.init(solver.shaders);
+    life('grain pipeline', `${(performance.now() - tb).toFixed(0)} ms`);
     const q = new URLSearchParams(location.search);
     for (const k of ['res', 'amount', 'material', 'speed']) if (q.get(k)) S[k] = q.get(k);
     // the amount and grid: from the address, or as picked (or chosen) on an earlier visit, or timed now
     // (?setup times it again whatever was kept; tests load with offscreen or a grid and amount: no timing)
-    const saved = q.has('setup') ? null : setupSaved(), fromUrl = !q.has('setup') && (q.has('res') || q.has('amount') || q.has('offscreen') || q.has('nosetup'));
+    const saved = q.has('setup') ? null : setupSaved(), fromUrl = !q.has('setup') && (q.has('res') || q.has('amount') || q.has('offscreen') || q.has('nosetup') || ROTOR);
     // (an automatic pick only from the setups it may make now: SETUP_CANDIDATES)
     if (!fromUrl && saved && SETUP_POINTS[saved.res]?.[saved.amount] && (saved.by === 'owner' || SETUP_CANDIDATES.some(c => c.res === saved.res && c.amount === saved.amount))) {
       S.res = saved.res; S.amount = saved.amount;
@@ -1323,7 +1974,11 @@ async function boot() {
     Object.assign(S, SPEED_DEFAULTS[S.speed]);
     await resetSand({});
     layout();
-    gpu.device.lost.then(info => { if (info.reason !== 'destroyed') { lostReason = `${info.reason}: ${info.message}`; setStatus('The GPU was lost. Reload the page.'); } });
+    if (ROTOR) await rotorStart({ skip3: q.get('skip3') === '1' });
+    gpu.device.lost.then(info => {
+      life('device lost', `${info.reason}: ${info.message}; ${document.hidden ? 'hidden' : (performance.now() - lastVisibleAt).toFixed(0) + ' ms after the page was last shown'}`);
+      if (info.reason !== 'destroyed') { lostReason = `${info.reason}: ${info.message}`; setStatus('The GPU was lost. Reload the page.'); }
+    });
     setInterval(hud, 250);
     if (!rafOn) { rafOn = true; requestAnimationFrame(loop); }
     readyResolve(info());
@@ -1374,7 +2029,7 @@ window.__lab = {
     resetRate();
     syncUI(); return { ...S };
   },
-  manual(on = true) { manual = !!on; if (!on) { lastNow = 0; acc = 0; } },
+  manual(on = true) { manual = !!on; if (!on) { lastNow = 0; acc = 0; vclock = null; vq.length = 0; vLastRun = null; } },
   step: n => stepN(n),
   /** Advance sec simulated seconds (the substep rate may change on the way: auto Hz). */
   advance: sec => stepN(0, simTime + sec),
@@ -1432,7 +2087,25 @@ window.__lab = {
   report: () => reportText(),
   motion: () => ({ ...motion, dn: undefined }),
   time: () => simTime,
-  tally: () => lastTally
+  tally: () => lastTally,
+  /** Start a Timer (timer.mjs TIMERS ids): { ms, grains, burst, settle }. */
+  async timer(id, o = {}) { await ready; return timerStart(id, o); },
+  timerState: () => timerState(),
+  timerStop() { timerOff(); },
+  /** n frames of 1/60 s on a virtual clock, as the live loop runs them: { lag, stopAtEnd, draw }. */
+  frames: (n, o) => framesN(n, o),
+  /** The power mode: 'full', 'calm' or 'auto'. */
+  mode(m) { S.mode = m; S.modeChosen = true; modesReset(modes, clockNow(), 0); syncUI(); return S.mode; },
+  /** The mode's state; runs: the frames stepped by frames() since run number `since` (each { i, frame, mode, steps, hz }; the last 4000 kept). */
+  modes: (since = 0) => ({ mode: modes.mode, why: modes.why, setting: S.mode, guard: modes.guard, ms: { ...modes.ms }, changes: modes.changes, slept: sleptFrames, calmSkips: calmFrames, ran: vRunN, runs: vRuns.filter(r => r.i >= since) }),
+  /** The GPU's cost by a burst: { reps, small, big }; the sand is put back after. */
+  burst: o => burst(o),
+  lifecycle: () => lifeLog.map(e => ({ ...e })),
+  /** The Rotor probe (on a page loaded with ?rotor=1): { amount, w, skip3, spun }. */
+  async rotor(o = {}) { await ready; await rotorStart(o); return this.rotorState(); },
+  rotorState: () => ({ on: rotor.on, w: rotor.w, omega: pose.omega, theta: pose.theta, swaps: rotor.swaps, runs: rotor.runs, skips: rotor.skips, cssTurns: rotor.cssTurns, wrong: rotor.wrong, checked: rotor.checked,
+    parity: rotor.valve ? rotor.valve.parity : 0, drawnParity: rotor.drawnParity, canvasTurned: $('c-gpu').style.transform === 'rotate(180deg)', rotorTransform: $('rotor') ? $('rotor').style.transform : '', points: solver?.count, gl: rotor.gl.map(g => !!g) }),
+  build: () => ({ build: BUILD, expected: BUILD_EXPECTED })
 };
 
 boot();

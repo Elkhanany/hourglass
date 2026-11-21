@@ -44,6 +44,11 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   text-shadow: 0 1px 2px #000;
 }
 #hud.off { display: none; }
+#hud.tall { height: 150px; }
+/* the Rotor probe (?rotor=1): the grains' canvas between two WebGL canvases in a div that turns */
+#rotor { position: absolute; transform-origin: 50% 50%; }
+#rotor canvas { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; }
+#timers { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 #status { position: absolute; left: calc(var(--sal) + 16px); right: 16px; font-size: 12px; color: var(--accent); margin-top: 2px; text-shadow: 0 1px 2px #000; }
 
 #notice {
