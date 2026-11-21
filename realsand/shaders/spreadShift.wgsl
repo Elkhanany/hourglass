@@ -4,7 +4,8 @@
 // of the OTHER points around it (its own share taken out) and, where that is
 // above what an evenly packed bed gives, steps a little down its gradient. A
 // position correction only: the velocity is left alone, so it cannot throw the
-// sand; where the sand is thin (a free surface, spray) nothing moves.
+// sand; where the sand is thin (a free surface, spray) nothing moves. With the
+// metered neck on, no step carries a point across the counting line.
 // Shared include: see ../LICENSES.md.
 //-----------------------------------------------------------------------------
 //!include common.inc
@@ -48,7 +49,12 @@ fn csMain(@builtin(global_invocation_id) id: vec3u) {
     var step = -k * (rho - thr) * grad;
     let len = length(step);
     if (len > cap) { step *= cap / len; }
-    let np = p.position + step;
+    var np = p.position + step;
+    // with the metered neck on (valve.mjs), never across the counting line: only the membrane
+    // (g2p2g.wgsl) lets a point cross, so a shift that would change its side keeps its x part only
+    if (neckOn() && ((np.y > g_simConstants.neckY) != (p.position.y > g_simConstants.neckY))) {
+        np.y = p.position.y;
+    }
     // never into the wall
     if (sampleDomain(np).z < 0.3) { return; }
     particles[id.x].position = np;

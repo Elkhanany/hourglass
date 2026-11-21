@@ -13,7 +13,7 @@ licences are compatible with the GPL-3.0.
 | `shaders/common.inc.wgsl`, `g2p2g.wgsl`, `gridUpdate.wgsl`, `bukkitCount.wgsl`, `bukkitAllocate.wgsl`, `bukkitInsert.wgsl` | EA's PB-MPM shaders, as adapted in Smoosh | BSD-3-Clause (EA) and MIT (Smoosh) |
 | `shaders/domain.inc.wgsl`, `rescale.wgsl` | Smoosh: `domain.inc.wgsl`, `rescaleParticles.wgsl` | MIT (Smoosh) |
 | `shaders/grains.wgsl` | the idea of Smoosh's `density.wgsl`; EA's particle layout | MIT (Smoosh), BSD-3-Clause (EA) |
-| `shaders/prepare.wgsl`, `gridClear.wgsl`, `tally.wgsl`, `load.wgsl`, `spreadSplat.wgsl`, `spreadShift.wgsl` | new, using the shared include above | GPL-3.0 (with the notices of the include) |
+| `shaders/prepare.wgsl`, `gridClear.wgsl`, `tally.wgsl`, `load.wgsl`, `spreadSplat.wgsl`, `spreadShift.wgsl`, `flip.wgsl` | new, using the shared include above | GPL-3.0 (with the notices of the include) |
 | `glass.mjs`, `palette.mjs` | the Hourglass app (`physics.js`) | GPL-3.0 |
 | `pace.mjs`, `build.mjs`, `valve.mjs`, `fill.mjs`, `grains.mjs`, `rate.mjs`, `felt.mjs` | new (the last four taken out of the lab page's `main.mjs`) | GPL-3.0 |
 | the lab page, `lab/sand/` (`main.mjs`, `index.html`, `lab.css`) | the Hourglass app (`physics.js`, `styles.css`, `motion.js`) | GPL-3.0 |

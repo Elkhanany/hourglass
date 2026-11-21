@@ -9,7 +9,9 @@
 // closed neck holds the top bulb's sand; sand measures how tightly it is
 // packed from the grid, so that loose sand packs back down under load
 // (EA's per-particle expansion memory is replaced by that measure): the mean
-// over the filled nodes around it, not the densest node.
+// over the filled nodes around it, not the densest node; the metered neck's
+// membrane: a point crosses the counting line only downward, and only with a
+// ticket.
 //-----------------------------------------------------------------------------
 
 //!include common.inc
@@ -23,6 +25,9 @@
 @group(0) @binding(5) var<storage> g_domain : array<vec4f>;
 // per grid node: the depth of sand above it along "up", cells (load.wgsl; read with yieldp.z = 2)
 @group(0) @binding(6) var<storage> g_load : array<f32>;
+// the neck's counters (solver.mjs): [2] crossings this run (tickets taken), [3] the points above
+// at the run's start, [4] crossings refused this run, [5] upward crossings refused this run
+@group(0) @binding(7) var<storage, read_write> g_counters : array<atomic<u32>>;
 
 override enableSolidMaterials: bool = false;
 
@@ -64,6 +69,32 @@ fn wallContact(particle: ptr<function, Particle>)
             (*particle).position.y = g_simConstants.neckY + 0.5;
             (*particle).displacement.y = max((*particle).displacement.y, 0.0);
         }
+    }
+}
+
+// The metered neck's membrane (valve.mjs), after the last iteration's integration: oldY is the
+// point's height before it, the point is where it ended. A downward crossing of the counting line
+// takes a ticket, t = crossings so far this run; it may cross only while t < (the points above at
+// the run's start) + allow, so the sand above never falls below the substep's target. Refused, it
+// gives its ticket back (between dispatches the crossings are exact; inside one a refused thread
+// can over-count for a moment, which refuses more, never fewer) and rests just above the line.
+// An upward crossing is refused.
+fn membrane(particle: ptr<function, Particle>, oldY: f32)
+{
+    let line = g_simConstants.neckY;
+    let y = (*particle).position.y;
+    if (oldY > line && y <= line) {
+        let t = i32(atomicAdd(&g_counters[2], 1u));
+        if (t >= i32(atomicLoad(&g_counters[3])) + i32(floor(g_simConstants.allow))) {
+            atomicSub(&g_counters[2], 1u);
+            atomicAdd(&g_counters[4], 1u);
+            (*particle).position.y = line + 0.02;
+            (*particle).displacement.y = max((*particle).displacement.y, 0.0);
+        }
+    } else if (oldY <= line && y > line) {
+        atomicAdd(&g_counters[5], 1u);
+        (*particle).position.y = line - 0.02;
+        (*particle).displacement.y = min((*particle).displacement.y, 0.0);
     }
 }
 
@@ -269,6 +300,8 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                 particle.position += particle.displacement;
                 particle.position = projectInsideGuardian(particle.position, g_simConstants.gridSize, f32(GuardianSize) + 1.0);
                 wallContact(&particle);
+                // (p: the position before this integration; every move above is metered at once)
+                if (neckOn()) { membrane(&particle, p.y); }
 
                 // The next substep's prediction: the field the sand feels in the glass.
                 let dt = g_simConstants.deltaTime;
@@ -310,9 +343,9 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
 
             // Resist compression. EA resisted none while the particle remembered an expansion,
             // so loose sand fell freely until it was packed again, and in this solver the bed
-            // then bounced in place. Here loose sand is resisted too (sand.w = 0) and packs down
+            // then bounced in place. Here loose sand is resisted too (floorLoose = 0) and packs down
             // only as fast as its load gets through this constraint; the return map keeps that
-            // compaction instead of pushing it back. (sand.w = 1: loose sand may be compressed
+            // compaction instead of pushing it back. (floorLoose = 1: loose sand may be compressed
             // as far as its looseness, freely.)
             var tgt: mat2x2f;
             if (g_simConstants.yieldp.x > 0.5)
@@ -389,7 +422,7 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
             }
             else
             {
-                let floorSigma = exp(-0.5 * g_simConstants.sand.w * max(particle.logJp, 0.0));
+                let floorSigma = exp(-0.5 * g_simConstants.floorLoose * max(particle.logJp, 0.0));
                 svdResult.Sigma = clamp(svdResult.Sigma, vec2f(floorSigma), vec2f(1000, 1000));
 
                 // Closest matrix to F with det == 1
