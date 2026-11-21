@@ -6,7 +6,9 @@
  * npx playwright install chromium).
  *
  *   node tools/test/run-all.js [filter]       e.g. "sim-" runs the physics only;
- *                                             "lab-" runs the lab pages' suites
+ *                                             "lab-" runs the lab pages' suites;
+ *                                             "realsand-" the sand engine's (Node,
+ *                                             seconds: realsand-valve)
  */
 'use strict';
 var fs = require('fs'), path = require('path'), cp = require('child_process');
