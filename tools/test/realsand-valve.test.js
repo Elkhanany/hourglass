@@ -7,27 +7,34 @@
  *
  * Cases: six grain settings (points per grain 0.29 to 1.69: phone and tablet, classic, Fine and
  * Finest), each with a 10 s glass, a 1-minute glass with a 1.5 s pour, with a Flip, with a hand
- * spin of 8 swaps, with a tilt swap and a pour in the same frame at 30 % skipped runs, a 5-minute
- * glass asleep 40 s (the catch-up by transfer) and a Reset; then 25 minutes and 99:59; throttle
- * gains of 10, 14 and 26 (the valve's estimate always starts at 20); sim/real dips to 0.6; a
- * supply that falls as the bulb empties (10 s and 60 minutes, classic and Finest); the slowest
- * rest (10 s of sand timed to 60 minutes: the duty cycle) and the fastest (60 minutes of sand in
- * one); a shaken glass (the neck starved, then relCap); a straggler stuck above (the residue
- * transfer); readbacks 15 frames late (the pending base after a swap).
+ * spin of 8 swaps, with a tilt swap in a pour (poured before and after the swap in its frame) at
+ * 30 % skipped runs, a 5-minute glass asleep 40 s (the catch-up by transfer) and a Reset; then
+ * 25 minutes and 99:59; throttle gains of 10, 14 and 26 (the valve's estimate always starts at
+ * 20); sim/real dips to 0.6; calm (runs at 30 fps); held in the hand with Real motion on (relCap
+ * throughout); a supply that falls as the bulb empties (10 s and 60 minutes, classic and Finest);
+ * the slowest rest (10 s of sand timed to 60 minutes: the duty cycle) and the fastest (60
+ * minutes of sand in one, also with a weak neck at sim/real 0.6); a shaken glass (the neck
+ * starved, then relCap), and one laid on its side as the throttle reopens (the settlement); a
+ * straggler stuck above (the residue transfer); readbacks 15 frames late (a brisk tilt swap
+ * reopens the neck before an exact readback: the pending base).
  *
  * Checks, every case: no point crosses so that fewer are above than the substep's target, and
  * counters[3] + appended is the true count at every run's start; a closed neck issues no ticket;
- * nTop never goes back to its value from before a swap, and does not change while closed except
- * by CPU events and the one settlement; after a transfer it never rises above what the transfer
- * left; nTop === targetTop while the neck is supplied and the target falls; nTop is 0 only with
- * no point above; released is never negative; a pour raises the ledger by exactly n grains and
- * the GPU by exactly the points appended; relCap limits the drop; the throttle is never between
- * 0 and 0.25 cells/s (the duty cycle); every glass empties and the last point leaves within one
- * substep of 00:00.0 (the substep's own length, about 2 ms of wall time), and nTop reads 0
- * within a few frames after; in the bulk under 0.5 % of runs end short of their target, by at
- * most 3 points (not for the fastest rests). Control: the first version's bookkeeping (an
- * append wrote tally[1] and allow carried the pour: counted twice) must let points cross below
- * the target in every pour case.
+ * a swap with no exact readback at hand keeps every run closed until one arrives; closed a while,
+ * the ledger holds exactly the GPU's count; nTop never goes back to its value from before a swap
+ * or a fill, and does not change while closed except by CPU events and the one settlement;
+ * after a transfer it never rises above what the transfer left and keeps the leftover the app
+ * left to flow; nTop === targetTop while the neck is supplied and the target falls; nTop is 0
+ * only with no point above; released is never negative; a pour raises the ledger by exactly n
+ * grains and the GPU by exactly the points appended; relCap limits the fall; the throttle is
+ * never between 0 and 0.25 cells/s (the duty cycle); every glass empties and the last point
+ * leaves within one substep of 00:00.0 (the substep's own length, about 2 ms of wall time), and
+ * nTop reads 0 within a few frames after; in the bulk under 0.5 % of runs end short of their
+ * target, by at most 3 points (not for the fastest rests, whose breathing asks more than the
+ * open neck gives, nor with readbacks 15 frames late). Directly: the units, the closed words,
+ * a mirrored pour, pourable (room, maxTotal, the brim). Control: the first version's
+ * bookkeeping (an append wrote tally[1] and allow carried the pour: counted twice) must let
+ * points cross below the target in every pour into an open neck.
  *
  *   node tools/test/realsand-valve.test.js [--table]
  */
@@ -74,6 +81,16 @@ async function main() {
   check(c.nTop === 10 && c.flipPending && pr.mirrored && pr.points === 17 && c.run({ steps: 8, now: 33.3, simDt: 8 / 480 }).flip && !c.flipPending,
     'a swap waits for its flip pass: a pour then is appended mirrored (17 points for 10 grains), and the next run carries the flip pass');
 
+  // the brim and the room: pourable
+  var b = new Valve({ ppg: 1.69 }); b.fill(1000, 1000);
+  var room = b.pourable(50, { room: 10 }), cap = b.pourable(50, { maxTotal: 1020 });
+  b.plan({ now: 0, target: 1000, gateOpen: true, rem: 1e4, tailMs: 500 });
+  b.onReadback(b.run({ steps: 8, now: 16.7, simDt: 8 / 480 }).seq, { above: 1690, below: 0, queue: 0, brim: 16 * 290 });
+  var brim = [b.pourable(10, { inlet: 295 }), b.pourable(10, { inlet: 293 })];
+  b.completeFlip();
+  check(room === 5 && b.Pts(1005) - b.Pts(1000) <= 10 && b.Pts(1006) - b.Pts(1000) > 10 && cap === 20 && brim[0] === 10 && brim[1] === 0 && b.pourable(10, { inlet: 293 }) === 10,
+    'pourable: the buffer\'s room (5 grains in 10 points), maxTotal (20), the brim 4 cells below the inlet (10 grains at 5 cells, 0 at 3), not known after a swap (10)');
+
   // ---- the cases ----
   var cases = [];
   function add(name, o, kind) { cases.push({ name: name, o: o, kind: kind || {} }); }
@@ -91,6 +108,10 @@ async function main() {
   add('classic phone, 99:59', { d: 5999e3 });
   [10, 14, 26].forEach(function (kv) { add('classic phone, 10 min, throttle gain ' + kv + ' (estimate starts at 20)', { d: 600e3, kv: kv }); });
   add('classic phone, 5 min, sim/real dips to 0.6', { d: 300e3, dips: true });
+  add('classic phone, 5 min, calm: runs at 30 fps', { d: 300e3, fps: 30 });
+  add('Finest phone, 1 min, calm: runs at 30 fps, a Flip at 30 s', { d: 60e3, q: 2.16, fine2: 4, fps: 30, events: [{ t: 30, type: 'flip' }] });
+  add('classic phone, 5 min, held in the hand with Real motion on (relCap throughout)', { d: 300e3, held: true }, { held: true });
+  add('classic phone, 10 s, held in the hand, 30 fps, a tilt swap in a pour', { d: 10e3, held: true, fps: 30, events: TILT_POUR().map(function (e) { return Object.assign({}, e, { t: e.t - 15 }); }) }, { held: true, pour: true });
   add('classic phone, 10 s, supply falls as the bulb empties', { d: 10e3, empties: true });
   add('classic phone, 60 min, supply falls as the bulb empties', { d: 3600e3, empties: true });
   add('Finest phone, 60 min, supply falls as the bulb empties', { d: 3600e3, q: 2.16, fine2: 4, empties: true });
@@ -138,7 +159,7 @@ async function main() {
     if (k.pour && !r.pours) bad.push('no pour');
     if (k.transfer && !r.transfers) bad.push('no catch-up transfer');
     if (k.duty && !(r.dutyOn > 0 && r.dutyOff > 0)) bad.push('the throttle was not duty-cycled (' + r.dutyOn + ' runs at 0.25, ' + r.dutyOff + ' shut)');
-    if (k.shake && !r.relCapFrames) bad.push('relCap never applied');
+    if ((k.shake || k.held) && !r.relCapFrames) bad.push('relCap never applied');
     if (k.pending && !(r.pendings && r.pendingSwaps)) bad.push('the pending base was not exercised');
     if (k.settle && !(r.settleMoves && r.closedChecked)) bad.push('the closed count did not settle (' + r.settleMoves + ' moves, ' + r.closedChecked + ' frames checked)');
     if (k.starved && !(r.transfers > 0)) bad.push('the backlog was not caught up by transfers');

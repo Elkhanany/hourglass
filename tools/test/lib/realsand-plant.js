@@ -128,7 +128,7 @@ function firstVersion(Valve) {
 
 /**
  * One glass, frame by frame. o: { d (ms), q, fine2, grains, kv, q0, empties, stuck, skip, lat,
- * ratio, dips, seed, events: [{ t (s), type: 'pour' (s) | 'flip' | 'spin' (n) | 'tilt' (hold,
+ * ratio, dips, fps (60; 30 is calm), held (motion always recent: relCap on, no catch-up), seed, events: [{ t (s), type: 'pour' (s) | 'flip' | 'spin' (n) | 'tilt' (hold,
  * pour) | 'hide' (s) | 'reset' | 'shake' (s) }] }.
  */
 function runCase(Valve, o) {
@@ -159,7 +159,7 @@ function runCase(Valve, o) {
   function arm(n, top, kind, pre) { watch = { n: n, top: top, kind: kind, pre: pre, settle: v.n.settleMoves }; quietUntil = t + 1; }
 
   while (t < o.d / 1000 + 90) {
-    var dtw = rnd() < 0.02 ? 0.05 : 1 / 60; t += dtw; frameNo++;
+    var dtw = rnd() < 0.02 ? 0.05 : 1 / (o.fps || 60); t += dtw; frameNo++;
     var now = t * 1000;
     eventThisFrame = retimed; retimed = false;
     for (var i = 0; i < events.length; i++) {
@@ -180,9 +180,9 @@ function runCase(Valve, o) {
     if (hidden && t < hidden.until) { if (state === 'running') { rem -= dtw * 1000; if (rem <= 0) { rem = 0; state = 'done'; doneT = t; } } continue; }
     if (hidden) { hidden = null; back = true; }
     plant.starve = !!(shake && t < shake.until);
-    if (plant.starve) lastMotionAt = now;
+    if (plant.starve || o.held) lastMotionAt = now;     // shaken, or held in the hand with Real motion on
     var motionRecent = now - lastMotionAt < 2000;
-    if (now - lastMotionAt < 3000) quietUntil = Math.max(quietUntil, t);
+    if (!o.held && now - lastMotionAt < 3000) quietUntil = Math.max(quietUntil, t);   // after a shake: its backlog
     // tickClock: the clock stands still while turning and on its side
     var tilted = t < tilt.until;
     if (state === 'running' && !flip.active && !tilted) {
@@ -237,7 +237,7 @@ function runCase(Valve, o) {
       }
     }
     back = false;
-    var pl = v.plan(app);
+    var prevPlanTop = v.nTop, pl = v.plan(app);
     if (pl.released < 0) res.negRel++;
     var ran = false, words = null, out = null;
     if (!xfer && v.residueDue(now)) { v.fastForward(v.nTop); xfer = { frames: 1 + Math.floor(rnd() * 2) }; res.residues++; residue = true; }
@@ -295,12 +295,13 @@ function runCase(Valve, o) {
     tHist.push(target); if (tHist.length > 6) tHist.shift();
     var falling = tHist.length === 6;
     for (var h = 1; h < tHist.length; h++) if (tHist[h] > tHist[h - 1]) falling = false;
-    if (supRun >= 5 + (o.lat || 0) && falling && running && target > 0 && !watch && !xfer && relCap === 0) {
+    // (not while relCap holds the count above a falling target: a backlog leaving as a thread)
+    if (supRun >= 5 + (o.lat || 0) && falling && running && target > 0 && !watch && !xfer && !(relCap > 0 && target < prevPlanTop - Math.ceil(relCap) * steps120)) {
       res.supChecked++;
       if (nTop !== target) res.supMismatch++;
     }
     // frames short in the bulk: the GPU above its run's end target
-    if (ran && !words.closed && running && rem > clk.tailMs && t > 2 && t > quietUntil && !motionRecent && !watch) {
+    if (ran && !words.closed && running && rem > clk.tailMs && t > 2 && t > quietUntil && (o.held || !motionRecent) && !watch) {
       res.bulkRuns++;
       var sh = plant.above - words.targets[words.steps - 1];
       if (sh > 0) { res.shortRuns++; if (sh > res.worstShort) res.worstShort = sh; }

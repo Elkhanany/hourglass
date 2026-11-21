@@ -77,15 +77,21 @@
  *                 the HUD and tests; the GPU does not need it), appended, closed, from, to (the
  *                 wall span the run stands for, ms)
  *  onReadback(seq, words)
- *      The run's readback: { above: tally[1], below: tally[2], queue: tally[8], crossings:
- *      counters[2], start: counters[3], refused: counters[4], upward: counters[5] } (above,
- *      below and queue are needed; the rest feed stats() and a check of the membrane's own
- *      arithmetic, start + appended - crossings === above). Counts are in the run's orientation
+ *      The run's readback: { above: tally[1], below: tally[2], queue: tally[8], brim: tally[10],
+ *      crossings: counters[2], start: counters[3], refused: counters[4], upward: counters[5] }.
+ *      above and below: points on each side of the line; queue: points with line < y < line +
+ *      0.75 and |x - cx| < rn + 1 (resting on the line); brim: the highest y of a point above the
+ *      line within 3 cells of the axis, grid cells x 16, 0 if none. above, below and queue are
+ *      needed; brim feeds pourable(); the rest feed stats() and a check of the membrane's own
+ *      arithmetic, start + appended - crossings === above. Counts are in the run's orientation
  *      (after its flip pass). A run with no readback (no slot, a failed map) needs no call.
  *
  *  Reading: nTop (grains above, what the app reads), total, points (points in the buffer),
  *  parity, flipPending, census(), stats(), audit() (the newest readback against the ledger),
- *  residueDue(now) (points stuck above after the end: move them by a transfer).
+ *  residueDue(now) (points stuck above after the end: move them by a transfer), pourable(n,
+ *  { maxTotal, room, inlet }) (the grains of n that may be poured now: none at the brim, 4 cells
+ *  below the top bulb's far end at grid y `inlet`; no more than maxTotal grains and the
+ *  buffer's room in points allow).
  *
  * ==============================================================================================
  *  UNITS
@@ -315,7 +321,7 @@ export class Valve {
     const r = this.rec(seq);
     if (!r || r.gen !== this.gen || r.read) { this.n.dropped++; return false; }
     r.read = true;
-    const k = { seq, above: w.above, below: w.below, queue: w.queue || 0, crossings: w.crossings, refused: w.refused || 0 };
+    const k = { seq, above: w.above, below: w.below, queue: w.queue || 0, brim: w.brim || 0, crossings: w.crossings, refused: w.refused || 0 };
     if (w.start !== undefined && w.crossings !== undefined && w.start + r.appended - w.crossings !== w.above) this.n.mismatches++;
     this.n.refused += w.refused || 0; this.n.upward += w.upward || 0;
     if (w.crossings > 0) this.lastCrossAt = r.to;
@@ -463,6 +469,31 @@ export class Valve {
   residueDue(now) {
     return this.endAt !== null && !this.xfer && !this.closed && this.tail && this.gTop > 0 &&
       now - this.endAt >= 1500 && now - Math.max(this.lastCrossAt, this.endAt) >= 500;
+  }
+
+  /**
+   * The top bulb is at its brim: the newest readback of this bulb (none since a swap: not known
+   * yet) has a point near the axis within `margin` cells of its far end, grid y `inlet`. A pour
+   * raises the bed about 2 rows a second and a readback is 1-3 frames old, so 4 cells is ample.
+   */
+  atBrim(inlet, margin = 4) {
+    for (let i = this.tallies.length - 1; i >= 0; i--) {
+      const k = this.tallies[i], r = this.rec(k.seq);
+      if (!r || r.gen !== this.gen) continue;
+      return r.parity === this.parity && k.brim > 0 && k.brim / 16 >= inlet - margin;
+    }
+    return false;
+  }
+  /** Grains of n that may be poured now (see the contract). */
+  pourable(n, o = {}) {
+    if (o.inlet !== undefined && this.atBrim(o.inlet, o.margin)) return 0;
+    n = Math.max(0, Math.min(Math.floor(n), (o.maxTotal === undefined ? Infinity : o.maxTotal) - this.gTotal));
+    if (o.room !== undefined) {
+      const p0 = this.Pts(this.gTotal);
+      n = Math.min(n, Math.max(0, Math.floor((o.room + p0) / this.ppg) - this.gTotal + 1));
+      while (n > 0 && this.Pts(this.gTotal + n) - p0 > o.room) n--;
+    }
+    return n;
   }
 
   /** The newest readback against the ledger (tests, the HUD): totals, and the count when closed. */
