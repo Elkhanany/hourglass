@@ -44,6 +44,8 @@ export function lattice(glass, inside, box, seed = 7) {
  */
 export function makeFill(glass, kind, opts = {}) {
   const g = glass, target = opts.points;
+  // (a target that is not a number would quietly give a nearly empty bed)
+  if (kind !== 'column' && !(Number.isFinite(target) && target >= 0)) throw new Error('makeFill: points must be a number of points, not ' + target);
   let pts;
   if (kind === 'column') {
     const w = opts.width ?? 0.6 * g.Rc, h = opts.height ?? 0.4 * g.Rc, yb = g.cy - g.HBc;

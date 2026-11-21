@@ -889,7 +889,8 @@ const ROTOR_SPEEDS = [16, 8, 4, 0];
 /** Start (or restart) the probe. o: { amount (a Timer's id; '60m'), w (rad/s; 16), skip3 }. */
 async function rotorStart(o = {}) {
   timerOff();
-  const def = timerById(o.amount || QUERY.get('amount') || '60m') || timerById('60m');
+  // (its own parameter, bed=: the lab's amount= names the lab's amounts, not the Timer's glasses)
+  const def = timerById(o.amount || QUERY.get('bed') || '60m') || timerById('60m');
   const g = getGlass(S.res), ppg = PPC * PPC * g.s * g.s, N = grainsFor(def.amountMs);
   const valve = new Valve({ ppg });
   const want = valve.fill(N, N);
@@ -1984,7 +1985,7 @@ async function boot() {
     await renderer.init(solver.shaders);
     life('grain pipeline', `${(performance.now() - tb).toFixed(0)} ms`);
     const q = new URLSearchParams(location.search);
-    for (const k of ['res', 'amount', 'material', 'speed']) if (q.get(k)) S[k] = q.get(k);
+    for (const k of ['res', 'amount', 'material', 'speed']) if (q.get(k) && (k !== 'amount' || q.get(k) in AMOUNTS)) S[k] = q.get(k);
     // the amount and grid: from the address, or as picked (or chosen) on an earlier visit, or timed now
     // (?setup times it again whatever was kept; tests load with offscreen or a grid and amount: no timing)
     const saved = q.has('setup') ? null : setupSaved(), fromUrl = !q.has('setup') && (q.has('res') || q.has('amount') || q.has('offscreen') || q.has('nosetup') || ROTOR);

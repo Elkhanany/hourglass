@@ -1106,7 +1106,7 @@ async function main() {
     var err22 = [];
     p22.on('pageerror', function (e) { err22.push(e.message); });
     p22.on('console', function (m) { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) err22.push(m.text()); });
-    await p22.goto('http://127.0.0.1:' + PORT + '/lab/sand/?offscreen=1&res=S&rotor=1&amount=10s');
+    await p22.goto('http://127.0.0.1:' + PORT + '/lab/sand/?offscreen=1&res=S&rotor=1&bed=10s');
     await p22.evaluate(function () { return window.__lab.ready; });
     var r22 = await p22.evaluate(async function () {
       window.__lab.manual(true);

@@ -1110,6 +1110,11 @@ node tools/test/app-gestures.test.js     # any single suite
   count must be the clock's own while the neck keeps up and must never go
   back, and the last point must leave within one substep of 00:00.0; the
   first version's bookkeeping, kept as its control, lets sand through early.
+  `realsand-fill` checks the fills (exactly the points asked for on every
+  grid and amount, all inside the glass; a target that is not a number is
+  refused), the grains' colour seeds against the grain shader's own hash, and
+  the felt jolts against the lab's code from before they moved to
+  `realsand/`.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
@@ -1258,7 +1263,8 @@ runs and the sand is still, until it is touched, felt to move or leaned more
 than a degree from where it fell asleep (the phone's motion is read every
 frame, asleep too); and a heat guard that drops to calm a glass that has run
 under 0.6 of real time for 20 s in a row. A Timer starts in auto unless
-a mode was chosen by hand. **Rotor probe** (`?rotor=1`) is the app's stack
+a mode was chosen by hand. **Rotor probe** (`?rotor=1`; `&bed=10s` or another
+Timer glass for a smaller bed) is the app's stack
 of canvases: the grains' canvas between two WebGL canvases in a div that CSS
 turns, with the 60-minute bed spinning freely at up to 16 rad/s on a shut
 neck and the bulbs swapped at every half turn; a frame whose run is skipped
