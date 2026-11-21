@@ -565,7 +565,7 @@ async function timerStart(id, o = {}) {
   while (floor < g.cy - 1 && sampleField(g, g.cx, g.cy - floor - 0.5)[2] > 0) floor += 0.5;
   Object.assign(timer, {
     on: true, def, id, ms, N, ppg, valve, clk: makeClock(ms, N), rem: ms, state: 'settle', settleUntil: simTime + (o.settle ?? TIMER_SETTLE_S),
-    gen: timer.gen + 1, lastTick: null, startAt: null, runStart: null, turning: false, swaps: 0, target: N, closed: true, floor,
+    gen: timer.gen + 1, failed: null, lastTick: null, startAt: null, runStart: null, turning: false, swaps: 0, target: N, closed: true, floor,
     fall: { from: null, wallFrom: null, s: NaN, wall: NaN }, end: null, ends: [], refusedLog: [], last: null, began: clockNow(),
     n: { frames: 0, runs: 0, open: 0, closedRuns: 0, viol: 0, closedCross: 0, mismatch: 0, audits: 0, auditFails: 0, supplied: 0, countOff: 0,
       bulk: 0, short: 0, worstShort: 0, qSum: 0, vSum: 0, refused: 0, upward: 0, crossings: 0, pointsOff: 0 }
@@ -616,6 +616,13 @@ function timerBefore(now) {
   const E = T.end;
   if (E && E.confirmedAt === null && T.state === 'done' && v.nTop === 0) E.confirmedAt = now;
   if (E && E.residueAt === null && v.residueDue(now)) { E.residueAt = now; E.residue = v.nTop; }
+  // no readback for 60 runs (a failing mapAsync): a swap's base would wait for good and the end
+  // would never be confirmed; in the app the current sand takes over (design 7.9), here it is said
+  if (!T.failed && v.stalled()) {
+    T.failed = { at: now, pending: v.pending };
+    life('Timer stalled', `no readback for ${v.unread} runs${v.pending ? ', a swap\'s base waiting' : ''}`);
+    setStatus('Timer: no readback has come for a second (this browser\'s readbacks are failing), so the neck cannot be metered; in the app the current sand would take over.');
+  }
 }
 
 /** The valve's words for this frame's run (valve.mjs run), tagged with the Timer they belong to. */
@@ -687,7 +694,7 @@ function timerState() {
   };
   return {
     on: T.on, id: T.id, label: T.def.label, grains: T.N, points: v.points, ppg: T.ppg, ms: T.ms, state: T.turning ? 'turning' : T.state,
-    rem: T.rem, nTop: v.nTop, target: T.target, total: v.total, parity: v.parity, closed: T.closed, swaps: T.swaps,
+    rem: T.rem, nTop: v.nTop, target: T.target, total: v.total, parity: v.parity, closed: T.closed, swaps: T.swaps, failed: T.failed,
     mode: modes.mode, why: modes.why, setting: S.mode, guard: modes.guard, modeMs: { ...modes.ms }, hz: rate.hz,
     fall: F.s, fallWall: F.wall, floor: T.floor, end: endOf(E), ends: T.ends.map(endOf),
     n: { ...N }, queue: N.bulk ? N.qSum / N.bulk : NaN, vcap: N.bulk ? N.vSum / N.bulk : NaN, kv: v.kv, refusedPerS: refusedPerS(),
@@ -719,6 +726,7 @@ function timerHud() {
   L.push(`count ${sgn(st.nTop - st.target)} (nTop ${st.nTop}, target ${st.target})  GPU ${k ? sgn(k.t.above - k.pTend) + ' pts' : '-'}  queue ${k ? k.t.queue : '-'}  vcap ${k ? vcapText(k.w.vcap) : '-'}  refused ${Math.round(st.refusedPerS)}/s`);
   L.push(`fall ${Number.isFinite(st.fall) ? st.fall.toFixed(2) + ' s' : '-'}  kv ${st.kv.toFixed(1)}  short ${st.n.short}/${st.n.bulk} (worst ${st.n.worstShort})  below target ${st.n.viol}  swaps ${st.swaps}`);
   if (st.end) L.push('END ' + endText(st.end));
+  if (st.failed) L.push('STALLED: no readback for 60 runs' + (st.failed.pending ? ', a swap\'s base waiting' : ''));
   return L;
 }
 
@@ -1578,6 +1586,7 @@ function timerReport(n) {
   L.push(`  the stream's first fall, neck to floor (${n(st.floor)} cells): ${Number.isFinite(st.fall) ? n(st.fall, 3) + ' s simulated, ' + n(st.fallWall / 1000, 3) + ' s wall' : 'not measured'}`);
   if (st.ends.length) st.ends.forEach((e, i) => L.push(`  end ${i + 1}: ${endText(e)}${e.last ? ' (a substep is ' + n(e.last.substep, 2) + ' ms)' : ''}`));
   else L.push('  end: not reached');
+  if (st.failed) L.push(`  STALLED: no readback for 60 runs ${n((st.failed.at - timer.began) / 1000)} s after the Timer began${st.failed.pending ? ', a swap\'s base waiting' : ''} (in the app the current sand would take over)`);
   return L;
 }
 function reportText() {

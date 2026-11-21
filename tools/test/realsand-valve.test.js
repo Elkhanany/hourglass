@@ -41,7 +41,8 @@
  * target, by at most 3 points (not for the fastest rests, whose breathing asks more than the
  * open neck gives, nor with readbacks 15 frames late). Directly: the units, the closed words,
  * a mirrored pour, the zero target in the substep that holds 00:00.0 also when the frame that
- * holds it runs 0 substeps, pourable (room, maxTotal, the brim). Control: the first version's
+ * holds it runs 0 substeps, readbacks that stop after a swap (stalled() after 60 runs, the pending
+ * base's age, records and events bounded), pourable (room, maxTotal, the brim). Control: the first version's
  * bookkeeping (an append wrote tally[1] and allow carried the pour: counted twice) must let
  * points cross below the target in every pour into an open neck.
  *
@@ -113,6 +114,25 @@ async function main() {
   var zs = [zeroSub(1), zeroSub(0)];
   check(zs.every(function (x) { return x.from <= 1100 + 1e-6 && 1100 < x.to; }),
     'the zero target falls in the substep that holds 00:00.0, also when that frame runs 0 substeps (' + zs.map(function (x) { return f1(x.from - 1100) + ' to ' + f1(x.to - 1100) + ' ms'; }).join('; ') + ')');
+
+  // readbacks stop (a failing mapAsync): a swap's base stays pending and the neck shut, so after
+  // 60 runs with none the valve says it has stalled; the pending base's age is in stats(); the
+  // records and the CPU events kept stay bounded; a readback that comes ends both
+  var nr = new Valve({ ppg: 1.69 }); nr.fill(2000, 2000);
+  var nrNow = 0, nrW = null, nrTrace = [];
+  var nrFrame = function (read) {
+    nrNow += 1000 / 60;
+    nr.plan({ now: nrNow, target: 2000 - Math.floor(nrNow / 100), gateOpen: true, rem: 6e4, tailMs: 500 });
+    nrW = nr.run({ steps: 8, now: nrNow, simDt: 8 / 480 });
+    if (read) nr.onReadback(nrW.seq, { above: nr.pT(nr.nTop), below: 0, queue: 8, crossings: 0, start: nr.pT(nr.nTop) - nrW.appended, refused: 0 });
+  };
+  for (var i = 0; i < 33; i++) nrFrame(i < 30);
+  nr.completeFlip();
+  for (i = 0; i < 120; i++) { nrFrame(false); if (i % 10 === 0) nr.pour(1); nrTrace.push(nr.stalled()); }
+  var nrSt = nr.stats(), nrFirst = 3 + nrTrace.indexOf(true) + 1;   // (runs with no readback: 3 before the swap)
+  nr.onReadback(nrW.seq, { above: nr.pT(nr.nTop), below: nr.points - nr.pT(nr.nTop), queue: 0, crossings: 0 });
+  check(nrW.closed && nrSt.pending && nrFirst === 60 && nrSt.pendingMs > 1900 && nrSt.records <= 64 && nrSt.events <= 12 && !nr.stalled() && !nr.stats().pending,
+    'readbacks stop after a swap: the neck stays shut and the valve says it has stalled after 60 runs with none (' + nrFirst + '); stats() has the pending base\'s age (' + f1(nrSt.pendingMs) + ' ms); records and events stay bounded (' + nrSt.records + ', ' + nrSt.events + '); a readback that comes ends the stall');
 
   // the brim and the room: pourable
   var b = new Valve({ ppg: 1.69 }); b.fill(1000, 1000);

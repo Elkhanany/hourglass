@@ -93,7 +93,8 @@
  *  for an open run, what the membrane guarantees: with any crossing, no fewer points above than
  *  the run's lowest substep target; a target that rose above the sand with nothing crossed is
  *  not a fault),
- *  residueDue(now) (points stuck above after the end: move them by a transfer), pourable(n,
+ *  residueDue(now) (points stuck above after the end: move them by a transfer), stalled() (no
+ *  readback for 60 runs: the engine has failed), pourable(n,
  *  { maxTotal, room, inlet }) (the grains of n that may be poured now: none at the brim, 4 cells
  *  below the top bulb's far end at grid y `inlet`; no more than maxTotal grains and the
  *  buffer's room in points allow).
@@ -207,6 +208,8 @@ export class Valve {
     this.closed = true; this.prime = false; this.gT = 0; this.tail = false;
     this.prevNow = null; this.prevRem = 0; this.zeroAt = null; this.endAt = null;
     this.lastRunNow = null; this.lastCrossAt = -Infinity; this.duty = 0;
+    this.unread = 0;                // runs since the last readback came
+    this.pendingAt = null;          // when the pending base began (the frame's now)
     this.last = null;               // the last run's words
     this.n = { runs: 0, readbacks: 0, dropped: 0, settled: 0, settleMoves: 0, settleLate: 0, pendings: 0,
       transfers: 0, mismatches: 0, refused: 0, upward: 0 };
@@ -288,7 +291,7 @@ export class Valve {
     this.ev('swap');
     const ex = this.xfer ? null : this.exactNow();
     if (ex) { this.newEpoch(this.gTop, ex[0]); this.endConfirmed = ex[0] === 0; }
-    else { this.pending = true; this.epoch++; this.n.pendings++; this.endConfirmed = false; }
+    else { if (!this.pending) this.pendingAt = this.prevNow; this.pending = true; this.epoch++; this.n.pendings++; this.endConfirmed = false; }
   }
 
   fastForward(n) {
@@ -335,7 +338,7 @@ export class Valve {
   exactNow() { const k = this.tallies[this.tallies.length - 1]; return k ? this.exactFrom(k) : null; }
 
   onReadback(seq, w) {
-    this.n.readbacks++;
+    this.n.readbacks++; this.unread = 0;
     const r = this.rec(seq);
     if (!r || r.gen !== this.gen || r.read) { this.n.dropped++; return false; }
     r.read = true;
@@ -458,10 +461,14 @@ export class Valve {
     const r = { seq: ++this.seq, gen: this.gen, epoch: this.epoch, parity: this.parity, evN: this.evN, open: offered,
       pTend, pTmin, appended, vcap, to: now, read: false };
     this.recs.push(r);
-    if (this.recs.length > KEEP_RECORDS) this.recs.shift();
+    if (this.recs.length > KEEP_RECORDS) {
+      // (readbacks have stopped: a record dropped, its events too, so neither grows without bound)
+      this.recs.shift();
+      while (this.events.length && this.events[0].idx < this.recs[0].evN) this.events.shift();
+    }
     this.gpuParity = this.parity; this.appended = [0, 0];
     if (S) this.lastRunNow = now;
-    this.n.runs++;
+    this.n.runs++; this.unread++;
     return this.last = { seq: r.seq, flip, vcap, allow, flags: NECK_ON, targets, appended, steps: S, closed, from: w0, to: now };
   }
 
@@ -548,6 +555,14 @@ export class Valve {
     return n;
   }
 
+  /**
+   * No readback has come for `runs` runs in a row (60: about a second of frames): a failing
+   * mapAsync, a lost device. Without readbacks a swap's base stays pending (the neck shut for
+   * good) and the end is never confirmed, so the driver treats this as the engine failing (design
+   * 7.9: the current sand takes over; the lab's Timer says so).
+   */
+  stalled(runs = 60) { return this.unread >= runs; }
+
   /** The newest readback against the ledger (tests, the HUD): totals, and the count when closed. */
   audit() {
     const k = this.tallies[this.tallies.length - 1];
@@ -572,7 +587,8 @@ export class Valve {
     return Object.assign({
       top: this.gTop, total: this.gTotal, points: this.pTotal, epoch: this.epoch, gen: this.gen, parity: this.parity,
       closed: this.closed, pending: this.pending, transfer: !!this.xfer, kv: this.kv, vcap: this.last ? this.last.vcap : 0,
-      queue: k ? k.queue : 0, short: k && r && r.open ? k.above - r.pTend : 0, records: this.recs.length, events: this.events.length
+      queue: k ? k.queue : 0, short: k && r && r.open ? k.above - r.pTend : 0, records: this.recs.length, events: this.events.length,
+      unread: this.unread, pendingMs: this.pending && this.pendingAt !== null && this.prevNow !== null ? this.prevNow - this.pendingAt : 0
     }, this.n);
   }
 }
