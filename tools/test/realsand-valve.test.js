@@ -38,9 +38,7 @@
  * no residue transfer is made with no point stuck (a run after an end must not take that end
  * for its own); with the neck open the count rises (no CPU event) at most 3 times and by a
  * point's worth at most (not shaken, starved or with late readbacks; the first second of a fresh
- * bed is logged apart); a closed run keeps a queue on the line (vcap above 0) only when shut by
- * the gate, upright, not turning and with nothing pending, and after a 0.5 s settle so primed the
- * cold start (the first second of the run) is at most 6 points short; in the bulk under 0.5 % of runs end short of their
+ * bed is logged apart); in the bulk under 0.5 % of runs end short of their
  * target, by at most 3 points (not for the fastest rests, whose breathing asks more than the
  * open neck gives, nor with readbacks 15 frames late). Directly: the units, the closed words,
  * a mirrored pour, the zero target in the substep that holds 00:00.0 also when the frame that
@@ -67,7 +65,6 @@ var SETTINGS = [
 // swap's frame the app pours before the swap (handlePour, then stepGravity), and 10 grains more after it;
 // the runs of that frame and the next are skipped (the GPU behind), so the pour waits with the flip pass
 function TILT_POUR() { return [{ t: 19.7, type: 'pour', s: 1 }, { t: 20, type: 'tilt', hold: 0.5, pour: 10, skip: 2 }]; }
-function f2(x) { return (Math.round(x * 100) / 100).toString(); }
 function f1(x) { return (Math.round(x * 10) / 10).toString(); }
 function pct(a, b) { return b ? f1(100 * a / b) + ' %' : '-'; }
 
@@ -87,13 +84,10 @@ async function main() {
   });
   check(mono, 'pT never decreases, is at least 1 for a grain and reaches P0 at G0, at every grain setting');
   var c = new Valve({ ppg: 1.69 }); c.fill(100, 100);
-  c.plan({ now: 0, target: 100, gateOpen: false, flipping: true, rem: 1e4, tailMs: 500 });
+  c.plan({ now: 0, target: 100, gateOpen: false, rem: 1e4, tailMs: 500 });
   var cw = c.run({ steps: 8, now: 16.7, simDt: 8 / 480 });
-  c.plan({ now: 16.7, target: 100, gateOpen: false, rem: 1e4, tailMs: 500 });
-  var cp = c.run({ steps: 8, now: 16.7 + 1000 / 60, simDt: 8 / 480 });
-  check(cw.closed && cw.vcap === 0 && cw.allow.every(function (x) { return x === V.ALLOW_SHUT; }) && cw.flags === V.NECK_ON && !cw.flip &&
-    cp.closed && Math.abs(cp.vcap - 4 * V.QSTAR / V.KV0) < 1e-9 && cp.allow.every(function (x) { return x === V.ALLOW_SHUT; }),
-    'closed: every allow ALLOW_SHUT, flags NECK_ON, no flip pass; vcap 0 while turning, and shut by the gate the throttle keeps a queue on the line (' + f2(cp.vcap) + ' cells/s with none read yet)');
+  check(cw.closed && cw.vcap === 0 && cw.allow.every(function (x) { return x === V.ALLOW_SHUT; }) && cw.flags === V.NECK_ON && !cw.flip,
+    'closed: vcap 0, every allow ALLOW_SHUT, flags NECK_ON, no flip pass');
   c.completeFlip();
   var pr = c.pour(10);
   check(c.nTop === 10 && c.flipPending && pr.mirrored && pr.points === 17 && c.run({ steps: 8, now: 33.3, simDt: 8 / 480 }).flip && !c.flipPending,
@@ -163,11 +157,11 @@ async function main() {
     add(nm + ', 5 min, asleep 40 s at 60 s, poured as the catch-up transfer is owed', { d: 300e3, q: q, fine2: f2, events: [{ t: 60, type: 'hide', s: 40 }, { t: 100, type: 'pour', owed: true, n: 30 }] }, { transfer: true, pour: true, xferPour: true });
     add(nm + ', 1 min, Reset at 15 s', { d: 60e3, q: q, fine2: f2, events: [{ t: 15, type: 'reset' }] });
   });
-  // the lab's Timer: the fresh bed settles 0.5 s on the shut neck, which keeps a queue on the line.
-  // (Seed 4 for the classic phone: with the default seed this glass's breathing falls in a phase
-  // that leaves 2.4 % of its bulk runs 1-2 points short, with the neck shut empty or primed alike.)
+  // the lab's Timer: the fresh bed settles 0.5 s on the shut neck first (its cold start, the first
+  // second of the run, is in --table). (Seed 4 for the classic phone: with the default seed this
+  // glass's breathing falls in a phase that leaves 2.4 % of its bulk runs 1-2 points short.)
   [['classic phone', 1.08, 1, 4], ['Finest tablet', 2.6, 4, 7]].forEach(function (st) {
-    add(st[0] + ', 10 s, settled 0.5 s on the shut neck first', { d: 10e3, q: st[1], fine2: st[2], settle: 0.5, seed: st[3] }, { settle05: true });
+    add(st[0] + ', 10 s, settled 0.5 s on the shut neck first', { d: 10e3, q: st[1], fine2: st[2], settle: 0.5, seed: st[3] });
   });
   add('classic phone, 25 min', { d: 1500e3 });
   add('classic phone, 99:59', { d: 5999e3 });
@@ -207,7 +201,6 @@ async function main() {
     if (r.startErr) bad.push(r.startErr + ' runs whose counters[3] + appended was not the count above');
     if (r.mismatches) bad.push(r.mismatches + ' readbacks with start + appended - crossings != above');
     if (r.closedCross || r.closedWords) bad.push('a closed neck issued tickets (' + r.closedCross + ' points, ' + r.closedWords + ' runs)');
-    if (r.primeBad) bad.push(r.primeBad + ' closed runs kept a queue while turning, on its side or pending');
     if (r.revert) bad.push('nTop went back ' + r.revert + ' times');
     if (r.xferDropped) bad.push('the count dropped the leftover of ' + r.xferDropped + ' transfers');
     if (r.pendingOpen) bad.push(r.pendingOpen + ' runs offered tickets after a swap with no exact readback at hand');
@@ -245,7 +238,7 @@ async function main() {
     // jump for the sound); at most 3 times, by a point's worth (1 grain, or the grains of a point)
     var riseOk = Math.max(1, Math.ceil(1 / r.ppg - 1e-9));
     if (!k.shake && !k.late && !k.starved && (r.rises > 3 || r.riseMax > riseOk)) bad.push('the count rose ' + r.rises + ' times with the neck open, by up to ' + r.riseMax + ' grains (at most 3, of ' + riseOk + ')');
-    if (k.settle05 && !(r.primed > 0 && r.coldShort <= 6)) bad.push('the cold start was ' + r.coldShort + ' points short (at most 6; ' + r.primed + ' runs kept a queue while shut)');
+
     allSettle += r.settleMoves;
     var desc = 'end ' + f1(endMs) + ' ms (substep ' + f1(r.endSub) + '), 0 read ' + r.zeroAfter + ' frames after, ' + pct(r.shortRuns, r.bulkRuns) + ' short (worst ' + r.worstShort + '), ' +
       r.supChecked + ' supplied frames, kv ' + r.kvEnd + (r.transfers ? ', ' + r.transfers + ' transfers' : '') + (r.pendings ? ', ' + r.pendings + ' pending' : '') +

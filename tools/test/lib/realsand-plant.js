@@ -150,7 +150,7 @@ function runCase(Valve, o) {
     revert: 0, drift: 0, supMismatch: 0, supChecked: 0, zeroEarly: 0, negRel: 0, rises: 0, pourErr: 0, pours: 0,
     relCapFrames: 0, relCapOver: 0, bulkRuns: 0, shortRuns: 0, worstShort: 0, dutyOn: 0, dutyOff: 0, dutyBad: 0,
     transfers: 0, xferDropped: 0, forcedSkips: 0, residues: 0, residueMs: NaN, retimes: 0, pendingSwaps: 0, pendingOpen: 0, closedChecked: 0, closedCount: 0, endMs: NaN, endSub: NaN, freeEndMs: NaN, zeroAfter: NaN, finalTop: -1, finalAbove: -1,
-    settleMoves: 0, settleLate: 0, pendings: 0, kvEnd: 0, mismatches: 0, ended: false, reruns: 0, emptyEarly: 0, emptyEarlyMs: 0, riseMax: 0, uploadErr: 0, xferAppends: 0, owedPours: 0, coldRises: 0, primed: 0, primeBad: 0, coldRuns: 0, coldShortRuns: 0, coldShort: 0
+    settleMoves: 0, settleLate: 0, pendings: 0, kvEnd: 0, mismatches: 0, ended: false, reruns: 0, emptyEarly: 0, emptyEarlyMs: 0, riseMax: 0, uploadErr: 0, xferAppends: 0, owedPours: 0, coldRises: 0, coldRuns: 0, coldShortRuns: 0, coldShort: 0
   };
   var lastCrossFrame = -1, zeroFrame = -1, prevTop = v.nTop, eventThisFrame = false, residue = false, retimed = false, sinceXfer = 1e9, xferLeft = 0, skipRuns = 0;
   // the pending rule, checked from outside: a readback is exact when no run after it offered a
@@ -268,10 +268,7 @@ function runCase(Valve, o) {
       var span = lastRunT === null ? 1 / 60 : Math.min(0.25, t - lastRunT);
       var S = Math.max(1, Math.round(span * ratio * HZ));
       words = v.run({ steps: S, now: now, simDt: S / HZ });
-      if (words.closed && words.allow.some(function (x) { return x > -1e8; })) res.closedWords++;
-      // a closed run keeps a queue on the line only shut by the gate, upright, not turning, nothing pending
-      if (words.closed && words.vcap !== 0 && (app.gateOpen || flip.active || tilted || pendingExpected || words.flip)) res.primeBad++;
-      if (words.closed && words.vcap > 0) res.primed++;
+      if (words.closed && (words.vcap !== 0 || words.allow.some(function (x) { return x > -1e8; }))) res.closedWords++;
       if (!words.closed && words.vcap > 0 && words.vcap < 0.25) res.dutyBad++;
       if (pendingExpected && !words.closed) res.pendingOpen++;
       if (!words.closed) lastOpenSeq = words.seq;
