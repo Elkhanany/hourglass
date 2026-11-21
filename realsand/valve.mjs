@@ -389,6 +389,9 @@ export class Valve {
     const now = +app.now || 0, rem = app.rem === undefined ? Infinity : app.rem;
     // the moment the clock reached 00:00.0, for the run that stands for it
     if (this.prevNow !== null && this.prevRem > 0 && rem <= 0) this.zeroAt = this.endAt = Math.min(now, this.prevNow + this.prevRem);
+    // the clock has time again (a Flip or a start after the end, a pour, the next phase of a
+    // sequence): the old end and its crossings say nothing of this run's end
+    if (rem > 0) { this.zeroAt = null; this.endAt = null; this.lastCrossAt = -Infinity; }
     this.prevNow = now; this.prevRem = rem;
     const before = this.gTop, gy = app.gy === undefined ? 1 : app.gy;
     const closed = !app.gateOpen || !!app.flipping || !(gy > 0.7) || this.pending || !!this.xfer;
@@ -476,11 +479,12 @@ export class Valve {
 
   /**
    * Points stuck above after the end (on the funnel's wall): done and draining with the count
-   * above 0, no crossing for 0.5 s and 1.5 s after 00:00.0. Move them by a transfer:
+   * above 0, the clock still at 00:00.0, no crossing for 0.5 s and 1.5 s after it (the end is
+   * forgotten once the clock has time again). Move them by a transfer:
    * fastForward(nTop), then transferPlan / transferDone as for the catch-up.
    */
   residueDue(now) {
-    return this.endAt !== null && !this.xfer && !this.closed && this.tail && this.gTop > 0 &&
+    return this.endAt !== null && this.prevRem <= 0 && !this.xfer && !this.closed && this.tail && this.gTop > 0 &&
       now - this.endAt >= 1500 && now - Math.max(this.lastCrossAt, this.endAt) >= 500;
   }
 

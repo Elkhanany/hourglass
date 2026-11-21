@@ -16,7 +16,8 @@
  * minutes of sand in one, also with a weak neck at sim/real 0.6); a shaken glass (the neck
  * starved, then relCap), and one laid on its side as the throttle reopens (the settlement); a
  * straggler stuck above (the residue transfer); readbacks 15 frames late (a brisk tilt swap
- * reopens the neck before an exact readback: the pending base).
+ * reopens the neck before an exact readback: the pending base); a Flip 2 s after the end of a
+ * 25-minute, 60-minute and 99:59 glass, which runs it again.
  *
  * Checks, every case: no point crosses so that fewer are above than the substep's target, and
  * counters[3] + appended is the true count at every run's start; a closed neck issues no ticket;
@@ -29,7 +30,9 @@
  * grains and the GPU by exactly the points appended; relCap limits the fall; the throttle is
  * never between 0 and 0.25 cells/s (the duty cycle); every glass empties and the last point
  * leaves within one substep of 00:00.0 (the substep's own length, about 2 ms of wall time), and
- * nTop reads 0 within a few frames after; in the bulk under 0.5 % of runs end short of their
+ * nTop reads 0 within a few frames after; the top bulb is never empty while the clock runs, and
+ * no residue transfer is made with no point stuck (a run after an end must not take that end
+ * for its own); in the bulk under 0.5 % of runs end short of their
  * target, by at most 3 points (not for the fastest rests, whose breathing asks more than the
  * open neck gives, nor with readbacks 15 frames late). Directly: the units, the closed words,
  * a mirrored pour, pourable (room, maxTotal, the brim). Control: the first version's
@@ -126,6 +129,12 @@ async function main() {
   add('classic phone, 1 min, tilt swap in a brisk turn (the neck reopens at once), readbacks 15 frames late', { d: 60e3, lat: 15, events: [{ t: 20, type: 'tilt', hold: 0.21 }] }, { late: true, pending: true });
   add('classic phone, 1 min, shaken 1.5 s at 20 s and laid on its side at 21.6 s (closed as the throttle reopens)', { d: 60e3, events: [{ t: 20, type: 'shake', s: 1.5 }, { t: 21.6, type: 'side', hold: 1 }] }, { shake: true, settle: true });
   add('classic phone, 1 min, the same, readbacks 15 frames late', { d: 60e3, lat: 15, events: [{ t: 20, type: 'shake', s: 1.5 }, { t: 21.6, type: 'side', hold: 1 }] }, { shake: true, settle: true, late: true });
+  // a Flip 2 s after the end starts the glass again (app.js stateAfterSwap, the lab's Timer); so
+  // do a start after a pour and each phase of a sequence after the first: the second run's tail
+  // must not take the first end for its own (the last grains 0.5-1 s apart on a long glass)
+  [['25 min', 1500e3], ['60 min', 3600e3], ['99:59', 5999e3]].forEach(function (g) {
+    add('classic phone, ' + g[0] + ', a Flip 2 s after the end runs it again', { d: g[1], events: [{ t: g[1] / 1000 + 2, type: 'flip' }] }, { rerun: true });
+  });
 
   var rows = [], allSettle = 0, allSettleMoves = 0;
   cases.forEach(function (cs) {
@@ -165,6 +174,9 @@ async function main() {
     if (k.pending && !(r.pendings && r.pendingSwaps)) bad.push('the pending base was not exercised');
     if (k.settle && !(r.settleMoves && r.closedChecked)) bad.push('the closed count did not settle (' + r.settleMoves + ' moves, ' + r.closedChecked + ' frames checked)');
     if (k.starved && !(r.transfers > 0)) bad.push('the backlog was not caught up by transfers');
+    if (k.rerun && r.reruns !== 1) bad.push('the Flip after the end did not run the glass again');
+    if (r.emptyEarly) bad.push('the top bulb was empty while the clock ran, in ' + r.emptyEarly + ' frames (up to ' + f1(r.emptyEarlyMs) + ' ms before 00:00.0)');
+    if (!k.residue && r.residues) bad.push(r.residues + ' residue transfers with no point stuck');
     allSettle += r.settleMoves;
     var desc = 'end ' + f1(endMs) + ' ms (substep ' + f1(r.endSub) + '), 0 read ' + r.zeroAfter + ' frames after, ' + pct(r.shortRuns, r.bulkRuns) + ' short (worst ' + r.worstShort + '), ' +
       r.supChecked + ' supplied frames, kv ' + r.kvEnd + (r.transfers ? ', ' + r.transfers + ' transfers' : '') + (r.pendings ? ', ' + r.pendings + ' pending' : '') +

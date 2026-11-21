@@ -24,7 +24,8 @@
  *
  * The app (runCase) is app.js's clock as far as the neck sees it: calibrate, topAt, remAt
  * (app.js:157-180), the target with the breathing (1214-1237), the catch-up (1266-1276),
- * maybeRetime (216-228), pour (1001-1020), the Flip's turn, hand spins, a tilt swap with the
+ * maybeRetime (216-228), pour (1001-1020), the Flip's turn (after the end it starts the glass
+ * again: stateAfterSwap, 594-597), hand spins, a tilt swap with the
  * clock stopped while on its side (1123-1132), a sleep, a Reset, shaking (the neck starved,
  * then relCap while motion is recent). Frames of 1/60 s, now and then 50 ms; runs skipped
  * (o.skip, 3 % unless said); readbacks back in order 1-3 frames later (+ o.lat); a transfer
@@ -147,7 +148,7 @@ function runCase(Valve, o) {
     revert: 0, drift: 0, supMismatch: 0, supChecked: 0, zeroEarly: 0, negRel: 0, rises: 0, pourErr: 0, pours: 0,
     relCapFrames: 0, relCapOver: 0, bulkRuns: 0, shortRuns: 0, worstShort: 0, dutyOn: 0, dutyOff: 0, dutyBad: 0,
     transfers: 0, xferDropped: 0, forcedSkips: 0, residues: 0, residueMs: NaN, retimes: 0, pendingSwaps: 0, pendingOpen: 0, closedChecked: 0, closedCount: 0, endMs: NaN, endSub: NaN, freeEndMs: NaN, zeroAfter: NaN, finalTop: -1, finalAbove: -1,
-    settleMoves: 0, settleLate: 0, pendings: 0, kvEnd: 0, mismatches: 0, ended: false
+    settleMoves: 0, settleLate: 0, pendings: 0, kvEnd: 0, mismatches: 0, ended: false, reruns: 0, emptyEarly: 0, emptyEarlyMs: 0, riseMax: 0
   };
   var lastCrossFrame = -1, zeroFrame = -1, prevTop = v.nTop, eventThisFrame = false, residue = false, retimed = false, sinceXfer = 1e9, xferLeft = 0, skipRuns = 0;
   // the pending rule, checked from outside: a readback is exact when no run after it offered a
@@ -158,7 +159,9 @@ function runCase(Valve, o) {
   function topTrue() { return plant.topFor(v.parity); }
   function arm(n, top, kind, pre) { watch = { n: n, top: top, kind: kind, pre: pre, settle: v.n.settleMoves }; quietUntil = t + 1; }
 
-  while (t < o.d / 1000 + 90) {
+  // (an event after the end, a Flip that starts the glass again, runs it once more)
+  var tEnd = 90 + (o.events || []).reduce(function (m, e) { return Math.max(m, e.t > o.d / 1000 ? e.t + o.d / 1000 : m); }, o.d / 1000);
+  while (t < tEnd) {
     var dtw = rnd() < 0.02 ? 0.05 : 1 / (o.fps || 60); t += dtw; frameNo++;
     var now = t * 1000;
     eventThisFrame = retimed; retimed = false;
@@ -208,6 +211,8 @@ function runCase(Valve, o) {
         flip.swapAt.shift();
         var fb = v.nTop, there2 = clk.remAt(v.total - fb);
         v.completeFlip(); rem = there2; arm(10, v.total - fb, 'swap', fb); eventThisFrame = true;
+        // (a Flip after the end starts the glass again: app.js stateAfterSwap)
+        if (state === 'done' && there2 > 0) { state = 'running'; res.reruns++; }
         if (!exactAvailable()) { pendingExpected = true; res.pendingSwaps++; }
       }
       if (t >= flip.until) flip.active = false;
@@ -274,7 +279,7 @@ function runCase(Valve, o) {
     res.frames++; sinceXfer++;
     var nTop = v.nTop, closedNow = !app.gateOpen || app.flipping || tilted;
     // the count rises only by CPU events (and a re-time); after a transfer it carries the leftover
-    if (nTop > prevTop && !eventThisFrame && !closedNow) res.rises++;
+    if (nTop > prevTop && !eventThisFrame && !closedNow) { res.rises++; res.riseMax = Math.max(res.riseMax, nTop - prevTop); }
     // after a transfer the count carries the leftover the app left to flow (the first version dropped it)
     if (sinceXfer === 1 && xferLeft > 0 && app.gateOpen && nTop - target < xferLeft - 2) res.xferDropped++;
     prevTop = nTop;
@@ -286,6 +291,9 @@ function runCase(Valve, o) {
       if (--watch.n <= 0) watch = null;
     }
     if (nTop === 0 && topTrue() > 0) res.zeroEarly++;
+    // the top bulb empty while the clock still runs (a residue transfer before 00:00.0; 1e-3 ms:
+    // the frames' times are sums of 1/60 s)
+    if (state === 'running' && rem > 1e-3 && topTrue() === 0 && !flip.active) { res.emptyEarly++; res.emptyEarlyMs = Math.max(res.emptyEarlyMs, rem); }
     // closed a while, settled: the ledger holds exactly the GPU's count (its own base's points)
     closedFor = closedNow && !eventThisFrame && !xfer && !pendingExpected ? closedFor + 1 : 0;
     if (closedFor >= 6 + (o.lat || 0)) { res.closedChecked++; if (v.pT(nTop) !== topTrue()) res.closedCount++; }
@@ -315,7 +323,8 @@ function runCase(Valve, o) {
       if (mpg > clk.mpg0 / 4 && mpg < 4 * clk.mpg0) { clk.mpg = mpg; clk.rate = 1000 / mpg; lastRetime = now; res.retimes++; retimed = true; }
     }
     if (state === 'done' && nTop === 0 && zeroFrame < 0) zeroFrame = frameNo;
-    if (state !== 'running' && !flip.active && !pouring_active() && topTrue() === 0 && !xfer && t > doneT + 0.3 && nTop === 0) { res.ended = true; break; }
+    if (state !== 'running' && !flip.active && !pouring_active() && topTrue() === 0 && !xfer && t > doneT + 0.3 && nTop === 0 &&
+        !events.some(function (e) { return !e.done; })) { res.ended = true; break; }
   }
   res.viol = plant.viol; res.startErr = plant.startErr; res.closedCross = plant.closedCross;
   res.endMs = (plant.lastCrossT - doneT) * 1000; res.freeEndMs = (plant.lastFreeT - doneT) * 1000; res.endSub = plant.lastCrossSub * 1000;
