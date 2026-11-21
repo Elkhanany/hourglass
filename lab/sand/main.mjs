@@ -705,7 +705,7 @@ function endText(e) {
 function timerHud() {
   const T = timer, st = timerState(), k = T.last, L = [];
   const state = st.state === 'settle' ? 'settling' : st.state;
-  L.push(`Timer ${st.label}${T.ms !== T.def.ms ? '' : ''}: ${mmss(st.rem)} ${state}  mode ${st.mode} (${S.mode}${st.guard ? ', HEAT GUARD' : ''})  ${rate.hz} Hz`);
+  L.push(`Timer ${st.label}${T.ms !== T.def.ms ? ' in ' + mmss(T.ms) : ''}: ${mmss(st.rem)} ${state}  mode ${st.mode} (${S.mode}${st.guard ? ', HEAT GUARD' : ''})  ${rate.hz} Hz`);
   L.push(`count ${sgn(st.nTop - st.target)} (nTop ${st.nTop}, target ${st.target})  GPU ${k ? sgn(k.t.above - k.pTend) + ' pts' : '-'}  queue ${k ? k.t.queue : '-'}  vcap ${k ? vcapText(k.w.vcap) : '-'}  refused ${Math.round(st.refusedPerS)}/s`);
   L.push(`fall ${Number.isFinite(st.fall) ? st.fall.toFixed(2) + ' s' : '-'}  kv ${st.kv.toFixed(1)}  short ${st.n.short}/${st.n.bulk} (worst ${st.n.worstShort})  below target ${st.n.viol}  swaps ${st.swaps}`);
   if (st.end) L.push('END ' + endText(st.end));
@@ -1721,7 +1721,7 @@ function bindUI() {
     if (busyUI()) return;
     if (timer.on && timer.state !== 'done') { setStatus('The GPU cost is timed before a Timer starts, or after it ends'); return; }
     setStatus('Timing the GPU…');
-    burst({ label: `${AMOUNT_NAME[S.amount] || 'this'} bed` }).then(r => { setStatus(''); if (r) { const d = document.createElement('p'); d.textContent = burstText(r); showSheet('GPU cost', d); } }, e => setStatus('GPU cost failed: ' + (e && e.message || e)));
+    burst({ label: timer.on ? `the Timer's ${timer.def.label} bed` : `the ${AMOUNT_NAME[S.amount] || 'present'} bed` }).then(r => { setStatus(''); if (r) { const d = document.createElement('p'); d.textContent = burstText(r); showSheet('GPU cost', d); } }, e => setStatus('GPU cost failed: ' + (e && e.message || e)));
   });
   $('b-rotor').addEventListener('click', () => { location.href = ROTOR ? location.pathname : location.pathname + '?rotor=1'; });
   if (ROTOR) {
