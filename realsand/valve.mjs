@@ -282,11 +282,12 @@ export class Valve {
   }
 
   fastForward(n) {
-    n = Math.max(0, Math.min(Math.floor(n), this.gTop));
+    const held = this.xfer ? this.xfer.hold : 0;     // a transfer already owed takes this one too
+    n = Math.max(0, Math.min(Math.floor(n), this.gTop - held));
     if (!n) return 0;
-    this.gTop -= n; this.gen++; this.tallies = [];
+    this.gTop -= n + held; this.gen++; this.tallies = [];
     // taken to 0 (the residue), the count reads 1 until the transfer has moved the last points
-    this.xfer = { n, hold: this.gTop === 0 ? 1 : 0 }; this.gTop += this.xfer.hold;
+    this.xfer = { n: n + (this.xfer ? this.xfer.n : 0), hold: this.gTop === 0 ? 1 : 0 }; this.gTop += this.xfer.hold;
     this.anchor = null; this.endConfirmed = false;
     return n;
   }
