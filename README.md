@@ -1150,7 +1150,13 @@ hand on an iPhone before anything in the app changes. The engine itself
 (the solver, its shaders, the glass on the solver's grid, the palette, the
 GPU's pace, the fills, the grains' drawing, auto Hz and the glass's jolts as
 the sand feels them) lives in `realsand/`, which the lab imports, so that
-the app can later load the same files. Open
+the app can later load the same files. The engine also has the metered neck
+that is to keep the app's time exact with this sand (`realsand/valve.mjs`
+keeps the count; the solver's throttle just above the counting line and its
+membrane, which lets a grain cross only downward and only with a ticket,
+hold the sand above to the clock's target in every substep; a flip pass
+turns the grains end for end when the glass is swapped); it is off unless a
+run is given the valve's words, so the lab's sand behaves as before. Open
 `https://elkhanany.github.io/hourglass/lab/sand/` in Safari (iOS 26 or
 later, which has WebGPU). The phone's motion (**Real motion**), a finger on
 the glass, **Flip** and **Reset** move the sand; the buttons choose the
