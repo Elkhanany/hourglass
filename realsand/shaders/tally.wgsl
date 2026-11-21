@@ -15,7 +15,9 @@
 // the metered neck (valve.mjs): [8] the queue, points resting on the counting line (above it by
 // less than QueueBand, within a cell of the neck's width); [9] the fastest crowded point (cells/s
 // x 4; crowded as grains.mjs draws a grain sharp); [10] the brim, the highest point above the
-// line within 3 cells of the axis (grid y x 16; 0: none); [11-15] unused
+// line within 3 cells of the axis (grid y x 16; 0: none); [11] the depth of the lowest point below
+// the line (cells x 16; in an empty lower bulb, how far the stream's front has fallen: the lab's
+// Timer times the first fall with it); [12-15] unused
 @group(0) @binding(4) var<storage,read_write> tally: array<atomic<u32>>;
 // per column, the highest point at rest (slower than 2 cells/s and crowded; grid y x 16, 0: none):
 // [x] above the counting line, [gridSize.x + x] on it or below (the surfaces of the two beds)
@@ -62,6 +64,7 @@ fn csMain(@builtin(global_invocation_id) id: vec3u) {
     if (crowded) { atomicMax(&tally[9], vq); }
     let yq = u32(clamp(x.y, 0.0, f32(g_simConstants.gridSize.y)) * 16.0);
     if (above && ax < 3.0) { atomicMax(&tally[10], yq); }
+    if (!above) { atomicMax(&tally[11], u32(clamp(line - x.y, 0.0, f32(g_simConstants.gridSize.y)) * 16.0)); }
     if (crowded && v < 2.0) {
         let col = min(u32(max(x.x, 0.0)), g_simConstants.gridSize.x - 1u);
         atomicMax(&surface[select(g_simConstants.gridSize.x, 0u, above) + col], yq);

@@ -514,7 +514,9 @@ export class Solver {
       return { clamped: u[0], maxMove: u[1] / 1000, points: u[t], above: u[t + 1], below: u[t + 2], outside: u[t + 3], nan: u[t + 4],
         maxSpeed: u[t + 5] / 4, meanSpeed: u[t] ? u[t + 6] / 4 / u[t] : 0, moving: u[t + 7],
         // the metered neck's (valve.mjs onReadback)
-        crossings: u[2], start: u[3], refused: u[4], upward: u[5], queue: u[t + 8], crowdSpeed: u[t + 9] / 4, brim: u[t + 10] };
+        crossings: u[2], start: u[3], refused: u[4], upward: u[5], queue: u[t + 8], crowdSpeed: u[t + 9] / 4, brim: u[t + 10],
+        // the depth of the lowest point below the counting line, cells (the lab's Timer times the first fall with it)
+        deepest: u[t + 11] / 16 };
     }, e => {
       slot.pending = false;
       if (!this.readbacks.includes(slot)) return null;   // the glass was rebuilt while this was in flight
