@@ -565,10 +565,10 @@ async function timerStart(id, o = {}) {
   while (floor < g.cy - 1 && sampleField(g, g.cx, g.cy - floor - 0.5)[2] > 0) floor += 0.5;
   Object.assign(timer, {
     on: true, def, id, ms, N, ppg, valve, clk: makeClock(ms, N), rem: ms, state: 'settle', settleUntil: simTime + (o.settle ?? TIMER_SETTLE_S),
-    gen: timer.gen + 1, failed: null, lastTick: null, startAt: null, runStart: null, turning: false, swaps: 0, target: N, closed: true, floor,
+    gen: timer.gen + 1, failed: null, swapAt: null, lastTick: null, startAt: null, runStart: null, turning: false, swaps: 0, target: N, closed: true, floor,
     fall: { from: null, wallFrom: null, s: NaN, wall: NaN }, end: null, ends: [], refusedLog: [], last: null, began: clockNow(),
     n: { frames: 0, runs: 0, open: 0, closedRuns: 0, viol: 0, closedCross: 0, mismatch: 0, audits: 0, auditFails: 0, supplied: 0, countOff: 0,
-      bulk: 0, short: 0, worstShort: 0, qSum: 0, vSum: 0, refused: 0, upward: 0, crossings: 0, pointsOff: 0 }
+      bulk: 0, short: 0, worstShort: 0, cold: 0, coldShort: 0, coldWorst: 0, qSum: 0, vSum: 0, refused: 0, upward: 0, crossings: 0, pointsOff: 0 }
   });
   modesReset(modes, clockNow());
   syncUI();
@@ -593,7 +593,7 @@ function timerBefore(now) {
     v.completeFlip();
     // the glass is back upright in its own frame: the next run's flip pass turns the points end for end
     pose.theta -= Math.PI;
-    T.turning = false; T.swaps++; T.rem = there;
+    T.turning = false; T.swaps++; T.rem = there; T.swapAt = now;
     if (T.state === 'done' && there > 0) { T.state = 'running'; T.runStart = now; T.end = null; }
   }
   if (T.state === 'running' && !T.turning && gy > 0.7) {
@@ -653,9 +653,16 @@ function timerReadback(w, t, tSim) {
   T.refusedLog.push({ t: w.to, n: t.refused });
   while (T.refusedLog.length > 2 && w.to - T.refusedLog[0].t > 1000) T.refusedLog.shift();
   if (!w.closed && w.vcap < 1e8 && w.state === 'running') {
-    N.bulk++; N.qSum += t.queue; N.vSum += w.vcap;
+    // the bulk, as the valve test's plant counts it: from 2 s after the clock started and 1 s
+    // after a swap; before that, the cold start (the queue forming on the line), apart
     const sh = t.above - pTend;
-    if (sh > 0) { N.short++; N.worstShort = Math.max(N.worstShort, sh); }
+    if (T.startAt !== null && w.to - T.startAt >= 2000 && !(T.swapAt !== null && w.to - T.swapAt < 1000)) {
+      N.bulk++; N.qSum += t.queue; N.vSum += w.vcap;
+      if (sh > 0) { N.short++; N.worstShort = Math.max(N.worstShort, sh); }
+    } else {
+      N.cold++;
+      if (sh > 0) { N.coldShort++; N.coldWorst = Math.max(N.coldWorst, sh); }
+    }
   }
   const a = v.audit();
   if (a) { N.audits++; if (!a.ok) N.auditFails++; }
@@ -724,7 +731,7 @@ function timerHud() {
   const state = st.state === 'settle' ? 'settling' : st.state;
   L.push(`Timer ${st.label}${T.ms !== T.def.ms ? ' in ' + mmss(T.ms) : ''}: ${mmss(st.rem)} ${state}  mode ${st.mode} (${S.mode}${st.guard ? ', HEAT GUARD' : ''})  ${rate.hz} Hz`);
   L.push(`count ${sgn(st.nTop - st.target)} (nTop ${st.nTop}, target ${st.target})  GPU ${k ? sgn(k.t.above - k.pTend) + ' pts' : '-'}  queue ${k ? k.t.queue : '-'}  vcap ${k ? vcapText(k.w.vcap) : '-'}  refused ${Math.round(st.refusedPerS)}/s`);
-  L.push(`fall ${Number.isFinite(st.fall) ? st.fall.toFixed(2) + ' s' : '-'}  kv ${st.kv.toFixed(1)}  short ${st.n.short}/${st.n.bulk} (worst ${st.n.worstShort})  below target ${st.n.viol}  swaps ${st.swaps}`);
+  L.push(`fall ${Number.isFinite(st.fall) ? st.fall.toFixed(2) + ' s' : '-'}  kv ${st.kv.toFixed(1)}  short ${st.n.short}/${st.n.bulk} (worst ${st.n.worstShort}; start ${st.n.coldShort}/${st.n.cold})  below target ${st.n.viol}  swaps ${st.swaps}`);
   if (st.end) L.push('END ' + endText(st.end));
   if (st.failed) L.push('STALLED: no readback for 60 runs' + (st.failed.pending ? ', a swap\'s base waiting' : ''));
   return L;
@@ -1584,7 +1591,7 @@ function timerReport(n) {
   L.push(`Timer: ${st.label} (${st.grains} grains = ${st.points} points at ${st.ppg.toFixed(3)} points a grain, timed to ${mmss(st.ms)}), ${st.on ? st.state : 'stopped'}; ${mmss(st.rem)} left; nTop ${st.nTop}, target ${st.target}; ${st.swaps} swaps; mode setting ${st.setting}, heat guard ${st.guard ? 'engaged' : 'not engaged'}`);
   L.push(`  clock: tail ${st.clock.tailMs.toFixed(0)} ms, ${st.clock.tailGrains} grains in the tail, ${n(st.clock.rate)} grains/s in the bulk`);
   L.push(`  the neck: ${N.runs} runs read back (${N.open} open, ${N.closedRuns} shut); runs whose crossings left fewer above than their lowest target ${N.viol}; crossings while shut ${N.closedCross}; start + appended - crossings != above in ${N.mismatch}; point counts off ${N.pointsOff}; the valve's audit failed ${N.auditFails} of ${N.audits}`);
-  L.push(`  the count: nTop off the app's target in ${N.countOff} of ${N.supplied} open running frames; bulk runs short ${N.short} of ${N.bulk} (worst ${N.worstShort} points); mean queue ${n(st.queue)} points, mean vcap ${n(st.vcap, 2)} cells/s, gain kv ${n(st.kv)}; refused ${N.refused} crossings (now ${n(st.refusedPerS, 0)}/s), upward ${N.upward}`);
+  L.push(`  the count: nTop off the app's target in ${N.countOff} of ${N.supplied} open running frames; bulk runs (from 2 s after the start and 1 s after a swap) short ${N.short} of ${N.bulk} (worst ${N.worstShort} points), before that ${N.coldShort} of ${N.cold} (worst ${N.coldWorst}); mean queue ${n(st.queue)} points, mean vcap ${n(st.vcap, 2)} cells/s, gain kv ${n(st.kv)}; refused ${N.refused} crossings (now ${n(st.refusedPerS, 0)}/s), upward ${N.upward}`);
   L.push(`  the stream's first fall, neck to floor (${n(st.floor)} cells): ${Number.isFinite(st.fall) ? n(st.fall, 3) + ' s simulated, ' + n(st.fallWall / 1000, 3) + ' s wall' : 'not measured'}`);
   if (st.ends.length) st.ends.forEach((e, i) => L.push(`  end ${i + 1}: ${endText(e)}${e.last ? ' (a substep is ' + n(e.last.substep, 2) + ' ms)' : ''}`));
   else L.push('  end: not reached');

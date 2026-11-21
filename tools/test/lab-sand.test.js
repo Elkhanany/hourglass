@@ -99,9 +99,13 @@
  *               left, and the 1-minute amount timed to 12 s: no point crosses
  *               below the clock's target, none while the neck is shut, the
  *               membrane's arithmetic, the point counts and the valve's audit
- *               hold in every run, the last point leaves within one frame of
- *               00:00.0, the count reads 0 within 5 frames, no residue, the
- *               count is the app's target in 90 % of the open running frames;
+ *               hold in every run, the last point leaves in the substep that
+ *               holds 00:00.0 or after it, within one frame, the count reads 0
+ *               within 5 frames, no residue, the count is the app's target in
+ *               90 % of the open running frames, and for the 10 s glass under
+ *               0.5 % of the bulk's runs (from 2 s after the start, 1 s after a
+ *               swap) end short, by at most 3 points (the start logged apart;
+ *               the amount timed short logged only);
  *               the first fall is timed; calm runs at the same substep rate;
  *               the burst times the GPU and puts the sand back exactly; Copy
  *               results has the build stamp, the mode, the Timer, the burst
@@ -983,21 +987,30 @@ async function main() {
       var n = st.n, e = st.end;
       return st.grains + ' grains = ' + st.points + ' points, timed to ' + (st.ms / 1000) + ' s: ' + n.runs + ' runs (' + n.open + ' open, ' + n.closedRuns + ' shut), ' +
         'below target ' + n.viol + ', crossed while shut ' + n.closedCross + ', arithmetic off ' + n.mismatch + ', points off ' + n.pointsOff + ', audit ' + (n.audits - n.auditFails) + '/' + n.audits +
-        '; nTop = target in ' + (n.supplied - n.countOff) + ' of ' + n.supplied + ' open running frames; bulk runs short ' + n.short + ' of ' + n.bulk + ' (worst ' + n.worstShort + '), mean queue ' + f1(st.queue) + ', vcap ' + f2(st.vcap) + ', kv ' + f1(st.kv) +
+        '; nTop = target in ' + (n.supplied - n.countOff) + ' of ' + n.supplied + ' open running frames; bulk runs short ' + n.short + ' of ' + n.bulk + ' (worst ' + n.worstShort + '), the start ' + n.coldShort + ' of ' + n.cold + ' (worst ' + n.coldWorst + '), mean queue ' + f1(st.queue) + ', vcap ' + f2(st.vcap) + ', kv ' + f1(st.kv) +
         '; refused ' + n.refused + '; first fall ' + f2(st.fall) + ' s simulated over ' + f1(st.floor) + ' cells; swaps ' + st.swaps +
         '; end: ' + (e ? (e.last ? 'last point ' + f1(e.last.early) + ' to ' + f1(e.last.late) + ' ms after 00:00.0' : 'last point not out') + ', nTop 0 at +' + f1(e.confirmed) + ' ms, residue ' + (e.residueAt === null ? 'none' : e.residue) : 'not reached') +
         '; time in modes: full ' + f1(st.modeMs.full / 1000) + ' s, calm ' + f1(st.modeMs.calm / 1000) + ' s';
     };
-    var checks20 = function (st, what) {
+    var checks20 = function (st, what, line) {
       var n = st.n, e = st.end;
       check(n.open > 100 && n.viol === 0, what + ': no point crossed below the clock\'s target (no run with crossings ended below its lowest substep target; ' + n.open + ' open runs, ' + n.viol + ' below)');
       check(n.closedCross === 0 && n.mismatch === 0 && n.pointsOff === 0 && n.audits > 100 && n.auditFails === 0,
         what + ': no crossing while the neck was shut (' + n.closedCross + '), the membrane\'s arithmetic and the point counts hold in every run (' + n.mismatch + ', ' + n.pointsOff + ' off), the valve\'s audit passes (' + (n.audits - n.auditFails) + ' of ' + n.audits + ')');
-      check(!!(e && e.last && e.last.k >= 0 && e.last.late <= FR + 0.5 && e.last.early >= -FR - 0.5),
-        what + ': the last point left within one frame of 00:00.0 (the GPU\'s record of its substep: ' + (e && e.last ? f1(e.last.early) + ' to ' + f1(e.last.late) + ' ms, substep ' + (e.last.k + 1) + ' of ' + e.last.S : 'never') + ')');
+      // (the membrane and the zero substep: the substep in which the last point crossed ends at
+      // or after 00:00.0, never before it; 1e-3 ms for the sums of 1/60 s)
+      check(!!(e && e.last && e.last.k >= 0 && e.last.late >= -1e-3 && e.last.early > -e.last.substep - 1e-3 && e.last.late <= FR + 0.5),
+        what + ': the last point left in the substep that holds 00:00.0 or after it, within one frame (the GPU\'s record of its substep: ' + (e && e.last ? f1(e.last.early) + ' to ' + f1(e.last.late) + ' ms, substep ' + (e.last.k + 1) + ' of ' + e.last.S : 'never') + ')');
       check(!!(e && e.confirmed !== null && e.confirmed <= 5 * FR && e.residueAt === null && st.nTop === 0),
         what + ': no residue, and the count reads 0 within 5 frames (' + (e ? f1(e.confirmed) + ' ms, residue ' + (e.residueAt === null ? 'none' : e.residue) : '-') + ')');
       check(n.supplied > 100 && n.countOff <= 0.1 * n.supplied, what + ': the count is the app\'s target in at least 90 % of the open running frames (' + (n.supplied - n.countOff) + ' of ' + n.supplied + ')');
+      // the design's line for the bulk (from 2 s after the start and 1 s after a swap, as the
+      // valve test's plant counts it): under 0.5 % of runs short, by at most 3 points. Not for an
+      // amount timed short (the plant does not hold its fast rests to it either: their breathing
+      // asks more than the throttle follows); logged
+      var bulkTxt = 'in the bulk ' + n.short + ' of ' + n.bulk + ' runs ended short of their target (worst ' + n.worstShort + ' points; under 0.5 %, at most 3); the start, apart: ' + n.coldShort + ' of ' + n.cold + ' (worst ' + n.coldWorst + ')';
+      if (line) check(n.bulk > 50 && n.short <= 0.005 * n.bulk && n.worstShort <= 3, what + ': ' + bulkTxt);
+      else log('  ' + what + ' (timed short, logged): ' + bulkTxt);
     };
     await speed10('app');
     var o20 = { flipAt: 6000 };
@@ -1005,7 +1018,7 @@ async function main() {
     var a20 = await timer20('10s', o20);
     log('  10 s glass, a Flip with 6 s left: ' + desc20(a20));
     check(a20.grains === 1155 && a20.points === 1952, 'the 10 s glass holds the app\'s amount: 1155 grains = 1952 points at 1.69 points a grain (' + a20.grains + ', ' + a20.points + ')');
-    checks20(a20, '10 s glass with a Flip');
+    checks20(a20, '10 s glass with a Flip', true);
     check(a20.swaps === 1 && !!o20.before && a20.total === o20.before.total, 'the Flip swapped the bulbs once, with the neck shut while the glass turned (' + a20.swaps + ' swap)');
     check(a20.fall > 0.25 && a20.fall < 0.7, 'the stream\'s first fall is timed, neck to floor: ' + f2(a20.fall) + ' s simulated (0.25 to 0.7; free fall over ' + f1(a20.floor) + ' cells, held to a cell a substep)');
     var runs20 = (await L(function (k) { return window.__lab.modes(k); }, ran20)).runs;
@@ -1025,7 +1038,7 @@ async function main() {
     var c20 = await timer20('1m', { timer: { ms: 12000 } });
     log('  1-minute amount timed to 12 s: ' + desc20(c20));
     check(c20.grains === 2830 && c20.points === 4783, 'the 1-minute amount: 2830 grains = 4783 points (' + c20.grains + ', ' + c20.points + ')');
-    checks20(c20, '1-minute amount in 12 s');
+    checks20(c20, '1-minute amount in 12 s', false);
     await L(function () { window.__lab.timerStop(); return window.__lab.mode('full'); });
   }
 

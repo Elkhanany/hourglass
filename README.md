@@ -1292,8 +1292,9 @@ takes longer than a display frame, two such frames and one display frame;
 the old pace is its control); case 20 the Timer (a 10 s glass with a Flip,
 and the 1-minute amount timed to 12 s: no grain crosses below the clock's
 target, the last one leaves in the substep that holds 00:00.0 or after it,
-within a frame, no residue, under 0.5 % of the runs short in the bulk (from
-2 s after the start, its first 2 s logged apart), and the burst puts the
+within a frame, no residue, for the 10 s glass under 0.5 % of the runs
+short in the bulk (from 2 s after the start, its first 2 s logged apart),
+and the burst puts the
 sand back exactly); case 21 the modes on a resting bed (calm and full
 alternated ten times move it less than half a cell, and in auto a still bed
 sleeps until touched, leaned 5 degrees or turned); case 22 the Rotor probe (the sand always in
