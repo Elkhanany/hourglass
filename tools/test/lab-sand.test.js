@@ -121,7 +121,10 @@
  *               skipped: every readback has the sand in the bulb the ledger
  *               says (the flip pass at each half turn), the grains' canvas is
  *               turned half a turn exactly in the frames whose run was skipped
- *               since a swap, both WebGL canvases are made, no page errors
+ *               since a swap, and as drawn and shown (the canvas's picture
+ *               with its turn) the sand lies at the ledger's end in every
+ *               frame (control: without the turn it does not), both WebGL
+ *               canvases are made, no page errors
  *
  * Screenshots of the key moments go to --shots (a phone-like 390 x 844
  * viewport, device scale 1).
@@ -1124,16 +1127,39 @@ async function main() {
     var r22 = await p22.evaluate(async function () {
       window.__lab.manual(true);
       await window.__lab.rotor({ amount: '10s', w: 16, skip3: true, spun: true });
+      // the picture: where the drawn sand lies on the grains' canvas (its offscreen 2-D canvas, as
+      // shown after each frame), the centroid of its grains from the canvas's centre, y down
+      var c = document.getElementById('c-gpu'), ctx = c.getContext('2d');
+      var centroid = function () {
+        var d = ctx.getImageData(0, 0, c.width, c.height).data, sx = 0, sy = 0, n = 0;
+        for (var y = 0; y < c.height; y++) for (var x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 0) { sx += x; sy += y; n++; }
+        return n ? { x: sx / n - c.width / 2, y: sy / n - c.height / 2, n: n } : null;
+      };
       var rows = [];
-      for (var k = 0; k < 40; k++) { await window.__lab.frames(1, { lag: 2 }); rows.push(window.__lab.rotorState()); }
+      for (var k = 0; k < 40; k++) {
+        await window.__lab.frames(1, { lag: 2, draw: true });
+        var st = window.__lab.rotorState();
+        st.pic = centroid();
+        rows.push(st);
+      }
       return rows;
     });
     var e22 = r22[r22.length - 1], rule22 = r22.filter(function (x) { return x.canvasTurned !== (x.drawnParity !== x.parity); }).length;
     var turn22 = r22.filter(function (x) { return x.canvasTurned; }).length;
+    // as seen: the canvas's own half turn applied to its picture, the sand must lie at the end of
+    // the turning div that holds the ledger's top bulb (the grid's top at parity 0, its bottom at
+    // parity 1: the flip pass turns the points end for end); the div's own turn by the glass's
+    // angle moves both alike. Control: the same pictures without the canvas's half turn
+    var seen22 = function (x, turned) { var y = turned ? -x.pic.y : x.pic.y; return x.parity === 0 ? y < 0 : y > 0; };
+    var pics22 = r22.filter(function (x) { return x.pic && x.pic.n > 50; });
+    var wrongSeen22 = pics22.filter(function (x) { return !seen22(x, x.canvasTurned); }).length;
+    var wrongBare22 = pics22.filter(function (x) { return !seen22(x, false); }).length;
     log('  ' + e22.swaps + ' half-turn swaps in 40 frames, ' + e22.runs + ' runs, ' + e22.skips + ' skipped by hand; the grains\' canvas turned in ' + turn22 + ' frames; sand in the wrong bulb in ' + e22.wrong + ' of ' + e22.checked + ' readbacks; WebGL canvases ' + JSON.stringify(e22.gl));
     check(e22.swaps >= 3 && e22.checked >= 20 && e22.wrong === 0, 'turning, the bed is swapped and turned end for end at each half turn: every readback has all of the sand in the bulb the ledger says (' + e22.swaps + ' swaps, ' + e22.wrong + ' wrong of ' + e22.checked + ')');
     check(rule22 === 0 && turn22 >= 1 && /rotate\(/.test(e22.rotorTransform) && e22.gl[0] && e22.gl[1],
       'the canvas is turned half a turn exactly in the frames whose run was skipped since a swap (' + turn22 + ' frames, the rule broken in ' + rule22 + '), the div turns with the glass, and both WebGL canvases are there');
+    check(pics22.length >= 30 && wrongSeen22 === 0 && wrongBare22 >= 1,
+      'as drawn and shown, the sand lies at the end of the glass that holds the ledger\'s top bulb in every frame (' + pics22.length + ' pictures, ' + wrongSeen22 + ' wrong); control, the same pictures without the canvas\'s half turn: wrong in ' + wrongBare22 + ' frames (those skipped since a swap)');
     check(err22.length === 0, 'no page errors on the Rotor probe' + (err22.length ? ': ' + err22.slice(0, 3).join(' | ') : ''));
     await p22.close();
   }
