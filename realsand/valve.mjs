@@ -93,6 +93,13 @@
  *  below the top bulb's far end at grid y `inlet`; no more than maxTotal grains and the
  *  buffer's room in points allow).
  *
+ *  A frame, in order (the lab's Timer, later RealSand, with the app's clock math):
+ *    the clock ticks; pours (pour(n), then append the points); a swap (completeFlip()); the
+ *    app's target and valve fields; a catch-up (fastForward, then hold runs until the transfer
+ *    is done); plan(app); unless the run is skipped or held: w = run({ steps, now, simDt }), and
+ *    the solver encodes w.flip, then substep s with words 36-38 = w.vcap, w.allow[s], w.flags;
+ *    its readback, when it comes: onReadback(w.seq, words).
+ *
  * ==============================================================================================
  *  UNITS
  * ==============================================================================================
