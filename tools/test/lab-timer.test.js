@@ -12,8 +12,10 @@
  * only above the design's thresholds (0.05 g, 0.5 rad/s, 5 rad/s^2) held for 0.3 s, or a lean
  * of 3 degrees within 0.5 s, so a phone held still in the hand stays calm; calm only while
  * auto Hz is at the base rate; a still glass that is not running falls asleep after 0.5 s and
- * wakes at a touch; the heat guard drops a full glass slower than 0.6 of real time to calm
- * after 20 s (not after 19), only in auto; the burst's cost removes a submit's fixed latency.
+ * wakes at a touch, when leaned 5 degrees or turned at 2 rad/s (within 0.5 s), or tilted at 0.5
+ * degree a second (past 1 degree since it fell asleep, within 2.5 s); the heat guard drops a
+ * full glass slower than 0.6 of real time to calm after 20 s in a row (not after 19, and not
+ * counting across calm frames), only in auto; the burst's cost removes a submit's fixed latency.
  *
  *   node tools/test/lab-timer.test.js
  */
@@ -22,6 +24,7 @@ var path = require('path');
 var plant = require('./lib/realsand-plant.js');
 var t0 = Date.now(), count = 0, failures = 0;
 function log(s) { console.log(s); }
+function f0(x) { return isFinite(x) ? String(Math.round(x)) : String(x); }
 function check(ok, what) { count++; if (!ok) failures++; log((ok ? 'ok    ' : 'FAIL  ') + what); }
 
 (async function () {
@@ -88,6 +91,17 @@ function check(ok, what) { count++; if (!ok) failures++; log((ok ? 'ok    ' : 'F
   var r5 = seq([{ ms: 1000, o: { active: false, still: true } }, { ms: 100, o: { active: false, still: true, busy: 'touched' } }, { ms: 2600, o: { active: false, still: true } }]);
   check(at(r5, 300).mode === 'calm' && at(r5, 900).mode === 'asleep' && at(r5, 1050).mode === 'full' && at(r5, 3000).mode === 'full' && at(r5, 3650).mode === 'asleep',
     'a still glass that is not running sleeps after 0.5 s; a touch wakes it to full, and it sleeps again 2.5 s after');
+  // asleep, the phone moved: a lean of 5 degrees at once, a turn of 2 rad/s, a tilt of 0.5 degree a
+  // second (design 9.1: more than 1 degree since it fell asleep, however slowly)
+  var rest = { active: false, still: true };
+  var leanTo = function (deg) { return { a: 0, w: 0, alpha: 0, lean: deg * Math.PI / 180 }; };
+  var wakeAt = function (out, t0) { for (var i = 0; i < out.length; i++) if (out[i].t >= t0 && out[i].mode === 'full') return out[i].t - t0; return Infinity; };
+  var w1 = seq([{ ms: 1000, o: rest }, { ms: 1000, o: Object.assign({ felt: leanTo(5) }, rest) }]);
+  var w2 = seq([{ ms: 1000, o: rest }, { ms: 1000, o: Object.assign({ felt: { a: 0, w: 2, alpha: 0, lean: 0 } }, rest) }]);
+  var w3 = seq([{ ms: 1000, o: rest }, { ms: 4000, o: Object.assign({ felt: function (t) { return leanTo(0.5 * (t - 1000) / 1000); } }, rest) }]);
+  var wk = [wakeAt(w1, 1000), wakeAt(w2, 1000), wakeAt(w3, 1000)];
+  check(at(w1, 990).mode === 'asleep' && wk[0] <= 500 && wk[1] <= 500 && wk[2] <= 2500 && at(w3, 1000 + wk[2]).why === 'lean since asleep',
+    'asleep, the glass wakes to full when it is leaned 5 degrees (' + f0(wk[0]) + ' ms), turned at 2 rad/s (' + f0(wk[1]) + ' ms), or tilted slowly, at 0.5 degree a second, past 1 degree since it fell asleep (' + f0(wk[2]) + ' ms)');
   var r6 = seq([{ ms: 1000, o: { active: false, still: true, pending: true } }]);
   check(r6.every(function (x) { return x.mode !== 'asleep'; }), 'not asleep while a swap waits for its flip pass');
   var r7 = seq([{ ms: 19000, o: { busy: 'turning', ratio: 0.5 } }, { ms: 2000, o: { busy: 'turning', ratio: 0.5 } }, { ms: 1000 }]);
@@ -97,6 +111,10 @@ function check(ok, what) { count++; if (!ok) failures++; log((ok ? 'ok    ' : 'F
   check(r8.every(function (x) { return x.mode === 'full'; }) && !r8.m.guard, 'the heat guard acts only in auto: a mode set by hand is kept');
   var r9 = seq([{ ms: 21000, o: { busy: 'turning', ratio: 0.7 } }]);
   check(!r9.m.guard, 'no heat guard at 0.7 of real time');
+  // 20 s in a row: 5 s slow and full, 40 s calm, then slow and full again
+  var r10 = seq([{ ms: 5000, o: { busy: 'turning', ratio: 0.5 } }, { ms: 40000, o: { ratio: 0.5 } }, { ms: 19500, o: { busy: 'turning', ratio: 0.5 } }, { ms: 1500, o: { busy: 'turning', ratio: 0.5 } }]);
+  check(at(r10, 30000).mode === 'calm' && at(r10, 64400).mode === 'full' && r10.m.guard && Math.abs(r10.m.guardAt - 45000 - 20000) < 50,
+    'the heat guard counts 20 s in a row: slow and full for 7 s, calm for 38 s, then slow and full again, it engages 20 s after the calm ends (at ' + f0(r10.m.guardAt / 1000) + ' s, not at once)');
   check(T.frameMsFor('calm', 1000 / 60) === 1000 / 30 && T.frameMsFor('calm', 1000 / 30) === 1000 / 30 && T.frameMsFor('full', 1000 / 60) === 1000 / 60,
     'calm draws 30 frames a second (every other frame of a 60 Hz display; every frame of a 30 Hz one)');
 

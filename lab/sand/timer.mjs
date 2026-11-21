@@ -22,9 +22,11 @@
  *    Felt motion that counts (design 9.1): the glass's acceleration |a| >= 0.05 g, turning
  *    |w| >= 0.5 rad/s or |alpha| >= 5 rad/s^2, held for 0.3 s; or a change of lean of 3 degrees
  *    within 0.5 s. A phone held in the hand passes the app's own idle thresholds every frame,
- *    so these are coarser.
+ *    so these are coarser. Asleep, the glass also wakes once its lean has changed by more than
+ *    1 degree since it fell asleep (design 9.1: the app's wakeAll), however slowly.
  *    The heat guard: in mode 'auto', when the simulated time stays under 0.6 of real time for
- *    20 s while full, the glass runs calm until the run ends or the mode is set again.
+ *    20 s in a row while full (any other frame starts the count again), the glass runs calm until
+ *    the run ends or the mode is set again.
  *
  * Part of the Hourglass project. License: GPL-3.0.
  */
@@ -96,6 +98,7 @@ export const MODES = {
   START_MS: 2000,       // the first 2 s of a run are full
   FELT_MS: 300,         // felt motion counts once held this long
   LEAN_MS: 500, LEAN_DEG: 3,
+  WAKE_DEG: 1,          // asleep: a change of lean since it fell asleep that wakes it
   ACC_G: 0.05, W: 0.5, ALPHA: 5,
   STILL_MS: 500,        // asleep once still this long
   CALM_FPS: 30,
@@ -104,7 +107,7 @@ export const MODES = {
 
 /** A mode chooser's state. */
 export function newModes() {
-  return { mode: 'full', busyUntil: -Infinity, feltSince: null, leans: [], stillSince: null, slowSince: null,
+  return { mode: 'full', busyUntil: -Infinity, feltSince: null, leans: [], stillSince: null, slowSince: null, sleepLean: null,
     guard: false, guardAt: null, ms: { full: 0, calm: 0, asleep: 0 }, last: null, why: '', changes: 0 };
 }
 /**
@@ -112,7 +115,7 @@ export function newModes() {
  * setting (hold 0: the rules apply at once).
  */
 export function modesReset(m, now = 0, hold = MODES.HOLD_MS) {
-  Object.assign(m, { busyUntil: now + hold, feltSince: null, leans: [], stillSince: null, slowSince: null, guard: false, guardAt: null });
+  Object.assign(m, { busyUntil: now + hold, feltSince: null, leans: [], stillSince: null, slowSince: null, sleepLean: null, guard: false, guardAt: null });
   return m;
 }
 
@@ -143,6 +146,11 @@ export function chooseMode(m, o) {
     for (const l of m.leans) { lo = Math.min(lo, l.v); hi = Math.max(hi, l.v); }
     if ((hi - lo) * 180 / Math.PI >= M.LEAN_DEG) why = 'lean';
   }
+  // asleep: a change of lean of more than 1 degree since it fell asleep wakes it, however slow
+  if (!why && m.mode === 'asleep' && m.sleepLean !== null) {
+    const d = (f.lean || 0) - m.sleepLean;
+    if (Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) * 180 / Math.PI > M.WAKE_DEG) why = 'lean since asleep';
+  }
   if (why) m.busyUntil = now + M.HOLD_MS;
   // stillness, for sleep
   if (o.still && !o.active && !o.pending) { if (m.stillSince === null) m.stillSince = now; } else m.stillSince = null;
@@ -154,11 +162,15 @@ export function chooseMode(m, o) {
   else if (why || now < m.busyUntil) { mode = 'full'; m.why = why || 'just now'; }
   else if (!o.atBase) { mode = 'full'; m.why = 'auto Hz above the base'; }
   else { mode = 'calm'; m.why = 'calm'; }
-  // the heat guard (auto only): full and slower than 0.6 of real time for 20 s
+  // the heat guard (auto only): full and slower than 0.6 of real time for 20 s in a row; any
+  // other frame (calm, asleep, a ratio not known or at 0.6 and above) starts the count again
   if (o.setting === 'auto' && mode === 'full' && Number.isFinite(o.ratio) && o.ratio < M.GUARD_RATIO) {
     if (m.slowSince === null) m.slowSince = now;
     if (!m.guard && now - m.slowSince >= M.GUARD_MS && o.active) { m.guard = true; m.guardAt = now; mode = 'calm'; m.why = 'heat guard'; }
-  } else if (mode === 'full') m.slowSince = null;
+  } else m.slowSince = null;
+  // the lean at the moment it fell asleep
+  if (mode !== 'asleep') m.sleepLean = null;
+  else if (m.mode !== 'asleep' || m.sleepLean === null) m.sleepLean = f.lean || 0;
   if (m.last !== null) m.ms[m.mode] += Math.max(0, Math.min(250, now - m.last));
   if (mode !== m.mode) m.changes++;
   m.last = now; m.mode = mode;

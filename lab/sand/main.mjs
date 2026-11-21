@@ -386,10 +386,13 @@ function resetRate() { Rate.rateReset(rate, S.hz); paceReset(); }
 
 /** G / g: how slowed the world is (1 at real speed); the app's lambda. */
 function lamNow() { return Math.min(1, gCells() / gReal()); }
-/** The field for the next substep, in the glass's frame (advances the clock). */
-function fieldAt() {
-  const dt = 1 / rate.hz;
-  stepPose(dt);
+/**
+ * The inputs now, without stepping anything: the pull on the screen (x right, y down) in g, the
+ * glass's own acceleration in g, and its turning. Sets feltNow, what the power modes read. Called
+ * by fieldAt in every substep, and once an animation frame before the mode is chosen, so that a
+ * glass asleep (no substeps) still feels the phone move.
+ */
+function feltSample() {
   // what the sand feels on the screen (x right, y down), in g, and the glass's turning (+ clockwise)
   let gx = 0, gy = 1, w = pose.omega, a = pose.alpha;
   // the glass's own acceleration, g, page axes: the finger's spring, the phone's, a scripted one
@@ -414,10 +417,17 @@ function fieldAt() {
     gx -= 1.5 * Math.sin(2 * Math.PI * 3 * t);
     gy -= 0.5 * Math.sin(2 * Math.PI * 2.2 * t + 1);
   }
-  // the glass's own acceleration as the sand feels it (felt.mjs): at app speed its jolts are
-  // played back slowed, as in a slowed film of them
   // (what the power modes read: the glass's own acceleration, its turning, and the lean of the pull)
   feltNow = { a: Math.hypot(lax, lay), w, alpha: a, lean: Math.atan2(gx, gy) };
+  return { gx, gy, w, a, lax, lay };
+}
+/** The field for the next substep, in the glass's frame (advances the clock). */
+function fieldAt() {
+  const dt = 1 / rate.hz;
+  stepPose(dt);
+  let { gx, gy, w, a, lax, lay } = feltSample();
+  // the glass's own acceleration as the sand feels it (felt.mjs): at app speed its jolts are
+  // played back slowed, as in a slowed film of them
   const [fax, fay] = felt.feel(lax, lay, dt, simTime, S.speed === 'app' && S.impulse, lamNow());
   gx -= fax; gy -= fay;
   const c = Math.cos(pose.theta), s = Math.sin(pose.theta);
@@ -782,6 +792,7 @@ async function framesN(n, o = {}) {
     while (vq.length && vq[0].due <= vframe) deliver(vq.shift());
     if (timer.on) timerBefore(wall);
     if (rotor.on) rotorBefore(FRAME_MS / 1000);
+    feltSample();
     const mode = modeFor(wall, NaN);
     if (mode === 'asleep') { sleptFrames++; vLastRun = null; continue; }
     if (mode === 'calm' && vLastRun !== null && wall - vLastRun < frameMsFor('calm', FRAME_MS) - 0.5 * FRAME_MS) { calmFrames++; if (rotor.on) rotorCss(); continue; }
@@ -1171,7 +1182,9 @@ function loop(now) {
   if (timer.on) timerBefore(wall);
   if (rotor.on) rotorBefore(dtReal);
   // the power mode (timer.mjs): asleep runs nothing; calm draws every other frame of a 60 Hz
-  // display, at the same substep rate (the time of the frame not drawn goes to the next)
+  // display, at the same substep rate (the time of the frame not drawn goes to the next). The
+  // inputs are read first: asleep, no substep reads them
+  feltSample();
   const mode = modeFor(wall, ratioLast(now));
   if (mode === 'asleep') { sleptFrames++; lastDrawn = 0; acc = 0; if (rotor.on) rotorCss(); return; }
   const T0 = displayMs(), T = frameMsFor(mode, T0);

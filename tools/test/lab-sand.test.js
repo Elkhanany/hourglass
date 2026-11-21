@@ -110,7 +110,9 @@
  *               alternated 10 times (0.3 s each) move its surface, its top and
  *               its centre less than half a cell, every run at 480 Hz (full 8
  *               substeps every frame, calm 16 every other frame); in auto the
- *               still bed falls asleep and a finger on the glass wakes it
+ *               still bed falls asleep and a finger on the glass wakes it, and
+ *               so does the phone (read once a frame, asleep too) leaning it 5
+ *               degrees or turning it at 2 rad/s, within 0.5 s
  *  22 rotor     the Rotor probe on the 10 s bed, 16 rad/s, every third run
  *               skipped: every readback has the sand in the bulb the ledger
  *               says (the flip pass at each half turn), the grains' canvas is
@@ -1070,6 +1072,29 @@ async function main() {
     });
     log('  auto on the still bed (the last readback before: ' + s21.moving + ' points moving, the fastest ' + f2(s21.fastest) + ' cells/s): ' + s21.slept + ' of 60 frames asleep (' + s21.ran + ' runs), then ' + s21.mode1 + ' (' + s21.why1 + '); a finger on the glass: ' + s21.mode2 + ' (' + s21.why2 + ')');
     check(s21.slept >= 20 && s21.mode1 === 'asleep' && s21.mode2 === 'full', 'auto: a still bed falls asleep (no GPU work: ' + s21.slept + ' of 60 frames) and a finger on the glass wakes it to full');
+    // asleep, the phone moves (the scripted input stands for its readings, read once a frame
+    // although no substep runs): leaned 5 degrees, then turned at 2 rad/s; each must wake it
+    // within 0.5 s (30 frames)
+    var w21 = await L(async function () {
+      var lab = window.__lab, out = {};
+      var until = async function (want, n) {
+        for (var k = 1; k <= n; k++) { await lab.frames(1, { lag: 2 }); if (lab.modes().mode === want) return k; }
+        return Infinity;
+      };
+      lab.setInput({ mode: 'manual', gravity: [0, 1] });
+      out.sleep1 = await until('asleep', 400);
+      lab.setInput({ mode: 'manual', gravity: [Math.sin(5 * Math.PI / 180), Math.cos(5 * Math.PI / 180)] });
+      out.lean = await until('full', 30); out.leanWhy = lab.modes().why;
+      lab.setInput({ mode: 'manual', gravity: [0, 1] });
+      out.sleep2 = await until('asleep', 400);
+      lab.setInput({ mode: 'manual', gravity: [0, 1], omega: 2 });
+      out.turn = await until('full', 30); out.turnWhy = lab.modes().why;
+      lab.setInput({ mode: 'manual', gravity: [0, 1] });
+      return out;
+    });
+    log('  asleep again after ' + w21.sleep1 + ' frames; leaned 5 degrees: full after ' + w21.lean + ' frames (' + w21.leanWhy + '); asleep again after ' + w21.sleep2 + '; turned at 2 rad/s: full after ' + w21.turn + ' frames (' + w21.turnWhy + ')');
+    check(isFinite(w21.sleep1) && isFinite(w21.sleep2) && w21.lean <= 30 && w21.turn <= 30,
+      'auto: asleep, the glass wakes to full when the phone leans it 5 degrees (' + w21.lean + ' frames) or turns it at 2 rad/s (' + w21.turn + ' frames), within 0.5 s');
     await L(function () { return window.__lab.mode('full'); });
     await sec(0.5);
   }
