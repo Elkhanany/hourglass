@@ -1,10 +1,11 @@
-# Licences of the sand lab
+# Licences of the sand engine
 
-The sand lab (this folder) is part of the Hourglass project, which is
-licensed under the GNU General Public License, version 3 (see `LICENSE` at
-the root of the repository). Its solver is derived from two other projects,
-whose notices are kept in every file derived from them and whose full texts
-follow. Both licences are compatible with the GPL-3.0.
+The sand engine (this folder, `realsand/`, used by the sand lab in
+`lab/sand/`) is part of the Hourglass project, which is licensed under the
+GNU General Public License, version 3 (see `LICENSE` at the root of the
+repository). Its solver is derived from two other projects, whose notices are
+kept in every file derived from them and whose full texts follow. Both
+licences are compatible with the GPL-3.0.
 
 | File | Derived from | Licence of the original |
 |---|---|---|
@@ -12,8 +13,10 @@ follow. Both licences are compatible with the GPL-3.0.
 | `shaders/common.inc.wgsl`, `g2p2g.wgsl`, `gridUpdate.wgsl`, `bukkitCount.wgsl`, `bukkitAllocate.wgsl`, `bukkitInsert.wgsl` | EA's PB-MPM shaders, as adapted in Smoosh | BSD-3-Clause (EA) and MIT (Smoosh) |
 | `shaders/domain.inc.wgsl`, `rescale.wgsl` | Smoosh: `domain.inc.wgsl`, `rescaleParticles.wgsl` | MIT (Smoosh) |
 | `shaders/grains.wgsl` | the idea of Smoosh's `density.wgsl`; EA's particle layout | MIT (Smoosh), BSD-3-Clause (EA) |
-| `shaders/prepare.wgsl`, `gridClear.wgsl`, `tally.wgsl` | new, using the shared include above | GPL-3.0 (with the notices of the include) |
-| `glass.mjs`, `palette.mjs`, `main.mjs`, `index.html`, `lab.css` | the Hourglass app (`physics.js`, `styles.css`, `motion.js`) | GPL-3.0 |
+| `shaders/prepare.wgsl`, `gridClear.wgsl`, `tally.wgsl`, `load.wgsl`, `spreadSplat.wgsl`, `spreadShift.wgsl` | new, using the shared include above | GPL-3.0 (with the notices of the include) |
+| `glass.mjs`, `palette.mjs` | the Hourglass app (`physics.js`) | GPL-3.0 |
+| `pace.mjs`, `build.mjs` | new | GPL-3.0 |
+| the lab page, `lab/sand/` (`main.mjs`, `index.html`, `lab.css`) | the Hourglass app (`physics.js`, `styles.css`, `motion.js`) | GPL-3.0 |
 
 Sources: Smoosh, <https://github.com/ErikSom/smoosh>; EA's PB-MPM,
 <https://github.com/electronicarts/pbmpm>.
