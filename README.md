@@ -1103,13 +1103,17 @@ node tools/test/app-gestures.test.js     # any single suite
   whole grains and meters the GPU's neck, against a model of that neck and of
   the app's clock (`tools/test/lib/realsand-plant.js`): six grain settings
   with pours, Flips, spins, a tilt swap in a pour with frames skipped, a sleep
-  and its catch-up, a Reset; long glasses, the slowest and fastest rests, a
-  throttle stronger or weaker than the valve assumes, calm, a phone held in
-  the hand, shaking, a straggler, readbacks 15 frames late. No point may
-  leave so that fewer are above than the clock's target in any substep, the
-  count must be the clock's own while the neck keeps up and must never go
-  back, and the last point must leave within one substep of 00:00.0; the
-  first version's bookkeeping, kept as its control, lets sand through early.
+  and its catch-up (also with a pour while its transfer is owed), a Reset;
+  long glasses, also run again by a Flip after their end, the slowest and
+  fastest rests, a throttle stronger or weaker than the valve assumes, calm,
+  a phone held in the hand, shaking, a straggler, readbacks 15 frames late, a
+  bed that first settles on the shut neck. No point may leave so that fewer
+  are above than the clock's target in any substep, the count must be the
+  clock's own while the neck keeps up and must never go back, the top bulb
+  must never be empty while the clock runs, and the last point must leave
+  within one substep of 00:00.0; readbacks that stop must be noticed within
+  60 runs; the first version's bookkeeping, kept as its control, lets sand
+  through early.
   `realsand-fill` checks the fills (exactly the points asked for on every
   grid and amount, all inside the glass; a target that is not a number is
   refused), the grains' colour seeds against the grain shader's own hash, and
