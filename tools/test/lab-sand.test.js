@@ -762,6 +762,15 @@ async function main() {
     await inp({ mode: 'manual', gravity: [0, 1] });
     await sec(0.05);
     var v13 = M.voids(await pos());
+    // as drawn: a bed thrown as a whole is followed by the eye and seen sharp; only grains in flight
+    // streak (grains.wgsl's crowding rule). The share of grains drawn as a streak longer than a cell
+    // (a grain is 0.72 cell across), with the rule and, as the control, without it.
+    var dr13 = await L(async function () {
+      var share = function (s) { var m = 0; for (var i = 0; i < s.length; i += 4) if (Math.hypot(s[i + 2], s[i + 3]) > 1) m++; return m / Math.max(1, s.length / 4); };
+      return { rule: share(await window.__lab.streaks()), all: share(await window.__lab.streaks({ all: true })) };
+    });
+    log('  +0.15 s as drawn: ' + f2(100 * dr13.rule) + ' % of grains streak longer than a cell; every grain streaking (the control): ' + f2(100 * dr13.all) + ' %');
+    check(dr13.rule <= 0.1 && dr13.all >= 0.3, 'a jerked bed is drawn sharp, not as streaks: <= 10 % of its grains streak longer than a cell (' + f2(100 * dr13.rule) + ' %; control, every grain streaking, >= 30 %: ' + f2(100 * dr13.all) + ' %)');
     await sec(0.85);
     var s13 = await stat();
     log('  +0.15 s: holes ' + f2(100 * v13.holes) + ' %; +1 s: mean speed ' + f1(s13.meanSpeed) + ' cells/s; clamp hits ' + (s13.clamped - c13));

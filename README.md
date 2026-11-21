@@ -1176,9 +1176,12 @@ real speed true g wants more substeps than a phone gives, so there the
 fastest grains are held to a cell a substep and fall slower than real, and
 the HUD says so; at app speed the glass's jolts (the finger's, the phone's) reach
 the slowed sand slowed too, as in a slowed film of them, so a jerk throws
-it as far as at real speed. A grain is drawn as the streak it makes in one
-display frame, as the eye sees a falling grain, so the stream through the
-neck reads as a thread (More, "blur", shortens it or turns it off). Each
+it as far as at real speed. A grain in flight is drawn as the streak it
+makes in one display frame, as the eye sees a falling grain, so the stream
+through the neck reads as a thread (More, "blur", shortens it or turns it
+off); a grain with sand crowded around it is drawn sharp, because the eye
+follows a bed that is jerked, shaken or turned as a whole (drawn as
+streaks, such a bed looked like brushed hair or straw). Each
 grain remembers how tightly it is packed (shaking packs it), and grains
 that crowd inside a cell step apart (the spread pass; More, "spread", turns
 it off, two fewer dispatches a substep, 14 instead of 16), so a bed at rest no longer

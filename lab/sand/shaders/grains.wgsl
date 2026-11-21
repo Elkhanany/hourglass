@@ -26,7 +26,8 @@ struct Particle {
 struct View {
     m: vec4f,      // clip.x = m.x*gx + m.y*gy + o.x ; clip.y = m.z*gx + m.w*gy + o.y
     o: vec4f,      // o.zw: the grain's radius in clip units
-    look: vec4f,   // x: 0 sand, 1 liquid; y: opacity; z: exposure: the streak, cells, per cell of a substep's displacement (exposure s x substeps/s; 0: no blur)
+    look: vec4f,   // x: 0 sand, 1 liquid; y: opacity; z: exposure: the streak, cells, per cell of a substep's displacement (exposure s x substeps/s; 0: no blur);
+                   // w: the crowding at and above which a grain is drawn sharp (main.mjs FLIGHT; 0: every grain streaks)
 };
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -60,7 +61,14 @@ fn hash(input: u32) -> u32 {
     // Motion blur: where the grain went during the exposure (the eye's, or a display frame's),
     // in units of its own radius. A grain falling through the neck at a few hundred cells/s
     // crosses several cells in a frame, so it is seen as a streak, as a real falling grain is.
-    let s = p.displacement * view.look.z;
+    // The eye follows a bed that moves as a whole (a jerk, a shake, a turn) and sees it sharp; it
+    // cannot follow the grains of a stream or a spray, whose pattern stands still while they fly
+    // through it. So only a grain with little sand around it is drawn as its streak: how crowded it
+    // is comes from the grid (g2p2g.wgsl, color.y), and the streak fades out from half the
+    // threshold to the threshold (main.mjs flightOf() is the same rule).
+    let hi = view.look.w;
+    let flight = select(1.0, 1.0 - smoothstep(0.5 * hi, hi, p.color.y), hi > 0.0);
+    let s = p.displacement * view.look.z * flight;
     let sc = vec2f(view.m.x * s.x + view.m.y * s.y, view.m.z * s.x + view.m.w * s.y);
     let u = sc / max(view.o.zw * size, vec2f(1e-9));
     let len = length(u);

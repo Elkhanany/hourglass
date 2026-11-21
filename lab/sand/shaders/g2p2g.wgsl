@@ -144,6 +144,10 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
             if(g_simConstants.useGridVolumeForLiquid != 0)
             {
                 packing = volume / max(wFilled, 0.05);
+                // drawing only (grains.wgsl's motion blur): how crowded the point is, the grid's
+                // volume weighted over the nodes around it: high inside a bed, lower at its
+                // surface, near 0 for a grain in flight
+                particle.color.y = volume;
             }
             // Recover an objective measure of a liquid's volume from the grid, when compressed.
             if(g_simConstants.useGridVolumeForLiquid != 0)

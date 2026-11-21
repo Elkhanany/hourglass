@@ -84,6 +84,8 @@ const S = {
   hz: 480, iterations: 5, cap: 24, maxStep: 1, coriolis: true, neckMin: 5.5, auto: true, impulse: true,
   // motion blur: a grain is drawn as the streak it makes in this many display frames; 0: off
   blur: 1,
+  // true: every grain streaks, a bed moving as a whole too (the drawing before the crowding rule)
+  blurAll: false,
   // sand's spread pass (2 dispatches a substep, and its grid's clear folded into prepare): crowded points step apart inside a cell
   spread: true,
   // sand yields inside the solver's iterations (solver.mjs yieldLoop); off by default
@@ -642,7 +644,9 @@ class GrainRenderer {
     // motion blur: the streak a grain makes in S.blur display frames (of simulated time at the
     // sim/real ratio of 1), per cell of its displacement in a substep; the display's own frame
     // (a 30 Hz display, as in Low Power Mode, shows each frame twice as long; stepped by hand, 1/60 s)
-    v[8] = liquid ? 1 : 0; v[9] = liquid ? 0.75 : 1; v[10] = (S.blur || 0) * (manual ? 1000 / 60 : displayMs()) / 1000 * (solver.lastHz || rate.hz); v[11] = 0;
+    v[8] = liquid ? 1 : 0; v[9] = liquid ? 0.75 : 1; v[10] = (S.blur || 0) * (manual ? 1000 / 60 : displayMs()) / 1000 * (solver.lastHz || rate.hz);
+    // only grains in flight streak (grains.wgsl; flightOf() below)
+    v[11] = S.blurAll ? 0 : FLIGHT;
     this.device.queue.writeBuffer(this.viewBuf, 0, v);
     let target;
     if (this.offscreen) {
@@ -1538,6 +1542,16 @@ function info() {
 /* ------------------------------------------------------------------ *
  *  The test hook
  * ------------------------------------------------------------------ */
+/* The motion blur's crowding rule (grains.wgsl): a grain whose crowding (the grid's volume weighted
+ * around it, g2p2g.wgsl) is at or above FLIGHT moves with a bed the eye follows, and is drawn sharp;
+ * below half of it, it is in flight and drawn as its full streak; in between, the streak fades. */
+const FLIGHT = 0.6;
+function flightOf(crowd) {
+  if (S.blurAll) return 1;
+  const t = Math.min(1, Math.max(0, (crowd - 0.5 * FLIGHT) / (0.5 * FLIGHT)));
+  return 1 - t * t * (3 - 2 * t);
+}
+
 window.__lab = {
   ready,
   info,
@@ -1562,7 +1576,7 @@ window.__lab = {
     // a speed brings its defaults first; hz, iterations and cap given with it then override them
     const capWas = S.cap;
     if (o.speed) { S.speed = o.speed; Object.assign(S, SPEED_DEFAULTS[o.speed]); }
-    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'impulse', 'neckMin', 'gScale', 'override', 'blur', 'spread', 'yieldIn', 'queue', 'budget', 'hzMax']) if (o[k] !== undefined) S[k] = o[k];
+    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'impulse', 'neckMin', 'gScale', 'override', 'blur', 'blurAll', 'spread', 'yieldIn', 'queue', 'budget', 'hzMax']) if (o[k] !== undefined) S[k] = o[k];
     if (solver.cap !== capAlloc()) solver.allocUniforms(capAlloc());
     resetRate();
     syncUI(); return { ...S };
@@ -1583,12 +1597,24 @@ window.__lab = {
     return out;
   },
   /** Per material point: x, y (relative to the neck, cells, y up) and the streak it is drawn with at
-   *  blur 1 (cells; grains.wgsl: its displacement x substeps/s / 60): [x0, y0, sx0, sy0, ...]. */
-  async streaks() {
-    const d = await solver.readParticles(), n = solver.count, k = (solver.lastHz || rate.hz) / 60, out = new Array(n * 4);
+   *  blur 1 (cells; grains.wgsl: its displacement x substeps/s / 60, and none for a grain the crowding
+   *  rule draws sharp): [x0, y0, sx0, sy0, ...]. { all: true }: every grain's streak, as if the rule
+   *  were off (S.blurAll), without changing the settings. */
+  async streaks(opt = {}) {
+    const d = await solver.readParticles(), n = solver.count, k0 = (solver.lastHz || rate.hz) / 60, out = new Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      const o = i * PARTICLE_WORDS, k = k0 * (opt.all ? 1 : flightOf(d[o + 21]));
+      out[4 * i] = d[o] - glass.cx; out[4 * i + 1] = d[o + 1] - glass.cy; out[4 * i + 2] = d[o + 2] * k; out[4 * i + 3] = d[o + 3] * k;
+    }
+    return out;
+  },
+  /** Per material point: x, y (relative to the neck, cells, y up), how crowded it is (g2p2g.wgsl:
+   *  the grid's volume weighted around it), and its speed (cells/s): [x0, y0, c0, v0, ...]. */
+  async crowds() {
+    const d = await solver.readParticles(), n = solver.count, hz = solver.lastHz || rate.hz, out = new Array(n * 4);
     for (let i = 0; i < n; i++) {
       const o = i * PARTICLE_WORDS;
-      out[4 * i] = d[o] - glass.cx; out[4 * i + 1] = d[o + 1] - glass.cy; out[4 * i + 2] = d[o + 2] * k; out[4 * i + 3] = d[o + 3] * k;
+      out[4 * i] = d[o] - glass.cx; out[4 * i + 1] = d[o + 1] - glass.cy; out[4 * i + 2] = d[o + 21]; out[4 * i + 3] = Math.hypot(d[o + 2], d[o + 3]) * hz;
     }
     return out;
   },
