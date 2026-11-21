@@ -11,7 +11,12 @@
  *  - The modes (design section 9.1, with the owner's answers of 2026-11-21: no economy):
  *      asleep: no GPU work. Not running and not draining, the sand still (the newest readback
  *              has at most 3 points moving faster than 2 % of a free fall over the glass) for 0.5 s, and
- *              nothing pending (a turn, a swap waiting for its flip pass);
+ *              nothing pending (a turn, a swap waiting for its flip pass). The rule's limit: a bed
+ *              sliding as a whole slower than that (23 cells/s on the coarse grid at app speed)
+ *              counts as still and would sleep, and stop, mid-slide; the design's second test
+ *              (the fastest under 3 cells/s) cannot tell rest from such a slide, since a substep's
+ *              speed jitters on a bed at rest (main.mjs modeFor). A test of the surfaces (the
+ *              tally's per-column surface unchanged over 0.5 s) would; it is for Gate A;
  *      full:   60 frames a second, auto Hz on. While the glass is moved or held, turned,
  *              poured, felt motion is over the thresholds below, in the first 2 s of a run, in
  *              the tail and at the end, and for 2 s after any of these;
