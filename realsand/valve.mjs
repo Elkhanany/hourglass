@@ -69,7 +69,7 @@
  *        flip     begin the encoder with the flip pass; then counters[3] = tally[2] (in a run
  *                 that re-indexes), else counters[3] = tally[1]; then clear counters[2, 4, 5, 6]
  *        vcap     uniform word 36 for every substep and iteration (cells/s of simulated time;
- *                 0 shut, VCAP_OPEN open)
+ *                 0 shut, VCAP_OPEN open; a closed run may keep a queue: see the controller)
  *        allow    Float32Array, uniform word 37 of substep s (an exact integer; ALLOW_SHUT when
  *                 the neck is closed)
  *        flags    uniform word 38: NECK_ON (bit 0, throttle bands and membrane)
@@ -144,7 +144,12 @@
  * ==============================================================================================
  *  THE CONTROLLER (in run())
  * ==============================================================================================
- *  - Closed: vcap 0, allow ALLOW_SHUT.
+ *  - Closed: allow ALLOW_SHUT, vcap 0; but shut with the gate (the settle, paused), upright,
+ *    not turning, no swap waiting for its base or its flip pass, no transfer, sand above: the
+ *    throttle keeps a queue on the line at the bulk formula's queue term, vcap = 4 (QSTAR -
+ *    queue) / (kv r), kv not learnt, the queue from the newest readback of this bulb (the
+ *    membrane refuses it all). With the queue empty when the neck opened (vcap 0 while shut),
+ *    the first 0.5 s of a run were short by up to 11 points.
  *  - Targets: T_s rises or falls linearly over the run's substeps from the last run's end
  *    target pT(g_{k-1}) to pT(gT), reaching it in the last substep; in the run in which the
  *    clock reached 00:00.0 it reaches 0 in the substep that holds that moment (the run's
@@ -199,7 +204,7 @@ export class Valve {
     this.recs = []; this.tallies = []; this.events = []; this.evN = 0; this.seq = 0;
     this.lastOpenT = 0;             // the membrane's present target, grains (the last open run's)
     this.endConfirmed = true;
-    this.closed = true; this.gT = 0; this.tail = false;
+    this.closed = true; this.prime = false; this.gT = 0; this.tail = false;
     this.prevNow = null; this.prevRem = 0; this.zeroAt = null; this.endAt = null;
     this.lastRunNow = null; this.lastCrossAt = -Infinity; this.duty = 0;
     this.last = null;               // the last run's words
@@ -409,6 +414,9 @@ export class Valve {
       this.gTop = Math.max(this.openTop(this.gT), floor);
     }
     this.closed = closed;
+    // shut with nothing pending, upright and not turning (the settle, paused): the throttle may
+    // keep a queue on the line, refused by the membrane, so the stream starts on time
+    this.prime = closed && !app.gateOpen && !app.flipping && gy > 0.7 && !this.pending && !this.xfer && this.gTop > 0;
     this.tail = !!app.deepRelease || rem < (app.tailMs || 0) + TAIL_LEAD_MS;
     return { closed, top: this.gTop, released: Math.max(0, before - this.gTop) };
   }
@@ -422,7 +430,10 @@ export class Valve {
     const appended = this.appended[this.parity];
     const allow = new Float32Array(n), targets = new Int32Array(n);
     let vcap = 0, pTend = -1, pTmin = -1, offered = false;
-    if (closed) { allow.fill(ALLOW_SHUT); targets.fill(-1); }
+    if (closed) {
+      allow.fill(ALLOW_SHUT); targets.fill(-1);
+      if (this.prime && !flip && S) vcap = this.primeVcap(span, o.simDt === undefined ? span / 1000 : o.simDt);
+    }
     else {
       const t0 = this.pT(this.lastOpenT), t1 = this.pT(this.gT);
       if (!S) { pTend = pTmin = t0; targets[0] = t0; allow[0] = appended - t0; }
@@ -473,6 +484,27 @@ export class Valve {
     let v = Math.max(0, 1.15 * ff + 4 * (this.qstar - queue) + 6 * short) / (this.kv * ratio);
     if (short > 0 && queue === 0) this.kv = Math.max(KV0 / 4, this.kv * 0.97);
     else if (queue > 2 * this.qstar) this.kv = Math.min(KV0 * 4, this.kv * 1.01);
+    if (v < VCAP_DUTY) {
+      this.duty += v / VCAP_DUTY;
+      if (this.duty >= 1) { this.duty -= 1; v = VCAP_DUTY; } else v = 0;
+    } else this.duty = 0;
+    return v;
+  }
+
+  /**
+   * vcap for a shut neck that is primed: the bulk formula's queue term only (no flow, no
+   * shortfall, kv not learnt), from the newest readback of this bulb (none: an empty queue).
+   */
+  primeVcap(spanMs, simDt) {
+    let queue = 0;
+    for (let i = this.tallies.length - 1; i >= 0; i--) {
+      const k = this.tallies[i], r = this.rec(k.seq);
+      if (!r || r.gen !== this.gen) continue;
+      if (r.parity === this.parity) queue = k.queue;
+      break;
+    }
+    const ratio = simDt > 0 ? simDt / (spanMs / 1000) : 1;
+    let v = Math.max(0, 4 * (this.qstar - queue)) / (this.kv * ratio);
     if (v < VCAP_DUTY) {
       this.duty += v / VCAP_DUTY;
       if (this.duty >= 1) { this.duty -= 1; v = VCAP_DUTY; } else v = 0;

@@ -139,7 +139,9 @@ function runCase(Valve, o) {
   var plant = new Plant(o, rnd), v = new Valve({ ppg: gl.ppg });
   var f0 = v.fill(N, N); plant.upload(f0.top, f0.bottom, v.parity);
   var events = (o.events || []).map(function (e) { return Object.assign({}, e); });
-  var rem = o.d, state = 'running', t = 0, doneT = NaN, back = false, hidden = null, pouring = null, pourAcc = 0;
+  // settle: the fresh bed rests on the shut neck this long (s) before the clock starts (the lab's Timer: 0.5 s)
+  var settleS = o.settle || 0, settleUntil = settleS, startT = settleS;
+  var rem = o.d, state = settleS > 0 ? 'settle' : 'running', t = 0, doneT = NaN, back = false, hidden = null, pouring = null, pourAcc = 0;
   var flip = { active: false, until: 0, swapAt: [] }, tilt = { until: 0, swapAt: -1, pour: 0 };
   var lastMotionAt = -1e9, lastRetime = -1e9, shake = null, xfer = null, lastRunT = null;
   var lat = [], lastArr = 0, frameNo = 0, tHist = [], supRun = 0, watch = null, quietUntil = 0;
@@ -148,7 +150,7 @@ function runCase(Valve, o) {
     revert: 0, drift: 0, supMismatch: 0, supChecked: 0, zeroEarly: 0, negRel: 0, rises: 0, pourErr: 0, pours: 0,
     relCapFrames: 0, relCapOver: 0, bulkRuns: 0, shortRuns: 0, worstShort: 0, dutyOn: 0, dutyOff: 0, dutyBad: 0,
     transfers: 0, xferDropped: 0, forcedSkips: 0, residues: 0, residueMs: NaN, retimes: 0, pendingSwaps: 0, pendingOpen: 0, closedChecked: 0, closedCount: 0, endMs: NaN, endSub: NaN, freeEndMs: NaN, zeroAfter: NaN, finalTop: -1, finalAbove: -1,
-    settleMoves: 0, settleLate: 0, pendings: 0, kvEnd: 0, mismatches: 0, ended: false, reruns: 0, emptyEarly: 0, emptyEarlyMs: 0, riseMax: 0
+    settleMoves: 0, settleLate: 0, pendings: 0, kvEnd: 0, mismatches: 0, ended: false, reruns: 0, emptyEarly: 0, emptyEarlyMs: 0, riseMax: 0, coldRises: 0, primed: 0, primeBad: 0, coldRuns: 0, coldShortRuns: 0, coldShort: 0
   };
   var lastCrossFrame = -1, zeroFrame = -1, prevTop = v.nTop, eventThisFrame = false, residue = false, retimed = false, sinceXfer = 1e9, xferLeft = 0, skipRuns = 0;
   // the pending rule, checked from outside: a readback is exact when no run after it offered a
@@ -176,10 +178,11 @@ function runCase(Valve, o) {
       else if (e.type === 'hide') hidden = { until: t + e.s };
       else if (e.type === 'reset') {
         var pre = v.nTop, fr = v.fill(N, N); plant.upload(fr.top, fr.bottom, v.parity); lastRunT = null; newGen();
-        clk.calibrate(o.d, N); rem = o.d; state = 'running'; arm(6, N, 'fill', pre); eventThisFrame = true;
+        clk.calibrate(o.d, N); rem = o.d; state = settleS > 0 ? 'settle' : 'running'; settleUntil = startT = t + settleS; arm(6, N, 'fill', pre); eventThisFrame = true;
       } else if (e.type === 'pour') pouring = { until: t + e.s };
       else if (e.type === 'shake') shake = { until: t + e.s };
     }
+    if (state === 'settle' && t >= settleUntil) state = 'running';
     if (hidden && t < hidden.until) { if (state === 'running') { rem -= dtw * 1000; if (rem <= 0) { rem = 0; state = 'done'; doneT = t; } } continue; }
     if (hidden) { hidden = null; back = true; }
     plant.starve = !!(shake && t < shake.until);
@@ -259,7 +262,10 @@ function runCase(Valve, o) {
       var span = lastRunT === null ? 1 / 60 : Math.min(0.25, t - lastRunT);
       var S = Math.max(1, Math.round(span * ratio * HZ));
       words = v.run({ steps: S, now: now, simDt: S / HZ });
-      if (words.closed && (words.vcap !== 0 || words.allow.some(function (x) { return x > -1e8; }))) res.closedWords++;
+      if (words.closed && words.allow.some(function (x) { return x > -1e8; })) res.closedWords++;
+      // a closed run keeps a queue on the line only shut by the gate, upright, not turning, nothing pending
+      if (words.closed && words.vcap !== 0 && (app.gateOpen || flip.active || tilted || pendingExpected || words.flip)) res.primeBad++;
+      if (words.closed && words.vcap > 0) res.primed++;
       if (!words.closed && words.vcap > 0 && words.vcap < 0.25) res.dutyBad++;
       if (pendingExpected && !words.closed) res.pendingOpen++;
       if (!words.closed) lastOpenSeq = words.seq;
@@ -279,7 +285,10 @@ function runCase(Valve, o) {
     res.frames++; sinceXfer++;
     var nTop = v.nTop, closedNow = !app.gateOpen || app.flipping || tilted;
     // the count rises only by CPU events (and a re-time); after a transfer it carries the leftover
-    if (nTop > prevTop && !eventThisFrame && !closedNow) { res.rises++; res.riseMax = Math.max(res.riseMax, nTop - prevTop); }
+    // (in the first second of a fresh bed the first readbacks show the cold start's shortfall: logged apart)
+    if (nTop > prevTop && !eventThisFrame && !closedNow) {
+      if (t - startT < 1) res.coldRises++; else { res.rises++; res.riseMax = Math.max(res.riseMax, nTop - prevTop); }
+    }
     // after a transfer the count carries the leftover the app left to flow (the first version dropped it)
     if (sinceXfer === 1 && xferLeft > 0 && app.gateOpen && nTop - target < xferLeft - 2) res.xferDropped++;
     prevTop = nTop;
@@ -309,8 +318,14 @@ function runCase(Valve, o) {
       res.supChecked++;
       if (nTop !== target) res.supMismatch++;
     }
+    // the cold start: runs short in the first second after the clock starts (a fill, a Reset)
+    if (ran && !words.closed && running && t - startT < 1) {
+      res.coldRuns++;
+      var shc = plant.above - words.targets[words.steps - 1];
+      if (shc > 0) { res.coldShortRuns++; res.coldShort = Math.max(res.coldShort, shc); }
+    }
     // frames short in the bulk: the GPU above its run's end target
-    if (ran && !words.closed && running && rem > clk.tailMs && t > 2 && t > quietUntil && (o.held || !motionRecent) && !watch) {
+    if (ran && !words.closed && running && rem > clk.tailMs && t > settleS + 2 && t > quietUntil && (o.held || !motionRecent) && !watch) {
       res.bulkRuns++;
       var sh = plant.above - words.targets[words.steps - 1];
       if (sh > 0) { res.shortRuns++; if (sh > res.worstShort) res.worstShort = sh; }
