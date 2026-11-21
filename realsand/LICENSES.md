@@ -15,7 +15,7 @@ licences are compatible with the GPL-3.0.
 | `shaders/grains.wgsl` | the idea of Smoosh's `density.wgsl`; EA's particle layout | MIT (Smoosh), BSD-3-Clause (EA) |
 | `shaders/prepare.wgsl`, `gridClear.wgsl`, `tally.wgsl`, `load.wgsl`, `spreadSplat.wgsl`, `spreadShift.wgsl` | new, using the shared include above | GPL-3.0 (with the notices of the include) |
 | `glass.mjs`, `palette.mjs` | the Hourglass app (`physics.js`) | GPL-3.0 |
-| `pace.mjs`, `build.mjs`, `fill.mjs`, `grains.mjs`, `rate.mjs`, `felt.mjs` | new (the last four taken out of the lab page's `main.mjs`) | GPL-3.0 |
+| `pace.mjs`, `build.mjs`, `valve.mjs`, `fill.mjs`, `grains.mjs`, `rate.mjs`, `felt.mjs` | new (the last four taken out of the lab page's `main.mjs`) | GPL-3.0 |
 | the lab page, `lab/sand/` (`main.mjs`, `index.html`, `lab.css`) | the Hourglass app (`physics.js`, `styles.css`, `motion.js`) | GPL-3.0 |
 
 Sources: Smoosh, <https://github.com/ErikSom/smoosh>; EA's PB-MPM,

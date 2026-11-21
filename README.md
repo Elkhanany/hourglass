@@ -1097,6 +1097,19 @@ node tools/test/app-gestures.test.js     # any single suite
   held whole, where the backlog must be re-timed exactly once, and cracked by
   the shake as the app meets it, where spilled sand and backlog cancel in
   part and the run is re-timed only where that is needed.
+- `realsand-*`: the parts of the GPU sand engine (`realsand/`) that need no
+  GPU, in Node, in seconds. `realsand-valve` checks the valve
+  (`realsand/valve.mjs`), which keeps the count above the neck in the app's
+  whole grains and meters the GPU's neck, against a model of that neck and of
+  the app's clock (`tools/test/lib/realsand-plant.js`): six grain settings
+  with pours, Flips, spins, a tilt swap in a pour with frames skipped, a sleep
+  and its catch-up, a Reset; long glasses, the slowest and fastest rests, a
+  throttle stronger or weaker than the valve assumes, calm, a phone held in
+  the hand, shaking, a straggler, readbacks 15 frames late. No point may
+  leave so that fewer are above than the clock's target in any substep, the
+  count must be the clock's own while the neck keeps up and must never go
+  back, and the last point must leave within one substep of 00:00.0; the
+  first version's bookkeeping, kept as its control, lets sand through early.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
