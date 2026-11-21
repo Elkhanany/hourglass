@@ -34,37 +34,57 @@ const Crowded = 0.6;
 // 3 runs short, at most 6 points, and the gain stayed at 20.
 const QueueBand = 0.1;
 
+// The words are summed first in the workgroup's own memory, then added to the tally once per
+// workgroup and word: one contended atomic on a word for every 64 points, not one for every point
+// (sums and maxima do not depend on the order, so the tally is the same).
+const Words = 12u;
+var<workgroup> w_tally: array<atomic<u32>, Words>;
+// words taken by their maximum; the others are sums
+fn isMax(k: u32) -> bool { return k == 5u || k == 9u || k == 10u || k == 11u; }
+
 @compute @workgroup_size(64)
-fn csMain(@builtin(global_invocation_id) id: vec3u) {
-    if (id.x >= count[0]) { return; }
-    let p = particles[id.x];
+fn csMain(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) li: u32) {
+    if (li < Words) { atomicStore(&w_tally[li], 0u); }
+    workgroupBarrier();
+    // (no return before the last barrier: every invocation of the workgroup must reach it)
+    if (id.x < count[0]) { countPoint(particles[id.x]); }
+    workgroupBarrier();
+    if (li < Words) {
+        let v = atomicLoad(&w_tally[li]);
+        if (v != 0u) {
+            if (isMax(li)) { atomicMax(&tally[li], v); } else { atomicAdd(&tally[li], v); }
+        }
+    }
+}
+
+fn countPoint(p: Particle) {
     if (p.enabled == 0.0) { return; }
-    atomicAdd(&tally[0], 1u);
+    atomicAdd(&w_tally[0], 1u);
     let x = p.position; let d = p.displacement;
     if (!(x.x == x.x && x.y == x.y && d.x == d.x && d.y == d.y) || abs(x.x) > 1e9 || abs(d.x) > 1e9 || abs(d.y) > 1e9) {
-        atomicAdd(&tally[4], 1u);
+        atomicAdd(&w_tally[4], 1u);
         return;
     }
     let line = g_simConstants.neckY;
     let above = x.y > line;
-    if (above) { atomicAdd(&tally[1], 1u); } else { atomicAdd(&tally[2], 1u); }
-    if (sampleDomain(x).z < -0.5) { atomicAdd(&tally[3], 1u); }
+    if (above) { atomicAdd(&w_tally[1], 1u); } else { atomicAdd(&w_tally[2], 1u); }
+    if (sampleDomain(x).z < -0.5) { atomicAdd(&w_tally[3], 1u); }
     let dt = g_simConstants.deltaTime;
     // the velocity, without the prediction of the next substep's field
     let v = length(d / dt - g_simConstants.gravity * dt);
     let vq = u32(min(v, 4000.0) * 4.0);
-    atomicMax(&tally[5], vq);
-    atomicAdd(&tally[6], vq);
+    atomicMax(&w_tally[5], vq);
+    atomicAdd(&w_tally[6], vq);
     let g = length(g_simConstants.gravity);
-    if (v > 0.02 * sqrt(2.0 * max(g, 1.0) * f32(g_simConstants.gridSize.y))) { atomicAdd(&tally[7], 1u); }
+    if (v > 0.02 * sqrt(2.0 * max(g, 1.0) * f32(g_simConstants.gridSize.y))) { atomicAdd(&w_tally[7], 1u); }
     // the metered neck's measures
     let ax = abs(x.x - g_simConstants.center.x);
-    if (above && x.y < line + QueueBand && ax < g_simConstants.gate.y + 1.0) { atomicAdd(&tally[8], 1u); }
+    if (above && x.y < line + QueueBand && ax < g_simConstants.gate.y + 1.0) { atomicAdd(&w_tally[8], 1u); }
     let crowded = p.color.y >= Crowded;
-    if (crowded) { atomicMax(&tally[9], vq); }
+    if (crowded) { atomicMax(&w_tally[9], vq); }
     let yq = u32(clamp(x.y, 0.0, f32(g_simConstants.gridSize.y)) * 16.0);
-    if (above && ax < 3.0) { atomicMax(&tally[10], yq); }
-    if (!above) { atomicMax(&tally[11], u32(clamp(line - x.y, 0.0, f32(g_simConstants.gridSize.y)) * 16.0)); }
+    if (above && ax < 3.0) { atomicMax(&w_tally[10], yq); }
+    if (!above) { atomicMax(&w_tally[11], u32(clamp(line - x.y, 0.0, f32(g_simConstants.gridSize.y)) * 16.0)); }
     if (crowded && v < 2.0) {
         let col = min(u32(max(x.x, 0.0)), g_simConstants.gridSize.x - 1u);
         atomicMax(&surface[select(g_simConstants.gridSize.x, 0u, above) + col], yq);
