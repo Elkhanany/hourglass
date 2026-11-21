@@ -6,19 +6,21 @@
  * npx playwright install chromium).
  *
  *   node tools/test/run-all.js [filter]       e.g. "sim-" runs the physics only;
- *                                             "lab-" runs the lab pages' suites;
+ *                                             "lab-" runs the lab pages' suites,
+ *                                             lab-sand's browser run included;
  *                                             "realsand-" the sand engine's (Node,
  *                                             seconds: realsand-valve)
  */
 'use strict';
 var fs = require('fs'), path = require('path'), cp = require('child_process');
 var filter = process.argv[2] || '', port = 8810, failed = [], t0 = Date.now();
-// lab-* suites test the separate lab pages, not the app; they run about an
-// hour and record open problems as failing checks, so they run only when the
-// filter names them ("lab")
+// lab-sand tests the separate lab page in a browser with WebGPU in software: it
+// runs about an hour and a half and records open problems as failing checks,
+// so it runs only when the filter names it ("lab"). The lab's Node suites
+// (lab-pace, lab-timer: seconds) run with the rest.
 var files = fs.readdirSync(__dirname).filter(function (f) {
   return /\.test\.js$/.test(f) && f.indexOf(filter) >= 0 &&
-    (f.indexOf('lab-') !== 0 || filter.indexOf('lab') >= 0);
+    (f !== 'lab-sand.test.js' || filter.indexOf('lab') >= 0);
 }).sort();
 files.forEach(function (f) {
   var t = Date.now();

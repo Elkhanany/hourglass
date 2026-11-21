@@ -1254,8 +1254,10 @@ Hz: the lab as it was, its default), calm (30 frames a second at the same
 480 substeps a second, auto Hz off) or auto, the app's rules: full while the
 glass is turned, touched or felt to move, at a run's start, in its tail and
 for 2 s after; calm otherwise; asleep, with no GPU work at all, once nothing
-runs and the sand is still; and a heat guard that drops to calm a glass
-that has run under 0.6 of real time for 20 s. A Timer starts in auto unless
+runs and the sand is still, until it is touched, felt to move or leaned more
+than a degree from where it fell asleep (the phone's motion is read every
+frame, asleep too); and a heat guard that drops to calm a glass that has run
+under 0.6 of real time for 20 s in a row. A Timer starts in auto unless
 a mode was chosen by hand. **Rotor probe** (`?rotor=1`) is the app's stack
 of canvases: the grains' canvas between two WebGL canvases in a div that CSS
 turns, with the 60-minute bed spinning freely at up to 16 rad/s on a shut
@@ -1279,10 +1281,12 @@ within two display frames, or on this software GPU, where a single substep
 takes longer than a display frame, two such frames and one display frame;
 the old pace is its control); case 20 the Timer (a 10 s glass with a Flip,
 and the 1-minute amount timed to 12 s: no grain crosses below the clock's
-target, the last one leaves within a frame of 00:00.0, no residue, and the
-burst puts the sand back exactly); case 21 the modes on a resting bed (calm
-and full alternated ten times move it less than half a cell, and in auto a
-still bed sleeps until touched); case 22 the Rotor probe (the sand always in
+target, the last one leaves in the substep that holds 00:00.0 or after it,
+within a frame, no residue, under 0.5 % of the runs short in the bulk (from
+2 s after the start, its first 2 s logged apart), and the burst puts the
+sand back exactly); case 21 the modes on a resting bed (calm and full
+alternated ten times move it less than half a cell, and in auto a still bed
+sleeps until touched, leaned 5 degrees or turned); case 22 the Rotor probe (the sand always in
 the bulb the ledger says, and the canvas turned exactly in the frames whose
 run was skipped since a swap). `node tools/test/lab-timer.test.js` checks
 the Timer's arithmetic in Node in a second: the amounts, the clock, the
@@ -1293,8 +1297,9 @@ second, against models of a phone's GPU. The tests step the sand with auto
 Hz free to reach 1440 (2880 at real speed); `__lab.settings({ hzMax: 960 })`
 steps it as a phone's GPU budget may hold it, which changes how a jerk
 settles. The lab test's failing checks
-are the sand's open problems, so `run-all.js` runs the lab suites only when
-asked (`node tools/test/run-all.js lab-`).
+are the sand's open problems, so `run-all.js` runs `lab-sand` only when
+asked (`node tools/test/run-all.js lab-`); `lab-timer` and `lab-pace`, in
+Node, run with every other suite.
 
 ## Icons and launch screens
 
