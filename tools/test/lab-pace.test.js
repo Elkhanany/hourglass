@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * The sand lab's GPU pace (lab/sand/pace.mjs) in Node, without a browser: a model of the
+ * The sand lab's GPU pace (realsand/pace.mjs) in Node, without a browser: a model of the
  * page's frame loop (main.mjs loop(): skip while S.queue frames are in flight, the budget,
  * auto Hz held under it, the substeps a frame) driving the very functions the page uses,
  * against three models of when a phone's GPU reports a frame done:
@@ -122,7 +122,7 @@ function f2(x) { return (Math.round(x * 100) / 100).toString(); }
 function desc(r) { return 'fps ' + f2(r.fps) + ' of ' + f2(r.display) + ', sim/real ' + f2(r.simReal) + ', rate ' + r.hz + ', budget ' + r.budget + ' (lowest ' + r.minBudget + ', base need ' + r.need + '), lag ' + f2(r.lag) + ' ms, ' + r.peak + ' in flight, ' + Math.round(100 * r.skipped) + '% skipped'; }
 
 async function main() {
-  var P = await import(path.join(__dirname, '..', '..', 'lab', 'sand', 'pace.mjs'));
+  var P = await import(path.join(__dirname, '..', '..', 'realsand', 'pace.mjs'));
   var Q = P.QUEUE_DEFAULT;
   check(Q === 2, 'the page allows 2 frames of GPU work in flight by default (' + Q + ')');
   log('Models of a phone (predictions, not measurements); the sand wants 1440 Hz throughout:');

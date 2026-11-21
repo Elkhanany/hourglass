@@ -4,19 +4,20 @@
  * A test of position-based MPM sand (Smoosh's solver, after EA's PB-MPM) in
  * the app's classic glass, driven by the phone's motion, a finger on the
  * glass, a Flip, and scripted tests. It is not the app and changes nothing
- * in it. Everything it needs is in this folder; nothing is fetched from
- * anywhere else. It registers no service worker of its own, but on the
- * site the app's service worker (sw.js, scope /hourglass/) also answers for
- * this folder, from its cache first, so a new version shows one visit late.
+ * in it. Everything it needs is in this folder and in the engine's,
+ * ../../realsand/ (the solver, its shaders, the glass, the palette, the
+ * pace); nothing is fetched from anywhere else. It registers no service
+ * worker of its own; the app's service worker (sw.js, scope /hourglass/)
+ * leaves lab/ to the network and never caches it.
  *
- * Part of the Hourglass project. License: GPL-3.0. The solver (solver.mjs,
- * shaders/) derives from Smoosh (MIT) and EA's PB-MPM (BSD-3-Clause): see
- * LICENSES.md.
+ * Part of the Hourglass project. License: GPL-3.0. The solver
+ * (../../realsand/solver.mjs, shaders/) derives from Smoosh (MIT) and EA's
+ * PB-MPM (BSD-3-Clause): see ../../realsand/LICENSES.md.
  */
-import { buildGlass, sampleField, traceOutline, APP_Q } from './glass.mjs';
-import { Solver, ShaderLibrary, createDevice, MATERIALS, PARTICLE_WORDS, dispatchesPerSubstep } from './solver.mjs';
-import { palette } from './palette.mjs';
-import { newPace, paceReset as paceForget, paceSkip, paceBudget, paceSubmit, paceDone, paceValve, capRate, QUEUE_DEFAULT } from './pace.mjs';
+import { buildGlass, sampleField, traceOutline, APP_Q } from '../../realsand/glass.mjs';
+import { Solver, ShaderLibrary, createDevice, MATERIALS, PARTICLE_WORDS, dispatchesPerSubstep } from '../../realsand/solver.mjs';
+import { palette } from '../../realsand/palette.mjs';
+import { newPace, paceReset as paceForget, paceSkip, paceBudget, paceSubmit, paceDone, paceValve, capRate, QUEUE_DEFAULT } from '../../realsand/pace.mjs';
 
 const $ = id => document.getElementById(id);
 
@@ -1502,7 +1503,7 @@ async function boot() {
     gpu = await createDevice();
   } catch (e) { noGPU(e); readyReject(e); return; }
   try {
-    const base = new URL('./shaders/', import.meta.url);
+    const base = new URL('../../realsand/shaders/', import.meta.url);
     solver = await Solver.create(gpu.device, base);
     renderer = new GrainRenderer(gpu.device, $('c-gpu'), new URLSearchParams(location.search).has('offscreen'));
     await renderer.init(solver.shaders);

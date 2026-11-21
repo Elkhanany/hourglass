@@ -1131,7 +1131,10 @@ stretch was spent, telling the app's own work from that.
 loads it, and it changes nothing in the app. It tries a different sand
 engine, position-based MPM (EA's PB-MPM, by way of the Smoosh solver) on
 WebGPU, in the app's classic glass, so the sand can be judged by eye and by
-hand on an iPhone before anything in the app changes. Open
+hand on an iPhone before anything in the app changes. The engine itself
+(the solver, its shaders, the glass on the solver's grid, the palette and
+the GPU's pace) lives in `realsand/`, which the lab imports, so that the app
+can later load the same files. Open
 `https://elkhanany.github.io/hourglass/lab/sand/` in Safari (iOS 26 or
 later, which has WebGPU). The phone's motion (**Real motion**), a finger on
 the glass, **Flip** and **Reset** move the sand; the buttons choose the
@@ -1150,7 +1153,7 @@ the next visit instead (Copy results says which). At most two frames of
 work go to the GPU at a time, and a frame's substeps (the GPU budget) are
 cut when frames had to be skipped because the GPU was still busy and raised
 while it keeps up, never below what the base rate needs to keep real time
-unless the GPU cannot give even that (`lab/sand/pace.mjs`). Predicted, not
+unless the GPU cannot give even that (`realsand/pace.mjs`). Predicted, not
 yet measured on a phone: what is on screen follows the phone within about
 two frames. Most of the gain over 5cc11b3 is the smaller default: at the
 old pace the medium quarter glass trailed the phone by 350 to 730 ms, while
@@ -1200,7 +1203,7 @@ scope covers `lab/`) leaves everything under `lab/` to the network and never
 caches it, so an update shows on the next load (`app-regression` checks
 this). Its
 solver keeps Smoosh's MIT and EA's BSD-3-Clause notices
-(`lab/sand/LICENSES.md`).
+(`realsand/LICENSES.md`).
 `node tools/test/lab-sand.test.js [--port <n>] [--only 2,6,9] [--shots <dir>]`
 runs it headless in Chromium with WebGPU in software (SwiftShader), on its
 coarse grid with little sand and the clock driven by the test; it takes
