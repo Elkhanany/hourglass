@@ -8,7 +8,7 @@
  * ../../realsand/ (the solver, its shaders, the glass, the palette, the
  * pace); nothing is fetched from anywhere else. It registers no service
  * worker of its own; the app's service worker (sw.js, scope /hourglass/)
- * leaves lab/ to the network and never caches it.
+ * leaves lab/ and realsand/ to the network and never caches them.
  *
  * Part of the Hourglass project. License: GPL-3.0. The solver
  * (../../realsand/solver.mjs, shaders/) derives from Smoosh (MIT) and EA's

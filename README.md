@@ -960,6 +960,8 @@ physics.js                  the sand simulation, the glass, cracks and spilled s
 audio.js                    the procedural sound engine
 motion.js                   the phone's motion sensors
 sw.js  manifest.json        offline cache and install metadata
+realsand/                   the GPU sand engine the sand lab runs (not loaded by the app yet)
+lab/sand/                   the sand lab, a test page that is not the app
 icons/                      app icons and iPhone launch screens (icons/splash)
 docs/images/                the pictures in this README and the install screenshots
 tools/icons.html            regenerates the icons from one SVG
@@ -1199,9 +1201,9 @@ Portrait Orientation Lock in Control Center (otherwise turning the phone
 turns the page, and the page says so), and turn Low Power Mode off (it
 halves the display rate). It loads nothing from anywhere else and registers
 no service worker of its own; the app's service worker (`sw.js`, whose
-scope covers `lab/`) leaves everything under `lab/` to the network and never
-caches it, so an update shows on the next load (`app-regression` checks
-this). Its
+scope covers `lab/`) leaves everything under `lab/` and `realsand/` to the
+network and never caches it, so an update shows on the next load
+(`app-regression` checks this). Its
 solver keeps Smoosh's MIT and EA's BSD-3-Clause notices
 (`realsand/LICENSES.md`).
 `node tools/test/lab-sand.test.js [--port <n>] [--only 2,6,9] [--shots <dir>]`
