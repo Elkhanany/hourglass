@@ -1134,9 +1134,10 @@ loads it, and it changes nothing in the app. It tries a different sand
 engine, position-based MPM (EA's PB-MPM, by way of the Smoosh solver) on
 WebGPU, in the app's classic glass, so the sand can be judged by eye and by
 hand on an iPhone before anything in the app changes. The engine itself
-(the solver, its shaders, the glass on the solver's grid, the palette and
-the GPU's pace) lives in `realsand/`, which the lab imports, so that the app
-can later load the same files. Open
+(the solver, its shaders, the glass on the solver's grid, the palette, the
+GPU's pace, the fills, the grains' drawing, auto Hz and the glass's jolts as
+the sand feels them) lives in `realsand/`, which the lab imports, so that
+the app can later load the same files. Open
 `https://elkhanany.github.io/hourglass/lab/sand/` in Safari (iOS 26 or
 later, which has WebGPU). The phone's motion (**Real motion**), a finger on
 the glass, **Flip** and **Reset** move the sand; the buttons choose the

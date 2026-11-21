@@ -122,7 +122,7 @@ struct Particle
     volume: f32,
     material: f32,
     padding: f32,       // sand: the point's own packing (g2p2g.wgsl; 0: not yet set)
-    color: vec3f,       // x: the grain's own random number (drawing only)
+    color: vec3f,       // x: the grain's colour seed, an integer (drawing only; fill.mjs packParticles)
 }; // 24 floats
 
 fn projectInsideGuardian(p : vec2f, gridSize : vec2u, guardianSize : f32) -> vec2f

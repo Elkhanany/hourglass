@@ -6,7 +6,8 @@
  * glass, a Flip, and scripted tests. It is not the app and changes nothing
  * in it. Everything it needs is in this folder and in the engine's,
  * ../../realsand/ (the solver, its shaders, the glass, the palette, the
- * pace); nothing is fetched from anywhere else. It registers no service
+ * pace, the fills, the grains' drawing, auto Hz and the glass's felt jolts);
+ * nothing is fetched from anywhere else. It registers no service
  * worker of its own; the app's service worker (sw.js, scope /hourglass/)
  * leaves lab/ and realsand/ to the network and never caches them.
  *
@@ -17,7 +18,11 @@
 import { buildGlass, sampleField, traceOutline, APP_Q } from '../../realsand/glass.mjs';
 import { Solver, ShaderLibrary, createDevice, MATERIALS, PARTICLE_WORDS, dispatchesPerSubstep } from '../../realsand/solver.mjs';
 import { palette } from '../../realsand/palette.mjs';
-import { newPace, paceReset as paceForget, paceSkip, paceBudget, paceSubmit, paceDone, paceValve, capRate, QUEUE_DEFAULT } from '../../realsand/pace.mjs';
+import { newPace, paceReset as paceForget, paceSkip, paceBudget, paceSubmit, paceDone, paceValve, QUEUE_DEFAULT } from '../../realsand/pace.mjs';
+import { PPC, makeFill, packParticles } from '../../realsand/fill.mjs';
+import { GrainRenderer, FLIGHT, flightOf, exposure } from '../../realsand/grains.mjs';
+import * as Rate from '../../realsand/rate.mjs';
+import { GlassFelt } from '../../realsand/felt.mjs';
 
 const $ = id => document.getElementById(id);
 
@@ -29,7 +34,6 @@ const RES_NAME = { S: 'coarse', M: 'medium', L: 'fine' };
 const AMOUNTS = { minute: 2800, quarter: 10000, full: 24000 };   // the app's grains (scale 1.08)
 const AMOUNT_NAME = { minute: '1-minute', quarter: 'quarter', full: 'full' };
 const APP_CAPACITY = 28099;                            // grains one bulb of the app's phone glass holds
-const PPC = 2;                                         // material points per cell, each axis
 const APP_G = 3300;                                    // physics.js: this.G, cells/s² on the app's lattice
 const REAL_HEIGHT_MM = 110;                            // the glass, end to end inside, as drawn on a phone
 const MM_PER_PX = 0.16;                                // app.js: an iPhone CSS px
@@ -37,11 +41,8 @@ const KPX = MM_PER_PX * 1e-3 / 9.81;                   // g per px/s² of the gl
 // cap: the most substeps one frame may run, three 60 Hz frames' worth, so that a late or
 // missed frame, or a 30 Hz display (Low Power Mode), does not slow the sand
 const SPEED_DEFAULTS = { app: { hz: 480, iterations: 5, cap: 24 }, real: { hz: 960, iterations: 5, cap: 48 } };
-// The substep rate rises while the sand moves fast (auto Hz), so that it is not held to the
-// clamp of maxStep cells a substep: the base rate times one of these, up to HZ_MAX
-const HZ_BOOST = [1, 1.5, 2, 3];
-const HZ_MAX = { app: 1440, real: 2880 };
-const CFL = 0.7;                                       // the speed a rate may carry: CFL x maxStep cells a substep
+// The substep rate rises while the sand moves fast (auto Hz, realsand/rate.mjs), so that it is
+// not held to the clamp of maxStep cells a substep
 const CYCLE = {
   hz: [240, 360, 480, 720, 960, 1440, 1920],
   iterations: [3, 4, 5, 6, 8],
@@ -59,9 +60,6 @@ const CYCLE = {
 const FLIP_S = 1.2;
 const GATE_S = 0.5;                                    // the neck stays closed this long after a Reset
 const BODY = { fw: 30, fz: 0.85, hw: 7, hz: 0.6 };     // app.js: the finger's hold, and home
-const ACC_TAU = 0.012;                                 // s: the glass's acceleration as the sand feels it
-const FILM_QUIET = 0.04;                               // g: a jolt weaker than this is skipped in the slowed playback
-const FILM_LAG = 0.5;                                  // s: the slowed playback never falls further behind than this
 // The GPU's pace in the frame loop (pace.mjs): a frame is submitted only when fewer than S.queue
 // frames of GPU work are still in flight, and its substeps (the budget) are cut when frames had
 // to be skipped for want of the GPU and raised while it keeps up: when the GPU cannot keep up the
@@ -97,18 +95,15 @@ const S = {
   // a fixed ceiling on auto Hz (0: none; the tests set it to step the sand as a phone's budget holds it)
   hzMax: 0
 };
-// the substep rate in use (S.hz, raised by auto Hz while the sand is fast), and its history
-const rate = { hz: 480, downAt: 0, grow: 0, tPrev: null, peak: 480, held: 0, want: 480 };
+// the substep rate in use (S.hz, raised by auto Hz while the sand is fast), and its history (rate.mjs)
+const rate = Rate.newRate(480);
 // the GPU's pace (pace.mjs): frames in flight, the substeps a frame may run (budget), the last
 // frames' substeps and submit-to-done times (for the HUD and the report only)
 const pace = newPace();
 function paceReset() { paceForget(pace); }
-// the glass's linear acceleration, filtered as the sand feels it (see glassFelt)
-const imp = { x1: 0, y1: 0, jx: 0, jy: 0 };
-// app speed: the glass's jolts, recorded each substep and played back slowed (see glassFelt)
-const FILM_N = 8192;
-const film = { t: new Float64Array(FILM_N), x: new Float32Array(FILM_N), y: new Float32Array(FILM_N), w: 0, i: 0, tp: 0 };
-function filmReset(t) { film.w = 0; film.i = 0; film.tp = t; }
+// the glass's linear acceleration as the sand feels it: smoothed, and at app speed its jolts
+// recorded each substep and played back slowed (felt.mjs)
+const felt = new GlassFelt();
 let gpu = null, solver = null, renderer = null, glass = null;
 const glassCache = new Map();
 let simTime = 0, gateUntil = 0, manual = false, busy = false, hidden = document.hidden;
@@ -232,7 +227,7 @@ function onMotion(e) {
   let [px, py] = toPage(fx, -fy, screenAngle());           // the page: x right, y down
   // The phone's own acceleration (acceleration, without gravity; same sign convention as
   // accelerationIncludingGravity), when the browser gives it: taken out of the pull here and
-  // fed to the sand as the glass's acceleration (glassFelt), like the finger's. Without it the
+  // fed to the sand as the glass's acceleration (felt.mjs), like the finger's. Without it the
   // whole pull counts as gravity.
   const A = e.acceleration;
   if (A && Number.isFinite(A.x) && Number.isFinite(A.y)) {
@@ -332,98 +327,27 @@ function stepPose(dt) {
 }
 
 /* ------------------------------------------------------------------ *
- *  Auto Hz: the substep rate follows the sand's speed
+ *  Auto Hz: the substep rate follows the sand's speed (realsand/rate.mjs)
  * ------------------------------------------------------------------ */
 /** The highest rate auto Hz may use. */
-function hzTop() { return S.auto ? Math.max(S.hz, Math.min(HZ_MAX[S.speed], S.hz * HZ_BOOST[HZ_BOOST.length - 1])) : S.hz; }
+function hzTop() { return Rate.hzTop(S); }
 /** The per-frame substep cap at the rate in use (S.cap is set for the base rate). */
-function capNow() { return Math.max(1, Math.round(S.cap * rate.hz / S.hz)); }
+function capNow() { return Rate.capNow(S, rate); }
 /** Uniform slots to allocate: the cap at the highest rate. */
-function capAlloc() { return Math.max(S.cap, Math.ceil(S.cap * hzTop() / S.hz)); }
+function capAlloc() { return Rate.capAlloc(S); }
 /**
- * Before a frame: the substep rate the sand needs. The clamp holds a grid node to maxStep cells
- * a substep, so the rate must carry the fastest grain with room to spare (CFL): its speed from
- * the latest readback, plus twice what it grew by since the one before (a fall speeds up), plus
- * what a jolt of the glass (known here at once) adds over 50 ms. The rate goes up at once, and
- * down only after 0.3 s (simulated) with room at the lower rate.
+ * Before a frame: the substep rate the sand needs (rate.mjs chooseRate), from the latest
+ * readback t, what a jolt of the glass adds over 50 ms, and the GPU's budget (hzCap: substeps a
+ * second; now: its clock, ms).
  */
 function chooseRate(t, hzCap = Infinity, now = simTime * 1000) {
-  rate.held = 0;
-  if (!S.auto) { rate.hz = S.hz; return; }
-  if (t && t !== rate.tPrev) { rate.grow = Math.max(0, t.maxSpeed - (rate.tPrev ? rate.tPrev.maxSpeed : t.maxSpeed)); rate.tPrev = t; }
-  const v = t ? t.maxSpeed : 0;
-  const jolt = Math.hypot(imp.jx, imp.jy) * gCells() * 0.05;
-  const need = (v + 2 * (rate.grow || 0) + jolt) / (CFL * S.maxStep);
-  const top = hzTop();
-  const rates = HZ_BOOST.map(b => Math.round(S.hz * b)).filter(h => h <= top);
-  let want = rates.find(h => h >= need) ?? rates[rates.length - 1];
-  rate.want = want;
-  // a fixed ceiling (settings hzMax: the rate a phone's GPU budget is expected to hold, so that
-  // the tests can step the sand as the phone runs it; 0: none)
-  if (S.hzMax && want > S.hzMax) { const w = rates.filter(h => h <= S.hzMax).pop() ?? rates[0]; if (w < want) { rate.held = want; want = w; } }
-  // the live loop's GPU budget (hzCap: the substeps a second it allows): no higher than that
-  // (but never below the base rate), with room and a hold against hopping (pace.mjs capRate);
-  // the clamp then holds the fastest grains back
-  const c = capRate(rate, { rates, want, hz: rate.hz, hzCap, now });
-  if (c.held) { rate.held = rate.held || c.held; want = c.want; }
-  if (want >= rate.hz) { rate.hz = want; rate.downAt = simTime + 0.3; }
-  else if (simTime >= rate.downAt || rate.held) { rate.hz = want; rate.downAt = simTime + 0.3; }
-  if (rate.hz > rate.peak) rate.peak = rate.hz;
+  const jolt = Math.hypot(felt.jx, felt.jy) * gCells() * 0.05;
+  Rate.chooseRate(rate, t, { s: S, jolt, time: simTime, hzCap, now });
 }
-function resetRate() { Object.assign(rate, { hz: S.hz, downAt: 0, grow: 0, tPrev: null, peak: S.hz, held: 0, want: S.hz, capUntil: 0 }); paceReset(); }
+function resetRate() { Rate.rateReset(rate, S.hz); paceReset(); }
 
 /** G / g: how slowed the world is (1 at real speed); the app's lambda. */
 function lamNow() { return Math.min(1, gCells() / gReal()); }
-/**
- * The glass's own linear acceleration (g, page axes) as the sand feels it, for the substep
- * starting at simulated time t.
- *
- * At real speed it is the acceleration itself, smoothed over ACC_TAU.
- *
- * At app speed the world runs slowed: gravity, and with it every force, is scaled by lambda
- * (about 0.08), so a fall takes 1 / sqrt(lambda) (about 3.5) times longer than real. A jolt of
- * the glass scaled the same way but lasting its real time T gives the sand only lambda a T of
- * speed, where a slowed film of the real event gives sqrt(lambda) a T: a flick barely moved the
- * sand (0.2 cells). So the glass's acceleration is recorded and played back slowed by
- * sqrt(lambda), as in a slowed film: a jolt lasts T / sqrt(lambda), its peak against gravity is
- * the real one, the sand gets the film's speed, and a flick's push and its stop come as far
- * apart as in the film. (Scaling the jolt up by 1 / sqrt(lambda) instead gave the right speed,
- * but threw the sand back past the middle when the glass stopped; splitting off a steady part
- * with a high-pass filter pushed the sand back after every jolt.) Quiet stretches (under
- * FILM_QUIET) are played fast, so the playback catches up between jolts, and it never falls more
- * than FILM_LAG behind: a steady push ends up played at its own pace, scaled like gravity.
- */
-function glassFelt(ax, ay, dt, t) {
-  const k1 = 1 - Math.exp(-dt / ACC_TAU);
-  imp.x1 += (ax - imp.x1) * k1; imp.y1 += (ay - imp.y1) * k1;
-  let jx = imp.x1, jy = imp.y1;
-  if (S.speed === 'app' && S.impulse) {
-    const j = film.w % FILM_N;
-    film.t[j] = t; film.x[j] = jx; film.y[j] = jy; film.w++;
-    if (film.w - film.i > FILM_N - 2) film.i = film.w - (FILM_N - 2);
-    // the play head: slowed while it plays a jolt, fast over quiet stretches
-    const at = tp => {
-      while (film.i + 1 < film.w && film.t[(film.i + 1) % FILM_N] <= tp) film.i++;
-      const a = film.i % FILM_N, b = (film.i + 1) % FILM_N;
-      if (film.i + 1 >= film.w || film.t[b] <= film.t[a]) return [film.x[a], film.y[a]];
-      const u = Math.min(1, Math.max(0, (tp - film.t[a]) / (film.t[b] - film.t[a])));
-      return [film.x[a] + (film.x[b] - film.x[a]) * u, film.y[a] + (film.y[b] - film.y[a]) * u];
-    };
-    let p = at(film.tp);
-    if (Math.hypot(p[0], p[1]) < FILM_QUIET) {
-      // quiet: skip ahead to the next sample that is not (never over one: a jolt that changes
-      // sign passes through zero, and its second half must still be played)
-      while (film.i + 1 < film.w && Math.hypot(film.x[(film.i + 1) % FILM_N], film.y[(film.i + 1) % FILM_N]) < FILM_QUIET) film.i++;
-      film.tp = Math.max(film.tp, film.i + 1 < film.w ? film.t[(film.i + 1) % FILM_N] : t);
-    } else film.tp += dt * Math.sqrt(lamNow());
-    film.tp = Math.min(t, Math.max(t - FILM_LAG, film.tp));
-    p = at(film.tp);
-    jx = p[0]; jy = p[1];
-  } else filmReset(t);
-  imp.jx = jx; imp.jy = jy;
-  return [jx, jy];
-}
-
 /** The field for the next substep, in the glass's frame (advances the clock). */
 function fieldAt() {
   const dt = 1 / rate.hz;
@@ -452,7 +376,9 @@ function fieldAt() {
     gx -= 1.5 * Math.sin(2 * Math.PI * 3 * t);
     gy -= 0.5 * Math.sin(2 * Math.PI * 2.2 * t + 1);
   }
-  const [fax, fay] = glassFelt(lax, lay, dt, simTime);
+  // the glass's own acceleration as the sand feels it (felt.mjs): at app speed its jolts are
+  // played back slowed, as in a slowed film of them
+  const [fax, fay] = felt.feel(lax, lay, dt, simTime, S.speed === 'app' && S.impulse, lamNow());
   gx -= fax; gy -= fay;
   const c = Math.cos(pose.theta), s = Math.sin(pose.theta);
   const lx = c * gx + s * gy, ly = -s * gx + c * gy;      // into the glass (still y down)
@@ -469,71 +395,8 @@ function fieldAt() {
 /* ------------------------------------------------------------------ *
  *  Filling the glass
  * ------------------------------------------------------------------ */
-function rand32(seed) {
-  let s = seed >>> 0 || 1;
-  return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
-}
-/** Material points on a jittered lattice wherever inside(x, y) holds. */
-function lattice(inside, box, seed = 7) {
-  const r = rand32(seed), out = [];
-  const [x0, y0, x1, y1] = box;
-  for (let j = Math.floor(y0); j < Math.ceil(y1); j++) for (let i = Math.floor(x0); i < Math.ceil(x1); i++) {
-    for (let b = 0; b < PPC; b++) for (let a = 0; a < PPC; a++) {
-      const x = i + (a + 0.5 + (r() - 0.5) * 0.3) / PPC, y = j + (b + 0.5 + (r() - 0.5) * 0.3) / PPC;
-      if (inside(x, y) && sampleField(glass, x, y)[2] > 0.45) out.push(x, y);
-    }
-  }
-  return out;
-}
 /** The number of material points for an amount. */
 function amountPoints(amount) { return Math.round(AMOUNTS[amount] / APP_CAPACITY * glass.bulbArea * PPC * PPC); }
-/**
- * Points for a fill: 'top' (the upper bulb, heaped, on the closed neck),
- * 'lower' (settled flat in the lower bulb), 'column' (a column standing in
- * the lower bulb: column = { width, height } in cells).
- */
-function makeFill(kind, opts = {}) {
-  const g = glass, target = opts.points || amountPoints(opts.amount || S.amount);
-  let pts;
-  if (kind === 'column') {
-    const w = opts.width ?? 0.6 * g.Rc, h = opts.height ?? 0.4 * g.Rc, yb = g.cy - g.HBc;
-    pts = lattice((x, y) => Math.abs(x - g.cx) < w / 2 && y < yb + h && y < g.cy - 1, [g.cx - w / 2, yb, g.cx + w / 2, yb + h]);
-  } else {
-    const top = kind !== 'lower';
-    // heaped: a low cone (22 degrees) on the level L above the neck
-    const heap = L => x => Math.max(0, g.half(L) - Math.abs(x - g.cx)) * Math.tan(22 * Math.PI / 180);
-    const build = L => top
-      ? lattice((x, y) => y > g.cy + 0.6 && y < g.cy + L + heap(L)(x), [g.cx - g.Rc, g.cy, g.cx + g.Rc, Math.min(g.cy + L + 0.5 * g.Rc, g.cy + g.HBc)])
-      : lattice((x, y) => y < g.cy - 0.6 && y < g.cy - g.HBc + L, [g.cx - g.Rc, g.cy - g.HBc, g.cx + g.Rc, Math.min(g.cy - g.HBc + L, g.cy)]);
-    let lo = 0, hi = g.HBc, best = null;
-    for (let k = 0; k < 22; k++) {
-      const L = (lo + hi) / 2, p = build(L);
-      if (p.length / 2 < target) lo = L; else { hi = L; best = p; }
-    }
-    pts = best || build(hi);
-    // trim to the target from the top down, so the surface stays smooth
-    if (pts.length / 2 > target) {
-      const idx = [...Array(pts.length / 2).keys()].sort((p, q) => top ? pts[2 * p + 1] - pts[2 * q + 1] : pts[2 * p + 1] - pts[2 * q + 1]);
-      const keep = idx.slice(0, target);
-      pts = keep.flatMap(i => [pts[2 * i], pts[2 * i + 1]]);
-    }
-  }
-  return pts;
-}
-function packParticles(pts, material) {
-  const m = matNow(material), n = pts.length / 2, data = new Float32Array(n * PARTICLE_WORDS), r = rand32(99);
-  for (let i = 0; i < n; i++) {
-    const o = i * PARTICLE_WORDS;
-    data[o] = pts[2 * i]; data[o + 1] = pts[2 * i + 1];
-    data[o + 4] = 1; data[o + 7] = 1;                         // F = I
-    data[o + 12] = 1;                                          // liquid density
-    data[o + 15] = 1;                                          // enabled
-    data[o + 17] = 1 / (PPC * PPC); data[o + 16] = data[o + 17] * m.density;
-    data[o + 18] = m.model;
-    data[o + 20] = r();
-  }
-  return data;
-}
 
 /** Build (or reuse) the glass for the grid, and the buffers for the sand. */
 function getGlass(res) {
@@ -557,8 +420,9 @@ async function resetSand(opts = {}) {
     layout();
   }
   const kind = opts.fill || 'top';
-  const pts = makeFill(kind, opts);
-  const data = packParticles(pts, S.material);
+  // (fill.mjs: 'top' and 'lower' filled to the amount's points; each grain's colour seed in color.x)
+  const pts = makeFill(glass, kind, { ...opts, points: opts.points || amountPoints(opts.amount || S.amount) });
+  const data = packParticles(pts, matNow(S.material));
   solver.upload(data, pts.length / 2);
   fillCount = pts.length / 2;
   renderer.setPalette(palette(S.material));
@@ -570,7 +434,7 @@ async function resetSand(opts = {}) {
   }
   lastTally = null; clampLog.length = 0; behindS = 0;
   resetRate();
-  Object.assign(imp, { x1: 0, y1: 0, jx: 0, jy: 0 }); filmReset(0);
+  felt.reset(0);
   syncUI();
   drawGlass();
 }
@@ -599,91 +463,29 @@ async function switchMaterial(id) {
 /* ------------------------------------------------------------------ *
  *  Drawing: grains on the GPU, the glass in 2-D around them
  * ------------------------------------------------------------------ */
-class GrainRenderer {
-  constructor(device, canvas, offscreen) {
-    this.device = device; this.canvas = canvas;
-    // offscreen: draw into a texture and copy it to a 2-D canvas (for headless
-    // browsers whose WebGPU canvas cannot present; the shaders are the same)
-    this.offscreen = !!offscreen;
-    if (this.offscreen) { this.format = 'rgba8unorm'; this.ctx2d = canvas.getContext('2d'); }
-    else {
-      this.context = canvas.getContext('webgpu');
-      this.format = navigator.gpu.getPreferredCanvasFormat();
-      this.context.configure({ device, format: this.format, alphaMode: 'premultiplied' });
-    }
-    this.viewData = new Float32Array(12);
-    this.viewBuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.palBuf = device.createBuffer({ size: 256 * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  }
-  async init(shaders) {
-    const module = await shaders.module(this.device, 'grains');
-    const blend = { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' };
-    this.pipeline = await this.device.createRenderPipelineAsync({
-      layout: 'auto',
-      vertex: { module, entryPoint: 'vertexMain' },
-      fragment: { module, entryPoint: 'fragmentMain', targets: [{ format: this.format, blend: { color: blend, alpha: blend } }] },
-      primitive: { topology: 'triangle-strip' }
-    });
-  }
-  bind(particles) {
-    this.group = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.viewBuf } }, { binding: 1, resource: { buffer: particles } }, { binding: 2, resource: { buffer: this.palBuf } }]
-    });
-  }
-  setPalette(p) { this.device.queue.writeBuffer(this.palBuf, 0, p); }
-  encode(enc, count) {
-    const v = this.viewData, g = glass, k = kNow(), c = Math.cos(pose.theta), s = Math.sin(pose.theta);
-    const W = view.W, H = view.H, hx = view.hx + pose.x, hy = view.hy + pose.y;
-    v[0] = 2 * k * c / W; v[1] = 2 * k * s / W; v[2] = -2 * k * s / H; v[3] = 2 * k * c / H;
-    v[4] = 2 / W * (hx - k * c * g.cx - k * s * g.cy) - 1;
-    v[5] = 1 - 2 / H * (hy - k * s * g.cx + k * c * g.cy);
-    const liquid = matNow().model === 0;
-    const rc = liquid ? 0.62 : 0.36;                          // grain radius, cells
-    const rpx = Math.max(rc * k, 0.75 / view.dpr);            // CSS px, at least most of a device pixel
-    v[6] = 2 * rpx / W; v[7] = 2 * rpx / H;
+/**
+ * What the grain renderer (grains.mjs) needs for a frame: the grid on the screen (the glass at
+ * its pose, scaled to fit), the grain's size, and the blur. Taken when the frame is drawn, after
+ * its substeps have moved the glass.
+ */
+function grainLook() {
+  const g = glass, k = kNow(), c = Math.cos(pose.theta), s = Math.sin(pose.theta);
+  const W = view.W, H = view.H, hx = view.hx + pose.x, hy = view.hy + pose.y;
+  const liquid = matNow().model === 0;
+  const rc = liquid ? 0.62 : 0.36;                          // grain radius, cells
+  const rpx = Math.max(rc * k, 0.75 / view.dpr);            // CSS px, at least most of a device pixel
+  return {
+    m: [2 * k * c / W, 2 * k * s / W, -2 * k * s / H, 2 * k * c / H],
+    o: [2 / W * (hx - k * c * g.cx - k * s * g.cy) - 1, 1 - 2 / H * (hy - k * s * g.cx + k * c * g.cy)],
+    r: [2 * rpx / W, 2 * rpx / H],
+    liquid,
     // motion blur: the streak a grain makes in S.blur display frames (of simulated time at the
     // sim/real ratio of 1), per cell of its displacement in a substep; the display's own frame
     // (a 30 Hz display, as in Low Power Mode, shows each frame twice as long; stepped by hand, 1/60 s)
-    v[8] = liquid ? 1 : 0; v[9] = liquid ? 0.75 : 1; v[10] = (S.blur || 0) * (manual ? 1000 / 60 : displayMs()) / 1000 * (solver.lastHz || rate.hz);
-    // only grains in flight streak (grains.wgsl; flightOf() below)
-    v[11] = S.blurAll ? 0 : FLIGHT;
-    this.device.queue.writeBuffer(this.viewBuf, 0, v);
-    let target;
-    if (this.offscreen) {
-      const w = this.canvas.width, h = this.canvas.height;
-      if (!this.tex || this.tex.width !== w || this.tex.height !== h) {
-        this.tex?.destroy(); this.readBuf?.destroy();
-        this.tex = this.device.createTexture({ size: [w, h], format: this.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
-        this.bpr = Math.ceil(w * 4 / 256) * 256;
-        this.readBuf = this.device.createBuffer({ size: this.bpr * h, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-        this.copyPending = false;
-      }
-      target = this.tex.createView();
-    } else target = this.context.getCurrentTexture().createView();
-    const pass = enc.beginRenderPass({ colorAttachments: [{ view: target, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] });
-    if (count) { pass.setPipeline(this.pipeline); pass.setBindGroup(0, this.group); pass.draw(4, count); }
-    pass.end();
-    if (this.offscreen && !this.copyPending) {
-      enc.copyTextureToBuffer({ texture: this.tex }, { buffer: this.readBuf, bytesPerRow: this.bpr }, [this.tex.width, this.tex.height]);
-      this.copyQueued = true;
-    }
-  }
-  /** Offscreen only: after the submit, show what was drawn. */
-  present() {
-    if (!this.offscreen || !this.copyQueued || this.copyPending) return Promise.resolve();
-    this.copyQueued = false; this.copyPending = true;
-    const buf = this.readBuf, w = this.tex.width, h = this.tex.height, bpr = this.bpr;
-    return buf.mapAsync(GPUMapMode.READ).then(() => {
-      const src = new Uint8Array(buf.getMappedRange()), img = this.ctx2d.createImageData(w, h), dst = img.data;
-      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-        const i = y * bpr + x * 4, o = (y * w + x) * 4, a = src[i + 3];
-        if (a) { const k = 255 / a; dst[o] = src[i] * k; dst[o + 1] = src[i + 1] * k; dst[o + 2] = src[i + 2] * k; dst[o + 3] = a; }
-      }
-      buf.unmap(); this.copyPending = false;
-      this.ctx2d.putImageData(img, 0, 0);
-    }, () => { this.copyPending = false; });
-  }
+    exposure: exposure(S.blur || 0, manual ? 1000 / 60 : displayMs(), solver.lastHz || rate.hz),
+    // only grains in flight streak (grains.mjs FLIGHT, flightOf)
+    flight: S.blurAll ? 0 : FLIGHT
+  };
 }
 
 function layout() {
@@ -839,7 +641,7 @@ function loop(now) {
   behindS += dropped;
   const steps = Math.min(cap, Math.floor((acc + 1e-9) * hz));
   acc -= steps / hz;
-  const p = solver.run(steps, set(), fieldAt, enc => renderer.encode(enc, solver.count));
+  const p = solver.run(steps, set(), fieldAt, enc => renderer.encode(enc, solver.count, grainLook()));
   const tSim = simTime, tSub = performance.now();
   const seq = paceSubmit(pace, tSub);
   lastSteps = steps;
@@ -874,7 +676,7 @@ function displayMs() {
 /** The substeps this frame may run: the cap, and the GPU's budget. */
 function capFrame() { return S.budget && Number.isFinite(pace.budget) ? Math.max(1, Math.min(capNow(), pace.budget)) : capNow(); }
 /** The most substeps a frame could want: the cap at the highest rate. */
-function capAllocHz() { return Math.max(1, Math.round(S.cap * hzTop() / S.hz)); }
+function capAllocHz() { return Rate.capTop(S); }
 function trimFrames(now) {
   while (frames.length && now - frames[0].t > 4000) frames.shift();
   while (skips.length && now - skips[0].t > 4000) skips.shift();
@@ -1375,7 +1177,7 @@ async function stepN(n, until) {
     n -= k;
     // (the last chunk draws; simTime advances inside run, so this is decided before it)
     const lastChunk = until !== undefined ? simTime + k / rate.hz >= until - 0.25 / rate.hz : n <= 0;
-    p = solver.run(k, set(), fieldAt, lastChunk ? enc => renderer.encode(enc, solver.count) : null);
+    p = solver.run(k, set(), fieldAt, lastChunk ? enc => renderer.encode(enc, solver.count, grainLook()) : null);
     const tSim = simTime;
     if (p) { p = p.then(t => { if (t) onTally(t, tSim); return t; }); last = p; }
     await gpu.device.queue.onSubmittedWorkDone();
@@ -1505,7 +1307,7 @@ async function boot() {
   try {
     const base = new URL('../../realsand/shaders/', import.meta.url);
     solver = await Solver.create(gpu.device, base);
-    renderer = new GrainRenderer(gpu.device, $('c-gpu'), new URLSearchParams(location.search).has('offscreen'));
+    renderer = new GrainRenderer(gpu.device, $('c-gpu'), { offscreen: new URLSearchParams(location.search).has('offscreen') });
     await renderer.init(solver.shaders);
     const q = new URLSearchParams(location.search);
     for (const k of ['res', 'amount', 'material', 'speed']) if (q.get(k)) S[k] = q.get(k);
@@ -1543,16 +1345,6 @@ function info() {
 /* ------------------------------------------------------------------ *
  *  The test hook
  * ------------------------------------------------------------------ */
-/* The motion blur's crowding rule (grains.wgsl): a grain whose crowding (the grid's volume weighted
- * around it, g2p2g.wgsl) is at or above FLIGHT moves with a bed the eye follows, and is drawn sharp;
- * below half of it, it is in flight and drawn as its full streak; in between, the streak fades. */
-const FLIGHT = 0.6;
-function flightOf(crowd) {
-  if (S.blurAll) return 1;
-  const t = Math.min(1, Math.max(0, (crowd - 0.5 * FLIGHT) / (0.5 * FLIGHT)));
-  return 1 - t * t * (3 - 2 * t);
-}
-
 window.__lab = {
   ready,
   info,
@@ -1604,7 +1396,7 @@ window.__lab = {
   async streaks(opt = {}) {
     const d = await solver.readParticles(), n = solver.count, k0 = (solver.lastHz || rate.hz) / 60, out = new Array(n * 4);
     for (let i = 0; i < n; i++) {
-      const o = i * PARTICLE_WORDS, k = k0 * (opt.all ? 1 : flightOf(d[o + 21]));
+      const o = i * PARTICLE_WORDS, k = k0 * (opt.all ? 1 : flightOf(d[o + 21], S.blurAll));
       out[4 * i] = d[o] - glass.cx; out[4 * i + 1] = d[o + 1] - glass.cy; out[4 * i + 2] = d[o + 2] * k; out[4 * i + 3] = d[o + 3] * k;
     }
     return out;
