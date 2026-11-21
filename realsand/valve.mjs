@@ -35,11 +35,14 @@
  *      top)); pass pTop, pBottom when the data holds other counts. The upload is written in the
  *      ledger's orientation and writes tally[1] = pTop, tally[2] = pBottom (the counts of the
  *      data it uploads). Readbacks of earlier runs are dropped from now on.
- *  pour(n) -> { grains, points, mirrored }
- *      n grains poured. Append `points` points at the far end of the top bulb. When `mirrored`
- *      (a swap is waiting for its flip pass) write them at 2c - p, in the GPU's present
- *      orientation, so the next run's flip pass carries them into the ledger's top. An append
- *      NEVER writes the tally: the points reach the membrane through `allow`.
+ *  pour(n) -> { grains, points, mirrored, append }
+ *      n grains poured. When `append`, append `points` points at the far end of the top bulb;
+ *      when `mirrored` (a swap is waiting for its flip pass) write them at 2c - p, in the GPU's
+ *      present orientation, so the next run's flip pass carries them into the ledger's top. An
+ *      append NEVER writes the tally: the points reach the membrane through `allow`. While a
+ *      transfer is owed `append` is false: the points go into the transfer's upload instead (a
+ *      readParticles copy already on the queue would not hold them, and the upload made from it
+ *      would write over them).
  *  completeFlip()
  *      The swap (the app's swapEnds, tiltSwap): top = total - top at once. The next run carries
  *      the flip pass (run().flip).
@@ -50,8 +53,11 @@
  *      the ledger's orientation (from readParticles; mirror them if flipPending), gives m, the
  *      points nearest the line to lay on the lower heap; upload the moved bed in the ledger's
  *      orientation, writing tally[1] and tally[2] from its data; then transferDone(above, below,
- *      target) with its exact counts and the app's targetTop now. A pour made meanwhile is in
- *      the ledger already: put its points into the upload. A timed-out transfer is a fill().
+ *      target) with its exact counts and the app's targetTop now. A pour made meanwhile (append
+ *      false) is in the ledger already: transferPlan takes the snapshot's own count above (without
+ *      those points), and its points go into the upload, at the top bulb's far end; transferDone
+ *      checks the upload's total against the ledger's (stats().uploadOff). A timed-out transfer
+ *      is a fill().
  *
  *  Once a frame, before the frame's run is encoded:
  *  plan(app) -> { closed, top, released }
@@ -105,6 +111,12 @@
  *    is done); plan(app); unless the run is skipped or held: w = run({ steps, now, simDt }), and
  *    the solver encodes w.flip, then substep s with words 36-38 = w.vcap, w.allow[s], w.flags;
  *    its readback, when it comes: onReadback(w.seq, words).
+ *    In the app plan() must come after the catch-up and before the 120 Hz steps, which read
+ *    nTop (swapEnds and maybeRetime too), and run() where the frame's run is encoded (in
+ *    submit): the design's valve.frame in submit (its 5.1, 9e) is these two calls, apart.
+ *    plan() reports the count at the end of the run about to be made; with no catch-up (the
+ *    lab's Timer), back from a gap it reports the clock's target until a readback of a run
+ *    after the gap shows the backlog (1-3 frames).
  *
  * ==============================================================================================
  *  UNITS
@@ -212,7 +224,7 @@ export class Valve {
     this.pendingAt = null;          // when the pending base began (the frame's now)
     this.last = null;               // the last run's words
     this.n = { runs: 0, readbacks: 0, dropped: 0, settled: 0, settleMoves: 0, settleLate: 0, pendings: 0,
-      transfers: 0, mismatches: 0, refused: 0, upward: 0 };
+      transfers: 0, uploadOff: 0, mismatches: 0, refused: 0, upward: 0 };
   }
 
   // ---- reading ------------------------------------------------------------------------------
@@ -261,7 +273,7 @@ export class Valve {
 
   pour(n) {
     n = Math.max(0, Math.floor(n));
-    if (!n) return { grains: 0, points: 0, mirrored: this.flipPending };
+    if (!n) return { grains: 0, points: 0, mirrored: this.flipPending, append: !this.xfer };
     const nP = this.Pts(this.gTotal + n) - this.Pts(this.gTotal), A = this.anchor;
     if (this.xfer || this.pending) {
       // the transfer's upload, or the readback that ends the pending base, counts these points
@@ -278,10 +290,11 @@ export class Valve {
     }
     this.epochPours += nP;
     this.gTotal += n; this.gTop += n; this.pTotal += nP;
-    this.appended[this.parity] += nP;
     if (nP) this.endConfirmed = false;
+    if (this.xfer) { this.xfer.poured += nP; return { grains: n, points: nP, mirrored: false, append: false }; }
+    this.appended[this.parity] += nP;
     this.ev('pour', nP);
-    return { grains: n, points: nP, mirrored: this.flipPending };
+    return { grains: n, points: nP, mirrored: this.flipPending, append: true };
   }
 
   completeFlip() {
@@ -300,17 +313,24 @@ export class Valve {
     if (!n) return 0;
     this.gTop -= n + held; this.gen++; this.tallies = [];
     // taken to 0 (the residue), the count reads 1 until the transfer has moved the last points
-    this.xfer = { n: n + (this.xfer ? this.xfer.n : 0), hold: this.gTop === 0 ? 1 : 0 }; this.gTop += this.xfer.hold;
+    this.xfer = { n: n + (this.xfer ? this.xfer.n : 0), hold: this.gTop === 0 ? 1 : 0, poured: this.xfer ? this.xfer.poured : 0 }; this.gTop += this.xfer.hold;
     this.anchor = null; this.endConfirmed = false;
     return n;
   }
-  /** The transfer: points to move from the top bulb (nearest the line) to the lower heap. */
+  /**
+   * The transfer: points to move from the top bulb (nearest the line) to the lower heap; above,
+   * the snapshot's points above (the points poured meanwhile, which go into the upload, are added
+   * here).
+   */
   transferPlan(above) {
-    return Math.max(0, Math.min(above, above - this.pT(this.gTop - (this.xfer ? this.xfer.hold : 0))));
+    const poured = this.xfer ? this.xfer.poured : 0;
+    return Math.max(0, Math.min(above, above + poured - this.pT(this.gTop - (this.xfer ? this.xfer.hold : 0))));
   }
   /** The moved bed is uploaded: its exact counts (the ledger's orientation) and the app's target. */
   transferDone(above, below, target) {
     if (this.xfer) this.gTop -= this.xfer.hold;
+    // the upload must hold every point the ledger has, those poured meanwhile included
+    if (above + below !== this.pTotal) this.n.uploadOff++;
     this.pTotal = above + below; this.gpuParity = this.parity; this.appended = [0, 0];
     this.gen++; this.tallies = []; this.xfer = null; this.anchor = null; this.lastRunNow = null;
     this.newEpoch(this.gTop, above, target === undefined ? this.gTop : Math.max(0, Math.floor(target)));

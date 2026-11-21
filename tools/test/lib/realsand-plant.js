@@ -129,7 +129,7 @@ function firstVersion(Valve) {
 
 /**
  * One glass, frame by frame. o: { d (ms), q, fine2, grains, kv, q0, empties, stuck, skip, lat,
- * ratio, dips, fps (60; 30 is calm), held (motion always recent: relCap on, no catch-up), seed, events: [{ t (s), type: 'pour' (s) | 'flip' | 'spin' (n) | 'tilt' (hold,
+ * ratio, dips, fps (60; 30 is calm), held (motion always recent: relCap on, no catch-up), seed, settle (s), events: [{ t (s), type: 'pour' (s; or owed: n grains at once while a transfer is owed) | 'flip' | 'spin' (n) | 'tilt' (hold,
  * pour, skip: runs skipped from the swap's frame on) | 'side' (hold) | 'hide' (s) | 'reset' | 'shake' (s) }] }.
  */
 function runCase(Valve, o) {
@@ -150,7 +150,7 @@ function runCase(Valve, o) {
     revert: 0, drift: 0, supMismatch: 0, supChecked: 0, zeroEarly: 0, negRel: 0, rises: 0, pourErr: 0, pours: 0,
     relCapFrames: 0, relCapOver: 0, bulkRuns: 0, shortRuns: 0, worstShort: 0, dutyOn: 0, dutyOff: 0, dutyBad: 0,
     transfers: 0, xferDropped: 0, forcedSkips: 0, residues: 0, residueMs: NaN, retimes: 0, pendingSwaps: 0, pendingOpen: 0, closedChecked: 0, closedCount: 0, endMs: NaN, endSub: NaN, freeEndMs: NaN, zeroAfter: NaN, finalTop: -1, finalAbove: -1,
-    settleMoves: 0, settleLate: 0, pendings: 0, kvEnd: 0, mismatches: 0, ended: false, reruns: 0, emptyEarly: 0, emptyEarlyMs: 0, riseMax: 0, coldRises: 0, primed: 0, primeBad: 0, coldRuns: 0, coldShortRuns: 0, coldShort: 0
+    settleMoves: 0, settleLate: 0, pendings: 0, kvEnd: 0, mismatches: 0, ended: false, reruns: 0, emptyEarly: 0, emptyEarlyMs: 0, riseMax: 0, uploadErr: 0, xferAppends: 0, owedPours: 0, coldRises: 0, primed: 0, primeBad: 0, coldRuns: 0, coldShortRuns: 0, coldShort: 0
   };
   var lastCrossFrame = -1, zeroFrame = -1, prevTop = v.nTop, eventThisFrame = false, residue = false, retimed = false, sinceXfer = 1e9, xferLeft = 0, skipRuns = 0;
   // the pending rule, checked from outside: a readback is exact when no run after it offered a
@@ -169,8 +169,10 @@ function runCase(Valve, o) {
     eventThisFrame = retimed; retimed = false;
     for (var i = 0; i < events.length; i++) {
       var e = events[i];
-      if (e.done || t < e.t) continue;
+      if (e.done || t < e.t || (e.owed && !xfer)) continue;
       e.done = true; eventThisFrame = true;
+      // (owed: n grains poured at once in the first frame from e.t on in which a transfer is owed)
+      if (e.owed) { pourNow(e.n); continue; }
       if (e.type === 'flip') { flip.active = true; flip.until = t + 2.6; flip.swapAt = [t + 2.6]; }
       else if (e.type === 'spin') { flip.active = true; flip.swapAt = []; for (var j = 1; j <= e.n; j++) flip.swapAt.push(t + j * 12 / 60); flip.until = flip.swapAt[flip.swapAt.length - 1] + 0.4; }
       else if (e.type === 'tilt') { tilt.until = t + e.hold; tilt.swapAt = t + 0.2; tilt.pour = e.pour || 0; tilt.skip = e.skip || 0; }
@@ -241,19 +243,23 @@ function runCase(Valve, o) {
       var owed = v.nTop - target, cap = back ? Math.max(12, clk.rate * 0.4) : Math.max(400, clk.rate * 1.2);
       if (owed > cap) {
         var before = v.nTop, n = v.fastForward(owed - Math.min(30, Math.ceil(cap * 0.5)));
-        xfer = { frames: 1 + Math.floor(rnd() * 2) }; res.transfers++; arm(8, before - n, 'transfer', before); eventThisFrame = true;
+        xfer = snapshot(); res.transfers++; arm(8, before - n, 'transfer', before); eventThisFrame = true;
       }
     }
     back = false;
     var prevPlanTop = v.nTop, pl = v.plan(app);
     if (pl.released < 0) res.negRel++;
     var ran = false, words = null, out = null;
-    if (!xfer && v.residueDue(now)) { v.fastForward(v.nTop); xfer = { frames: 1 + Math.floor(rnd() * 2) }; res.residues++; residue = true; }
+    if (!xfer && v.residueDue(now)) { v.fastForward(v.nTop); xfer = snapshot(); res.residues++; residue = true; }
     if (xfer) {
       if (--xfer.frames <= 0) {          // readParticles came back: move, upload, done
-        var above = topTrue(), below = plant.above + plant.below - above, m = v.transferPlan(above);
-        plant.upload(above - m, below + m, v.parity); lastRunT = null;
-        v.transferDone(above - m, below + m, target); xfer = null; newGen(); sinceXfer = -1; xferLeft = v.nTop - target;
+        // (from the snapshot taken when the transfer began: appends made since are not in it;
+        // the points poured meanwhile go into the upload, at the top bulb's far end)
+        var above = xfer.above, below = xfer.total - above, m = v.transferPlan(above);
+        plant.upload(above - m + xfer.owed, below + m, v.parity); lastRunT = null;
+        v.transferDone(above - m + xfer.owed, below + m, target); xfer = null; newGen(); sinceXfer = -1; xferLeft = v.nTop - target;
+        // every grain the ledger holds is on the GPU: the points of the fill and of every pour
+        if (plant.above + plant.below !== v.Pts(v.total)) res.uploadErr++;
         if (residue) { res.residueMs = (t - doneT) * 1000; residue = false; }
       }
     } else if (skipRuns > 0) { skipRuns--; res.forcedSkips++; }
@@ -347,15 +353,21 @@ function runCase(Valve, o) {
   res.finalTop = v.nTop; res.finalAbove = topTrue();
   res.settleMoves = v.n.settleMoves; res.settleLate = v.n.settleLate; res.pendings = v.n.pendings; res.mismatches = v.n.mismatches;
   res.kvEnd = +v.kv.toFixed(1); res.dropped = v.n.dropped;
+  res.uploadErr += v.n.uploadOff || 0;      // (the valve's own check of each transfer's upload)
   return res;
 
   function pouring_active() { return !!(pouring && t < pouring.until); }
+  /** A transfer begins: readParticles copies the GPU's points now (frames: when it comes back). */
+  function snapshot() { return { frames: 1 + Math.floor(rnd() * 2), above: topTrue(), total: plant.above + plant.below, owed: 0 }; }
   function pourNow(n) {
-    var g0 = v.nTop, tot0 = v.total, p0 = plant.above + plant.below;
+    var g0 = v.nTop, tot0 = v.total, p0 = plant.above + plant.below, pv0 = v.points;
     var r = v.pour(n);
-    plant.append(r.points, r.mirrored);
+    // while a transfer is owed the points go into its upload (append false), else to the GPU now
+    if (r.append === false) { if (xfer) { xfer.owed += r.points; res.owedPours++; } else res.pourErr++; }
+    else plant.append(r.points, r.mirrored);
+    if (xfer && r.append !== false) res.xferAppends++;
     res.pours++;
-    if (r.grains !== n || v.nTop !== g0 + n || v.total !== tot0 + n || plant.above + plant.below !== p0 + r.points || v.points !== p0 + r.points) res.pourErr++;
+    if (r.grains !== n || v.nTop !== g0 + n || v.total !== tot0 + n || plant.above + plant.below !== p0 + (r.append === false ? 0 : r.points) || v.points !== pv0 + r.points) res.pourErr++;
     rem = clk.remAt(clk.topAt(rem) + r.grains);
     if (state === 'done') state = 'paused';
     if (watch) { watch.top += n; if (watch.pre >= 0) watch.pre += n; }

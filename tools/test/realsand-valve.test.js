@@ -8,7 +8,9 @@
  * Cases: six grain settings (points per grain 0.29 to 1.69: phone and tablet, classic, Fine and
  * Finest), each with a 10 s glass, a 1-minute glass with a 1.5 s pour, with a Flip, with a hand
  * spin of 8 swaps, with a tilt swap in a pour (poured before and after the swap in its frame) at
- * 30 % skipped runs, a 5-minute glass asleep 40 s (the catch-up by transfer) and a Reset; then
+ * 30 % skipped runs, a 5-minute glass asleep 40 s (the catch-up by transfer, also with a pour
+ * while the transfer is owed: its upload is made from a snapshot taken when it began) and a
+ * Reset; then
  * 25 minutes and 99:59; throttle gains of 10, 14 and 26 (the valve's estimate always starts at
  * 20); sim/real dips to 0.6; calm (runs at 30 fps); held in the hand with Real motion on (relCap
  * throughout); a supply that falls as the bulb empties (10 s and 60 minutes, classic and Finest);
@@ -26,7 +28,8 @@
  * the ledger holds exactly the GPU's count; nTop never goes back to its value from before a swap
  * or a fill, and does not change while closed except by CPU events and the one settlement;
  * after a transfer it never rises above what the transfer left and keeps the leftover the app
- * left to flow; nTop === targetTop while the neck is supplied and the target falls; nTop is 0
+ * left to flow, and its upload holds every grain the ledger has (a pour made while it is owed
+ * goes into the upload, not the buffer); nTop === targetTop while the neck is supplied and the target falls; nTop is 0
  * only with no point above; released is never negative; a pour raises the ledger by exactly n
  * grains and the GPU by exactly the points appended; relCap limits the fall; the throttle is
  * never between 0 and 0.25 cells/s (the duty cycle); every glass empties and the last point
@@ -155,6 +158,9 @@ async function main() {
     add(nm + ', 1 min, spin of 8 swaps at 25 s', { d: 60e3, q: q, fine2: f2, events: [{ t: 25, type: 'spin', n: 8 }] });
     add(nm + ', 1 min, tilt swap in a pour (poured before and after it in the same frame), 30 % of runs skipped', { d: 60e3, q: q, fine2: f2, skip: 0.3, events: TILT_POUR() }, { pour: true });
     add(nm + ', 5 min, asleep 40 s at 60 s', { d: 300e3, q: q, fine2: f2, events: [{ t: 60, type: 'hide', s: 40 }] }, { transfer: true });
+    // poured as the catch-up's transfer is owed: its points go into the upload, not the buffer
+    // (a readParticles copy already on the queue would not hold them)
+    add(nm + ', 5 min, asleep 40 s at 60 s, poured as the catch-up transfer is owed', { d: 300e3, q: q, fine2: f2, events: [{ t: 60, type: 'hide', s: 40 }, { t: 100, type: 'pour', owed: true, n: 30 }] }, { transfer: true, pour: true, xferPour: true });
     add(nm + ', 1 min, Reset at 15 s', { d: 60e3, q: q, fine2: f2, events: [{ t: 15, type: 'reset' }] });
   });
   // the lab's Timer: the fresh bed settles 0.5 s on the shut neck, which keeps a queue on the line.
@@ -233,6 +239,8 @@ async function main() {
     if (k.rerun && r.reruns !== 1) bad.push('the Flip after the end did not run the glass again');
     if (r.emptyEarly) bad.push('the top bulb was empty while the clock ran, in ' + r.emptyEarly + ' frames (up to ' + f1(r.emptyEarlyMs) + ' ms before 00:00.0)');
     if (!k.residue && r.residues) bad.push(r.residues + ' residue transfers with no point stuck');
+    if (r.uploadErr || r.xferAppends) bad.push('a transfer\'s upload did not hold every grain of the ledger (' + r.uploadErr + ' uploads; ' + r.xferAppends + ' pours appended while it was owed)');
+    if (k.xferPour && !r.owedPours) bad.push('no pour while the transfer was owed');
     // the count rose with the neck open and no CPU event: it had fallen too far (a lull, then a
     // jump for the sound); at most 3 times, by a point's worth (1 grain, or the grains of a point)
     var riseOk = Math.max(1, Math.ceil(1 / r.ppg - 1e-9));
