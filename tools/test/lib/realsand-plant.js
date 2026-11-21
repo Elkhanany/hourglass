@@ -129,7 +129,7 @@ function firstVersion(Valve) {
 /**
  * One glass, frame by frame. o: { d (ms), q, fine2, grains, kv, q0, empties, stuck, skip, lat,
  * ratio, dips, fps (60; 30 is calm), held (motion always recent: relCap on, no catch-up), seed, events: [{ t (s), type: 'pour' (s) | 'flip' | 'spin' (n) | 'tilt' (hold,
- * pour) | 'hide' (s) | 'reset' | 'shake' (s) }] }.
+ * pour, skip: runs skipped from the swap's frame on) | 'side' (hold) | 'hide' (s) | 'reset' | 'shake' (s) }] }.
  */
 function runCase(Valve, o) {
   var rnd = rng(o.seed || 7), fine2 = o.fine2 || 1, gl = glassFor(o.q || 1.08, fine2);
@@ -146,10 +146,10 @@ function runCase(Valve, o) {
     ppg: +gl.ppg.toFixed(3), N: N, points: f0.top, frames: 0, runs: 0, viol: 0, startErr: 0, closedCross: 0, closedWords: 0,
     revert: 0, drift: 0, supMismatch: 0, supChecked: 0, zeroEarly: 0, negRel: 0, rises: 0, pourErr: 0, pours: 0,
     relCapFrames: 0, relCapOver: 0, bulkRuns: 0, shortRuns: 0, worstShort: 0, dutyOn: 0, dutyOff: 0, dutyBad: 0,
-    transfers: 0, xferDropped: 0, residues: 0, residueMs: NaN, retimes: 0, pendingSwaps: 0, pendingOpen: 0, closedChecked: 0, closedCount: 0, endMs: NaN, endSub: NaN, freeEndMs: NaN, zeroAfter: NaN, finalTop: -1, finalAbove: -1,
+    transfers: 0, xferDropped: 0, forcedSkips: 0, residues: 0, residueMs: NaN, retimes: 0, pendingSwaps: 0, pendingOpen: 0, closedChecked: 0, closedCount: 0, endMs: NaN, endSub: NaN, freeEndMs: NaN, zeroAfter: NaN, finalTop: -1, finalAbove: -1,
     settleMoves: 0, settleLate: 0, pendings: 0, kvEnd: 0, mismatches: 0, ended: false
   };
-  var lastCrossFrame = -1, zeroFrame = -1, prevTop = v.nTop, eventThisFrame = false, residue = false, retimed = false, sinceXfer = 1e9, xferLeft = 0;
+  var lastCrossFrame = -1, zeroFrame = -1, prevTop = v.nTop, eventThisFrame = false, residue = false, retimed = false, sinceXfer = 1e9, xferLeft = 0, skipRuns = 0;
   // the pending rule, checked from outside: a readback is exact when no run after it offered a
   // ticket; a swap with none at hand keeps every run closed until one arrives
   var genSeq = 0, lastOpenSeq = 0, maxRead = 0, pendingExpected = false, closedFor = 0;
@@ -168,7 +168,7 @@ function runCase(Valve, o) {
       e.done = true; eventThisFrame = true;
       if (e.type === 'flip') { flip.active = true; flip.until = t + 2.6; flip.swapAt = [t + 2.6]; }
       else if (e.type === 'spin') { flip.active = true; flip.swapAt = []; for (var j = 1; j <= e.n; j++) flip.swapAt.push(t + j * 12 / 60); flip.until = flip.swapAt[flip.swapAt.length - 1] + 0.4; }
-      else if (e.type === 'tilt') { tilt.until = t + e.hold; tilt.swapAt = t + 0.2; tilt.pour = e.pour || 0; }
+      else if (e.type === 'tilt') { tilt.until = t + e.hold; tilt.swapAt = t + 0.2; tilt.pour = e.pour || 0; tilt.skip = e.skip || 0; }
       else if (e.type === 'side') { tilt.until = t + e.hold; tilt.swapAt = -1; }
       else if (e.type === 'hide') hidden = { until: t + e.s };
       else if (e.type === 'reset') {
@@ -198,7 +198,7 @@ function runCase(Valve, o) {
     // a tilt swap (app.js:1123-1132), and a pour in the same frame after it
     if (tilt.swapAt > 0 && t >= tilt.swapAt) {
       var tb = v.nTop, there = clk.remAt(v.total - tb);
-      tilt.swapAt = -1; v.completeFlip(); rem = there; arm(12, v.total - tb, 'swap', tb); eventThisFrame = true;
+      tilt.swapAt = -1; v.completeFlip(); rem = there; arm(12, v.total - tb, 'swap', tb); eventThisFrame = true; skipRuns = tilt.skip;
       if (!exactAvailable()) { pendingExpected = true; res.pendingSwaps++; }
       if (tilt.pour) { pourNow(tilt.pour); }
     }
@@ -248,7 +248,8 @@ function runCase(Valve, o) {
         v.transferDone(above - m, below + m, target); xfer = null; newGen(); sinceXfer = -1; xferLeft = v.nTop - target;
         if (residue) { res.residueMs = (t - doneT) * 1000; residue = false; }
       }
-    } else if (rnd() >= (o.skip === undefined ? 0.03 : o.skip)) {
+    } else if (skipRuns > 0) { skipRuns--; res.forcedSkips++; }
+    else if (rnd() >= (o.skip === undefined ? 0.03 : o.skip)) {
       var ratio = o.dips && Math.floor(t / 20) % 3 === 2 ? 0.6 : (o.ratio || 1);
       var span = lastRunT === null ? 1 / 60 : Math.min(0.25, t - lastRunT);
       var S = Math.max(1, Math.round(span * ratio * HZ));

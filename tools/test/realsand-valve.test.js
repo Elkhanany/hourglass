@@ -51,8 +51,9 @@ var SETTINGS = [
 ];
 
 // a pour held from 0.3 s before the glass is laid on its side until 0.3 s after its swap; in the
-// swap's frame the app pours before the swap (handlePour, then stepGravity), and 10 grains more after it
-function TILT_POUR() { return [{ t: 19.7, type: 'pour', s: 1 }, { t: 20, type: 'tilt', hold: 0.5, pour: 10 }]; }
+// swap's frame the app pours before the swap (handlePour, then stepGravity), and 10 grains more after it;
+// the runs of that frame and the next are skipped (the GPU behind), so the pour waits with the flip pass
+function TILT_POUR() { return [{ t: 19.7, type: 'pour', s: 1 }, { t: 20, type: 'tilt', hold: 0.5, pour: 10, skip: 2 }]; }
 function f1(x) { return (Math.round(x * 10) / 10).toString(); }
 function pct(a, b) { return b ? f1(100 * a / b) + ' %' : '-'; }
 
@@ -157,6 +158,7 @@ async function main() {
     if (!k.fast && !k.late && r.bulkRuns && (r.shortRuns > 0.005 * r.bulkRuns || r.worstShort > 3)) bad.push(pct(r.shortRuns, r.bulkRuns) + ' of bulk runs short, worst ' + r.worstShort + ' points');
     if (r.settleLate && !k.late) bad.push('a settlement moved the count after a swap (' + r.settleLate + ' grains)');
     if (k.pour && !r.pours) bad.push('no pour');
+    if (cs.o.events && cs.o.events.some(function (e) { return e.skip; }) && r.forcedSkips !== 2) bad.push('the runs at the swap were not skipped');
     if (k.transfer && !r.transfers) bad.push('no catch-up transfer');
     if (k.duty && !(r.dutyOn > 0 && r.dutyOff > 0)) bad.push('the throttle was not duty-cycled (' + r.dutyOn + ' runs at 0.25, ' + r.dutyOff + ' shut)');
     if ((k.shake || k.held) && !r.relCapFrames) bad.push('relCap never applied');
