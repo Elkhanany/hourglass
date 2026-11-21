@@ -1137,13 +1137,61 @@ later, which has WebGPU). The phone's motion (**Real motion**), a finger on
 the glass, **Flip** and **Reset** move the sand; the buttons choose the
 material (coarse and fine sand, water, syrup), the speed (the app's slow
 motion, or true gravity for a glass 11 cm tall), the amount and the grid.
+It opens on the coarse grid with the 1-minute amount: on the owner's iPhone
+(iOS 26.5) the 1-minute amounts held real time at app speed, coarse the only
+one that also held real speed, while the medium grid with a quarter glass
+ran 8 frames a second at 0.39 of real time, 350 to 730 ms behind. The
+sand's realism is judged on the coarse grid only (the scoreboard, the lab
+test). On the first visit it times that for a couple of seconds and moves
+to a quarter glass, on the same grid, only if the phone has room for it at
+the pour's peak rate (scaled from that timing by the phone's own measured
+ratio), and says what it did; an amount or grid chosen by hand is kept for
+the next visit instead (Copy results says which). At most two frames of
+work go to the GPU at a time, and a frame's substeps (the GPU budget) are
+cut when frames had to be skipped because the GPU was still busy and raised
+while it keeps up, never below what the base rate needs to keep real time
+unless the GPU cannot give even that (`lab/sand/pace.mjs`). Predicted, not
+yet measured on a phone: what is on screen follows the phone within about
+two frames. Most of the gain over 5cc11b3 is the smaller default: at the
+old pace the medium quarter glass trailed the phone by 350 to 730 ms, while
+the coarse 1-minute bed took 31 ms from submit to done. When the GPU cannot
+keep up the sand runs slower than real time instead, and the HUD says
+BEHIND (GPU budget). (More, "N in flight" and "GPU budget", go back toward
+the old pace, to compare: up to 3 frames in flight, no budget; a budget
+set from the measured time instead, as in 9b0a9f1, would fall to one
+substep a frame on a phone whose light frames report about a display frame
+whatever their work, as the owner's did, and nearly stop the sand:
+`tools/test/lab-pace.test.js` keeps that rule as its control.)
 **Benchmark** and **Flow test** measure the phone, and **Copy results**
-puts a plain-text report on the clipboard to send back. While the sand
+puts a plain-text report on the clipboard to send back: it opens with the
+pace and the last two seconds (frames drawn, display rate, lag in display
+frames, the GPU's time a substep), and after a Benchmark with the answers:
+whether the default holds real time at each speed, and what each costly
+option (spread, blur, 8 iterations, yield in the loop) costs against it.
+While the sand
 moves fast the page runs more substeps a second (auto Hz, shown in the HUD),
 so a falling stream or a thrown bed is not held to the solver's one cell a
-substep; at app speed the glass's jolts (the finger's, the phone's) reach
+substep, but only as far as the GPU's budget allows (HELD in the HUD); at
+real speed true g wants more substeps than a phone gives, so there the
+fastest grains are held to a cell a substep and fall slower than real, and
+the HUD says so; at app speed the glass's jolts (the finger's, the phone's) reach
 the slowed sand slowed too, as in a slowed film of them, so a jerk throws
-it as far as at real speed. To test: turn on
+it as far as at real speed. A grain in flight is drawn as the streak it
+makes in one display frame, as the eye sees a falling grain, so the stream
+through the neck reads as a thread (More, "blur", shortens it or turns it
+off); a grain with sand crowded around it is drawn sharp, because the eye
+follows a bed that is jerked, shaken or turned as a whole (drawn as
+streaks, such a bed looked like brushed hair or straw). Each
+grain remembers how tightly it is packed (shaking packs it), and grains
+that crowd inside a cell step apart (the spread pass; More, "spread", turns
+it off, two fewer dispatches a substep, 14 instead of 16), so a bed at rest no longer
+swells and a fast turn or a jerk no longer tears it. More, "yield", lets
+sand yield inside the solver's iterations: a slowly turned bed then fails
+first at about 35 degrees instead of 40 and stands lower while it moves,
+but the Flip's cone spreads to about 20 degrees, so it is off by default.
+Still open: a turned bed slides round the glass as a block before it fails
+in surface sheets, a fast turn runs out like a heavy liquid, and a bed held
+below its angle still creeps. To test: turn on
 Portrait Orientation Lock in Control Center (otherwise turning the phone
 turns the page, and the page says so), and turn Low Power Mode off (it
 halves the display rate). It loads nothing from anywhere else and registers
@@ -1156,9 +1204,22 @@ solver keeps Smoosh's MIT and EA's BSD-3-Clause notices
 `node tools/test/lab-sand.test.js [--port <n>] [--only 2,6,9] [--shots <dir>]`
 runs it headless in Chromium with WebGPU in software (SwiftShader), on its
 coarse grid with little sand and the clock driven by the test; it takes
-about an hour, and its speeds say nothing about a phone. Its failing checks
-are the sand's open problems, so `run-all.js` runs it only when asked
-(`node tools/test/run-all.js lab-`).
+about an hour and a half, and its speeds say nothing about a phone. Cases 10
+to 18 measure the realism found wanting in November 2026 (a bed at rest, a
+slow and a fast turn, a jerk, shaking, a press at real speed, the drawn
+stream, syrup, creep), with the measures in `tools/test/lib/sand-measures.js`;
+case 19 the live loop's pace (at most two frames of work in flight, the lag
+within two display frames, or on this software GPU, where a single substep
+takes longer than a display frame, two such frames and one display frame;
+the old pace is its control). Cases 12, 13 and 18 hold the sand to no worse
+than 5cc11b3 and say real sand's target beside it: passing them is not
+realism. `node tools/test/lab-pace.test.js` checks the pace in Node in a
+second, against models of a phone's GPU. The tests step the sand with auto
+Hz free to reach 1440 (2880 at real speed); `__lab.settings({ hzMax: 960 })`
+steps it as a phone's GPU budget may hold it, which changes how a jerk
+settles. The lab test's failing checks
+are the sand's open problems, so `run-all.js` runs the lab suites only when
+asked (`node tools/test/run-all.js lab-`).
 
 ## Icons and launch screens
 

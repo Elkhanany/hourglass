@@ -15,7 +15,14 @@
  * - the substep rate, iterations, per-frame cap and per-substep clamp are
  *   settings, and the clamp is counted;
  * - a whole frame is one compute pass (bucket clears are dispatches), with
- *   uniforms chosen by dynamic offset;
+ *   uniforms chosen by dynamic offset; clears are folded into the dispatch
+ *   before them where that is exact (gridUpdate zeroes the next grid,
+ *   prepare the spread's sub-cell grid): 16 dispatches a substep with the
+ *   spread pass, 14 without (21 and 18 before), since on a phone a dispatch
+ *   has a fixed cost (dispatchesPerSubstep). How much is not fitted: the cost
+ *   model put it at about 16 us (350 points' work), but the owner's iPhone's
+ *   coarse 1-minute real-speed row leaves at most about 4 us a dispatch; the
+ *   Benchmark's gpu ms/substep column is to settle it;
  * - a per-frame tally (counts, speeds) is read back for the HUD and tests.
  */
 
@@ -70,14 +77,17 @@ export class ShaderLibrary {
 
 // Binding kinds: u uniform (dynamic offset), r read-only storage, s storage
 const LAYOUTS = {
-  prepare: 'usssss',
+  prepare: 'ussssss',
   bukkitCount: 'urrs',
   bukkitAllocate: 'urssssss',
   bukkitInsert: 'ursrsr',
   gridClear: 'usrr',
-  gridUpdate: 'usrrrss',
-  g2p2g: 'usrsrr',
+  gridUpdate: 'usrrrsss',
+  g2p2g: 'usrsrrr',
+  load: 'urrrs',
   rescale: 'urs',
+  spreadSplat: 'urrs',
+  spreadShift: 'ursrr',
   tally: 'urrrs'
 };
 
@@ -98,15 +108,89 @@ const LAYOUTS = {
  * restPacking is the packing it settles back to (1: as filled), and loose
  * sand packs down under load instead of keeping every expansion (without it
  * a bed at rest swelled by half in 3 s, and a shaken heap to 2.5 times its
- * size). floorLoose: 0, loose sand packs down only as fast as its load gets
+ * size). Since the packing is the mean over the filled nodes (it was the
+ * densest node, which read sand 3 to 5 % looser than its fill as packed, so
+ * that it swelled and was stiffer than its looseness allowed), slightly loose
+ * sand takes some compression plastically and stands lower: at the old 28.5
+ * and 27.5 degrees, heaps of 27.4 and 26.1. The angles are set again for the
+ * same heaps as before (measured: coarse 30 -> 29.1, 31 -> 30.6, 32 -> 28.7,
+ * a noisy step; fine 29 -> 27.4, 30 -> 29.2), so coarse 31 and fine 30.
+ * floorLoose: 0, loose sand packs down only as fast as its load gets
  * through the constraint (1: freely, which made the bed bounce in place).
+ *
+ * spread: the solver's grid is a cell wide and cannot see how the points sit
+ * inside a cell, so in a sheared, dilating flow they crowd into lines with
+ * dark gaps between (the combed stripes and voids of a turn or a shake). Each
+ * substep a sand point that crowds its neighbours (a density, on a grid half a
+ * cell wide, above spreadThr) steps down that density's gradient, by spread
+ * times the excess, at most spreadCap cells: a position correction, its
+ * velocity untouched. 0 turns it off.
+ *
+ * compact, packMax: real sand packs tighter when it is tapped or shaken, and
+ * stays so. Each sand point keeps its own packing (1: the fill's); each time it
+ * is packed down again from a loosened state, it gains compact x the
+ * compaction taken x the room left to packMax; plastic shear loosens it back
+ * toward 1 (dilate). 0 turns it off.
+ *
+ * yieldLoop, yieldScale: sand yields inside the solver's iterations, not only
+ * at the end of a substep (g2p2g.wgsl). EA's target clamped the trial strain's
+ * stretches at 1 from below, which turned every shear into a dilation, so in
+ * the solve sand resisted shear only by dilating, about 45 degrees' worth: a
+ * bed turned as one block and, once it failed, ran out like a liquid. With
+ * yieldLoop the target is the trial strain projected onto the Drucker-Prager
+ * cone, yieldScale of the return map's: shear inside the cone is held, shear
+ * beyond it flows. The heap's angle follows yieldScale x the cone's slope
+ * (measured, coarse: 0.8 at 31 degrees -> a heap of 31.1; 0.7 at 33 -> 27.9;
+ * 0.65 at 35 -> 27.4), and so does the turn: at 0.65 a slowly turned bed fails
+ * in surface sheets from 55 degrees and stops at 28.5, at 0.8 only from 85. No
+ * setting gave both a heap of 30 or more and sheets early in the turn, so 0.8
+ * keeps the heaps right; the turn's block slide from 40 to 60 degrees remains.
+ * It is OFF by default (More, "yield": in loop / at end): with it the Flip's
+ * cone at rest fell to 19.7 degrees (flanks 25.7 / 13.8; 34.6 without it, 29.8
+ * at 5cc11b3) and its young cone to 6 to 10, at 0.8 and at 0.85 alike (1.0
+ * heaps at 47), and a fast turn still ran out to 16 degrees.
+ *
+ * yieldStep 2, loadScale (off by default; an experiment): the cone no larger
+ * than the load allows, the depth of sand above the point (load.wgsl, one
+ * more dispatch a substep) x g x loadScale. Meant to stop a settled bed
+ * being stronger than a fresh heap. Measured: it does not stop the block
+ * slide (1.5: heap 27.6, the bed still turns as a block from 35 to 60
+ * degrees). yieldStep 3 keeps the cone of yieldLoop for compressed sand and
+ * gives loosened sand that still carries a load its friction (the same load
+ * pass): measured at 2, a heap of 28.6 and a fast turn no less liquid (face
+ * 18.9 degrees 0.4 s after, against 21.5 without). (yieldStep 1, this
+ * substep's compression alone: no strength, heaps flat.) Also tried and not
+ * kept (November 2026): the same load-sized friction for loosened sand in the
+ * return map at the end of each substep (its shear strain kept up to the cone
+ * of the load, scale 2; one more dispatch): a slowly turned bed no longer ran
+ * out (face 43 to 46 degrees after, against 22) but still slid round the glass
+ * as a block, now on the wall (wallFriction 0.5), a column fell to a heap of
+ * 21.8 and a fast turn ran out to 8 degrees: shear kept without the pressure
+ * that goes with it pulls the sand apart.
+ *
+ * Syrup wets the glass (wallDrag 1: no slip) and is three times as viscous as
+ * before, so it oozes; its viscosity term is at its ceiling (1), so it still
+ * drains faster than sand. Fine sand grips the glass as coarse does (0.5):
+ * at 0.42 a jerk threw it up the wall in a curling tongue.
  */
 export const MATERIALS = {
-  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 28.5, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0 },
-  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 27.5, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.42, wallDrag: 0 },
+  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 31, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8 },
+  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 30, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8 },
   water:  { label: 'Water',       model: 0, frictionAngle: 0,  viscosity: 0.01,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.002 },
-  syrup:  { label: 'Syrup',       model: 0, frictionAngle: 0,  viscosity: 0.35,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.05 }
+  syrup:  { label: 'Syrup',       model: 0, frictionAngle: 0,  viscosity: 1,     relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 1 }
 };
+
+/**
+ * Dispatches a substep, as run() encodes them: prepare and the 3 bucket passes; per
+ * iteration a G2P2G after the grid's clear (the first) or its update (which clears too);
+ * the load pass (yieldStep 2 or 3, with yield in the loop); the spread's splat and shift.
+ * With 5 iterations: 16 with the spread, 14 without. (Per frame, a tally; and a rescale
+ * when the rate changes.)
+ */
+export function dispatchesPerSubstep(iterations, m) {
+  const sand = m.model === 2;
+  return 4 + 2 * iterations + (sand && m.yieldLoop && m.yieldStep >= 2 ? 1 : 0) + (sand && m.spread ? 2 : 0);
+}
 
 export class Solver {
   static async create(device, shaderBase) {
@@ -121,6 +205,7 @@ export class Solver {
     this.frame = 0; this.gridIndex = 0; this.count = 0;
     this.lastHz = null;
     this.uniformData = null;
+    this.dispatched = 0;               // dispatches encoded since the page loaded (counted by run)
     this.errors = [];
     device.addEventListener?.('uncapturederror', e => { if (this.errors.length < 8) this.errors.push(String(e.error?.message || e.error)); });
   }
@@ -174,6 +259,11 @@ export class Solver {
     mk('grid0', nodes * 16, S); mk('grid1', nodes * 16, S);
     mk('domain', nodes * 16, S, glass.field);
     mk('wall', nodes * 4, S);
+    // per node: the depth of sand above it (load.wgsl)
+    mk('load', nodes * 4, S);
+    // the sub-cell density grid (nodes half a cell apart) on which sand points spread
+    this.fineCount = (2 * this.W + 2) * (2 * this.H + 2);
+    mk('fine', this.fineCount * 4, S);
     mk('bucketCount', this.bucketCount * 4, S);
     mk('bucketInsertCount', this.bucketCount * 4, S);
     mk('bucketStarts', this.bucketCount * 4, S);
@@ -209,14 +299,18 @@ export class Solver {
       entries: [uni, ...list].map((r, binding) => ({ binding, resource: r.buffer ? r : { buffer: r } }))
     });
     this.groups = {
-      prepare: group('prepare', [b.bucketCount, b.bucketInsertCount, b.allocator, b.bucketArgs, b.gridArgs]),
+      prepare: group('prepare', [b.bucketCount, b.bucketInsertCount, b.allocator, b.bucketArgs, b.gridArgs, b.fine]),
       count: group('bukkitCount', [b.count, b.particles, b.bucketCount]),
       allocate: group('bukkitAllocate', [b.bucketCount, b.bucketArgs, b.bucketData, b.allocator, b.bucketStarts, b.gridArgs, b.gridBuckets]),
       insert: group('bukkitInsert', [b.count, b.bucketInsertCount, b.particles, b.bucketData, b.bucketStarts]),
       clear: [b.grid0, b.grid1].map(g => group('gridClear', [g, b.gridBuckets, b.gridArgs])),
-      update: [b.grid0, b.grid1].map(g => group('gridUpdate', [g, b.domain, b.gridBuckets, b.gridArgs, b.wall, b.counters])),
-      solve: [0, 1].map(i => group('g2p2g', [b.particles, i ? b.grid1 : b.grid0, i ? b.grid0 : b.grid1, b.bucketData, b.domain])),
+      // update[i]: grid i's update, which also zeroes the other grid (the next iteration's)
+      update: [0, 1].map(i => group('gridUpdate', [i ? b.grid1 : b.grid0, b.domain, b.gridBuckets, b.gridArgs, b.wall, b.counters, i ? b.grid0 : b.grid1])),
+      solve: [0, 1].map(i => group('g2p2g', [b.particles, i ? b.grid1 : b.grid0, i ? b.grid0 : b.grid1, b.bucketData, b.domain, b.load])),
+      load: [b.grid0, b.grid1].map(g => group('load', [g, b.gridBuckets, b.gridArgs, b.load])),
       rescale: group('rescale', [b.count, b.particles]),
+      spreadSplat: group('spreadSplat', [b.count, b.particles, b.fine]),
+      spreadShift: group('spreadShift', [b.count, b.particles, b.fine, b.domain]),
       tally: group('tally', [b.count, b.particles, b.domain, b.tally])
     };
   }
@@ -228,7 +322,7 @@ export class Solver {
     d.queue.writeBuffer(b.particles, 0, data, 0, count * PARTICLE_WORDS);
     d.queue.writeBuffer(b.count, 0, new Uint32Array([count, this.maxParticles, 0, 0]));
     const e = d.createCommandEncoder();
-    for (const k of ['grid0', 'grid1', 'wall', 'counters', 'tally']) e.clearBuffer(b[k]);
+    for (const k of ['grid0', 'grid1', 'wall', 'load', 'counters', 'tally']) e.clearBuffer(b[k]);
     d.queue.submit([e.finish()]);
     this.frame = 0; this.gridIndex = 0; this.lastHz = null;
   }
@@ -258,6 +352,9 @@ export class Solver {
     F[o + 28] = m.viscosity; F[o + 29] = m.model === 2 ? (m.restPacking ?? 1) : m.relaxation; F[o + 30] = m.elasticity; F[o + 31] = m.model === 2 ? (m.coneK || 0) : m.plasticity;
     F[o + 32] = m.frictionAngle; F[o + 33] = m.density; F[o + 34] = m.stiffness; F[o + 35] = m.model;
     F[o + 36] = 0; F[o + 37] = 0; F[o + 38] = 0; F[o + 39] = m.floorLoose ?? 0;
+    F[o + 40] = m.spread ?? 0; F[o + 41] = m.spreadThr ?? 0.8; F[o + 42] = m.spreadCap ?? 0.05; F[o + 43] = 0;
+    F[o + 44] = m.compact ?? 0; F[o + 45] = m.packMax ?? 1; F[o + 46] = m.dilate ?? 1; F[o + 47] = 0;
+    F[o + 48] = m.yieldLoop ?? 0; F[o + 49] = m.yieldScale ?? 1; F[o + 50] = m.yieldStep ?? 0; F[o + 51] = m.yieldStep >= 2 ? (m.loadScale ?? 2) : (m.yieldStepScale ?? 1);
   }
 
   /**
@@ -279,24 +376,36 @@ export class Solver {
     const pass = enc.beginComputePass({ label: 'lab PB-MPM' });
     const n64 = Math.ceil(this.count / 64);
     const go = (pipe, group, slot, size) => {
-      pass.setPipeline(pipe); pass.setBindGroup(0, group, [slot * SLOT]);
+      pass.setPipeline(pipe); pass.setBindGroup(0, group, [slot * SLOT]); this.dispatched++;
       if (Array.isArray(size)) pass.dispatchWorkgroups(...size); else if (typeof size === 'number') pass.dispatchWorkgroups(size);
       else pass.dispatchWorkgroupsIndirect(size, 0);
     };
     const solid = set.material.model !== 0 ? P.g2p2gSolid : P.g2p2g;
+    const useLoad = set.material.model === 2 && set.material.yieldLoop && set.material.yieldStep >= 2;
     if (steps && this.lastHz && this.lastHz !== set.hz && this.count) go(P.rescale, G.rescale, 0, n64);
+    const spread = set.material.model === 2 && !!set.material.spread;
     if (this.count) for (let s = 0; s < steps; s++) {
       const base = s * MAX_IT;
-      go(P.prepare, G.prepare, base, Math.ceil(this.bucketCount / 64));
+      // (with the spread on, prepare also clears the sub-cell grid: one thread a node of it)
+      go(P.prepare, G.prepare, base, Math.ceil(Math.max(this.bucketCount, spread ? this.fineCount : 0) / 64));
       go(P.bukkitCount, G.count, base, n64);
       go(P.bukkitAllocate, G.allocate, base, [Math.ceil(this.bucketX / 8), Math.ceil(this.bucketY / 8)]);
       go(P.bukkitInsert, G.insert, base, n64);
+      // sand's load: the depth of sand above each node, from the last substep's grid (load.wgsl)
+      if (useLoad) go(P.load, G.load[this.gridIndex], base, b.gridArgs);
       for (let it = 0; it < its; it++) {
         const next = 1 - this.gridIndex;
-        go(P.gridClear, G.clear[next], base + it, b.gridArgs);
+        // the next grid is zeroed where this substep's sand can reach: by gridClear before the
+        // first iteration, then by each grid update (which zeroes it node for node as it goes)
         if (it) go(P.gridUpdate, G.update[this.gridIndex], base + it, b.gridArgs);
+        else go(P.gridClear, G.clear[next], base + it, b.gridArgs);
         go(solid, G.solve[this.gridIndex], base + it, b.bucketArgs);
         this.gridIndex = next;
+      }
+      // sand points that crowd together inside a cell move apart (spreadShift.wgsl)
+      if (spread) {
+        go(P.spreadSplat, G.spreadSplat, base, n64);
+        go(P.spreadShift, G.spreadShift, base, n64);
       }
     }
     if (this.count) go(P.tally, G.tally, Math.max(steps - 1, 0) * MAX_IT, n64);

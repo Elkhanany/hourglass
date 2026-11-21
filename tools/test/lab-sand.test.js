@@ -55,6 +55,44 @@
  *               and down, it settles back within 10 % of its area; held at
  *               25 degrees (below repose) for 3 s it does not creep: centre
  *               under 0.5 cell, surface within 1 degree
+ *  10 rest      a 1-minute flat bed at rest 0.5 to 4 s: area within 3 %, interior
+ *               packing no looser than -3 % (it swelled 6.5 %)
+ *  11 slowturn  a 1-minute bed, gravity turned 0 to 90 degrees at 30 deg/s with the
+ *               glass: first failure at 30 to 40 degrees; from 65 to 90 it fails in
+ *               surface sheets (lower half / top quarter move <= 0.3); the face 1 s
+ *               after the turn >= 28 degrees (no liquid run-out; the scoreboard's
+ *               block.postFail)
+ *  12 fastturn  a quarter glass turned 180 deg/s to 90: face >= 22 degrees and mean
+ *               speed <= 5 cells/s at +2 s; holes in the drawn bed <= 4 % at +0.2 s
+ *               (bounds no worse than 5cc11b3, not real sand's: face 30 to 36,
+ *               speed <= 3, holes <= 0.1 %; the messages say so)
+ *  13 jerk      a quarter glass jerked 2 g: holes <= 1 % at +0.15 s; mean speed at
+ *               +1 s <= 29.4 cells/s (no worse than 5cc11b3; real sand <= 3); no
+ *               node clamped
+ *  14 shake     a 1-minute bed shaken up and down 2 g at 10 Hz for 2 s: interior
+ *               packing does not fall; the same with compaction off is logged
+ *  15 press     real speed, a 3 g press for 0.5 s: the surface does not rise under
+ *               it (<= 0.25 cell) nor hop when let go (<= 0.5)
+ *  16 stream    an upright pour: the grains as drawn (with their streaks) cover
+ *               >= 85 % of the 1-cell rows on the axis below the neck; drawn as
+ *               dots (control) <= 60 %
+ *  17 syrup     the flow test: syrup drains in >= 3 x water's time and >= 2 x
+ *               coarse sand's (the scoreboard's target: real syrup oozes far more
+ *               slowly than sand; 98f2d20 set 0.45 x, when sand drained 4 x faster)
+ *  18 creep     a 1-minute bed held at 25 degrees, 0.5 to 3.5 s: centre <= 1.15
+ *               cells (no worse than 5cc11b3; real sand <= 0.5), surface within 1
+ *               degree
+ *  19 pace      the live loop (a small bed pouring and shaken): at most two frames
+ *               of GPU work in flight (the default), and the submit-to-done lag
+ *               within two display frames, or (the software GPU here, where one
+ *               substep's frame takes over a display frame) two such frames and
+ *               one display frame more (on an iPhone at 5cc11b3, medium quarter,
+ *               350 to 730 ms: three frames of work queued); the GPU budget holds
+ *               the substeps and
+ *               auto Hz back, and the report says so; control: the old pace (3
+ *               frames in flight, no budget) breaks the bound. The Benchmark's
+ *               rows for the default and its costly options, and the report's
+ *               answers from them
  *
  * Screenshots of the key moments go to --shots (a phone-like 390 x 844
  * viewport, device scale 1).
@@ -329,7 +367,7 @@ async function main() {
 
   /* ---- 6 ------------------------------------------------------------ */
   var flows = {};
-  if (run(6) || run(8)) {
+  if (run(6) || run(8) || run(17)) {
     log('6 flow through the neck (upright, from a full top bulb of 5,000 points)');
     for (var m6 of ['coarse', 'water']) {
       await L(function () { window.__lab.setInput({ mode: 'upright' }); });
@@ -629,6 +667,271 @@ async function main() {
       await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
     }
     await L(function () { return window.__lab.settings({ speed: 'app' }); });
+  }
+
+  /* ---- 10 to 18: this round's realism checks (the scoreboard's scenarios and measures) ---- */
+  var M = require('./lib/sand-measures.js');
+  var D2R = Math.PI / 180;
+  var reset10 = async function (o) {
+    await L(function (o) { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.reset(o); }, Object.assign({ fill: 'lower', material: 'coarse' }, o));
+  };
+  var speed10 = function (sp, extra) { return L(function (o) { return window.__lab.settings(o); }, Object.assign({ speed: sp, override: null }, extra || {})); };
+  var pos = function () { return L(function () { return window.__lab.positions(); }); };
+  var stat = function () { return L(function () { return window.__lab.stats(); }); };
+  var inp = function (o) { return L(function (o) { window.__lab.setInput(o); }, o); };
+  // the glass shaken through its own path (the phone's), updated 120 times a simulated second
+  var glassShake = function (g, hz, axis, dur) {
+    return L(async function (o) {
+      for (var i = 0; i < o.n; i++) {
+        var a = o.g * Math.sin(2 * Math.PI * o.hz * (i + 0.5) / 120);
+        window.__lab.setInput({ mode: 'manual', gravity: [0, 1], glass: [a * o.axis[0], a * o.axis[1]] });
+        await window.__lab.advance(1 / 120);
+      }
+      window.__lab.setInput({ mode: 'manual', gravity: [0, 1] });
+    }, { g: g, hz: hz, axis: axis, n: Math.round(dur * 120) });
+  };
+
+  if (run(10)) {
+    log('10 rest (a 1-minute flat bed, coarse sand, app speed, 0.5 s to 4 s after the fill)');
+    await speed10('app');
+    await reset10({ amount: 'minute' });
+    await sec(0.5);
+    var k0 = M.packing(await pos());
+    await sec(3.5);
+    var k1 = M.packing(await pos());
+    var dA = 100 * (k1.area / k0.area - 1), dP = 100 * (k1.packing / k0.packing - 1);
+    log('  area ' + k0.area + ' -> ' + k1.area + ' cells (' + f2(dA) + ' %), interior packing ' + f2(k0.packing) + ' -> ' + f2(k1.packing) + ' (' + f2(dP) + ' %)');
+    check(Math.abs(dA) <= 3 && dP >= -3, 'a bed at rest does not swell: area within 3 % (' + f2(dA) + ') and packing no looser than -3 % (' + f2(dP) + ') (5cc11b3: +6.5 / -4.2)');
+  }
+
+  if (run(11)) {
+    log('11 a slow turn (a 1-minute bed, gravity turned 0 to 90 degrees at 30 deg/s with the glass)');
+    await speed10('app');
+    await reset10({ amount: 'minute' });
+    await sec(1);
+    var w11 = 30 * D2R, p11 = await pos(), steps11 = [], t11 = 0;
+    await inp({ mode: 'manual', gravity: [0, 1], gravitySpin: w11, omega: -w11 });
+    for (var a11 = 5; a11 <= 90; a11 += 5) {
+      await sec(a11 / 30 - t11); t11 = a11 / 30;
+      var q11 = await pos(), up11 = [Math.sin(a11 * D2R), Math.cos(a11 * D2R)], mv11 = M.stepMove(p11, q11, up11, 1 / 6);
+      steps11.push({ a: a11, top: mv11.topMove, low: mv11.lowMove, ratio: mv11.ratio, face: M.faceFit(q11, up11, function (x, y) { return y < -1; }) });
+      p11 = q11;
+    }
+    await inp({ mode: 'manual', gravity: [-1, Math.cos(90 * D2R)] });
+    await sec(1);
+    var face11 = M.faceFit(await pos(), [1, 0], function (x, y) { return y < -1; });
+    var drift11 = M.median(steps11.filter(function (s) { return s.a <= 20; }).map(function (s) { return s.top; }));
+    var thr11 = Math.max(1, 2 * drift11), fails11 = steps11.filter(function (s) { return s.top >= thr11; });
+    log('  per 5 degrees (top quarter / lower half median move, cells; face): ' + steps11.map(function (s) { return s.a + ':' + f1(s.top) + '/' + f1(s.low) + ' ' + Math.round(s.face); }).join('  '));
+    var first11 = fails11.length ? fails11[0].a : NaN;
+    var late11 = fails11.filter(function (s) { return s.a >= 65; }), lateRatio = late11.length ? Math.max.apply(null, late11.map(function (s) { return s.ratio; })) : NaN;
+    var deep11 = steps11.filter(function (s) { return s.a >= 40 && s.a <= 70; }).map(function (s) { return s.low; }), deepMax11 = Math.max.apply(null, deep11);
+    log('  first failure at ' + first11 + ' degrees; lower/top in the failures from 65 to 90: ' + f2(lateRatio) + '; the lower half\'s largest move from 40 to 70: ' + f2(deepMax11) + ' cells (logged); face 1 s after the turn ' + f1(face11) + ' degrees');
+    check(first11 >= 30 && first11 <= 40, 'the bed first fails at 30 to 40 degrees of turn (' + first11 + ')');
+    check(lateRatio <= 0.3, 'from 65 to 90 degrees it fails in surface sheets: lower half / top quarter <= 0.3 (' + f2(lateRatio) + '; 5cc11b3: 0.8 to 1.5)');
+    check(face11 >= 28, 'the avalanche stops near its repose angle: face 1 s after >= 28 degrees (' + f1(face11) + '; repose 31.5)');
+    await inp({ mode: 'manual', gravity: [0, 1] });
+  }
+
+  if (run(12)) {
+    log('12 a fast turn (a quarter glass, 180 deg/s to 90 degrees, held)');
+    await speed10('app');
+    await reset10({ amount: 'quarter' });
+    await sec(1);
+    var w12 = 180 * D2R;
+    await inp({ mode: 'manual', gravity: [0, 1], gravitySpin: w12, omega: -w12 });
+    await sec(0.5);
+    await inp({ mode: 'manual', gravity: [-1, Math.cos(90 * D2R)] });
+    await sec(0.2);
+    var v12 = M.voids(await pos());
+    await sec(1.8);
+    var face12 = M.faceFit(await pos(), [1, 0], function (x, y) { return y < -1; }), s12 = await stat();
+    log('  +0.2 s: holes ' + f2(100 * v12.holes) + ' % of the interior (' + v12.holeCount + ', biggest ' + f2(v12.biggestHole) + ' cell²); +2 s: face ' + f1(face12) + ' degrees, mean speed ' + f1(s12.meanSpeed) + ' cells/s');
+    check(face12 >= 22 && s12.meanSpeed <= 5, 'no worse than 5cc11b3, not yet real sand: after a fast turn face >= 22 degrees (' + f1(face12) + '; 5cc11b3: 13.2; real sand 30 to 36) and mean speed <= 5 cells/s at +2 s (' + f1(s12.meanSpeed) + '; 9.5; real sand <= 3)');
+    check(v12.holes <= 0.04, 'no worse than 5cc11b3, not yet real sand: holes <= 4 % at +0.2 s in the turn (' + f2(100 * v12.holes) + ' %; 5cc11b3: 16.3; real sand <= 0.1)');
+  }
+
+  if (run(13)) {
+    log('13 a jerk (a quarter glass, 2 g for 50 ms each way through the glass)');
+    await speed10('app');
+    await reset10({ amount: 'quarter' });
+    await sec(1);
+    var c13 = (await stat()).clamped;
+    await inp({ mode: 'manual', gravity: [0, 1], glass: [2, 0] }); await sec(0.05);
+    await inp({ mode: 'manual', gravity: [0, 1], glass: [-2, 0] }); await sec(0.05);
+    await inp({ mode: 'manual', gravity: [0, 1] });
+    await sec(0.05);
+    var v13 = M.voids(await pos());
+    // as drawn: a bed thrown as a whole is followed by the eye and seen sharp; only grains in flight
+    // streak (grains.wgsl's crowding rule). The share of grains drawn as a streak longer than a cell
+    // (a grain is 0.72 cell across), with the rule and, as the control, without it.
+    var dr13 = await L(async function () {
+      var share = function (s) { var m = 0; for (var i = 0; i < s.length; i += 4) if (Math.hypot(s[i + 2], s[i + 3]) > 1) m++; return m / Math.max(1, s.length / 4); };
+      return { rule: share(await window.__lab.streaks()), all: share(await window.__lab.streaks({ all: true })) };
+    });
+    log('  +0.15 s as drawn: ' + f2(100 * dr13.rule) + ' % of grains streak longer than a cell; every grain streaking (the control): ' + f2(100 * dr13.all) + ' %');
+    check(dr13.rule <= 0.1 && dr13.all >= 0.3, 'a jerked bed is drawn sharp, not as streaks: <= 10 % of its grains streak longer than a cell (' + f2(100 * dr13.rule) + ' %; control, every grain streaking, >= 30 %: ' + f2(100 * dr13.all) + ' %)');
+    await sec(0.85);
+    var s13 = await stat();
+    log('  +0.15 s: holes ' + f2(100 * v13.holes) + ' %; +1 s: mean speed ' + f1(s13.meanSpeed) + ' cells/s; clamp hits ' + (s13.clamped - c13));
+    check(v13.holes <= 0.01, 'a jerk does not tear the bed: holes <= 1 % at +0.15 s (' + f2(100 * v13.holes) + ' %; 5cc11b3: 6.8)');
+    check(s13.meanSpeed <= 29.4 && s13.clamped - c13 === 0, 'no worse than 5cc11b3, not yet real sand: it settles no slower than before (mean speed at +1 s ' + f1(s13.meanSpeed) + ' <= 29.4; real sand <= 3) and no node is clamped (' + (s13.clamped - c13) + ')');
+  }
+
+  if (run(14)) {
+    log('14 shaking packs (a 1-minute bed shaken up and down 2 g at 10 Hz for 2 s through the glass, then 1.5 s)');
+    var res14 = {};
+    for (var cmp of [null, 0]) {
+      await speed10('app', cmp === null ? {} : { override: { compact: 0 } });
+      await reset10({ amount: 'minute' });
+      await sec(1.5);
+      var b14 = M.packing(await pos());
+      await glassShake(2, 10, [0, 1], 2);
+      await sec(1.5);
+      var e14 = M.packing(await pos());
+      res14[cmp === null ? 'on' : 'off'] = 100 * (e14.packing / b14.packing - 1);
+      log('  compaction ' + (cmp === null ? 'as set' : 'off') + ': interior packing ' + f2(b14.packing) + ' -> ' + f2(e14.packing) + ' (' + f2(res14[cmp === null ? 'on' : 'off']) + ' %), area ' + b14.area + ' -> ' + e14.area);
+    }
+    await speed10('app');
+    log('  the compaction law\'s share: ' + f2(res14.on - res14.off) + ' % (logged)');
+    check(res14.on >= 0, 'shaken sand packs or holds: packing change >= 0 (' + f2(res14.on) + ' %; 5cc11b3: -4.3 after the scoreboard\'s press and sideways shake)');
+  }
+
+  if (run(15)) {
+    log('15 a 3 g press at real speed (a 1-minute bed, pressed 0.5 s, released)');
+    await speed10('real');
+    await reset10({ amount: 'minute' });
+    await sec(2);
+    var sf15 = M.meanSurface(await pos());
+    await inp({ mode: 'manual', gravity: [0, 3] });
+    await sec(0.5);
+    var ul15 = M.meanSurface(await pos()) - sf15;
+    await inp({ mode: 'manual', gravity: [0, 1] });
+    var hop15 = -Infinity;
+    for (var k15 = 0; k15 < 10; k15++) { await sec(0.05); hop15 = Math.max(hop15, M.meanSurface(await pos()) - sf15); }
+    log('  surface under the press ' + f2(ul15) + ' cells; highest after the release ' + f2(hop15) + ' cells');
+    check(ul15 <= 0.25 && hop15 <= 0.5, 'pressed, the bed does not swell (' + f2(ul15) + ' <= 0.25 cell; 5cc11b3: +1.49) nor hop when let go (' + f2(hop15) + ' <= 0.5; 1.80)');
+    await speed10('app');
+  }
+
+  if (run(16)) {
+    log('16 the drawn stream (an upright pour of the 1-minute amount; grains drawn as their streaks)');
+    await speed10('app');
+    await reset10({ fill: 'top', amount: 'minute' });
+    var inf16 = await L(function () { return window.__lab.info(); }), rn16 = inf16.glass.neckCells / 2, vs16 = Math.sqrt(2 * inf16.g * 3) / 60;
+    var cov1 = [], cov0 = [], gap1 = 0, a016 = null, none16 = 0, last16 = null;
+    for (var t16 = 0; t16 < 12; t16 += 0.1) {
+      await sec(0.1);
+      var s16 = await stat();
+      if (a016 === null && s16.simTime >= 0.5) a016 = s16.above;
+      // (the stream from when it has formed, a fifth of a second after the neck opens, while 95 to
+      // 25 % of the sand is above the neck; the sand runs out in a second or two at app speed)
+      if (!a016 || s16.simTime < 0.7 || s16.above > 0.95 * a016) continue;
+      if (s16.above < 0.25 * a016) break;
+      var S16 = await L(async function (g) {
+        if (window.__lab.streaks) return window.__lab.streaks();
+        // (a page without streaks(): rebuild them from the velocities; upright, the field is straight down)
+        var P = await window.__lab.particles(), hz = window.__lab.rate().hz, out = [];
+        for (var i = 0; i < P.length; i += 5) out.push(P[i], P[i + 1], P[i + 2] / 60, (P[i + 3] - g / hz) / 60);
+        return out;
+      }, inf16.g);
+      var d1 = M.drawnStream(S16, rn16, vs16, 1), d0 = M.drawnStream(S16, rn16, vs16, 0);
+      if (d1) { cov1.push(d1.covered); cov0.push(d0.covered); gap1 = Math.max(gap1, d1.gap); } else none16++;
+      last16 = s16;
+    }
+    log('  (above the neck at the gate: ' + a016 + '; last frame at ' + f2(last16 && last16.simTime) + ' s with ' + (last16 && last16.above) + ' above; ' + none16 + ' frames without room for the stream)');
+    var m1 = M.mean(cov1), m0 = M.mean(cov0);
+    log('  ' + cov1.length + ' frames: rows covered on the axis ' + f2(m1) + ' with the blur, ' + f2(m0) + ' as dots; longest gap ' + gap1 + ' rows');
+    check(cov1.length >= 8 && m1 >= 0.85, 'the falling stream is drawn as a thread: >= 85 % of the rows covered (' + f2(m1) + ')');
+    // control: the same frames drawn as dots. (With More, "yield: in loop", sand runs at about 2,400
+    // points/s, near Beverloo's rate for this neck, and its points alone fill the axis: 0.98 measured;
+    // this control holds for the default, where the stream is sparser: 5cc11b3 drew 0.45.)
+    check(m0 <= 0.6, 'control: drawn as dots the stream is broken (' + f2(m0) + ' <= 0.6; 5cc11b3: 0.45)');
+  }
+
+  if (run(17)) {
+    log('17 syrup oozes (the flow test, 5,000 points from a full top bulb)');
+    for (var m17 of ['coarse', 'water', 'syrup']) {
+      if (flows[m17]) continue;
+      await L(function () { window.__lab.setInput({ mode: 'upright' }); });
+      flows[m17] = await L(function (m) { return window.__lab.flowTest({ material: m, points: 5000, chunk: 24, limit: 40 }); }, m17);
+    }
+    var dc = flows.coarse && flows.coarse.duration, dw = flows.water && flows.water.duration, dsy = flows.syrup && flows.syrup.duration;
+    log('  drained in: coarse ' + f1(dc) + ' s, water ' + f1(dw) + ' s, syrup ' + f1(dsy) + ' s');
+    check(dsy >= 3 * dw && dsy >= 2 * dc, 'syrup oozes: drains in >= 3 x water\'s time (' + f2(dsy / dw) + ' x) and >= 2 x coarse sand\'s (' + f2(dsy / dc) + ' x; 5cc11b3: 1.47 x water, 0.14 x sand)');
+  }
+
+  if (run(18)) {
+    log('18 creep (a 1-minute flat bed held at 25 degrees, below repose, app speed)');
+    await speed10('app');
+    await reset10({ amount: 'minute' });
+    await sec(1);
+    var g18 = [Math.sin(25 * D2R), Math.cos(25 * D2R)];
+    await inp({ mode: 'manual', gravity: g18 });
+    await sec(0.5);
+    var a18 = await stat(), h18a = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
+    await sec(3);
+    var c18 = await stat(), h18c = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
+    var d18 = Math.hypot(c18.com[0] - a18.com[0], c18.com[1] - a18.com[1]);
+    log('  centre moves ' + f2(d18) + ' cells from 0.5 s to 3.5 s; surface ' + f1(h18a.tilt) + ' -> ' + f1(h18c.tilt) + ' degrees');
+    check(d18 <= 1.15 && Math.abs(h18c.tilt - h18a.tilt) <= 1, 'no worse than 5cc11b3, not yet real sand: below repose it creeps no more than before: centre <= 1.15 cells (' + f2(d18) + '; 5cc11b3: 1.40; real sand <= 0.5), surface within 1 degree (' + f2(Math.abs(h18c.tilt - h18a.tilt)) + '; 1.03)');
+    await inp({ mode: 'manual', gravity: [0, 1] });
+  }
+
+  /* ---- 19 ----------------------------------------------------------- */
+  if (run(19)) {
+    log('19 pace (the live loop on the software GPU: a 600-point bed pouring from the top, shaken)');
+    var pace19 = async function (set) {
+      await L(function (o) { window.__lab.manual(true); window.__lab.settings(o); window.__lab.setInput({ mode: 'manual', gravity: [0, 1], shake: { g: 2, hz: 4, axis: [1, 0] } }); return window.__lab.reset({ fill: 'top', material: 'coarse', points: 600, gate: 0 }); }, set);
+      // (the stream is falling fast before the live loop takes over: auto Hz wants to rise)
+      await L(function () { return window.__lab.advance(0.8); });
+      await L(function () { window.__lab.manual(false); });
+      // (while the stream still falls fast: the budget, auto Hz and the report)
+      await page.waitForTimeout(5000);
+      var early = await L(function () { return { f: window.__lab.frameStats(4000), rep: window.__lab.report() }; });
+      // (long enough for frames of the old pace, over a second each here, to come back done)
+      await page.waitForTimeout(5000);
+      var r = await L(function () { return { f: window.__lab.frameStats(4000), ls: window.__lab.loopState(), log: window.__lab.gpuLog() }; });
+      r.early = early.f; r.rep = early.rep;
+      // the lag: the median submit-to-done time of the frames done over the last 4 s
+      var tLast = r.log.reduce(function (m, x) { return Math.max(m, x.t); }, -Infinity);
+      var ms = r.log.filter(function (x) { return x.t >= tLast - 4000; }).map(function (x) { return x.ms; }).sort(function (a, b) { return a - b; });
+      r.lag = ms.length ? ms[ms.length >> 1] : NaN;
+      r.T = 1000 / (r.f.display || 60);
+      r.lagFrames = r.lag / r.T;
+      // the quickest frame done, for the bound below
+      r.minMs = ms.length ? ms[0] : NaN;
+      await L(function () { window.__lab.manual(true); window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+      // (the old pace leaves frames queued on the software GPU: let them finish)
+      await page.waitForFunction(function () { var s = window.__lab.loopState(); return s.inflight === 0; }, null, { timeout: 120000, polling: 250 }).catch(function () {});
+      return r;
+    };
+    var desc19 = function (r) { return 'lag ' + f1(r.lag) + ' ms = ' + f2(r.lagFrames) + ' display frames (display ' + f1(r.f.display) + ' Hz), ' + f1(r.f.fps) + ' fps, ' + f1(r.f.steps) + ' substeps a frame, sim/real ' + f2(r.f.ratio) + ', ' + Math.round(100 * r.f.gpuHeld) + '% of frames held by the GPU budget, auto Hz ' + r.early.hzMax + (r.early.wantMax > r.early.hzMax ? ' (wanted ' + r.early.wantMax + ', held in ' + Math.round(100 * r.early.held) + '% of frames, 1 to 5 s in)' : '') + ', up to ' + r.ls.peakInflight + ' frames in flight'; };
+    var now19 = await pace19({ queue: 2, budget: true });
+    log('  default pace: ' + desc19(now19));
+    var old19 = await pace19({ queue: 3, budget: false });
+    // the bound: two display frames (two frames in flight), or, where a frame of one substep takes
+    // longer than a display frame by itself (the software GPU here: the budget cannot go below one
+    // substep), two such frames (the quickest seen at the default pace) and one display frame more;
+    // the same for both
+    now19.bound = old19.bound = Math.max(2 * now19.T, 2 * now19.minMs + now19.T);
+    log('  old pace (control): ' + desc19(old19));
+    await L(function () { return window.__lab.settings({ queue: 2, budget: true }); });
+    check(now19.ls.peakInflight <= 2 && now19.lag <= now19.bound, 'what is drawn trails the sand by at most two display frames (or, where one substep takes longer than a frame, two such frames and a display frame): at most two frames of work in flight (' + now19.ls.peakInflight + '), lag ' + f1(now19.lag) + ' ms = ' + f2(now19.lagFrames) + ' frames, bound ' + f1(now19.bound) + ' ms');
+    check(old19.ls.peakInflight > 1 && old19.lag > old19.bound, 'control: the old pace queues frames and breaks that bound (' + old19.ls.peakInflight + ' in flight, lag ' + f1(old19.lag) + ' ms = ' + f2(old19.lagFrames) + ' frames, bound ' + f1(old19.bound) + ' ms)');
+    check(now19.early.gpuHeld > 0 && now19.early.wantMax > now19.early.hzMax && now19.early.held > 0 && /held by the GPU budget/.test(now19.rep) && /auto Hz held back in [1-9]/.test(now19.rep),
+      'the GPU budget holds the substeps and auto Hz back here, and the report says so (' + Math.round(100 * now19.early.gpuHeld) + '% of frames, rate ' + now19.early.hzMax + ' for ' + now19.early.wantMax + ')');
+    // the Benchmark's default and option rows, and the report's answers (short rows: the software GPU is slow)
+    await L(function () { window.__lab.manual(false); });
+    var rows19 = await L(function () { return window.__lab.benchmark({ options: true, res: [], warm: 0.5, measure: 2 }); });
+    await L(function () { window.__lab.manual(true); });
+    var text19 = await L(function () { return window.__lab.report(); });
+    rows19.forEach(function (r) { log('  bench (software GPU, not a phone) ' + r.res + ' ' + r.amount + ' ' + r.speed + (r.tag ? ' [' + r.tag + ']' : '') + ': ' + r.points + ' points, ' + r.dispatches + ' dispatches a substep, ' + f2(r.msStep) + ' ms a substep, sim/real ' + f2(r.ratio)); });
+    var tags19 = rows19.map(function (r) { return r.tag; }).join(',');
+    check(tags19 === 'default,default,spread off,blur off,8 iterations,yield in loop' && rows19.every(function (r) { return isFinite(r.msStep) && r.msStep > 0; }) && rows19[2].dispatches === rows19[0].dispatches - 2,
+      'the Benchmark times the default at both speeds and each costly option, with the GPU time a substep (' + tags19 + ')');
+    check(/\nAnswers /.test(text19) && /Default, coarse grid, 1-minute, app speed: (HOLDS|does NOT hold) real time/.test(text19) && /Default, coarse grid, 1-minute, real speed: /.test(text19) && /Costly options at the default .*spread off .*blur off .*8 iterations/.test(text19) && /\nPace: at most 2 frames of GPU work in flight/.test(text19),
+      'Copy results answers: does the default hold real time at each speed, the lag, the display rate, and what each option costs');
   }
 
   check(errors.length === 0, 'no page errors through the run' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));

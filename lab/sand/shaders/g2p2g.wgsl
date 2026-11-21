@@ -8,7 +8,8 @@
 // friction; particles are never deleted, only put back inside the glass; a
 // closed neck holds the top bulb's sand; sand measures how tightly it is
 // packed from the grid, so that loose sand packs back down under load
-// (EA's per-particle expansion memory is replaced by that measure).
+// (EA's per-particle expansion memory is replaced by that measure): the mean
+// over the filled nodes around it, not the densest node.
 //-----------------------------------------------------------------------------
 
 //!include common.inc
@@ -20,6 +21,8 @@
 @group(0) @binding(3) var<storage, read_write> g_gridDst : array<atomic<i32>>;
 @group(0) @binding(4) var<storage> g_bucketData : array<u32>;
 @group(0) @binding(5) var<storage> g_domain : array<vec4f>;
+// per grid node: the depth of sand above it along "up", cells (load.wgsl; read with yieldp.z = 2)
+@group(0) @binding(6) var<storage> g_load : array<f32>;
 
 override enableSolidMaterials: bool = false;
 
@@ -107,8 +110,10 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
             var B = ZeroMatrix;
             var d = vec2f(0);
             var volume = 0.0;
-            // sand: the packing of the densest grid node around the particle (1: the fill's packing)
+            // sand: how tightly the sand around the particle is packed (1: the fill's packing): the
+            // grid's volume, weighted, over the nodes the sand fills (wFilled: their share of the weights)
             var packing = 0.0;
+            var wFilled = 0.0;
             for(var i = 0; i < 3; i++)
             {
                 for(var j = 0; j < 3; j++)
@@ -131,11 +136,19 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                     {
                         let nodeVolume = decodeFixedPoint(atomicLoad(&s_tileData[gridVertexIdx + 3]), g_simConstants.fixedPointMultiplier);
                         volume += weight * nodeVolume;
-                        packing = max(packing, nodeVolume);
+                        if (nodeVolume > 0.25) { wFilled += weight; }
                     }
                 }
             }
 
+            if(g_simConstants.useGridVolumeForLiquid != 0)
+            {
+                packing = volume / max(wFilled, 0.05);
+                // drawing only (grains.wgsl's motion blur): how crowded the point is, the grid's
+                // volume weighted over the nodes around it: high inside a bed, lower at its
+                // surface, near 0 for a grain in flight
+                particle.color.y = volume;
+            }
             // Recover an objective measure of a liquid's volume from the grid, when compressed.
             if(g_simConstants.useGridVolumeForLiquid != 0)
             {
@@ -179,15 +192,21 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                         let sinPhi = sin(materialParams.physical.x/180.0 * 3.14159);
                         let alpha = sqrt(2.0/3.0)*2.0*sinPhi/(3.0 - sinPhi);
                         // How loose the sand is (log of its volume over its rest volume, >= 0), measured on
-                        // the grid: the packing of the densest node around the particle. (Not the mean over
-                        // the nodes: at a free surface or a wall the nodes outside the sand would make dense
-                        // sand look loose; the densest node is inside it.) EA kept a per-particle memory of
+                        // the grid: the weighted mean packing of the nodes around the particle that the sand
+                        // fills. (Nodes outside the sand, at a free surface or a wall, are left out, or they
+                        // would make dense sand look loose. The densest node, used before, read a bed 3 to 5 %
+                        // looser than its fill as packed, because the most of nine noisy nodes reads high, so
+                        // the bed swelled 6.5 % at rest, 14 % at real speed, and never packed back.) EA kept a per-particle memory of
                         // expansion instead (logJp = beta * trace); in this solver that memory decayed
                         // within a few substeps, while the over-relaxed constraint below kept pushing points
                         // apart, so a bed swelled at rest and never packed back down.
                         // rest packing: mechanical.y for sand (1: as filled)
                         let restPacking = materialParams.mechanical.y;
-                        let loose = select(0.0, clamp(log(restPacking / max(packing, 1e-3)), 0.0, 1.5), g_simConstants.useGridVolumeForLiquid != 0);
+                        // this point's own packing (padding; 0 until it changes: the material's), which
+                        // shaking raises (below)
+                        let phi0 = select(restPacking, particle.padding, particle.padding > 0.0);
+                        let loose = select(0.0, clamp(log(phi0 / max(packing, 1e-3)), 0.0, 1.5), g_simConstants.useGridVolumeForLiquid != 0);
+                        var gammaP = 0.0;
 
                         let eDiag = log(max(abs(svdResult.Sigma), vec2f(1e-6)));
                         // compression up to the looseness only fills voids: it is plastic and costs nothing
@@ -210,6 +229,7 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                             let deltaGammaI = frobNrm + coneK * trace * alpha;
                             if(deltaGammaI > 0)
                             {
+                                gammaP = deltaGammaI;
                                 // Project to cone surface.
                                 svdResult.Sigma = exp(e2 - deltaGammaI/max(frobNrm, 0.000001) * eHat);
                             }
@@ -220,6 +240,18 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                         }
                         // carried to the next substep's constraint: loose sand may be compressed this far
                         particle.logJp = loose;
+                        // Tapping or shaking packs sand tighter, and it stays packed: each time a point is
+                        // packed down again from a loosened state (looser than 2 %), its own packing gains a
+                        // share of the room left to the densest packing, in proportion to the compaction
+                        // taken; plastic shear loosens it back toward the fill's packing (Reynolds dilatancy).
+                        let cmp = g_simConstants.compaction;
+                        if (cmp.x > 0.0) {
+                            let taken = min(max(0.0, -(eDiag.x + eDiag.y)), loose);
+                            var phi = phi0;
+                            if (loose > 0.02) { phi += cmp.x * taken * (cmp.y - phi); }
+                            phi -= cmp.z * gammaP * max(phi - restPacking, 0.0);
+                            particle.padding = clamp(phi, restPacking, max(cmp.y, restPacking));
+                        }
                     }
                     else if(particle.material == MaterialVisco)
                     {
@@ -282,15 +314,91 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
             // only as fast as its load gets through this constraint; the return map keeps that
             // compaction instead of pushing it back. (sand.w = 1: loose sand may be compressed
             // as far as its looseness, freely.)
-            let floorSigma = exp(-0.5 * g_simConstants.sand.w * max(particle.logJp, 0.0));
-            svdResult.Sigma = clamp(svdResult.Sigma, vec2f(floorSigma), vec2f(1000, 1000));
+            var tgt: mat2x2f;
+            if (g_simConstants.yieldp.x > 0.5)
+            {
+                // Yield inside the iterations (yieldp.x = 1). EA's target clamps the trial strain's
+                // principal stretches at 1 from below: compression is resisted, extension is free, so
+                // a shear (stretches e^g, e^-g) becomes a dilation (e^g, 1), and that dilation, about
+                // 45 degrees' worth, was the sand's only resistance to shear inside the solve: a bed
+                // turned as one block and, once failed, ran out like a liquid. Here the target is the
+                // trial strain projected onto the Drucker-Prager cone of its own compression: expansion
+                // stays free; under compression, shear inside the cone is corrected (the sand holds)
+                // and only the shear beyond it is kept, as plastic flow, with no volume change. The
+                // cone is yieldp.y (yieldScale) of the return map's, which also acts at the end of
+                // the substep: together they give the heap's angle.
+                let eps = log(max(abs(svdResult.Sigma), vec2f(1e-6)));
+                let trY = eps.x + eps.y;
+                let eHatY = eps - vec2f(trY * 0.5);
+                let nrmY = length(eHatY);
+                let sinPhiY = sin(materialParams.physical.x/180.0 * 3.14159);
+                let alphaY = sqrt(2.0/3.0)*2.0*sinPhiY/(3.0 - sinPhiY);
+                let coneKY = select(materialParams.mechanical.z + 1.0, materialParams.mechanical.w, materialParams.mechanical.w > 0.0);
+                var keep = eps;
+                // the load's compression (yieldp.z >= 2): the depth of sand above the point (load.wgsl)
+                // times g, in the solver's strain units (g dt^2 per cell of depth), times yieldp.w
+                // (loadScale); +1 cell: a point at the surface carries about its own cell's weight
+                var loadTr = 0.0;
+                if (g_simConstants.yieldp.z > 1.5)
+                {
+                    var h = 0.0;
+                    for (var i = 0; i < 3; i++)
+                    {
+                        for (var j = 0; j < 3; j++)
+                        {
+                            let c = vec2u(vec2i(weightInfo.cellIndex) + vec2i(i, j));
+                            h += weightInfo.weights[i].x * weightInfo.weights[j].y * g_load[c.y * g_simConstants.gridSize.x + c.x];
+                        }
+                    }
+                    let dtY = g_simConstants.deltaTime;
+                    loadTr = g_simConstants.yieldp.w * (h + 1.0) * length(g_simConstants.gravity) * dtY * dtY;
+                }
+                if (trY >= 0.0 && g_simConstants.yieldp.z > 2.5)
+                {
+                    // yieldp.z = 3: loosened (dilated) sand that still carries the sand above it keeps
+                    // its friction, sized by that load: a flowing layer is not a liquid. (Without it,
+                    // sand that dilated had no strength at all, and a bed thrown by a fast turn ran
+                    // out to 13 to 16 degrees.) Its expansion stays free.
+                    let dgL = nrmY - coneKY * loadTr * alphaY * g_simConstants.yieldp.y;
+                    keep = vec2f(trY * 0.5) + select(vec2f(0.0), eHatY * (dgL / max(nrmY, 1e-6)), dgL > 0.0);
+                }
+                if (trY < 0.0)
+                {
+                    // the compression the cone is sized by: the whole trial strain's (yieldp.z = 0), or
+                    // only this substep's, the stored part of F taken out, times yieldp.w (yieldp.z = 1)
+                    var trC = trY;
+                    if (g_simConstants.yieldp.z > 1.5 && g_simConstants.yieldp.z < 2.5)
+                    {
+                        // yieldp.z = 2: no more than the load allows. Sand's friction is in proportion to
+                        // the weight of the sand above the point: its depth along "up" (load.wgsl) times
+                        // g, in the solver's strain units (g dt^2 per cell of depth), times yieldp.w
+                        // (loadScale). The stored compression alone grows with the time the sand has
+                        // lain, so a settled bed was stronger than a fresh heap: it held past its angle
+                        // and then turned in the glass as one block. (+1 cell: a point at the surface
+                        // carries about its own cell's weight through the stencil.)
+                        trC = max(trY, -loadTr);
+                    }
+                    else if (g_simConstants.yieldp.z > 0.5 && g_simConstants.yieldp.z < 1.5)
+                    {
+                        trC = min(0.0, g_simConstants.yieldp.w * (trY - log(max(abs(det(particle.deformationGradient)), 1e-6))));
+                    }
+                    let dgY = nrmY + coneKY * trC * alphaY * g_simConstants.yieldp.y;
+                    keep = select(vec2f(0.0), eHatY * (dgY / max(nrmY, 1e-6)), dgY > 0.0);
+                }
+                tgt = svdResult.U*mat2x2f(exp(keep.x), 0, 0, exp(keep.y))*svdResult.Vt;
+            }
+            else
+            {
+                let floorSigma = exp(-0.5 * g_simConstants.sand.w * max(particle.logJp, 0.0));
+                svdResult.Sigma = clamp(svdResult.Sigma, vec2f(floorSigma), vec2f(1000, 1000));
 
-            // Closest matrix to F with det == 1
-            let df = det(F);
-            let cdf = clamp(abs(df), 0.1, 1);
-            let Q = (1.0f/(select(-1.0, 1.0, df >= 0.0)*sqrt(cdf)))*F;
-            let alpha = materialParams.mechanical.z;
-            let tgt = alpha*(svdResult.U*mat2x2f(svdResult.Sigma.x, 0, 0, svdResult.Sigma.y)*svdResult.Vt) + (1.0-alpha)*Q;
+                // Closest matrix to F with det == 1
+                let df = det(F);
+                let cdf = clamp(abs(df), 0.1, 1);
+                let Q = (1.0f/(select(-1.0, 1.0, df >= 0.0)*sqrt(cdf)))*F;
+                let alpha = materialParams.mechanical.z;
+                tgt = alpha*(svdResult.U*mat2x2f(svdResult.Sigma.x, 0, 0, svdResult.Sigma.y)*svdResult.Vt) + (1.0-alpha)*Q;
+            }
 
             let diff = (tgt*inverse(particle.deformationGradient) - Identity) - particle.deformationDisplacement;
             particle.deformationDisplacement += materialParams.physical.z*diff;
