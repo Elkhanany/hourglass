@@ -80,14 +80,19 @@
  *      The run's readback: { above: tally[1], below: tally[2], queue: tally[8], brim: tally[10],
  *      crossings: counters[2], start: counters[3], refused: counters[4], upward: counters[5] }.
  *      above and below: points on each side of the line; queue: points with line < y < line +
- *      0.75 and |x - cx| < rn + 1 (resting on the line); brim: the highest y of a point above the
- *      line within 3 cells of the axis, grid cells x 16, 0 if none. above, below and queue are
- *      needed; brim feeds pourable(); the rest feed stats() and a check of the membrane's own
- *      arithmetic, start + appended - crossings === above. Counts are in the run's orientation
- *      (after its flip pass). A run with no readback (no slot, a failed map) needs no call.
+ *      0.1 and |x - cx| < rn + 1 (resting on the line, ready to cross: the throttle band reaches
+ *      down to the line, so sand higher up is still throttled; tally.wgsl QueueBand); brim: the
+ *      highest y of a point above the line within 3 cells of the axis, grid cells x 16, 0 if
+ *      none. above, below and queue are needed; brim feeds pourable(); the rest feed stats()
+ *      and a check of the membrane's own arithmetic, start + appended - crossings === above.
+ *      Counts are in the run's orientation (after its flip pass). A run with no readback (no
+ *      slot, a failed map) needs no call.
  *
  *  Reading: nTop (grains above, what the app reads), total, points (points in the buffer),
- *  parity, flipPending, census(), stats(), audit() (the newest readback against the ledger),
+ *  parity, flipPending, census(), stats(), audit() (the newest readback against the ledger;
+ *  for an open run, what the membrane guarantees: with any crossing, no fewer points above than
+ *  the run's lowest substep target; a target that rose above the sand with nothing crossed is
+ *  not a fault),
  *  residueDue(now) (points stuck above after the end: move them by a transfer), pourable(n,
  *  { maxTotal, room, inlet }) (the grains of n that may be poured now: none at the brim, 4 cells
  *  below the top bulb's far end at grid y `inlet`; no more than maxTotal grains and the
@@ -413,11 +418,11 @@ export class Valve {
     const flip = this.flipPending, closed = this.closed || this.pending || !!this.xfer;
     const appended = this.appended[this.parity];
     const allow = new Float32Array(n), targets = new Int32Array(n);
-    let vcap = 0, pTend = -1, offered = false;
+    let vcap = 0, pTend = -1, pTmin = -1, offered = false;
     if (closed) { allow.fill(ALLOW_SHUT); targets.fill(-1); }
     else {
       const t0 = this.pT(this.lastOpenT), t1 = this.pT(this.gT);
-      if (!S) { pTend = t0; targets[0] = t0; allow[0] = appended - t0; }
+      if (!S) { pTend = pTmin = t0; targets[0] = t0; allow[0] = appended - t0; }
       else {
         const z = this.zeroAt !== null && this.zeroAt <= now ? this.zeroAt : null;
         for (let s = 0; s < S; s++) {
@@ -428,14 +433,14 @@ export class Valve {
           } else T = Math.ceil(t0 + (t1 - t0) * (s + 1) / S - 1e-9);
           targets[s] = T; allow[s] = appended - T;
         }
-        pTend = targets[S - 1]; offered = true;
+        pTend = targets[S - 1]; pTmin = Math.min(...targets); offered = true;
         vcap = this.throttle(t0, t1, span, o.simDt === undefined ? span / 1000 : o.simDt);
         this.lastOpenT = this.gT;
       }
     }
     if (this.zeroAt !== null && this.zeroAt <= now) this.zeroAt = null;
     const r = { seq: ++this.seq, gen: this.gen, epoch: this.epoch, parity: this.parity, evN: this.evN, open: offered,
-      pTend, appended, vcap, to: now, read: false };
+      pTend, pTmin, appended, vcap, to: now, read: false };
     this.recs.push(r);
     if (this.recs.length > KEEP_RECORDS) this.recs.shift();
     this.gpuParity = this.parity; this.appended = [0, 0]; this.lastRunNow = now;
@@ -513,7 +518,13 @@ export class Valve {
     const now = this.replay(k, r), total = now[0] + now[1], ex = this.exactFrom(k);
     let above = null, expect = null, ok = total === this.pTotal;
     if (ex && this.anchor && this.anchor.settled && !this.pending && !this.xfer) { above = ex[0]; expect = this.pT(this.gTop); ok = ok && above === expect; }
-    else if (r.open) { above = k.above; expect = r.pTend; ok = ok && above >= expect; }
+    else if (r.open) {
+      // the membrane: the last point that crossed left at least that substep's target above, so
+      // with any crossing the run ends with no fewer than its lowest target; with none (a target
+      // that rose above the sand: the breathing, a re-time) there is nothing to check
+      above = k.above; expect = r.pTend;
+      ok = ok && (k.crossings === 0 || above >= r.pTmin);
+    }
     return { ok, seq: k.seq, epoch: this.epoch, total, points: this.pTotal, above, expect };
   }
 

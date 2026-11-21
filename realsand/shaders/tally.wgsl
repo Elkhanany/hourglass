@@ -13,7 +13,7 @@
 // [0] points, [1] above the neck, [2] below, [3] outside the glass, [4] not finite,
 // [5] fastest (cells/s x 4), [6] summed speed (cells/s x 4, each capped at 4000), [7] moving faster than 2 % of free-fall over the glass,
 // the metered neck (valve.mjs): [8] the queue, points resting on the counting line (above it by
-// less than 0.75 cell, within a cell of the neck's width); [9] the fastest crowded point (cells/s
+// less than QueueBand, within a cell of the neck's width); [9] the fastest crowded point (cells/s
 // x 4; crowded as grains.mjs draws a grain sharp); [10] the brim, the highest point above the
 // line within 3 cells of the axis (grid y x 16; 0: none); [11-15] unused
 @group(0) @binding(4) var<storage,read_write> tally: array<atomic<u32>>;
@@ -23,6 +23,14 @@
 
 // grains.mjs FLIGHT: a point at least this crowded is in a bed, not in flight
 const Crowded = 0.6;
+// The queue the valve's throttle keeps is the points ready to cross: those the membrane holds just
+// above the line (g2p2g.wgsl: 0.02 above it) and those about to reach it. The throttle band
+// (gridUpdate.wgsl) reaches down to the line, so sand further up is still throttled, not ready:
+// counted to 0.75 cell above the line (the design's first band), the queue read 10 to 17 points
+// while the neck ran short, and the valve's throttle starved it (a 10 s glass on SwiftShader: 362
+// of 460 runs short, up to 17 points; its gain learnt from 20 up to 31). Counted to 0.1 cell:
+// 3 runs short, at most 6 points, and the gain stayed at 20.
+const QueueBand = 0.1;
 
 @compute @workgroup_size(64)
 fn csMain(@builtin(global_invocation_id) id: vec3u) {
@@ -49,7 +57,7 @@ fn csMain(@builtin(global_invocation_id) id: vec3u) {
     if (v > 0.02 * sqrt(2.0 * max(g, 1.0) * f32(g_simConstants.gridSize.y))) { atomicAdd(&tally[7], 1u); }
     // the metered neck's measures
     let ax = abs(x.x - g_simConstants.center.x);
-    if (above && x.y < line + 0.75 && ax < g_simConstants.gate.y + 1.0) { atomicAdd(&tally[8], 1u); }
+    if (above && x.y < line + QueueBand && ax < g_simConstants.gate.y + 1.0) { atomicAdd(&tally[8], 1u); }
     let crowded = p.color.y >= Crowded;
     if (crowded) { atomicMax(&tally[9], vq); }
     let yq = u32(clamp(x.y, 0.0, f32(g_simConstants.gridSize.y)) * 16.0);
