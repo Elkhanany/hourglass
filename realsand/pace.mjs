@@ -10,7 +10,10 @@
  * no nearer than 0.9 of the frame that the GPU could not keep up with. A cut never goes below
  * the base rate's real-time need (its substeps in one display frame) unless frames
  * keep being skipped there (over 15 % of the last 30 or so): a GPU that cannot even
- * give that much then draws more often, each frame with less sand time.
+ * give that much then draws more often, each frame with less sand time. The budget is
+ * substeps a frame, so when the time between frames drawn changes (calm draws every other
+ * frame, a display changes its rate) it is scaled with it (paceFrame): what the back-pressure
+ * found is the GPU's substeps a second.
  *
  * Why not the submit-to-done time: on the owner's iPhone (5cc11b3, 30 Hz display) a
  * frame of 48 substeps and one of 47 on a larger bed both reported 31 ms, where the
@@ -34,12 +37,28 @@ const CUT = 0.85, RAISE = 0.1, RAISE_AFTER = 2, CEIL_MS = 2000, SKIP_AVG = 1 / 3
 export function newPace() {
   return { inflight: 0, seq: 0, doneSeq: 0, valveSeq: 0, tSub: 0, log: [], budget: Infinity, msStep: NaN, overran: 0, peakInflight: 0,
     lastSkip: -1e9, skipsSince: 0, clean: 0, lastClean: -1e9, cuts: 0, raises: 0, binding: false, minBudget: Infinity,
-    ceil: Infinity, ceilUntil: 0, skipShare: 0 };
+    ceil: Infinity, ceilUntil: 0, skipShare: 0, frameT: 0 };
 }
 /** After a Reset or a change of setup: forget what was learnt (the frames in flight stay counted). */
 export function paceReset(p) {
   Object.assign(p, { log: [], budget: Infinity, msStep: NaN, overran: 0, peakInflight: p.inflight, skipsSince: 0, clean: 0,
     lastClean: -1e9, cuts: 0, raises: 0, binding: false, minBudget: Infinity, ceil: Infinity, ceilUntil: 0, skipShare: 0 });
+}
+/**
+ * The time between frames drawn is T ms now (calm: two display frames). The budget and its
+ * ceiling are substeps a frame, learnt at the frame time before: scaled by the change. A change
+ * under 20 % (the display's own jitter) is ignored. Without this, calm's first frames ran full's
+ * budget (9, 10, 10, 11, ... substeps for the 16 calm needs on a phone held near 540 Hz).
+ */
+export function paceFrame(p, T) {
+  if (!(T > 0)) return;
+  if (p.frameT > 0 && Math.abs(T / p.frameT - 1) <= 0.2) return;
+  if (p.frameT > 0) {
+    const k = T / p.frameT;
+    if (Number.isFinite(p.budget)) p.budget = Math.max(1, Math.round(p.budget * k));
+    if (Number.isFinite(p.ceil)) p.ceil = Math.max(1, Math.round(p.ceil * k));
+  }
+  p.frameT = T;
 }
 /** An animation frame was skipped: the GPU had not finished the frames in flight. */
 export function paceSkip(p, now) { p.lastSkip = now; p.skipsSince++; p.skipShare += (1 - p.skipShare) * SKIP_AVG; }

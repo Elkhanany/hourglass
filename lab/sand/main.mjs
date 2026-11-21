@@ -20,7 +20,7 @@
 import { buildGlass, sampleField, traceOutline, APP_Q } from '../../realsand/glass.mjs';
 import { Solver, ShaderLibrary, createDevice, MATERIALS, PARTICLE_WORDS, dispatchesPerSubstep } from '../../realsand/solver.mjs';
 import { palette } from '../../realsand/palette.mjs';
-import { newPace, paceReset as paceForget, paceSkip, paceBudget, paceSubmit, paceDone, paceValve, QUEUE_DEFAULT } from '../../realsand/pace.mjs';
+import { newPace, paceReset as paceForget, paceSkip, paceBudget, paceFrame, paceSubmit, paceDone, paceValve, QUEUE_DEFAULT } from '../../realsand/pace.mjs';
 import { PPC, makeFill, packParticles } from '../../realsand/fill.mjs';
 import { GrainRenderer, FLIGHT, flightOf, exposure } from '../../realsand/grains.mjs';
 import * as Rate from '../../realsand/rate.mjs';
@@ -1196,6 +1196,7 @@ function loop(now) {
   const mode = modeFor(wall, ratioLast(now));
   if (mode === 'asleep') { sleptFrames++; lastDrawn = 0; acc = 0; if (rotor.on) rotorCss(); return; }
   const T0 = displayMs(), T = frameMsFor(mode, T0);
+  paceFrame(pace, T);                 // (the budget is substeps a frame: scaled when T changes)
   if (mode === 'calm' && lastDrawn && now - lastDrawn < T - 0.5 * T0) {
     calmFrames++;
     acc = Math.min(acc + dtReal, capFrame() / rate.hz);
