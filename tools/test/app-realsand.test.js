@@ -972,18 +972,32 @@ async function testAsleep(s, env) {
           box: c.style.width + ' x ' + c.style.height };
       });
     };
+    // the mock frame of each draw, and of the change it follows (in the page: a theme's call, the
+    // window's resize event), so that "within 2 frames" is the page's own count, not the test's latency
+    await t.eval(function () {
+      var e = window.__mockEnv, G = e.grains, enc = G.encode;
+      window.__drawAt = []; window.__actAt = null;
+      G.encode = function () { var r = enc.apply(this, arguments); window.__drawAt.push([G.draws, e.V.frame]); return r; };
+      window.addEventListener('resize', function () { if (window.__actAt === null) window.__actAt = e.V.frame; });
+    });
     // drawn again once, soon after the change, still asleep
     async function after(what, fn, ms) {
       var a = await look();
+      await t.eval(function () { window.__actAt = null; });
       await fn();
       await t.page.waitForFunction(function (d) { return window.__mockEnv.grains.draws > d; }, a.draws, { timeout: ms || 1500, polling: 16 }).catch(function () {});
       var b = await look();
       await sleep(300);
       var c = await look();
-      return { what: what, draws: b.draws - a.draws, frames: b.frame - a.frame, asleep: c.mode === 'asleep' && c.draws === b.draws, same: c.same, sets: c.sets - a.sets, box: c.box, w: c.w };
+      var at = await t.eval(function (n) {
+        var d = window.__drawAt.filter(function (x) { return x[0] > n; })[0];
+        return { act: window.__actAt, draw: d ? d[1] : null };
+      }, a.draws);
+      return { what: what, draws: b.draws - a.draws, frames: at.act !== null && at.draw !== null ? at.draw - at.act : null,
+        asleep: c.mode === 'asleep' && c.draws === b.draws, same: c.same, sets: c.sets - a.sets, box: c.box, w: c.w };
     }
     var r0 = await after('a layout that changes nothing', function () { return t.eval(function () { window.dispatchEvent(new Event('resize')); }); }, 600);
-    var r1 = await after('a theme', function () { return t.eval(function () { window.Hourglass.setTheme('volcanic'); }); });
+    var r1 = await after('a theme', function () { return t.eval(function () { window.__actAt = window.__mockEnv.V.frame; window.Hourglass.setTheme('volcanic'); }); });
     var r2 = await after('landscape', function () { return t.page.setViewportSize({ width: 844, height: 390 }); });
     await sleep(400);
     var r3 = await after('portrait again', function () { return t.page.setViewportSize({ width: 390, height: 844 }); });
@@ -992,9 +1006,9 @@ async function testAsleep(s, env) {
     s.check('ASLEEP: a layout that changes nothing sets neither width nor height of #c-gpu and draws nothing',
             r0.sets === 0 && r0.draws === 0 && r0.asleep, JSON.stringify(r0));
     s.check('ASLEEP: a theme chosen: the GPU sand is drawn again within 2 frames (with its new palette), and sleeps on',
-            r1.draws >= 1 && r1.frames <= 2 && r1.asleep, JSON.stringify(r1));
-    s.check('ASLEEP: the screen turned to landscape and back: drawn again each time at its new size, in #c-sand\'s box, and sleeps on',
-            [r2, r3].every(function (r) { return r.draws >= 1 && r.sets >= 1 && r.same && r.asleep; }) && r2.w !== r3.w, JSON.stringify([r2, r3]));
+            r1.draws >= 1 && r1.frames !== null && r1.frames <= 2 && r1.asleep, JSON.stringify(r1));
+    s.check('ASLEEP: the screen turned to landscape and back: drawn again each time at its new size within 2 frames of the resize, in #c-sand\'s box, and sleeps on',
+            [r2, r3].every(function (r) { return r.draws >= 1 && r.frames !== null && r.frames <= 2 && r.sets >= 1 && r.same && r.asleep; }) && r2.w !== r3.w, JSON.stringify([r2, r3]));
     s.check('ASLEEP: the Frame switch (the glass sits larger): drawn again, in #c-sand\'s box, and sleeps on',
             r4.draws >= 1 && r4.sets >= 1 && r4.same && r4.asleep, JSON.stringify(r4));
     await H.invariants(s, t, 'ASLEEP');
