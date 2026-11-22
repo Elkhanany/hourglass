@@ -2,9 +2,11 @@
 /*
  * Real sand in the app (design 13.2), in the browser harness, which has no WebGPU adapter.
  *
- *  OFF   the switch off (the default): nothing under realsand/ is requested, no engine, the
- *        CPU Sim is the sim; the row "Real sand" sits in the Material group after Grain, off,
- *        with its note; Tune has 10 rows.
+ *  OFF   the switch off (the default): nothing under realsand/ is requested (by the page's own
+ *        record, and at the network through a route, also after a run, Tune, a theme, layered
+ *        sand and a Reset; NOGPU's same route is the control), no engine, the CPU Sim is the
+ *        sim; the row "Real sand" sits in the Material group after Grain, off, with its note;
+ *        Tune has 10 rows.
  *  NOGPU the switch on, the real engine, in this Chromium (navigator.gpu, but no adapter): the
  *        engine is loaded, does not start, the switch greys with "Needs WebGPU", the setting
  *        is cleared, the CPU sand runs, no errors.
@@ -186,8 +188,15 @@ function fmtEnd(e) {
     e.early + ' frames read 0 with a point above';
 }
 
+/** Every request the page makes under realsand/, at the network (a route set before the page loads). */
+function realsandRequests() {
+  var hits = [];
+  return { hits: hits, route: { url: '**/realsand/**', handler: function (route) { hits.push(new URL(route.request().url()).pathname); route.continue(); } } };
+}
+
 async function testOff(s, env) {
-  var t = await env.open({});
+  var net = realsandRequests();
+  var t = await env.open({ routes: [net.route] });
   try {
     await sleep(1200);
     var st = await state(t);
@@ -208,17 +217,32 @@ async function testOff(s, env) {
     s.check('OFF: off, with its note; Grain\'s note as before',
             !st.checked && !st.disabled && !st.greyed && st.note === 'Each grain simulated on the graphics chip. Uses more battery.' &&
             st.grainNote === 'Finer sand is more grains, and more work for the phone', JSON.stringify([st.note, st.grainNote]));
+    // the glass run, Tune opened, a theme and layered sand chosen, a Reset: still nothing of the engine
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1500);
+    await t.page.tap('#btn-settings');
+    await sleep(500);
+    await t.eval(function () { window.Hourglass.setTheme('lapis'); });
+    await t.page.$eval('#opt-layers', function (el) { el.click(); });
+    await sleep(800);
+    await t.eval(function () { window.Hourglass.reset(); });
+    await sleep(1600);
+    st = await state(t);
+    s.check('OFF: at the network too, after a run, Tune, a theme, layered sand and a Reset: no request under realsand/ (NOGPU, switch on, is the control)',
+            net.hits.length === 0 && st.requested.length === 0 && !st.engine, JSON.stringify(net.hits));
     await H.invariants(s, t, 'OFF');
   } finally { await t.close(); }
 }
 
 async function testNoGpu(s, env) {
-  var t = await env.open({ storage: { 'hourglass.settings.v1': { realSand: true } } });
+  var net = realsandRequests();
+  var t = await env.open({ storage: { 'hourglass.settings.v1': { realSand: true } }, routes: [net.route] });
   try {
     await waitFor(t, function () { return document.getElementById('realsand-row').classList.contains('na'); }, 15000);
     var st = await state(t);
-    s.check('NOGPU: the engine is loaded (boot.mjs and its modules) and does not start: this Chromium has no adapter',
-            st.requested.indexOf('/realsand/boot.mjs') >= 0 && st.requested.indexOf('/realsand/app-sand.mjs') >= 0 && !st.engine, st.requested.length + ' requested');
+    s.check('NOGPU: the engine is loaded (boot.mjs and its modules, seen by the page and at the network) and does not start: this Chromium has no adapter',
+            st.requested.indexOf('/realsand/boot.mjs') >= 0 && st.requested.indexOf('/realsand/app-sand.mjs') >= 0 && !st.engine &&
+            net.hits.indexOf('/realsand/boot.mjs') >= 0 && net.hits.indexOf('/realsand/app-sand.mjs') >= 0, st.requested.length + ' requested, ' + net.hits.length + ' at the network');
     s.check('NOGPU: the switch greys, off, and says "Needs WebGPU (iOS 26 or later)"; the setting is cleared',
             st.greyed && st.disabled && !st.checked && st.note === 'Needs WebGPU (iOS 26 or later)' && st.setting === false, JSON.stringify(st));
     await t.eval(function () { window.Hourglass.start(); });
