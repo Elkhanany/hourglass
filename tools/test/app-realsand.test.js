@@ -23,6 +23,10 @@
  *        - LOSS: a device lost mid-run gives the sand to the CPU Sim in the same frame, at the
  *          ledger's counts, the clock untouched, with the toast; the engine rebuilds and takes
  *          the sand back; the glass ends on time;
+ *        - SOUND: what audio.js is given (design 8): the stream's flow follows the grains the
+ *          ledger releases, landings come after the fall from the neck to the heap, events
+ *          within their ranges, poured sand lands in the top bulb, nothing for the bed's
+ *          thumps and slams, no landing buzz;
  *        - census every 15 frames through the engine's audit(), no errors.
  *  FAIL  a start failure of the second kind: the CPU sand, the setting kept, the note says why;
  *        after three launches in a row it stops trying (nothing requested); off and on again
@@ -187,6 +191,36 @@ async function testMock(s, env) {
 
     /* ---- END: a 10 s glass ---------------------------------------------- */
     await record(t);
+    // the sound the GPU sand makes (design 8): what the app gives audio.js, frame by frame
+    await t.eval(function () {
+      var Hg = window.Hourglass, A = Hg.audio, up = A.update;
+      var R = window.__snd = { run: 0, flow: 0, rel0: null, imp0: null, impFrames: 0, ev: 0, evTop: 0, evBad: 0, thump: 0, slam: 0, slides: 0,
+        tailMin: 1, fillMax: 0, buzz10: 0 };
+      A.update = function (st) {
+        var now = performance.now(), f = Hg.sim.frame;
+        if (st.running) {
+          R.run++; R.flow = Math.max(R.flow, Hg.stats.flow);
+          if (R.rel0 === null && f.released > 0) R.rel0 = now;
+          if (f.impSand + f.impGlass > 0) { R.impFrames++; if (R.imp0 === null) R.imp0 = now; }
+        }
+        var sim = st.sim;
+        if (sim && sim.nev) {
+          R.ev += sim.nev;
+          for (var i = 0; i < sim.nev; i++) {
+            if (sim.evK[i] & 2) R.evTop++;
+            if (!(sim.evV[i] > 0 && sim.evV[i] <= 1) || !(Math.abs(sim.evX[i]) <= 1)) R.evBad++;
+          }
+        }
+        if (st.thump) R.thump = Math.max(R.thump, st.thump[0], st.thump[2]);
+        if (st.slam) R.slam = Math.max(R.slam, st.slam[0]);
+        R.slides = Math.max(R.slides, st.slides);
+        if (st.running) R.tailMin = Math.min(R.tailMin, st.tail);
+        // (until the pour: the fill rises to the glass's own sand, all of it below)
+        if (R.full === undefined) { R.fillMax = Math.max(R.fillMax, st.fill); if (Hg.timer.state === 'done' && Hg.sim.nTop === 0) R.full = Hg.sim.total / Hg.sim.capacity; }
+        return up.apply(this, arguments);
+      };
+      if (navigator.vibrate) { var v = navigator.vibrate.bind(navigator); navigator.vibrate = function (p) { if (p === 10) R.buzz10++; return v(p); }; }
+    });
     await t.eval(function () { window.Hourglass.start(); });
     var e1 = await runToEnd(t, 20000);
     s.check('END: a 10 s glass on the GPU sand: the last point leaves within 30 ms of 00:00.0 (the plant\'s record), nTop reads 0 within 3 frames after, never before',
@@ -237,6 +271,21 @@ async function testMock(s, env) {
       return { want: rem, got: Hg.timer.rem, made: made, top: Hg.sim.nTop - P.top0, total: Hg.sim.total - P.total0,
         appended: e.solver.appended - P.app0, ptsWant: rs.valve.Pts(Hg.sim.total) - rs.valve.Pts(P.total0) };
     });
+    var snd = await t.eval(function () {
+      var R = window.__snd, Hg = window.Hourglass;
+      return Object.assign({ rate: Hg.timer.rate, full: R.full }, R);
+    });
+    s.check('SOUND: the stream is heard at the rate the ledger releases its grains (the smoothed flow within half and twice the clock\'s rate)',
+            snd.run > 300 && snd.flow >= 0.5 * snd.rate && snd.flow <= 2 * snd.rate, JSON.stringify({ flow: snd.flow, rate: snd.rate, frames: snd.run }));
+    s.check('SOUND: the first landings come after the fall from the neck to the floor (0.25 to 0.7 s after the first grain left), then through the run',
+            snd.rel0 !== null && snd.imp0 !== null && snd.imp0 - snd.rel0 >= 250 && snd.imp0 - snd.rel0 <= 700 && snd.impFrames > snd.run * 0.5,
+            JSON.stringify({ fall: snd.imp0 - snd.rel0, impFrames: snd.impFrames }));
+    s.check('SOUND: landing events for the grains (up to 48 a frame), each within its ranges; the tail fades with the count and the fill rises',
+            snd.ev > 100 && snd.evBad === 0 && snd.tailMin < 0.2 && Math.abs(snd.fillMax - snd.full) < 0.002,
+            JSON.stringify({ ev: snd.ev, bad: snd.evBad, tailMin: snd.tailMin, fillMax: snd.fillMax, allBelow: snd.full }));
+    s.check('SOUND: poured sand lands in the top bulb (its events marked so)', snd.evTop > 0, snd.evTop + ' events');
+    s.check('SOUND: knowingly silent in Real sand: the bed\'s thumps, slams and slides, and so the landing buzz',
+            snd.thump === 0 && snd.slam === 0 && snd.slides === 0 && snd.buzz10 === 0, JSON.stringify({ thump: snd.thump, slam: snd.slam, slides: snd.slides, buzz: snd.buzz10 }));
     s.check('POUR: the GPU sand takes the pour: the time is remAt(topAt(rem) + made) to 1e-6, the ledger rises by made, the GPU by the appended points',
             p.made > 30 && Math.abs(p.got - p.want) < 1e-6 && p.top === p.made && p.total === p.made && p.appended === p.ptsWant, JSON.stringify(p));
     await t.eval(function () { window.Hourglass.start(); });
