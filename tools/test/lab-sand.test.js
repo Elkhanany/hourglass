@@ -93,6 +93,38 @@
  *               frames in flight, no budget) breaks the bound. The Benchmark's
  *               rows for the default and its costly options, and the report's
  *               answers from them
+ *  20 timer     the lab's Timer (the app's amount, clock and breathing through
+ *               the metered neck; frames of 1/60 s on a virtual clock, readbacks
+ *               2 frames late, mode auto): a 10 s glass with a Flip with 6 s
+ *               left, and the 1-minute amount timed to 12 s: no point crosses
+ *               below the clock's target, none while the neck is shut, the
+ *               membrane's arithmetic, the point counts and the valve's audit
+ *               hold in every run, the last point leaves in the substep that
+ *               holds 00:00.0 or after it, within one frame, the count reads 0
+ *               within 5 frames, no residue, the count is the app's target in
+ *               90 % of the open running frames, and for the 10 s glass under
+ *               0.5 % of the bulk's runs (from 2 s after the start, 1 s after a
+ *               swap) end short, by at most 3 points (the start logged apart;
+ *               the amount timed short logged only);
+ *               the first fall is timed; calm runs at the same substep rate;
+ *               the burst times the GPU and puts the sand back exactly; Copy
+ *               results has the build stamp, the mode, the Timer, the burst
+ *               and the lifecycle log
+ *  21 modes     a 1-minute bed at rest in the lower bulb: calm and full
+ *               alternated 10 times (0.3 s each) move its surface, its top and
+ *               its centre less than half a cell, every run at 480 Hz (full 8
+ *               substeps every frame, calm 16 every other frame); in auto the
+ *               still bed falls asleep and a finger on the glass wakes it, and
+ *               so does the phone (read once a frame, asleep too) leaning it 5
+ *               degrees or turning it at 2 rad/s, within 0.5 s
+ *  22 rotor     the Rotor probe on the 10 s bed, 16 rad/s, every third run
+ *               skipped: every readback has the sand in the bulb the ledger
+ *               says (the flip pass at each half turn), the grains' canvas is
+ *               turned half a turn exactly in the frames whose run was skipped
+ *               since a swap, and as drawn and shown (the canvas's picture
+ *               with its turn) the sand lies at the ledger's end in every
+ *               frame (control: without the turn it does not), both WebGL
+ *               canvases are made, no page errors
  *
  * Screenshots of the key moments go to --shots (a phone-like 390 x 844
  * viewport, device scale 1).
@@ -932,6 +964,204 @@ async function main() {
       'the Benchmark times the default at both speeds and each costly option, with the GPU time a substep (' + tags19 + ')');
     check(/\nAnswers /.test(text19) && /Default, coarse grid, 1-minute, app speed: (HOLDS|does NOT hold) real time/.test(text19) && /Default, coarse grid, 1-minute, real speed: /.test(text19) && /Costly options at the default .*spread off .*blur off .*8 iterations/.test(text19) && /\nPace: at most 2 frames of GPU work in flight/.test(text19),
       'Copy results answers: does the default hold real time at each speed, the lag, the display rate, and what each option costs');
+  }
+
+  /* ---- 20 ----------------------------------------------------------- */
+  if (run(20)) {
+    log('20 the Timer (an app amount timed by the app\'s clock through the metered neck; frames of 1/60 s on a virtual clock, readbacks 2 frames late)');
+    var FR = 1000 / 60;
+    // one Timer to its end: frames stepped 60 at a time; flipAt: the clock's time left at which to Flip
+    var timer20 = async function (id, o) {
+      var st = await L(function (a) { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.timer(a.id, a.o); }, { id: id, o: Object.assign({ burst: false }, o.timer || {}) });
+      var flipped = false, guard = 0, frames = 0;
+      while (guard++ < 80) {
+        var r = await L(function (o) { return window.__lab.frames(o.n, { stopAtEnd: true, lag: 2 }); }, { n: o.flipAt && !flipped ? 30 : 60 });
+        frames = r.frame; st = r.timer;
+        if (o.flipAt && !flipped && st.state === 'running' && st.rem <= o.flipAt) {
+          flipped = true;
+          o.before = { nTop: st.nTop, total: st.total, rem: st.rem };
+          await L(function () { window.__lab.flip(); });
+        }
+        if (st.end && st.end.confirmed !== null && st.state === 'done') break;
+      }
+      return st;
+    };
+    var desc20 = function (st) {
+      var n = st.n, e = st.end;
+      return st.grains + ' grains = ' + st.points + ' points, timed to ' + (st.ms / 1000) + ' s: ' + n.runs + ' runs (' + n.open + ' open, ' + n.closedRuns + ' shut), ' +
+        'below target ' + n.viol + ', crossed while shut ' + n.closedCross + ', arithmetic off ' + n.mismatch + ', points off ' + n.pointsOff + ', audit ' + (n.audits - n.auditFails) + '/' + n.audits +
+        '; nTop = target in ' + (n.supplied - n.countOff) + ' of ' + n.supplied + ' open running frames; bulk runs short ' + n.short + ' of ' + n.bulk + ' (worst ' + n.worstShort + '), the start ' + n.coldShort + ' of ' + n.cold + ' (worst ' + n.coldWorst + '), mean queue ' + f1(st.queue) + ', vcap ' + f2(st.vcap) + ', kv ' + f1(st.kv) +
+        '; refused ' + n.refused + '; first fall ' + f2(st.fall) + ' s simulated over ' + f1(st.floor) + ' cells; swaps ' + st.swaps +
+        '; end: ' + (e ? (e.last ? 'last point ' + f1(e.last.early) + ' to ' + f1(e.last.late) + ' ms after 00:00.0' : 'last point not out') + ', nTop 0 at +' + f1(e.confirmed) + ' ms, residue ' + (e.residueAt === null ? 'none' : e.residue) : 'not reached') +
+        '; time in modes: full ' + f1(st.modeMs.full / 1000) + ' s, calm ' + f1(st.modeMs.calm / 1000) + ' s';
+    };
+    var checks20 = function (st, what, line) {
+      var n = st.n, e = st.end;
+      check(n.open > 100 && n.viol === 0, what + ': no point crossed below the clock\'s target (no run with crossings ended below its lowest substep target; ' + n.open + ' open runs, ' + n.viol + ' below)');
+      check(n.closedCross === 0 && n.mismatch === 0 && n.pointsOff === 0 && n.audits > 100 && n.auditFails === 0,
+        what + ': no crossing while the neck was shut (' + n.closedCross + '), the membrane\'s arithmetic and the point counts hold in every run (' + n.mismatch + ', ' + n.pointsOff + ' off), the valve\'s audit passes (' + (n.audits - n.auditFails) + ' of ' + n.audits + ')');
+      // (the membrane and the zero substep: the substep in which the last point crossed ends at
+      // or after 00:00.0, never before it; 1e-3 ms for the sums of 1/60 s)
+      check(!!(e && e.last && e.last.k >= 0 && e.last.late >= -1e-3 && e.last.early > -e.last.substep - 1e-3 && e.last.late <= FR + 0.5),
+        what + ': the last point left in the substep that holds 00:00.0 or after it, within one frame (the GPU\'s record of its substep: ' + (e && e.last ? f1(e.last.early) + ' to ' + f1(e.last.late) + ' ms, substep ' + (e.last.k + 1) + ' of ' + e.last.S : 'never') + ')');
+      check(!!(e && e.confirmed !== null && e.confirmed <= 5 * FR && e.residueAt === null && st.nTop === 0),
+        what + ': no residue, and the count reads 0 within 5 frames (' + (e ? f1(e.confirmed) + ' ms, residue ' + (e.residueAt === null ? 'none' : e.residue) : '-') + ')');
+      check(n.supplied > 100 && n.countOff <= 0.1 * n.supplied, what + ': the count is the app\'s target in at least 90 % of the open running frames (' + (n.supplied - n.countOff) + ' of ' + n.supplied + ')');
+      // the design's line for the bulk (from 2 s after the start and 1 s after a swap, as the
+      // valve test's plant counts it): under 0.5 % of runs short, by at most 3 points. Not for an
+      // amount timed short (the plant does not hold its fast rests to it either: their breathing
+      // asks more than the throttle follows); logged
+      var bulkTxt = 'in the bulk ' + n.short + ' of ' + n.bulk + ' runs ended short of their target (worst ' + n.worstShort + ' points; under 0.5 %, at most 3); the start, apart: ' + n.coldShort + ' of ' + n.cold + ' (worst ' + n.coldWorst + ')';
+      if (line) check(n.bulk > 50 && n.short <= 0.005 * n.bulk && n.worstShort <= 3, what + ': ' + bulkTxt);
+      else log('  ' + what + ' (timed short, logged): ' + bulkTxt);
+    };
+    await speed10('app');
+    var o20 = { flipAt: 6000 };
+    var ran20 = (await L(function () { return window.__lab.modes(); })).ran;
+    var a20 = await timer20('10s', o20);
+    log('  10 s glass, a Flip with 6 s left: ' + desc20(a20));
+    check(a20.grains === 1155 && a20.points === 1952, 'the 10 s glass holds the app\'s amount: 1155 grains = 1952 points at 1.69 points a grain (' + a20.grains + ', ' + a20.points + ')');
+    checks20(a20, '10 s glass with a Flip', true);
+    check(a20.swaps === 1 && !!o20.before && a20.total === o20.before.total, 'the Flip swapped the bulbs once, with the neck shut while the glass turned (' + a20.swaps + ' swap)');
+    check(a20.fall > 0.25 && a20.fall < 0.7, 'the stream\'s first fall is timed, neck to floor: ' + f2(a20.fall) + ' s simulated (0.25 to 0.7; free fall over ' + f1(a20.floor) + ' cells, held to a cell a substep)');
+    var runs20 = (await L(function (k) { return window.__lab.modes(k); }, ran20)).runs;
+    var calm20 = runs20.filter(function (r) { return r.mode === 'calm'; }), full20 = runs20.filter(function (r) { return r.mode === 'full'; });
+    check(calm20.length > 20 && full20.length > 20 && calm20.every(function (r) { return r.hz === 480 && r.steps === 16; }),
+      'in auto the Timer ran full and calm, calm at the same substep rate: ' + full20.length + ' full runs, ' + calm20.length + ' calm runs, every calm run 16 substeps at 480 Hz (two frames\' worth)');
+    // the GPU's cost by a burst on the bed now in the glass, and the sand put back exactly after it
+    var p20 = await pos();
+    var b20 = await L(function () { return window.__lab.burst({ reps: 2, small: 2, big: 6 }); });
+    var q20 = await pos(), same20 = p20.length === q20.length && p20.every(function (v, i) { return v === q20[i]; });
+    log('  burst (software GPU, not a phone): ' + f2(b20.msStep) + ' ms a substep, ' + f2(b20.msDraw) + ' ms a frame\'s drawing; shares full ' + f2(b20.full) + ', calm ' + f2(b20.calm));
+    check(isFinite(b20.msStep) && b20.msStep > 0 && b20.calm < b20.full && same20, 'the burst times the GPU a substep and puts the sand back exactly (' + f2(b20.msStep) + ' ms, sand ' + (same20 ? 'unchanged' : 'MOVED') + ')');
+    var text20 = await L(function () { return window.__lab.report(); });
+    check(/\nEngine build: 2 \(realsand\/build\.mjs\); this page was written for 2\n/.test(text20) && /\nTimer: 10 s \(1155 grains = 1952 points/.test(text20) && /end 1: last point/.test(text20) && /GPU cost by a burst/.test(text20) && /\nMode: auto/.test(text20) && /Lifecycle \(ms since the page began\): .*pipelines/.test(text20),
+      'Copy results has the build stamp, the mode, the Timer\'s record and end, the burst and the lifecycle log');
+    // the 1-minute amount timed short
+    var c20 = await timer20('1m', { timer: { ms: 12000 } });
+    log('  1-minute amount timed to 12 s: ' + desc20(c20));
+    check(c20.grains === 2830 && c20.points === 4783, 'the 1-minute amount: 2830 grains = 4783 points (' + c20.grains + ', ' + c20.points + ')');
+    checks20(c20, '1-minute amount in 12 s', false);
+    await L(function () { window.__lab.timerStop(); return window.__lab.mode('full'); });
+  }
+
+  /* ---- 21 ----------------------------------------------------------- */
+  if (run(21)) {
+    log('21 modes on a resting bed (a 1-minute bed settled in the lower bulb; calm and full alternate 10 times, 0.3 s each)');
+    await speed10('app');
+    await L(function () { window.__lab.timerStop(); return window.__lab.mode('full'); });
+    await reset10({ amount: 'minute' });
+    await sec(1.5);
+    var surf21 = async function () { var p = await pos(); var s = await stat(); return { surf: M.meanSurface(p), top: bedTop(p), com: s.com }; };
+    var a21 = await surf21();
+    var m21 = await L(async function () {
+      // (each stretch's runs: the first full run after calm also covers the frame calm left undrawn)
+      var hz = [], steps = { full: [], calm: [] }, gaps = { full: [], calm: [] };
+      for (var i = 0; i < 10; i++) {
+        var m = i % 2 ? 'full' : 'calm';
+        window.__lab.mode(m);
+        var before = window.__lab.modes().ran;
+        await window.__lab.frames(18, { lag: 2 });
+        var rr = window.__lab.modes(before).runs;
+        rr.forEach(function (r, j) { hz.push(r.hz); if (j) { steps[r.mode].push(r.steps); gaps[r.mode].push(r.frame - rr[j - 1].frame); } });
+      }
+      return { hz: hz, steps: steps, gaps: gaps };
+    });
+    var b21 = await surf21();
+    var ds21 = Math.abs(b21.surf - a21.surf), dt21 = Math.abs(b21.top - a21.top), dc21 = Math.hypot(b21.com[0] - a21.com[0], b21.com[1] - a21.com[1]);
+    log('  surface ' + f2(a21.surf) + ' -> ' + f2(b21.surf) + ' (' + f2(ds21) + '), top on the axis ' + f2(a21.top) + ' -> ' + f2(b21.top) + ', centre moved ' + f2(dc21) + ' cells; rates ' + JSON.stringify(Array.from(new Set(m21.hz))) +
+      ', substeps a run: full ' + JSON.stringify(Array.from(new Set(m21.steps.full))) + ', calm ' + JSON.stringify(Array.from(new Set(m21.steps.calm))));
+    check(ds21 < 0.5 && dt21 < 0.5 && dc21 < 0.5, 'calm and full alternated 10 times do not move a resting bed: surface ' + f2(ds21) + ', top ' + f2(dt21) + ', centre ' + f2(dc21) + ' cells (under 0.5)');
+    var all21 = function (a, v) { return a.length > 10 && a.every(function (k) { return k === v; }); };
+    check(m21.hz.length > 0 && m21.hz.every(function (h) { return h === 480; }) && all21(m21.steps.calm, 16) && all21(m21.gaps.calm, 2) && all21(m21.steps.full, 8) && all21(m21.gaps.full, 1),
+      'a change of mode changes only the frame rate: every run at 480 Hz, full 8 substeps every frame, calm 16 every other frame');
+    // auto: a still bed sleeps (no GPU work), and a touch wakes it
+    await L(function () { window.__lab.mode('auto'); });
+    var s21 = await L(async function () {
+      var r0 = window.__lab.modes(), t0 = window.__lab.tally();
+      await window.__lab.frames(60, { lag: 2 });
+      var r1 = window.__lab.modes();
+      window.__lab.drag({ dx: 30, dy: 0, ms: 200 });
+      await window.__lab.frames(6, { lag: 2 });
+      var r2 = window.__lab.modes();
+      return { slept: r1.slept - r0.slept, mode1: r1.mode, why1: r1.why, ran: r1.ran - r0.ran, mode2: r2.mode, why2: r2.why, moving: t0 && t0.moving, fastest: t0 && t0.maxSpeed };
+    });
+    log('  auto on the still bed (the last readback before: ' + s21.moving + ' points moving, the fastest ' + f2(s21.fastest) + ' cells/s): ' + s21.slept + ' of 60 frames asleep (' + s21.ran + ' runs), then ' + s21.mode1 + ' (' + s21.why1 + '); a finger on the glass: ' + s21.mode2 + ' (' + s21.why2 + ')');
+    check(s21.slept >= 20 && s21.mode1 === 'asleep' && s21.mode2 === 'full', 'auto: a still bed falls asleep (no GPU work: ' + s21.slept + ' of 60 frames) and a finger on the glass wakes it to full');
+    // asleep, the phone moves (the scripted input stands for its readings, read once a frame
+    // although no substep runs): leaned 5 degrees, then turned at 2 rad/s; each must wake it
+    // within 0.5 s (30 frames)
+    var w21 = await L(async function () {
+      var lab = window.__lab, out = {};
+      var until = async function (want, n) {
+        for (var k = 1; k <= n; k++) { await lab.frames(1, { lag: 2 }); if (lab.modes().mode === want) return k; }
+        return Infinity;
+      };
+      lab.setInput({ mode: 'manual', gravity: [0, 1] });
+      out.sleep1 = await until('asleep', 400);
+      lab.setInput({ mode: 'manual', gravity: [Math.sin(5 * Math.PI / 180), Math.cos(5 * Math.PI / 180)] });
+      out.lean = await until('full', 30); out.leanWhy = lab.modes().why;
+      lab.setInput({ mode: 'manual', gravity: [0, 1] });
+      out.sleep2 = await until('asleep', 400);
+      lab.setInput({ mode: 'manual', gravity: [0, 1], omega: 2 });
+      out.turn = await until('full', 30); out.turnWhy = lab.modes().why;
+      lab.setInput({ mode: 'manual', gravity: [0, 1] });
+      return out;
+    });
+    log('  asleep again after ' + w21.sleep1 + ' frames; leaned 5 degrees: full after ' + w21.lean + ' frames (' + w21.leanWhy + '); asleep again after ' + w21.sleep2 + '; turned at 2 rad/s: full after ' + w21.turn + ' frames (' + w21.turnWhy + ')');
+    check(isFinite(w21.sleep1) && isFinite(w21.sleep2) && w21.lean <= 30 && w21.turn <= 30,
+      'auto: asleep, the glass wakes to full when the phone leans it 5 degrees (' + w21.lean + ' frames) or turns it at 2 rad/s (' + w21.turn + ' frames), within 0.5 s');
+    await L(function () { return window.__lab.mode('full'); });
+    await sec(0.5);
+  }
+
+  /* ---- 22 ----------------------------------------------------------- */
+  if (run(22)) {
+    log('22 the Rotor probe (?rotor=1, the 10 s bed here: the grains\' canvas between two WebGL canvases in a turning div; 16 rad/s, every third run skipped)');
+    var p22 = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+    var err22 = [];
+    p22.on('pageerror', function (e) { err22.push(e.message); });
+    p22.on('console', function (m) { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) err22.push(m.text()); });
+    await p22.goto('http://127.0.0.1:' + PORT + '/lab/sand/?offscreen=1&res=S&rotor=1&bed=10s');
+    await p22.evaluate(function () { return window.__lab.ready; });
+    var r22 = await p22.evaluate(async function () {
+      window.__lab.manual(true);
+      await window.__lab.rotor({ amount: '10s', w: 16, skip3: true, spun: true });
+      // the picture: where the drawn sand lies on the grains' canvas (its offscreen 2-D canvas, as
+      // shown after each frame), the centroid of its grains from the canvas's centre, y down
+      var c = document.getElementById('c-gpu'), ctx = c.getContext('2d');
+      var centroid = function () {
+        var d = ctx.getImageData(0, 0, c.width, c.height).data, sx = 0, sy = 0, n = 0;
+        for (var y = 0; y < c.height; y++) for (var x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 0) { sx += x; sy += y; n++; }
+        return n ? { x: sx / n - c.width / 2, y: sy / n - c.height / 2, n: n } : null;
+      };
+      var rows = [];
+      for (var k = 0; k < 40; k++) {
+        await window.__lab.frames(1, { lag: 2, draw: true });
+        var st = window.__lab.rotorState();
+        st.pic = centroid();
+        rows.push(st);
+      }
+      return rows;
+    });
+    var e22 = r22[r22.length - 1], rule22 = r22.filter(function (x) { return x.canvasTurned !== (x.drawnParity !== x.parity); }).length;
+    var turn22 = r22.filter(function (x) { return x.canvasTurned; }).length;
+    // as seen: the canvas's own half turn applied to its picture, the sand must lie at the end of
+    // the turning div that holds the ledger's top bulb (the grid's top at parity 0, its bottom at
+    // parity 1: the flip pass turns the points end for end); the div's own turn by the glass's
+    // angle moves both alike. Control: the same pictures without the canvas's half turn
+    var seen22 = function (x, turned) { var y = turned ? -x.pic.y : x.pic.y; return x.parity === 0 ? y < 0 : y > 0; };
+    var pics22 = r22.filter(function (x) { return x.pic && x.pic.n > 50; });
+    var wrongSeen22 = pics22.filter(function (x) { return !seen22(x, x.canvasTurned); }).length;
+    var wrongBare22 = pics22.filter(function (x) { return !seen22(x, false); }).length;
+    log('  ' + e22.swaps + ' half-turn swaps in 40 frames, ' + e22.runs + ' runs, ' + e22.skips + ' skipped by hand; the grains\' canvas turned in ' + turn22 + ' frames; sand in the wrong bulb in ' + e22.wrong + ' of ' + e22.checked + ' readbacks; WebGL canvases ' + JSON.stringify(e22.gl));
+    check(e22.swaps >= 3 && e22.checked >= 20 && e22.wrong === 0, 'turning, the bed is swapped and turned end for end at each half turn: every readback has all of the sand in the bulb the ledger says (' + e22.swaps + ' swaps, ' + e22.wrong + ' wrong of ' + e22.checked + ')');
+    check(rule22 === 0 && turn22 >= 1 && /rotate\(/.test(e22.rotorTransform) && e22.gl[0] && e22.gl[1],
+      'the canvas is turned half a turn exactly in the frames whose run was skipped since a swap (' + turn22 + ' frames, the rule broken in ' + rule22 + '), the div turns with the glass, and both WebGL canvases are there');
+    check(pics22.length >= 30 && wrongSeen22 === 0 && wrongBare22 >= 1,
+      'as drawn and shown, the sand lies at the end of the glass that holds the ledger\'s top bulb in every frame (' + pics22.length + ' pictures, ' + wrongSeen22 + ' wrong); control, the same pictures without the canvas\'s half turn: wrong in ' + wrongBare22 + ' frames (those skipped since a swap)');
+    check(err22.length === 0, 'no page errors on the Rotor probe' + (err22.length ? ': ' + err22.slice(0, 3).join(' | ') : ''));
+    await p22.close();
   }
 
   check(errors.length === 0, 'no page errors through the run' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));

@@ -23,14 +23,29 @@
  *   model put it at about 16 us (350 points' work), but the owner's iPhone's
  *   coarse 1-minute real-speed row leaves at most about 4 us a dispatch; the
  *   Benchmark's gpu ms/substep column is to settle it;
- * - a per-frame tally (counts, speeds) is read back for the HUD and tests.
+ * - a per-frame tally (counts, speeds) is read back for the HUD and tests;
+ * - a metered neck, off unless a run is given the valve's words (valve.mjs):
+ *   a throttle in a band just above the counting line (gridUpdate.wgsl), a
+ *   membrane that lets a point cross the line only downward and only with a
+ *   ticket (g2p2g.wgsl, spreadShift.wgsl), the counts it needs (counters,
+ *   tally), pours appended without a refill, and the flip pass (flip.wgsl)
+ *   that turns the points end for end at a swap.
  */
 
 export const PARTICLE_WORDS = 24;
 export const SLOT = 256;               // bytes per uniform slot (dynamic offset alignment)
 export const MAX_IT = 8;
 const BUCKET = 6;
-const TALLY_WORDS = 8;
+// counters (atomics the shaders add to): [0] nodes clamped (cumulative), [1] largest node move
+// (cells x 1000, cumulative max); the metered neck's, set at each run's start: [2] crossings this
+// run (tickets taken), [3] the points above at the run's start, [4] crossings refused this run,
+// [5] upward crossings refused this run, [6] the substep of the run's last crossing (its frame
+// number + 1; 0: none); [7] unused
+const COUNTER_WORDS = 8;
+// the tally (tally.wgsl), summed afresh by each run
+const TALLY_WORDS = 16;
+// a readback slot: the counters, then the tally
+const READBACK_BYTES = 128;
 
 export async function createDevice() {
   if (!globalThis.navigator?.gpu) throw Object.assign(new Error('WebGPU is not available'), { code: 'nogpu' });
@@ -83,12 +98,13 @@ const LAYOUTS = {
   bukkitInsert: 'ursrsr',
   gridClear: 'usrr',
   gridUpdate: 'usrrrsss',
-  g2p2g: 'usrsrrr',
+  g2p2g: 'usrsrrrs',
   load: 'urrrs',
   rescale: 'urs',
   spreadSplat: 'urrs',
   spreadShift: 'ursrr',
-  tally: 'urrrs'
+  tally: 'urrrss',
+  flip: 'urs'
 };
 
 /**
@@ -272,11 +288,13 @@ export class Solver {
     mk('bucketArgs', 16, S | U.INDIRECT, new Uint32Array([0, 1, 1, 0]));
     mk('gridArgs', 16, S | U.INDIRECT, new Uint32Array([0, 1, 1, 0]));
     mk('gridBuckets', this.bucketCount * 4, S);
-    mk('counters', 16, S);
+    mk('counters', COUNTER_WORDS * 4, S);
     mk('tally', TALLY_WORDS * 4, S);
+    // per column and bulb, the highest point at rest (tally.wgsl)
+    mk('surface', 2 * this.W * 4, S);
     this.allocUniforms(cap);
     this.readbacks = [];
-    for (let i = 0; i < 3; i++) this.readbacks.push({ buffer: d.createBuffer({ label: 'lab readback', size: 64, usage: U.COPY_DST | U.MAP_READ }), pending: false });
+    for (let i = 0; i < 3; i++) this.readbacks.push({ buffer: d.createBuffer({ label: 'lab readback', size: READBACK_BYTES, usage: U.COPY_DST | U.MAP_READ }), pending: false });
     this.makeGroups();
     this.frame = 0; this.gridIndex = 0; this.lastHz = null;
   }
@@ -306,32 +324,83 @@ export class Solver {
       clear: [b.grid0, b.grid1].map(g => group('gridClear', [g, b.gridBuckets, b.gridArgs])),
       // update[i]: grid i's update, which also zeroes the other grid (the next iteration's)
       update: [0, 1].map(i => group('gridUpdate', [i ? b.grid1 : b.grid0, b.domain, b.gridBuckets, b.gridArgs, b.wall, b.counters, i ? b.grid0 : b.grid1])),
-      solve: [0, 1].map(i => group('g2p2g', [b.particles, i ? b.grid1 : b.grid0, i ? b.grid0 : b.grid1, b.bucketData, b.domain, b.load])),
+      solve: [0, 1].map(i => group('g2p2g', [b.particles, i ? b.grid1 : b.grid0, i ? b.grid0 : b.grid1, b.bucketData, b.domain, b.load, b.counters])),
       load: [b.grid0, b.grid1].map(g => group('load', [g, b.gridBuckets, b.gridArgs, b.load])),
       rescale: group('rescale', [b.count, b.particles]),
       spreadSplat: group('spreadSplat', [b.count, b.particles, b.fine]),
       spreadShift: group('spreadShift', [b.count, b.particles, b.fine, b.domain]),
-      tally: group('tally', [b.count, b.particles, b.domain, b.tally])
+      tally: group('tally', [b.count, b.particles, b.domain, b.tally, b.surface]),
+      flip: group('flip', [b.count, b.particles])
     };
   }
 
-  /** Put material points in the glass: a Float32Array of count x 24 floats. */
+  /**
+   * Put material points in the glass: a Float32Array of count x 24 floats. The tally is
+   * written with the data's own counts, as a tally pass would count it (points, above and below
+   * the counting line), so that the next run's count above at its start is exact (the metered
+   * neck, valve.mjs). Returns those counts: { points, above, below }.
+   */
   upload(data, count) {
     const d = this.device, b = this.buffers;
     this.count = count;
     d.queue.writeBuffer(b.particles, 0, data, 0, count * PARTICLE_WORDS);
     d.queue.writeBuffer(b.count, 0, new Uint32Array([count, this.maxParticles, 0, 0]));
     const e = d.createCommandEncoder();
-    for (const k of ['grid0', 'grid1', 'wall', 'load', 'counters', 'tally']) e.clearBuffer(b[k]);
+    for (const k of ['grid0', 'grid1', 'wall', 'load', 'counters', 'surface']) e.clearBuffer(b[k]);
     d.queue.submit([e.finish()]);
+    const sides = this.countSides(data, count), t = new Uint32Array(TALLY_WORDS);
+    t[0] = sides.points; t[1] = sides.above; t[2] = sides.below;
+    d.queue.writeBuffer(b.tally, 0, t);
     this.frame = 0; this.gridIndex = 0; this.lastHz = null;
+    return sides;
+  }
+
+  /** The points of data (count x 24 floats) above and below the counting line, as tally.wgsl counts them. */
+  countSides(data, count) {
+    const line = Math.fround(this.glass.cy);
+    let points = 0, above = 0, below = 0;
+    for (let i = 0; i < count; i++) {
+      const o = i * PARTICLE_WORDS;
+      if (data[o + 15] === 0) continue;                      // not enabled
+      points++;
+      const x = data[o], y = data[o + 1], dx = data[o + 2], dy = data[o + 3];
+      if (!(x === x && y === y && dx === dx && dy === dy) || Math.abs(x) > 1e9 || Math.abs(dx) > 1e9 || Math.abs(dy) > 1e9) continue;
+      if (y > line) above++; else below++;
+    }
+    return { points, above, below };
+  }
+
+  /**
+   * Add n material points after those in the glass (a pour), without a refill: a Float32Array
+   * of n x 24 floats, every point above the counting line. The tally is not written: the
+   * metered neck offers these points to the membrane through its allowance (valve.mjs pour).
+   * mirrored: a swap is waiting for the flip pass (valve.mjs flipPending), so the points are
+   * written turned half a turn about the centre, as the GPU's points lie now; the next run's
+   * flip pass carries them where they belong. Returns n.
+   */
+  append(data, n, mirrored = false) {
+    if (!(n > 0)) return 0;
+    if (this.count + n > this.maxParticles) throw new RangeError(`append: no room for ${n} points (${this.count} of ${this.maxParticles} in use)`);
+    const src = data.slice(0, n * PARTICLE_WORDS), line = Math.fround(this.glass.cy);
+    const cx2 = 2 * this.glass.cx, cy2 = 2 * this.glass.cy;
+    for (let i = 0; i < n; i++) {
+      const o = i * PARTICLE_WORDS;
+      if (!(src[o + 1] > line)) throw new RangeError('append: every point must lie above the counting line');
+      if (mirrored) { src[o] = cx2 - src[o]; src[o + 1] = cy2 - src[o + 1]; src[o + 2] = -src[o + 2]; src[o + 3] = -src[o + 3]; }
+    }
+    const d = this.device, b = this.buffers;
+    d.queue.writeBuffer(b.particles, this.count * PARTICLE_WORDS * 4, src, 0, n * PARTICLE_WORDS);
+    this.count += n;
+    d.queue.writeBuffer(b.count, 0, new Uint32Array([this.count, this.maxParticles, 0, 0]));
+    return n;
   }
 
   /**
    * Write one uniform slot. f: the substep's field { gravity:[x,y] cells/s²
-   * (grid frame), omega, alpha (grid frame), cor (Coriolis factor), gate }.
+   * (grid frame), omega, alpha (grid frame), cor (Coriolis factor), gate };
+   * neck: the valve's words for the run (run()), or none (the neck off); s the substep.
    */
-  writeSlot(slot, set, f, iteration, frame) {
+  writeSlot(slot, set, f, iteration, frame, neck, s = 0) {
     const o = slot * SLOT / 4, F = this.uf, U = this.uu, m = set.material;
     U[o] = this.W; U[o + 1] = this.H;
     F[o + 2] = 1 / set.hz;
@@ -351,7 +420,8 @@ export class Solver {
     F[o + 26] = f.gate ? 1 : 0; F[o + 27] = this.glass.rn;
     F[o + 28] = m.viscosity; F[o + 29] = m.model === 2 ? (m.restPacking ?? 1) : m.relaxation; F[o + 30] = m.elasticity; F[o + 31] = m.model === 2 ? (m.coneK || 0) : m.plasticity;
     F[o + 32] = m.frictionAngle; F[o + 33] = m.density; F[o + 34] = m.stiffness; F[o + 35] = m.model;
-    F[o + 36] = 0; F[o + 37] = 0; F[o + 38] = 0; F[o + 39] = m.floorLoose ?? 0;
+    F[o + 36] = neck ? neck.vcap : 0; F[o + 37] = neck ? neck.allow[Math.min(s, neck.allow.length - 1)] : 0;
+    U[o + 38] = neck ? neck.flags : 0; F[o + 39] = m.floorLoose ?? 0;
     F[o + 40] = m.spread ?? 0; F[o + 41] = m.spreadThr ?? 0.8; F[o + 42] = m.spreadCap ?? 0.05; F[o + 43] = 0;
     F[o + 44] = m.compact ?? 0; F[o + 45] = m.packMax ?? 1; F[o + 46] = m.dilate ?? 1; F[o + 47] = 0;
     F[o + 48] = m.yieldLoop ?? 0; F[o + 49] = m.yieldScale ?? 1; F[o + 50] = m.yieldStep ?? 0; F[o + 51] = m.yieldStep >= 2 ? (m.loadScale ?? 2) : (m.yieldStepScale ?? 1);
@@ -361,20 +431,40 @@ export class Solver {
    * Encode `steps` substeps (at most the cap), with fieldAt(k) giving substep
    * k's field, and a tally; then `after(encoder)` (drawing) and submit.
    * Returns a promise of the tally (or null if every readback slot is busy).
+   *
+   * neck: the metered neck's words for this run, from valve.mjs run() (none: the neck is off,
+   * words 36-38 are 0, as in the lab): { flip, vcap, allow (per substep), flags }. Give the valve
+   * the same number of substeps (no more than the cap). The run begins with the flip pass when
+   * flip is set; then counters[3], the points above at the run's start, is the last tally's
+   * count above (below, in a run that flipped: those are now above) and counters[2, 4, 5, 6] are
+   * cleared. The readback carries what valve.mjs onReadback takes.
    */
-  run(steps, set, fieldAt, after) {
+  run(steps, set, fieldAt, after, neck = null) {
     const d = this.device, b = this.buffers, P = this.pipelines, G = this.groups;
     steps = Math.min(steps, this.cap);
     const its = set.iterations;
     for (let s = 0; s < Math.max(steps, 1); s++) {
       const f = fieldAt(s);
-      for (let it = 0; it < its; it++) this.writeSlot(s * MAX_IT + it, set, f, it, this.frame + s);
+      for (let it = 0; it < its; it++) this.writeSlot(s * MAX_IT + it, set, f, it, this.frame + s, neck, s);
     }
     d.queue.writeBuffer(b.uniforms, 0, this.uniformData, 0, Math.max(steps, 1) * MAX_IT * SLOT);
     const enc = d.createCommandEncoder({ label: 'lab frame' });
-    enc.clearBuffer(b.tally);
-    const pass = enc.beginComputePass({ label: 'lab PB-MPM' });
     const n64 = Math.ceil(this.count / 64);
+    const flip = !!(neck && neck.flip);
+    if (flip && this.count) {
+      // the flip pass, and the grids, the wall's grip and the load cleared as an upload does
+      const fp = enc.beginComputePass({ label: 'lab flip' });
+      fp.setPipeline(P.flip); fp.setBindGroup(0, G.flip, [0]); fp.dispatchWorkgroups(n64); fp.end();
+      this.dispatched++;
+      for (const k of ['grid0', 'grid1', 'wall', 'load']) enc.clearBuffer(b[k]);
+    }
+    enc.copyBufferToBuffer(b.tally, flip ? 8 : 4, b.counters, 12, 4);
+    enc.clearBuffer(b.counters, 8, 4);
+    enc.clearBuffer(b.counters, 16, 12);
+    const frame0 = this.frame;
+    enc.clearBuffer(b.tally);
+    enc.clearBuffer(b.surface);
+    const pass = enc.beginComputePass({ label: 'lab PB-MPM' });
     const go = (pipe, group, slot, size) => {
       pass.setPipeline(pipe); pass.setBindGroup(0, group, [slot * SLOT]); this.dispatched++;
       if (Array.isArray(size)) pass.dispatchWorkgroups(...size); else if (typeof size === 'number') pass.dispatchWorkgroups(size);
@@ -413,18 +503,24 @@ export class Solver {
     if (steps) { this.frame += steps; this.lastHz = set.hz; }
     const slot = this.readbacks.find(r => !r.pending);
     if (slot) {
-      enc.copyBufferToBuffer(b.counters, 0, slot.buffer, 0, 16);
-      enc.copyBufferToBuffer(b.tally, 0, slot.buffer, 16, TALLY_WORDS * 4);
+      enc.copyBufferToBuffer(b.counters, 0, slot.buffer, 0, COUNTER_WORDS * 4);
+      enc.copyBufferToBuffer(b.tally, 0, slot.buffer, COUNTER_WORDS * 4, TALLY_WORDS * 4);
     }
     if (after) after(enc);
     d.queue.submit([enc.finish()]);
     if (!slot) return null;
     slot.pending = true;
     return slot.buffer.mapAsync(GPUMapMode.READ).then(() => {
-      const u = new Uint32Array(slot.buffer.getMappedRange().slice(0));
+      const u = new Uint32Array(slot.buffer.getMappedRange().slice(0)), t = COUNTER_WORDS;
       slot.buffer.unmap(); slot.pending = false;
-      return { clamped: u[0], maxMove: u[1] / 1000, points: u[4], above: u[5], below: u[6], outside: u[7], nan: u[8],
-        maxSpeed: u[9] / 4, meanSpeed: u[4] ? u[10] / 4 / u[4] : 0, moving: u[11] };
+      return { clamped: u[0], maxMove: u[1] / 1000, points: u[t], above: u[t + 1], below: u[t + 2], outside: u[t + 3], nan: u[t + 4],
+        maxSpeed: u[t + 5] / 4, meanSpeed: u[t] ? u[t + 6] / 4 / u[t] : 0, moving: u[t + 7],
+        // the metered neck's (valve.mjs onReadback)
+        crossings: u[2], start: u[3], refused: u[4], upward: u[5], queue: u[t + 8], crowdSpeed: u[t + 9] / 4, brim: u[t + 10],
+        // the substep of the run (0 first) in which the last point crossed the line; -1: none crossed
+        lastCross: u[6] ? u[6] - 1 - frame0 : -1,
+        // the depth of the lowest point below the counting line, cells (the lab's Timer times the first fall with it)
+        deepest: u[t + 11] / 16 };
     }, e => {
       slot.pending = false;
       if (!this.readbacks.includes(slot)) return null;   // the glass was rebuilt while this was in flight
@@ -441,6 +537,19 @@ export class Solver {
     d.queue.submit([e.finish()]);
     await staging.mapAsync(GPUMapMode.READ);
     const out = new Float32Array(staging.getMappedRange().slice(0));
+    staging.unmap(); staging.destroy();
+    return out;
+  }
+
+  /** Per column, the highest point at rest (tally.wgsl; grid y x 16, 0: none): [0, W) above the line, [W, 2W) below. */
+  async readSurface() {
+    const d = this.device, size = 2 * this.W * 4;
+    const staging = d.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const e = d.createCommandEncoder();
+    e.copyBufferToBuffer(this.buffers.surface, 0, staging, 0, size);
+    d.queue.submit([e.finish()]);
+    await staging.mapAsync(GPUMapMode.READ);
+    const out = new Uint32Array(staging.getMappedRange().slice(0));
     staging.unmap(); staging.destroy();
     return out;
   }

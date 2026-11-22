@@ -960,6 +960,8 @@ physics.js                  the sand simulation, the glass, cracks and spilled s
 audio.js                    the procedural sound engine
 motion.js                   the phone's motion sensors
 sw.js  manifest.json        offline cache and install metadata
+realsand/                   the GPU sand engine the sand lab runs (not loaded by the app yet)
+lab/sand/                   the sand lab, a test page that is not the app
 icons/                      app icons and iPhone launch screens (icons/splash)
 docs/images/                the pictures in this README and the install screenshots
 tools/icons.html            regenerates the icons from one SVG
@@ -1095,6 +1097,28 @@ node tools/test/app-gestures.test.js     # any single suite
   held whole, where the backlog must be re-timed exactly once, and cracked by
   the shake as the app meets it, where spilled sand and backlog cancel in
   part and the run is re-timed only where that is needed.
+- `realsand-*`: the parts of the GPU sand engine (`realsand/`) that need no
+  GPU, in Node, in seconds. `realsand-valve` checks the valve
+  (`realsand/valve.mjs`), which keeps the count above the neck in the app's
+  whole grains and meters the GPU's neck, against a model of that neck and of
+  the app's clock (`tools/test/lib/realsand-plant.js`): six grain settings
+  with pours, Flips, spins, a tilt swap in a pour with frames skipped, a sleep
+  and its catch-up (also with a pour while its transfer is owed), a Reset;
+  long glasses, also run again by a Flip after their end, the slowest and
+  fastest rests, a throttle stronger or weaker than the valve assumes, calm,
+  a phone held in the hand, shaking, a straggler, readbacks 15 frames late, a
+  bed that first settles on the shut neck. No point may leave so that fewer
+  are above than the clock's target in any substep, the count must be the
+  clock's own while the neck keeps up and must never go back, the top bulb
+  must never be empty while the clock runs, and the last point must leave
+  within one substep of 00:00.0; readbacks that stop must be noticed within
+  60 runs; the first version's bookkeeping, kept as its control, lets sand
+  through early.
+  `realsand-fill` checks the fills (exactly the points asked for on every
+  grid and amount, all inside the glass; a target that is not a number is
+  refused), the grains' colour seeds against the grain shader's own hash, and
+  the felt jolts against the lab's code from before they moved to
+  `realsand/`.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
@@ -1131,7 +1155,17 @@ stretch was spent, telling the app's own work from that.
 loads it, and it changes nothing in the app. It tries a different sand
 engine, position-based MPM (EA's PB-MPM, by way of the Smoosh solver) on
 WebGPU, in the app's classic glass, so the sand can be judged by eye and by
-hand on an iPhone before anything in the app changes. Open
+hand on an iPhone before anything in the app changes. The engine itself
+(the solver, its shaders, the glass on the solver's grid, the palette, the
+GPU's pace, the fills, the grains' drawing, auto Hz and the glass's jolts as
+the sand feels them) lives in `realsand/`, which the lab imports, so that
+the app can later load the same files. The engine also has the metered neck
+that is to keep the app's time exact with this sand (`realsand/valve.mjs`
+keeps the count; the solver's throttle just above the counting line and its
+membrane, which lets a grain cross only downward and only with a ticket,
+hold the sand above to the clock's target in every substep; a flip pass
+turns the grains end for end when the glass is swapped); it is off unless a
+run is given the valve's words, so the lab's sand behaves as before. Open
 `https://elkhanany.github.io/hourglass/lab/sand/` in Safari (iOS 26 or
 later, which has WebGPU). The phone's motion (**Real motion**), a finger on
 the glass, **Flip** and **Reset** move the sand; the buttons choose the
@@ -1150,7 +1184,7 @@ the next visit instead (Copy results says which). At most two frames of
 work go to the GPU at a time, and a frame's substeps (the GPU budget) are
 cut when frames had to be skipped because the GPU was still busy and raised
 while it keeps up, never below what the base rate needs to keep real time
-unless the GPU cannot give even that (`lab/sand/pace.mjs`). Predicted, not
+unless the GPU cannot give even that (`realsand/pace.mjs`). Predicted, not
 yet measured on a phone: what is on screen follows the phone within about
 two frames. Most of the gain over 5cc11b3 is the smaller default: at the
 old pace the medium quarter glass trailed the phone by 350 to 730 ms, while
@@ -1196,11 +1230,55 @@ Portrait Orientation Lock in Control Center (otherwise turning the phone
 turns the page, and the page says so), and turn Low Power Mode off (it
 halves the display rate). It loads nothing from anywhere else and registers
 no service worker of its own; the app's service worker (`sw.js`, whose
-scope covers `lab/`) leaves everything under `lab/` to the network and never
-caches it, so an update shows on the next load (`app-regression` checks
-this). Its
+scope covers `lab/`) leaves everything under `lab/` and `realsand/` to the
+network and never caches it, so an update shows on the next load
+(`app-regression` checks this). Its
 solver keeps Smoosh's MIT and EA's BSD-3-Clause notices
-(`lab/sand/LICENSES.md`).
+(`realsand/LICENSES.md`).
+The engine, `realsand/`, is its own folder so that the lab now, and the
+app later, load the same files: the solver and its shaders, the glass on the
+solver's grid, the fills, the grains' drawing, auto Hz, the felt jolts, the
+GPU's pace, and the valve (`valve.mjs`), which keeps the count above the
+neck in the app's whole grains and meters the GPU's neck once a frame.
+`realsand/build.mjs` holds a build stamp, raised with every change to the
+engine; Copy results says which stamp the lab found and which it was written
+for. **Timer** (under More) runs the sand as the app will: it fills the
+app's amount for a glass (10 s, 1, 10 or 60 minutes, or the 60-minute amount
+timed to 4 or 30 minutes; the app's square-root rule on its phone glass, so
+1,155 grains for 10 s and 21,917 for an hour, 1.69 points a grain on the
+coarse grid) in coarse sand at app speed, lets it settle 0.5 s on the shut
+neck, then runs the app's clock, tail and breathing included, through the
+valve. The HUD shows the count against the clock's target, the GPU's
+shortfall in points, the queue resting on the line, the throttle's speed
+(vcap), refused crossings a second and the stream's first fall from the
+neck to the floor; at the end, when the last grain left against 00:00.0,
+and any grains left above (the residue, which the app will move by a
+transfer). Flip turns the glass with the neck shut and the clock stopped,
+and swaps the bulbs when the turn ends. Before its clock starts the Timer
+times the GPU on its bed by a burst: with nothing else in flight, 24 and 96
+substeps ten times each, the cost a substep being the difference of the
+medians over 72, which takes out a submit's fixed latency (**GPU cost** does
+the same on the bed in the glass). More, **mode**: full (every frame, auto
+Hz: the lab as it was, its default), calm (30 frames a second at the same
+480 substeps a second, auto Hz off) or auto, the app's rules: full while the
+glass is turned, touched or felt to move, at a run's start, in its tail and
+for 2 s after; calm otherwise; asleep, with no GPU work at all, once nothing
+runs and the sand is still, until it is touched, felt to move or leaned more
+than a degree from where it fell asleep (the phone's motion is read every
+frame, asleep too); and a heat guard that drops to calm a glass that has run
+under 0.6 of real time for 20 s in a row. A Timer starts in auto unless
+a mode was chosen by hand. **Rotor probe** (`?rotor=1`; `&bed=10s` or another
+Timer glass for a smaller bed) is the app's stack
+of canvases: the grains' canvas between two WebGL canvases in a div that CSS
+turns, with the 60-minute bed spinning freely at up to 16 rad/s on a shut
+neck and the bulbs swapped at every half turn; a frame whose run is skipped
+while the canvas still shows the bed from before a swap turns that canvas
+half a turn itself (an option skips every third run), and a mark at the far
+end of the bulb that holds the sand shows a frame with the sand in the
+wrong bulb. Copy results adds the Timer's record and ends, the bursts, the
+time spent in each mode, the Rotor probe's counts and a lifecycle log
+(visibility changes, a lost device with its reason and the time since the
+page was shown, the start-up times).
 `node tools/test/lab-sand.test.js [--port <n>] [--only 2,6,9] [--shots <dir>]`
 runs it headless in Chromium with WebGPU in software (SwiftShader), on its
 coarse grid with little sand and the clock driven by the test; it takes
@@ -1211,15 +1289,28 @@ stream, syrup, creep), with the measures in `tools/test/lib/sand-measures.js`;
 case 19 the live loop's pace (at most two frames of work in flight, the lag
 within two display frames, or on this software GPU, where a single substep
 takes longer than a display frame, two such frames and one display frame;
-the old pace is its control). Cases 12, 13 and 18 hold the sand to no worse
+the old pace is its control); case 20 the Timer (a 10 s glass with a Flip,
+and the 1-minute amount timed to 12 s: no grain crosses below the clock's
+target, the last one leaves in the substep that holds 00:00.0 or after it,
+within a frame, no residue, for the 10 s glass under 0.5 % of the runs
+short in the bulk (from 2 s after the start, its first 2 s logged apart),
+and the burst puts the
+sand back exactly); case 21 the modes on a resting bed (calm and full
+alternated ten times move it less than half a cell, and in auto a still bed
+sleeps until touched, leaned 5 degrees or turned); case 22 the Rotor probe (the sand always in
+the bulb the ledger says, and the canvas turned exactly in the frames whose
+run was skipped since a swap). `node tools/test/lab-timer.test.js` checks
+the Timer's arithmetic in Node in a second: the amounts, the clock, the
+modes and the heat guard. Cases 12, 13 and 18 hold the sand to no worse
 than 5cc11b3 and say real sand's target beside it: passing them is not
 realism. `node tools/test/lab-pace.test.js` checks the pace in Node in a
 second, against models of a phone's GPU. The tests step the sand with auto
 Hz free to reach 1440 (2880 at real speed); `__lab.settings({ hzMax: 960 })`
 steps it as a phone's GPU budget may hold it, which changes how a jerk
 settles. The lab test's failing checks
-are the sand's open problems, so `run-all.js` runs the lab suites only when
-asked (`node tools/test/run-all.js lab-`).
+are the sand's open problems, so `run-all.js` runs `lab-sand` only when
+asked (`node tools/test/run-all.js lab-`); `lab-timer` and `lab-pace`, in
+Node, run with every other suite.
 
 ## Icons and launch screens
 

@@ -5,9 +5,10 @@
 // Hourglass sand lab changes (GPL-3.0 project): no rigid bodies or shapes;
 // the glass wall has slip-stick Coulomb friction (tangential motion is cut
 // by mu times the motion into the wall, and stops when that is more); the
-// one-cell-per-substep clamp is a setting and is counted; a closed neck; it
-// also zeroes the next grid at the same node (gridClear's work, folded in to
-// save a dispatch: the two touch different buffers).
+// one-cell-per-substep clamp is a setting and is counted; a closed neck; the
+// metered neck's throttle; it also zeroes the next grid at the same node
+// (gridClear's work, folded in to save a dispatch: the two touch different
+// buffers).
 //-----------------------------------------------------------------------------
 //!include common.inc
 //!include domain.inc
@@ -69,6 +70,19 @@ fn csMain(@builtin(global_invocation_id) invocation: vec3u) {
     if (g_simConstants.gate.x > 0.5 && abs(position.x - g_simConstants.center.x) < g_simConstants.gate.y + 3.0 &&
         position.y < g_simConstants.neckY + 1.5 && position.y > g_simConstants.neckY - 2.0) {
         displacement.y = max(displacement.y, 0.0);
+    }
+
+    // The metered neck's throttle (valve.mjs): in a band just above the counting line the sand
+    // moves down no faster than vcap, which keeps a small queue resting on the line for the
+    // membrane (g2p2g.wgsl) to meter; just below the line nothing moves up. The band lies above
+    // the line, so a point that has crossed falls freely.
+    if (neckOn() && abs(position.x - g_simConstants.center.x) < g_simConstants.gate.y + 3.0) {
+        let dy = position.y - g_simConstants.neckY;
+        if (dy >= 0.0 && dy < 2.5) {
+            displacement.y = max(displacement.y, -g_simConstants.vcap * g_simConstants.deltaTime);
+        } else if (dy < 0.0 && dy > -2.5) {
+            displacement.y = min(displacement.y, 0.0);
+        }
     }
 
     // Bound transport BEFORE G2P derives its affine deformation, not afterward.

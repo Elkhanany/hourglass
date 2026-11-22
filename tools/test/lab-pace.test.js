@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * The sand lab's GPU pace (lab/sand/pace.mjs) in Node, without a browser: a model of the
+ * The sand lab's GPU pace (realsand/pace.mjs) in Node, without a browser: a model of the
  * page's frame loop (main.mjs loop(): skip while S.queue frames are in flight, the budget,
  * auto Hz held under it, the substeps a frame) driving the very functions the page uses,
  * against three models of when a phone's GPU reports a frame done:
@@ -22,7 +22,8 @@
  * substep), the lag stays within 2 frames of its work and the frames keep coming. Control:
  * 9b0a9f1's rule (the budget from submit-to-done over substeps, 1 frame in flight), kept
  * below, collapses under the floor and vsync models (sim/real < 0.2): the fault these checks
- * would catch.
+ * would catch. From full to calm the budget, substeps a frame, is scaled with the frame's
+ * time, so calm's first frames run the 16 substeps they need (control: unscaled, 9, 10, 10, ...).
  *
  *   node tools/test/lab-pace.test.js
  */
@@ -122,7 +123,7 @@ function f2(x) { return (Math.round(x * 100) / 100).toString(); }
 function desc(r) { return 'fps ' + f2(r.fps) + ' of ' + f2(r.display) + ', sim/real ' + f2(r.simReal) + ', rate ' + r.hz + ', budget ' + r.budget + ' (lowest ' + r.minBudget + ', base need ' + r.need + '), lag ' + f2(r.lag) + ' ms, ' + r.peak + ' in flight, ' + Math.round(100 * r.skipped) + '% skipped'; }
 
 async function main() {
-  var P = await import(path.join(__dirname, '..', '..', 'lab', 'sand', 'pace.mjs'));
+  var P = await import(path.join(__dirname, '..', '..', 'realsand', 'pace.mjs'));
   var Q = P.QUEUE_DEFAULT;
   check(Q === 2, 'the page allows 2 frames of GPU work in flight by default (' + Q + ')');
   log('Models of a phone (predictions, not measurements); the sand wants 1440 Hz throughout:');
@@ -166,6 +167,32 @@ async function main() {
   var s2 = P.paceSubmit(p, 3600);
   var late = P.paceDone(p, s1, 10, 4000, 16);
   check(!late && p.inflight === 1 && P.paceDone(p, s2, 10, 20, 16) && p.inflight === 0, 'a late promise from before the 3-s valve is ignored; the newer frame stays counted until its own');
+  // full to calm (the page's loop: calm draws every other display frame, at the same substep
+  // rate): a budget learnt in full (9 substeps a frame, a phone held near 540 Hz) is scaled with the
+  // frame's time, so calm's frames run their 16 at once; a GPU that keeps up (no skips)
+  var calm = function (scale) {
+    var q = P.newPace(), hz = 480, cap = 24, T0 = 1000 / 60, acc = 0, last = 0, out = [];
+    q.budget = 9; q.binding = true;
+    for (var f = 0; f < 60; f++) {
+      var now = f * T0, mode = f < 20 || f >= 40 ? 'full' : 'calm', T = mode === 'calm' ? 1000 / 30 : T0;
+      if (scale) P.paceFrame(q, T);
+      if (mode === 'calm' && last && now - last < T - 0.5 * T0) { acc = Math.min(acc + T0 / 1000, Math.min(cap, q.budget) / hz); continue; }
+      last = now;
+      P.paceBudget(q, { now: now, need: Math.ceil(hz * T / 1000), top: 72, last: 0 });
+      var capF = isFinite(q.budget) ? Math.max(1, Math.min(cap, q.budget)) : cap, avail = acc + T0 / 1000;
+      acc = Math.min(avail, capF / hz);
+      var dropped = avail - acc, steps = Math.min(capF, Math.floor((acc + 1e-9) * hz));
+      acc -= steps / hz; q.binding = dropped > 1e-6 && capF < cap;
+      P.paceDone(q, P.paceSubmit(q, now), steps, 5, T);
+      out.push({ f: f, mode: mode, steps: steps, budget: q.budget });
+    }
+    return out;
+  };
+  var cs = calm(true), co = calm(false);
+  var firstCalm = function (o) { return o.filter(function (x) { return x.mode === 'calm'; }).slice(0, 4).map(function (x) { return x.steps; }); };
+  var backFull = cs.filter(function (x) { return x.f >= 40; })[0];
+  check(firstCalm(cs).every(function (k) { return k >= 16; }) && backFull.budget === 9 && firstCalm(co)[0] < 16,
+    'from full to calm the budget is scaled with the frame\'s time: calm\'s first frames run ' + firstCalm(cs).join(', ') + ' substeps (16 needed), and back in full ' + backFull.budget + ' a frame; control, unscaled: ' + firstCalm(co).join(', '));
 }
 
 main().catch(function (e) { failures++; log('FAIL  ' + (e && e.stack || e)); }).then(function () {

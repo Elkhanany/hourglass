@@ -4,7 +4,7 @@
 // Smoosh adaptation: Copyright (c) 2024 Alex Birch & Erik Sombroek (MIT, see ../LICENSES.md)
 // Hourglass sand lab changes: one material at a time, a glass-frame body
 // force (any gravity, the glass's own acceleration and turning), Coulomb wall
-// friction, a neck gate. Part of the Hourglass project (GPL-3.0).
+// friction, a neck gate, a metered neck. Part of the Hourglass project (GPL-3.0).
 //
 // This file gathers what EA's and Smoosh's dispatch.inc, simConstants.inc,
 // particle.inc, matrix.inc, bukkit.inc and domain.inc held.
@@ -65,9 +65,17 @@ struct SimConstants {
     // x: 1 while the neck is closed, y: the neck's half-width, cells
     gate: vec2f,
     material: MaterialParams,
-    // sand: x, y, z: unused; w: how far loose sand may be compressed freely, as a share of its
-    // looseness (0: not at all; it packs down at the rate its load gets through the constraint)
-    sand: vec4f,
+    // the metered neck (valve.mjs; all 0 in the lab: off). vcap: the throttle's speed, cells/s of
+    // simulated time (1e9: open); allow: this substep's tickets beyond the sand above at the run's
+    // start (an exact integer: the points appended since the last run less the substep's target;
+    // -1e9: none); neckFlags: bit 0, the throttle bands (gridUpdate.wgsl) and the membrane
+    // (g2p2g.wgsl, spreadShift.wgsl) are on
+    vcap: f32,
+    allow: f32,
+    neckFlags: u32,
+    // sand: how far loose sand may be compressed freely, as a share of its looseness (0: not at
+    // all; it packs down at the rate its load gets through the constraint)
+    floorLoose: f32,
     // the points' spreading (spreadShift.wgsl): x: step, y: crowding threshold, z: longest step
     // (cells); w: unused
     spread: vec4f,
@@ -122,7 +130,7 @@ struct Particle
     volume: f32,
     material: f32,
     padding: f32,       // sand: the point's own packing (g2p2g.wgsl; 0: not yet set)
-    color: vec3f,       // x: the grain's own random number (drawing only)
+    color: vec3f,       // x: the grain's colour seed, an integer (drawing only; fill.mjs packParticles)
 }; // 24 floats
 
 fn projectInsideGuardian(p : vec2f, gridSize : vec2u, guardianSize : f32) -> vec2f
@@ -269,4 +277,16 @@ fn bodyForce(p: vec2f, v: vec2f) -> vec2f {
     var f = g_simConstants.gravity + w*w*r - a*vec2f(-r.y, r.x);
     f -= g_simConstants.coriolis * 2.0 * w * vec2f(-v.y, v.x);
     return f;
+}
+
+// ---- the metered neck (valve.mjs) ---------------------------------------------
+// The counting line is grid y = neckY: a point above it (y > neckY) is in the top bulb, one on
+// it or below in the lower bulb (tally.wgsl counts the same way). With neckFlags bit 0 the sand
+// crosses it only downward and only with a ticket (g2p2g.wgsl), and in a band just above it
+// moves down no faster than vcap (gridUpdate.wgsl).
+
+const NeckOn = 1u;
+
+fn neckOn() -> bool {
+    return (g_simConstants.neckFlags & NeckOn) != 0u;
 }

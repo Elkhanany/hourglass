@@ -7,7 +7,7 @@
 'use strict';
 
 // Bump on every release: a new name retires the previous cache.
-var VERSION = 'hourglass-v1.8.2';
+var VERSION = 'hourglass-v1.8.3';
 
 var SHELL = [
   './',
@@ -62,6 +62,9 @@ self.addEventListener('fetch', function (event) {
   // test pages under lab/ are not part of the app: always from the network,
   // never cached, never answered with the app shell
   if (url.pathname.indexOf(scopePath + 'lab/') === 0) return;
+  // the sand engine under realsand/ (which the lab imports) is not part of the
+  // app yet either: from the network too, never cached
+  if (url.pathname.indexOf(scopePath + 'realsand/') === 0) return;
 
   event.respondWith(
     caches.open(VERSION).then(function (cache) {

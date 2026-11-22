@@ -15,7 +15,7 @@
   Hourglass sand lab: a test page for a new sand engine (position-based MPM
   on WebGPU). It is not the app and changes nothing in it.
   Part of the Hourglass project (GPL-3.0); the solver derives from Smoosh
-  (MIT) and EA's PB-MPM (BSD-3-Clause): see LICENSES.md.
+  (MIT) and EA's PB-MPM (BSD-3-Clause): see ../../realsand/LICENSES.md.
 -->
 <div id="stage">
   <canvas id="c-back"></canvas>
@@ -82,6 +82,14 @@
     <button class="act small cyc" data-key="yieldIn"></button>
     <button class="act small cyc" data-key="queue"></button>
     <button class="act small cyc" data-key="budget"></button>
+    <button class="act small cyc" data-key="mode"></button>
+    <button id="b-timer" class="act small">Timer</button>
+    <button id="b-cost" class="act small">GPU cost</button>
+    <button id="b-rotor" class="act small">Rotor probe</button>
+  </div>
+  <div class="row" id="rotor-row" hidden>
+    <button id="b-spin" class="act small"></button>
+    <button id="b-skip3" class="act small"></button>
   </div>
   <div class="row">
     <button id="b-hud" class="act small on">HUD</button>
