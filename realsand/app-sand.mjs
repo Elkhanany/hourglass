@@ -20,7 +20,8 @@
  *    scale); rotor, cSand: #rotor and #c-sand (RealSand makes #c-gpu after #c-sand and takes its
  *    CSS box); timer: the app's clock state T (state, rem, tailMs, lastTick are read);
  *    offscreen: draw into a texture and show it on a 2-D canvas (headless tests: their WebGPU
- *    canvas cannot present); onLost(info), onBack(): below.
+ *    canvas cannot present); allowFallback: accept a software adapter (headless tests only);
+ *    onLost(info), onBack(): below.
  *  await real.start()       the device, the pipelines, the buffers, a self-test (no latency
  *                           limit: a slow start is not a failure). Throws an Error with code,
  *                           message and capability (true: WebGPU or a usable adapter is missing,
@@ -191,7 +192,8 @@ export class RealSand {
       const cap = e && (e.code === 'nogpu' || e.code === 'noadapter');
       throw startError(cap ? e.code : 'device', cap ? (e.code === 'nogpu' ? 'Needs WebGPU (iOS 26 or later)' : 'No graphics adapter for WebGPU') : 'The graphics device could not be opened: ' + (e && e.message || e), cap, e);
     }
-    if (dev.info && dev.info.fallback) {
+    // (allowFallback: tests only, whose headless browser has nothing but a software adapter)
+    if (dev.info && dev.info.fallback && !this.o.allowFallback) {
       try { dev.device.destroy && dev.device.destroy(); } catch (e) { /* (gone already) */ }
       throw startError('fallback', 'This device\'s graphics are too slow for Real sand', true);
     }

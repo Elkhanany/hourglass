@@ -631,6 +631,17 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     'hidden across the end: back with ' + aboveBack + ' grains above, caught up by ' + rH2.n.transfers + ' transfer(s) and drained, the glass empty ' +
     (emptyAt === null ? 'never' : f1(emptyAt - backAt) + ' ms') + ' after the page showed; nTop never 0 with a point above');
 
+  // a transfer whose readback never comes (a hung device): abandoned after 1 s, the CPU Sim brought to
+  // the ledger's counts and the GPU filled from it; the glass still ends on time
+  var H3 = makeApp({ ms: 10000, seed: 93, xferFrames: 1e9 });
+  var rH3 = await H3.attach(); H3.calibrate(); H3.T.rem = H3.T.durationMs; H3.start();
+  await H3.run(2500);
+  H3.hide(3000);
+  await runGlass(H3, 6000, []);
+  endOk(H3, 'a transfer that never came back');
+  check(rH3.n.xferTimeouts === 1 && rH3.n.transfers >= 1 && H3.stats.censusOff === 0,
+    'the transfer was abandoned after 1 s (' + rH3.n.xferTimeouts + '), the GPU filled again from the CPU Sim at the ledger\'s counts');
+
   // a sequence's phase ending while the page is hidden: the unseen turn's fill waits for the page to show (7.7)
   var F2 = makeApp({ ms: 10000, seed: 72 });
   var rF2 = await F2.attach(); F2.calibrate(); F2.T.rem = F2.T.durationMs; F2.start();
@@ -730,6 +741,19 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   check(calmShare > 0.95 && motionAt < 0 && modesSeen.full > 0 && Y.lastMotionAt > 0,
     'held still in the hand (0.01 g of tremor, 0.08 rad/s): calm ' + Math.round(100 * calmShare) + ' % of frames once the run\'s start is over, and motionActive never set (the catch-up stays allowed); a 0.3 g jolt held 0.6 s: full, and motion');
   Y.onFrame = null; Y.motionIn = null;
+
+  // the heat guard: full (a hand shaking the glass) and slower than 0.6 of real time for 20 s: calm
+  var K = makeApp({ ms: 120000, seed: 161 });
+  var rK = await K.attach(); K.calibrate(); K.T.rem = K.T.durationMs; K.start();
+  K.motionIn = function (a, now) { return { fx: 0.15 * Math.sin(now / 50), fy: 0, w: 0 }; };
+  var guardAt = null, t0K = K.V.wall;
+  K.after = function (a) { if (guardAt === null && rK.modes.guard) guardAt = a.V.wall - t0K; };
+  // frames of 120 ms (a GPU too slow for the bed): each run holds at most 50 ms of sand time
+  var endK = K.V.wall + 24000;
+  while (K.V.wall < endK) { K.V.frame++; K.env.pump(); await tick(); K.frame(120); }
+  K.after = null; K.motionIn = null;
+  check(guardAt !== null && guardAt >= 20000 && guardAt < 22000 && rK.modes.mode === 'calm',
+    'the heat guard: shaken (full) at 0.42 of real time, the glass ran calm after ' + (guardAt === null ? 'never' : f1(guardAt / 1000) + ' s'));
 
   // asleep: a paused glass at rest runs nothing; wakeAll wakes it only past 1 degree of lean
   Y.T.state = 'paused';
