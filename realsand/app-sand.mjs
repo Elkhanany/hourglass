@@ -1191,10 +1191,15 @@ export class RealSand {
       times: Object.assign({}, this.times), n: Object.assign({}, this.n), lost: this._lostInfo
     };
   }
-  /** Tests: the newest readback of this epoch against the ledger (valve.mjs audit), and the GPU's points. */
+  /**
+   * Tests: the newest readback of this epoch against the ledger (valve.mjs audit: its points
+   * above and below, with the pours made since its run, are the ledger's), and every point the
+   * GPU counted in that readback is above or below the line (none lost to a NaN). (The tally's
+   * own point count is from before any pour made since its run, so it is not the ledger's total.)
+   */
   audit() {
-    const a = this.valve.audit();
-    if (a && this._tally) { a.gpuPoints = this._tally.points; a.ok = a.ok && this._tally.points === a.total; }
+    const a = this.valve.audit(), t = this._tally;
+    if (a && t) { a.gpuPoints = t.points; a.ok = a.ok && t.points === t.above + t.below; }
     return a;
   }
 }
