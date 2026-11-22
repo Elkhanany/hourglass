@@ -11,7 +11,7 @@
  *                                             "realsand-" the sand engine's (Node,
  *                                             seconds: realsand-valve, -fill, -adapter,
  *                                             -shell); "realsand-gpu" the app's Real sand
- *                                             on WebGPU in software (about a minute)
+ *                                             on WebGPU in software (10 to 15 minutes)
  */
 'use strict';
 var fs = require('fs'), path = require('path'), cp = require('child_process');
@@ -20,7 +20,7 @@ var filter = process.argv[2] || '', port = 8810, failed = [], t0 = Date.now();
 // runs about an hour and a half and records open problems as failing checks,
 // so it runs only when the filter names it ("lab"). The lab's Node suites
 // (lab-pace, lab-timer: seconds) run with the rest. realsand-gpu runs the app's
-// Real sand on WebGPU in software (about a minute, every core busy): it too
+// Real sand on WebGPU in software (10 to 15 minutes, every core busy): it too
 // runs only when named ("gpu").
 var files = fs.readdirSync(__dirname).filter(function (f) {
   return /\.test\.js$/.test(f) && f.indexOf(filter) >= 0 &&
