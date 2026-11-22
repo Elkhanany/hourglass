@@ -285,6 +285,15 @@ function installWatch() {
           JSON.stringify({ frames: run.emptyF - run.doneF, zeroWithAPointAbove: run.zeroUp }));
     check(run.audit.length === 0 && run.audits > 100, 'RUN: every readback agreed with the ledger: never fewer points above than the clock\'s target',
           run.audits + ' readbacks; ' + JSON.stringify(run.audit).slice(0, 400));
+    // the owner's report says the same (stats().ends, what "Copy a report" carries for Gate B)
+    var ends = await page.evaluate(function () { return window.Hourglass.realSand.stats().ends; });
+    var le = ends && ends.lastPointMs.length ? ends.lastPointMs[ends.lastPointMs.length - 1] : null;
+    check(!!le && le.from !== null && le.from >= -le.substep - 0.5 && le.to <= FRAME + 0.5 && late === late && late >= le.from - 0.5 && late <= le.to + 0.5,
+          'RUN: the report gives the last point\'s crossing against 00:00.0, and it agrees with the GPU\'s substep record',
+          JSON.stringify({ report: le, late: late === late ? +late.toFixed(1) : null }));
+    check(!!ends && ends.belowTarget === 0 && ends.crossedShut === 0 && ends.auditFails === 0 && ends.audits > 100,
+          'RUN: the report counts no run below its target, no crossing while shut and no failed audit',
+          JSON.stringify({ runs: ends && ends.runs, belowTarget: ends && ends.belowTarget, crossedShut: ends && ends.crossedShut, audits: ends && ends.audits, auditFails: ends && ends.auditFails }));
     await frames(60);
     var e = await fresh();
     check(!!e.tally && e.tally.above === 0 && e.tally.points === e.pts && e.tally.nan === 0 && e.tally.outside === 0,

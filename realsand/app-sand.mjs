@@ -213,6 +213,11 @@ export class RealSand {
     this.times = { start: null, device: null, pipelines: null, selfTest: null, selfTestRun: null, firstFrame: null, glass: msGlass, fill: null };
     this.n = { runs: 0, skips: 0, calmSkips: 0, asleep: 0, cssTurns: 0, transfers: 0, xferTimeouts: 0, residues: 0, fills: 0,
       deferred: 0, readbackFails: 0, losses: 0, rebuilds: 0, pours: 0, swaps: 0, errors: 0, refills: 0, handoverCatchUps: 0, redraws: 0, guards: 0 };
+    // the owner's report on exact time, as the lab's Timer gives it (_onTally): runs read back, open
+    // runs whose crossings left fewer above than their lowest target (the membrane's promise
+    // broken), crossings while shut, audits and failed audits, and for each glass that ended, when
+    // the last point crossed against the clock's 00:00.0 (ms; the GPU's substep record)
+    this._ends = { runs: 0, below: 0, shutCross: 0, audits: 0, auditFails: 0, lastFor: null, last: [] };
     this._rng = rand32((cpu.rng | 0) ^ 0x5bd1e995);
     // layered sand on the GPU (design 7.4, layers.mjs): the tone pass, the layer schedule, the
     // crossing numbers it has reached (known: of the plan, from the readbacks; base: the plan's
@@ -1166,6 +1171,7 @@ export class RealSand {
     this.valve.onReadback(w.seq, t);
     t.simTime = tSim;
     this._tally = t;
+    this._endsOf(w, t);
     if (t.post && this.layers) this._toneCounts(toneWords(t.post), parity === undefined ? this.valve.parity : parity);
     const F = this._fall;
     if (F.from === null && t.crossings > 0 && t.below === t.crossings) { F.from = tSim; F.wallFrom = w.to; }
@@ -1174,6 +1180,36 @@ export class RealSand {
       F.log.push({ s: F.s, wall: F.wall, hz: this.rate.hz, mode: this.modes.mode });
       if (F.log.length > 8) F.log.shift();
       this.log(`Real sand: the stream's first fall ${F.s.toFixed(2)} s simulated, ${(F.wall / 1000).toFixed(2)} s on the clock (${this.modes.mode}, ${this.rate.hz} Hz)`);
+    }
+  }
+
+  /**
+   * Exact time for the owner's report (the lab's timerReadback does the same for its Timer): the
+   * membrane's promise in every open run, nothing across a shut neck, the ledger's audit, and the
+   * end: the first readback with no point above at or after the clock's 00:00.0 holds the
+   * substep of the last crossing (tally lastCross), given as a span of the clock's time.
+   */
+  _endsOf(w, t) {
+    const E = this._ends;
+    E.runs++;
+    if (w && w.targets) {
+      if (w.closed) E.shutCross += t.crossings;
+      else if (t.crossings > 0) {
+        let m = Infinity;
+        for (let i = 0; i < w.targets.length; i++) m = Math.min(m, w.targets[i]);
+        if (t.above < m) E.below++;
+      }
+    }
+    const a = this.valve.audit();
+    if (a) { E.audits++; if (!a.ok) E.auditFails++; }
+    const z = this.valve.endAt;
+    if (z !== null && Number.isFinite(z) && z !== E.lastFor && t.above === 0 && w && w.to >= z - 1e-6) {
+      E.lastFor = z;
+      const S = Math.max(1, w.steps | 0), sub = (w.to - w.from) / S, k = t.lastCross;
+      E.last.push(k >= 0
+        ? { from: +(w.from + k * sub - z).toFixed(1), to: +(w.from + (k + 1) * sub - z).toFixed(1), substep: +sub.toFixed(2) }
+        : { from: null, to: null, readAt: +(w.to - z).toFixed(1) });
+      if (E.last.length > 8) E.last.shift();
     }
   }
 
@@ -1522,7 +1558,9 @@ export class RealSand {
       ledger: v.stats(), fall: { s: F.s, wall: F.wall, floor: F.floor, log: F.log.slice() },
       layers: { on: this.layers, toner: !!this.toner, known: this._lay.known, share: this._lay.share, words: this._lay.words,
         developing: this._wall() < this._lay.until, tones: this.tones() },
-      times: Object.assign({}, this.times), n: Object.assign({}, this.n), lost: this._lostInfo
+      times: Object.assign({}, this.times), n: Object.assign({}, this.n), lost: this._lostInfo,
+      ends: { runs: this._ends.runs, belowTarget: this._ends.below, crossedShut: this._ends.shutCross,
+        audits: this._ends.audits, auditFails: this._ends.auditFails, lastPointMs: this._ends.last.slice() }
     };
   }
   /**

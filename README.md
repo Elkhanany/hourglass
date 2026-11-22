@@ -380,7 +380,11 @@ it. Tap it and paste the report into your message, with what you did (which
 glass, the phone still or in the hand, Real motion on or off) and what you
 saw. It holds how long the start took, the stream's first fall from the neck
 to the floor, the power mode and rate, each heat guard trip and the engine's
-log, from the app as you use it, home-screen web app included. To watch the
+log, from the app as you use it, home-screen web app included. Its `ends`
+part says, for each glass that ended, when the last grain crossed the neck
+against 00:00.0 (in ms, from the graphics chip's own record), and counts any
+run that let sand through ahead of the clock, any crossing while the neck
+was shut and any failed check of the count (all three should be 0). To watch the
 figures live, open the app in Safari with `?debug=sand` after its address
 (`https://elkhanany.github.io/hourglass/?debug=sand`): small white figures
 at the bottom left show the power mode, the rate, how fast the sand runs
