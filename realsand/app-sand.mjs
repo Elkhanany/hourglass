@@ -272,6 +272,7 @@ export class RealSand {
     this._upload(cpu.nTop, cpu.total);
     this._adopted = { flip: cpu.glassFlip | 0, total: cpu.total, top: cpu.nTop };
     await this._settle(SETTLE_S);
+    if (this._gone) throw startError('lost', 'The graphics chip was reset while Real sand took over the sand');
   }
 
   /** The app makes RealSand its sim (between two frames). */
@@ -496,7 +497,7 @@ export class RealSand {
       const recs = this._pourPoints(r.points);
       if (this._fillDue) { /* the fill to come holds them */ }
       else if (r.append) sol.append(recs, r.points, r.mirrored);
-      else { this._xferPours.push(recs); this._xferPourPts += r.points; }
+      else { this._xferPours.push({ recs, parity: v.parity }); this._xferPourPts += r.points; }
     }
     this._pourAt = this._wall(); this.n.pours++;
     this._landing(r.grains, 0.25, true);
@@ -1023,13 +1024,14 @@ export class RealSand {
    */
   _startTransfer(kind) {
     const v = this.valve, gen = ++this._xferGen;
-    this._xfer = { kind, t0: this._planNow, gen };
+    this._xfer = { kind, t0: this._planNow, gen, parity: v.parity };
     this.n.transfers++;
     if (v.flipPending) {
       const w = v.run({ steps: 0, now: this._planNow });
       const f = this._uprightField();
       this.solver.run(0, this._set(this.rate.hz), () => f, null, w);
     }
+    // (the points read back lie as the GPU's do now: in the ledger's orientation, parity)
     let read;
     try { read = this.solver.readParticles(); } catch (e) { read = Promise.reject(e); }
     read.then(data => this._xferDone(gen, data), e => { if (gen === this._xferGen) this._xferAbandon('readback failed: ' + (e && e.message || e)); });
@@ -1039,6 +1041,8 @@ export class RealSand {
     if (gen !== this._xferGen || !this._xfer || this._gone) return;
     const v = this.valve, g = this.glass, line = Math.fround(g.cy), W = PARTICLE_WORDS;
     const n = Math.floor(data.length / W);
+    // a swap while the readback was on its way: the points turned half a turn, as the flip pass would
+    if (this._xfer.parity !== v.parity) this._mirror(data, n);
     const above = [];
     for (let i = 0; i < n; i++) {
       const o = i * W;
@@ -1063,7 +1067,7 @@ export class RealSand {
       for (let k = 0; k < spots.length / 2; k++) out.set(fresh.subarray(k * W, (k + 1) * W), moved[k] * W);
     }
     let at = n * W;
-    for (const recs of pours) { out.set(recs, at); at += recs.length; }
+    for (const p of pours) { if (p.parity !== v.parity) this._mirror(p.recs, p.recs.length / W); out.set(p.recs, at); at += p.recs.length; }
     const sides = this.solver.upload(out, n + pourPts);
     const target = this.T && this.T.state === 'done' ? 0 : this.targetTop;
     v.transferDone(sides.above, sides.below, target);
@@ -1072,6 +1076,16 @@ export class RealSand {
     const F = this._fall;
     if (!(F.s >= 0)) { F.from = null; F.s = NaN; F.wall = NaN; }
     this._tally = null; this._gen++; this._lastRunPerf = null;
+  }
+
+  /** Particle records turned half a turn about the neck (the flip pass's map: a point on the line first moved 0.01 below it). */
+  _mirror(data, n) {
+    const g = this.glass, W = PARTICLE_WORDS, cx2 = 2 * g.cx, cy2 = 2 * g.cy, line = Math.fround(g.cy);
+    for (let i = 0; i < n; i++) {
+      const o = i * W;
+      if (data[o + 1] === line) data[o + 1] -= 0.01;
+      data[o] = cx2 - data[o]; data[o + 1] = cy2 - data[o + 1]; data[o + 2] = -data[o + 2]; data[o + 3] = -data[o + 3];
+    }
   }
 
   /** Spots for m points on the lower heap: a jittered lattice over its surface, under a 30-degree cone sized by bisection. */

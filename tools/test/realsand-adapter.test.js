@@ -633,6 +633,21 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     'hidden across the end: back with ' + aboveBack + ' grains above, caught up by ' + rH2.n.transfers + ' transfer(s) and drained, the glass empty ' +
     (emptyAt === null ? 'never' : f1(emptyAt - backAt) + ' ms') + ' after the page showed; nTop never 0 with a point above');
 
+  // a swap while a transfer's readback is on its way (the phone turned over as the page showed): the
+  // points read back are turned as the flip pass would, and the upload is in the ledger's orientation
+  var H4 = makeApp({ ms: 10000, seed: 94, xferFrames: 6 });
+  var rH4 = await H4.attach(); H4.calibrate(); H4.T.rem = H4.T.durationMs; H4.start();
+  await H4.run(2000);
+  H4.hide(2000);
+  var swapped4 = null;
+  await runGlass(H4, 9000, [], { onFrame: function (a) {
+    if (swapped4 === null && rH4._xfer) { var b4 = a.sim.nTop; a.sim.completeFlip(); a.T.rem = a.remAt(a.sim.total - b4); swapped4 = { before: b4, after: a.sim.nTop }; }
+  } });
+  endOk(H4, 'a swap while a transfer was on its way');
+  var au4 = rH4.audit();
+  check(swapped4 && swapped4.after === H4.sim.total - swapped4.before && rH4.valve.n.uploadOff === 0 && au4 && au4.ok && rH4.n.xferTimeouts === 0,
+    'the transfer\'s points were turned with the swap (' + (swapped4 && swapped4.before) + ' -> ' + (swapped4 && swapped4.after) + ' above), every point kept, audit() agreeing after');
+
   // a transfer whose readback never comes (a hung device): abandoned after 1 s, the CPU Sim brought to
   // the ledger's counts and the GPU filled from it; the glass still ends on time
   var H3 = makeApp({ ms: 10000, seed: 93, xferFrames: 1e9 });

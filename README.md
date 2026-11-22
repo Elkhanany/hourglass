@@ -1127,13 +1127,15 @@ node tools/test/app-gestures.test.js     # any single suite
   colour); each place where the sand sets the clock (a start after the end,
   the Flip's swap, a tilt swap, pours, a re-time after a starved neck, a
   sequence's next phase turned unseen, also while hidden, a session restored
-  at boot, the catch-up after the page was hidden, also across the end, and
-  the finish), every glass ending with its last point out at 00:00.0 and
-  never reading empty while a point is above; blows that thump without
-  damage, mending, the brim, the scales of a phone and a tablet and the Fine
-  and Finest grains, the start-up's failures, a phone held still in the hand
-  (calm, and no motion for the clock), sleep, a device lost around a lock,
-  and the canvas turned half a turn while its picture is from before a swap.
+  at boot, the catch-up after the page was hidden, also across the end, with
+  a swap while its transfer is on the way, and with a transfer that never
+  comes back, and the finish), every glass ending with its last point out at
+  00:00.0 and never reading empty while a point is above; blows that thump
+  without damage, mending, the brim, the scales of a phone and a tablet and
+  the Fine and Finest grains, the start-up's failures, a phone held still in
+  the hand (calm, and no motion for the clock), the heat guard, sleep, a
+  device lost around a lock, and the canvas turned half a turn while its
+  picture is from before a swap.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
