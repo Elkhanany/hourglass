@@ -137,7 +137,8 @@ function makeEngine() {
       env.device = new Device();
       return { adapter: {}, device: env.device, info: { fallback: false } };
     },
-    Solver: Mock, GrainRenderer: Grains
+    // (no tone pass: layered sand on the GPU is realsand-gpu's)
+    Solver: Mock, GrainRenderer: Grains, Toner: null
   };
 }
 

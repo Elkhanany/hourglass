@@ -29,7 +29,10 @@
  *   membrane that lets a point cross the line only downward and only with a
  *   ticket (g2p2g.wgsl, spreadShift.wgsl), the counts it needs (counters,
  *   tally), pours appended without a refill, and the flip pass (flip.wgsl)
- *   that turns the points end for end at a swap.
+ *   that turns the points end for end at a swap;
+ * - a page's own pass after the tally (post: the app's tone pass for layered
+ *   sand, layers.mjs), its 8 words read back in the readback slot's last 32
+ *   bytes.
  */
 
 export const PARTICLE_WORDS = 24;
@@ -44,8 +47,9 @@ const BUCKET = 6;
 const COUNTER_WORDS = 8;
 // the tally (tally.wgsl), summed afresh by each run
 const TALLY_WORDS = 16;
-// a readback slot: the counters, then the tally
+// a readback slot: the counters, then the tally, then the post pass's 8 words (Solver.post)
 const READBACK_BYTES = 128;
+const POST_WORDS = 8;
 
 export async function createDevice() {
   if (!globalThis.navigator?.gpu) throw Object.assign(new Error('WebGPU is not available'), { code: 'nogpu' });
@@ -222,6 +226,9 @@ export class Solver {
     this.lastHz = null;
     this.uniformData = null;
     this.dispatched = 0;               // dispatches encoded since the page loaded (counted by run)
+    // a page's own pass after the tally (the app's tone pass, layers.mjs): post(encoder, count),
+    // and postWords, a buffer of 8 words copied into the readback after it (null: none)
+    this.post = null; this.postWords = null;
     this.errors = [];
     device.addEventListener?.('uncapturederror', e => { if (this.errors.length < 8) this.errors.push(String(e.error?.message || e.error)); });
   }
@@ -500,11 +507,13 @@ export class Solver {
     }
     if (this.count) go(P.tally, G.tally, Math.max(steps - 1, 0) * MAX_IT, n64);
     pass.end();
+    if (this.post && this.count) this.post(enc, this.count);
     if (steps) { this.frame += steps; this.lastHz = set.hz; }
-    const slot = this.readbacks.find(r => !r.pending);
+    const slot = this.readbacks.find(r => !r.pending), post = this.postWords;
     if (slot) {
       enc.copyBufferToBuffer(b.counters, 0, slot.buffer, 0, COUNTER_WORDS * 4);
       enc.copyBufferToBuffer(b.tally, 0, slot.buffer, COUNTER_WORDS * 4, TALLY_WORDS * 4);
+      if (post) enc.copyBufferToBuffer(post, 0, slot.buffer, (COUNTER_WORDS + TALLY_WORDS) * 4, POST_WORDS * 4);
     }
     if (after) after(enc);
     d.queue.submit([enc.finish()]);
@@ -520,7 +529,9 @@ export class Solver {
         // the substep of the run (0 first) in which the last point crossed the line; -1: none crossed
         lastCross: u[6] ? u[6] - 1 - frame0 : -1,
         // the depth of the lowest point below the counting line, cells (the lab's Timer times the first fall with it)
-        deepest: u[t + 11] / 16 };
+        deepest: u[t + 11] / 16,
+        // the post pass's words (null: none)
+        post: post ? Array.from(u.subarray(t + TALLY_WORDS, t + TALLY_WORDS + POST_WORDS)) : null };
     }, e => {
       slot.pending = false;
       if (!this.readbacks.includes(slot)) return null;   // the glass was rebuilt while this was in flight

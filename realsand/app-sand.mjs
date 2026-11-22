@@ -51,11 +51,15 @@
  *    calls onBack(), on which the app makes it its sim again (takeOver).
  *
  * ==============================================================================================
- *  WHAT IS LEFT TO OTHERS (stage 1b)
+ *  WHAT THE OWNER SEES (design 6, 7.4)
  * ==============================================================================================
- *  The drawing's own changes (design 6.2-6.5: the seed palette in the shader, the neck warp,
- *  the room's light, the Reset sweep on the GPU) read the look encode() is given here (warp,
- *  turn, sweep); layered sand on the GPU (7.4) fills setLayers, tones() and the pour's tone.
+ *  Each grain is drawn in its seed's colour from the Renderer's own table (setPalette: the
+ *  theme, layered sand), inside the neck the app draws (the warp), lit from the room's upper
+ *  left whatever the glass's angle on screen (the rotor's turn), and the Reset's sweep is drawn
+ *  as the CPU sand draws it (setSweep: the old sand into the neck, the new revealed under a
+ *  rising surface with its thread). With layered sand the tone pass (layers.mjs) lays falling
+ *  sand in strata where it comes to rest, a fresh pattern after each turn, and the poured sand
+ *  in layers; the layers switch re-tones every point by its depth from the CPU Sim's strata.
  */
 import { buildGlass, sampleField } from './glass.mjs';
 import { Solver, ShaderLibrary, createDevice, MATERIALS, PARTICLE_WORDS } from './solver.mjs';
@@ -64,6 +68,7 @@ import { PPC, lattice, packParticles, fromLattice, rand32 } from './fill.mjs';
 import { GrainRenderer, FLIGHT, exposure } from './grains.mjs';
 import * as Rate from './rate.mjs';
 import { GlassFelt } from './felt.mjs';
+import { Toner, LayerPlan, markSides, retone as retoneAll, toneWords, TONE_FRESH, TONE_TRACK, TONE_LAY, LAY_S } from './layers.mjs';
 import { Valve, ALLOW_SHUT, NECK_ON } from './valve.mjs';
 import { MODES, newModes, modesReset, chooseMode, frameMsFor } from './modes.mjs';
 import * as Pal from './palette.mjs';
@@ -92,7 +97,10 @@ const SAMPLES = 64;                        // the app's field samples kept (half
 const EV_CAP = 48;                         // landings a frame for the audio (physics.js EV_CAP)
 const SELF_TEST_POINTS = 500;
 
-const ENGINE = { createDevice, Solver, GrainRenderer, ShaderLibrary };
+const ENGINE = { createDevice, Solver, GrainRenderer, ShaderLibrary, Toner };
+const SWEEP_MIN = 0.05;                    // app cells^2: a grain drawn this near the neck in the sweep's first half is swallowed (the CPU's 0.2 px^2)
+const THREAD_MAX = 1024;                   // the sweep's thread: grains drawn at most
+const DEVELOP_MS = 4000;                   // after a turn, sand coming to rest is laid in its new pattern this long (physics.js LAY.settle)
 
 /** An Error for start(): code, message, and whether a capability is missing (the setting is then cleared). */
 function startError(code, message, capability = false, cause = null) {
@@ -178,6 +186,15 @@ export class RealSand {
     this.n = { runs: 0, skips: 0, calmSkips: 0, asleep: 0, cssTurns: 0, transfers: 0, xferTimeouts: 0, residues: 0, fills: 0,
       deferred: 0, readbackFails: 0, losses: 0, rebuilds: 0, pours: 0, swaps: 0, errors: 0, refills: 0 };
     this._rng = rand32((cpu.rng | 0) ^ 0x5bd1e995);
+    // layered sand on the GPU (design 7.4, layers.mjs): the tone pass, the layer schedule, the
+    // crossing numbers it has reached (known: of the plan, from the readbacks; base: the plan's
+    // number of the GPU's crossing 0), tone 1's share of the top bulb, the turned bulbs' patterns
+    const Ls = this.P && this.P.Sim;
+    this.toner = null; this._retoneDue = false; this._toneAt = null; this._toneField = null;
+    this._lay = { plan: new LayerPlan({ ppg: this.ppg, pace: Ls && Ls.pace ? Ls.pace() : 1, lay: Ls && Ls.LAYERS, seed: ((cpu.rng | 0) ^ 0x6C8E9CF5) >>> 0 }),
+      base: 0, known: 0, share: 0.5, words: null, wordsParity: 0, pats: null, until: -Infinity };
+    // the Reset's sweep: how far the farthest grain lies from the neck (grid cells^2), the new bed's points
+    this._sweepFar = 0; this._sweepFill = null; this._sweepFrame = 0;
   }
 
   /* ---------------------------------------------------------------------------------------- *
@@ -207,6 +224,7 @@ export class RealSand {
         this._makeCanvas();
         this.grains = new this.engine.GrainRenderer(this.device, this.canvas, { offscreen: this.offscreen });
         await this.grains.init(this.solver.shaders);
+        await this._makeToner();
       } catch (e) {
         const msg = String(e && e.message || e);
         throw startError(/Could not load|fetch|HTTP/i.test(msg) ? 'load' : 'compile', 'The sand engine could not be loaded: ' + msg, false, e);
@@ -233,12 +251,26 @@ export class RealSand {
     if (d.device && d.device.lost && d.device.lost.then) d.device.lost.then(info => this._deviceLost(d, info), () => {});
   }
 
-  /** Buffers for the largest glass the app allows, uniform slots for the highest rate, the palette. */
+  /** The tone pass for layered sand (layers.mjs), when the engine has one (the tests' mock GPU has none). */
+  async _makeToner() {
+    this.toner = null;
+    if (!this.engine.Toner) return;
+    this.toner = new this.engine.Toner(this.device, this.solver.shaders);
+    await this.toner.init();
+  }
+
+  /** Buffers for the largest glass the app allows, uniform slots for the highest rate, the palette, the warp, the tone pass. */
   _configure() {
     const maxP = Math.ceil(this.valve.Pts(this.cpu.maxTotal) * 1.05) + 1024;
     this.solver.configure(this.glass, maxP, Rate.capAlloc(SET));
     this.grains.bind(this.solver.buffers.particles);
-    if (this.grains.setWarp) this.grains.setWarp(this.glass.warp);
+    if (this.grains.setWarp) this.grains.setWarp(this.glass.warp, this.glass.cx, this.glass.cy);
+    if (this.toner) {
+      this.toner.bind(this.solver.buffers.count, this.solver.buffers.particles);
+      // (after each run's tally: its 8 words come back with the tally)
+      this.solver.post = (enc, n) => this._tonePass(enc, n);
+      this.solver.postWords = this.toner.counts;
+    }
     this.layout();
     this.setPalette();
   }
@@ -287,6 +319,8 @@ export class RealSand {
       this._upload(cpu.nTop, cpu.total);
     }
     this._adopted = null;
+    // (layers turned on or off while the CPU sand was the app's: the GPU's tones follow)
+    if (this.layers !== !!cpu.layers) { this.layers = !!cpu.layers; this._retoneDue = true; }
     this.live = true;
     this._planned = false; this._mid = null;
     this._lastNow = 0; this._lastDrawn = 0; this._acc = 0; this._lastRunPerf = null;
@@ -363,6 +397,7 @@ export class RealSand {
       this.solver = await this.engine.Solver.create(this.device, this.shaderBase);
       this.grains = new this.engine.GrainRenderer(this.device, this.canvas, { offscreen: this.offscreen });
       await this.grains.init(this.solver.shaders);
+      await this._makeToner();
       this._configure();
       this.pace = newPace();
       await this.adopt();
@@ -474,6 +509,7 @@ export class RealSand {
     this.cpu.completeFlip();
     this.angle = 0; this.flipping = false;
     this._swapAt = this._wall(); this.n.swaps++;
+    if (this.layers) this._turnedLayers();
   }
 
   /** The catch-up: the ledger drops by n at once; the GPU moves the sand by a transfer at the next submit (7.6). */
@@ -493,10 +529,13 @@ export class RealSand {
     const k = v.pourable(n, { maxTotal: this.cpu.maxTotal, room: this._fillDue ? undefined : room, inlet: this._fillDue ? undefined : g.cy + g.HBc });
     if (!k) return 0;
     const r = v.pour(k);
+    // layered sand: poured in layers of their own, each in the other tone (physics.js _pourLayer)
+    const bits = this.layers ? this._lay.plan.pourBits(r.grains) : -1;
     if (r.points && sol) {
-      const recs = this._pourPoints(r.points);
+      const recs = this._pourPoints(r.points, bits);
       if (this._fillDue) { /* the fill to come holds them */ }
-      else if (r.append) sol.append(recs, r.points, r.mirrored);
+      // (while any transfer is on its way its upload holds them: its readback was queued before them)
+      else if (r.append && !this._xfer) sol.append(recs, r.points, r.mirrored);
       else { this._xferPours.push({ recs, parity: v.parity }); this._xferPourPts += r.points; }
     }
     this._pourAt = this._wall(); this.n.pours++;
@@ -504,8 +543,11 @@ export class RealSand {
     return r.grains;
   }
 
-  /** Records for n poured points at the top bulb's far end, x within 2.75 app cells of the axis, moving toward the neck (7.3). */
-  _pourPoints(n) {
+  /**
+   * Records for n poured points at the top bulb's far end, x within 2.75 app cells of the axis,
+   * moving toward the neck (7.3); bits: layered sand's tone (bit 7) for them all, or -1 (none).
+   */
+  _pourPoints(n, bits = -1) {
     const g = this.glass, s = this.s, r = this._rng, pts = [], seeds = [];
     for (let i = 0; i < n; i++) {
       let x = 0, y = 0;
@@ -514,7 +556,7 @@ export class RealSand {
         y = g.cy + g.HBc - (3 + r() * 3 + tries * 0.5) * s;
         if (sampleField(g, x, y)[2] > 0.45) break;
       }
-      pts.push(x, y); seeds.push((r() * 256) | 0);
+      pts.push(x, y); seeds.push(bits >= 0 ? ((r() * 128) | 0) | bits : (r() * 256) | 0);
     }
     const data = packParticles(pts, MATERIAL, seeds);
     const dt = 1 / this.rate.hz;
@@ -523,13 +565,26 @@ export class RealSand {
       data[o + 2] = (r() - 0.5) * 30 * s * dt;
       data[o + 3] = -(70 + r() * 70) * s * dt;
     }
+    // (all above: the tone pass is not to take them for crossings)
+    markSides(data, n, g.cy, this.valve.parity);
     return data;
   }
 
+  /**
+   * Layered sand on or off (design 7.4): the CPU Sim, brought to the ledger's counts, lays its
+   * strata (or forgets them), and every GPU point takes the tone of the CPU's grain at its depth
+   * in its column (a readback, re-toned, uploaded: a transfer that moves nothing), behind the
+   * app's soft swap.
+   */
   setLayers(on) {
+    on = !!on;
     this.cpu.setLayers(on);
-    this.layers = !!on;
-    if (this.retone) this.retone(this.layers);
+    const was = this.layers;
+    this.layers = on;
+    if (on === was) return;
+    if (this.live) this.syncCpu();
+    this._lay.pats = null; this._lay.until = -Infinity;
+    if (this.solver && !this._gone) this._retoneDue = true;
   }
 
   /* ---------------------------------------------------------------------------------------- *
@@ -724,8 +779,85 @@ export class RealSand {
     this.grains.setPalette(R && R.lut && R.isMica ? fromLUT(R.lut, R.isMica) : Pal.palette('coarse'));
   }
 
-  /** The Reset transition (design 6.5): kind 1 the old sand drawn into the neck (frozen), 2 the new revealed, 0 done. */
-  setSweep(kind, p) { this._sweep = kind ? { kind, p: fin(p) } : null; }
+  /**
+   * The Reset transition (design 6.5), beside the Renderer's (physics.js setSweep): kind 1, the
+   * old sand drawn into the neck (frozen: draw-only runs); 2, the new bed (the fill reset()
+   * made between the two) revealed from the neck up under a rising surface, with the thread
+   * that pours it; 0, done. p runs from 0 to 1 in each.
+   */
+  setSweep(kind, p) {
+    p = Math.min(1, Math.max(0, fin(p)));
+    if (!kind) { this._sweep = null; this._sweepFill = null; return; }
+    if (kind === 1 && (!this._sweep || this._sweep.kind !== 1)) this._sweepFar = this._farthest();
+    this._sweep = { kind, p };
+  }
+
+  /**
+   * How far from the neck the farthest grain lies, squared, grid cells (the drawn glass's): each
+   * bed taken as filling its bulb from where it rests (the top from the neck, the lower from its
+   * far end) with its points, plus one app cell, as the CPU's sweep adds one (physics.js _swFar).
+   */
+  _farthest() {
+    const g = this.glass, v = this.valve, per = PPC * PPC;
+    const reach = (pts, fromNeck) => {
+      let cells = pts / per, y = fromNeck ? 0 : g.HBc, far = 0;
+      while (cells > 0 && y >= 0 && y <= g.HBc) {
+        cells -= 2 * g.half(y) * 0.5;
+        const h = g.halfDrawn(y);
+        far = Math.max(far, y * y + h * h);
+        y += fromNeck ? 0.5 : -0.5;
+      }
+      return far;
+    };
+    const top = v.Pts(this.nTop), bot = v.Pts(this.nBottom);
+    return Math.max(top > 0 ? reach(top, true) : 0, bot > 0 ? reach(bot, false) : 0) + this.s * this.s;
+  }
+
+  /** The new bed's top-bulb points for the sweep's second half: their heights and drawn distances from the axis (grid). */
+  _sweepPoints(pts, nTop) {
+    const g = this.glass, ys = new Float32Array(nTop), ax = new Float32Array(nTop);
+    for (let i = 0; i < nTop; i++) {
+      const x = pts[2 * i], y = pts[2 * i + 1], j = Math.min(g.H - 1, Math.max(0, Math.floor(y)));
+      ys[i] = y; ax[i] = Math.abs(x - g.cx) * (g.warp ? g.warp[j] : 1);
+    }
+    return { n: nTop, ys, ax };
+  }
+
+  /** The sweep's look for grains.mjs encode (grid units), as physics.js _sweepOut and _sweepIn draw it. */
+  _sweepLook() {
+    const sw = this._sweep, g = this.glass, s = this.s;
+    if (!sw) return null;
+    if (sw.kind === 1) return { kind: 1, S: this._sweepFar * Math.pow(sw.p, 1.5), min: SWEEP_MIN * s * s };
+    const F = this._sweepFill;
+    if (!F) return null;
+    const p = sw.p;
+    let v = (p - 0.08) / 0.78; v = v < 0 ? 0 : (v > 1 ? 1 : v);           // the share of the sand that has come
+    const want = v * F.n, slope = 0.62 * Math.sqrt(1 - v);                // heaped under the thread (32 degrees), level at the end
+    const tip = g.cy + g.HBc;
+    let apex = tip + 1e4;
+    if (v < 1) {
+      // the apex (grid y) of the heap that shows `want` of the bed's points: bisection
+      const count = A => { let c = 0; for (let i = 0; i < F.n; i++) if (F.ys[i] <= A - slope * F.ax[i]) c++; return c; };
+      let lo = g.cy, hi = tip + slope * g.Rc + 1;
+      for (let k = 0; k < 24; k++) { const A = (lo + hi) / 2; if (count(A) >= want) hi = A; else lo = A; }
+      apex = want > 0 ? hi : g.cy;
+    }
+    // the thread: its first grains fall from the top of the bulb, it pours, its last grains fall
+    const span = tip - g.cy;
+    const head = tip - span * Math.min(1, p / 0.09), tail = tip - span * Math.max(0, (p - 0.85) / 0.11);
+    const lo = Math.max(head, Math.min(apex, tip) + 0.5 * s), hi = tail;
+    const share = Math.min(1, p / 0.12) * Math.min(1, (1 - p) / 0.2);
+    // (the CPU's thread is about 2.4 grains abreast a row: so many, spread over its length)
+    const n = hi > lo ? Math.min(THREAD_MAX, Math.ceil(2.4 * (hi - lo) / s)) : 0;
+    return { kind: 2, apex, slope, thread: { lo, hi, spread: 2.5 * s, share, n, frame: this._sweepFrame++ } };
+  }
+
+  /** The glass's angle on screen (the rotor's CSS turn), rad: the room's light is turned back by it. */
+  _rotorAngle() {
+    const r = this.o.rotor, t = r && r.style ? r.style.transform : '';
+    const m = t ? /rotate\(\s*(-?[0-9.eE+-]+)rad\)/.exec(t) : null;
+    return m ? fin(parseFloat(m[1])) : 0;
+  }
 
   /** What encode() draws with this frame: the grid onto #c-gpu's box of the app's lattice, the grain, the blur. */
   _look(hz) {
@@ -736,9 +868,8 @@ export class RealSand {
     return {
       m: [kx, 0, 0, ky], o: [-g.cx * kx, -g.cy * ky], r: [2 * rpx / Math.max(1, css.w), 2 * rpx / Math.max(1, css.h)],
       liquid: false, exposure: exposure(BLUR, this._displayMs(), hz), flight: FLIGHT,
-      // for the drawing's own steps (design 6.2, 6.5): the neck's warp per grid row, the
-      // glass's turn (the room's light is turned back by it), the Reset's sweep
-      warp: g.warp, turn: this.angle, sweep: this._sweep
+      // the room's light turned back by the glass's angle on screen; the Reset's sweep (design 6.2, 6.5)
+      light: this._rotorAngle(), sweep: this._sweepLook()
     };
   }
 
@@ -785,6 +916,8 @@ export class RealSand {
     if (this._fillDue) this._upload(Math.max(0, v.nTop - (v.xfer ? v.xfer.hold : 0)), v.total);
     if (v.xfer) { this._startTransfer('catch-up'); this._turnCss(); return; }
     if (v.residueDue(wall)) { v.fastForward(v.nTop); this.n.residues++; this._startTransfer('residue'); this._turnCss(); return; }
+    // the layers switch: every point re-toned from a readback (7.4)
+    if (this._retoneDue) { this._retoneDue = false; this._startTransfer('retone'); this._turnCss(); return; }
     // the power mode: asleep runs nothing; calm draws every other frame at the same rate
     const mode = this._modeFor(wall);
     this._wake = false;
@@ -832,7 +965,8 @@ export class RealSand {
     const w = v.run({ steps, now: wall, simDt: steps / hz });
     const fields = this._fields(steps, perfNow, hz);
     const set = this._set(hz);
-    const gen = this._gen;
+    const gen = this._gen, parity = v.parity;
+    this._toneField = fields[fields.length - 1];
     const p = sol.run(steps, set, k => fields[Math.min(k, fields.length - 1)], draw ? enc => this.grains.encode(enc, sol.count, this._look(hz)) : null, w);
     if (draw) { this._drawnParity = v.parity; this._turnCss(); }
     const tSim = this.simTime, seq = paceSubmit(this.pace, this.clock.perf()), tSub = this.clock.perf();
@@ -843,7 +977,7 @@ export class RealSand {
       if (draw && !this._ready && gen === this._gen) this._firstFrame();
       paceDone(pace, seq, steps, ms, Tm || 1000 / 60);
     }, () => { paceDone(pace, seq, 0, 0, Tm || 1000 / 60); });
-    if (p) p.then(t => { if (t && gen === this._gen) this._onTally(w, t, tSim); }, () => { this.n.readbackFails++; });
+    if (p) p.then(t => { if (t && gen === this._gen) this._onTally(w, t, tSim, parity); }, () => { this.n.readbackFails++; });
     if (draw && this.grains.present) this.grains.present();
     return w;
   }
@@ -930,11 +1064,12 @@ export class RealSand {
       pending: !!(this.flipping || v.flipPending || v.xfer || this._fillDue), ratio: this._ratio(lastNow), atBase: this.rate.hz === SET.hz });
   }
 
-  /** A run's readback: to the ledger, auto Hz, the modes, the first fall's log. */
-  _onTally(w, t, tSim) {
+  /** A run's readback: to the ledger, auto Hz, the modes, the first fall's log, layered sand's counts. */
+  _onTally(w, t, tSim, parity) {
     this.valve.onReadback(w.seq, t);
     t.simTime = tSim;
     this._tally = t;
+    if (t.post && this.layers) this._toneCounts(toneWords(t.post), parity === undefined ? this.valve.parity : parity);
     const F = this._fall;
     if (F.from === null && t.crossings > 0 && t.below === t.crossings) { F.from = tSim; F.wallFrom = w.to; }
     else if (F.from !== null && !(F.s >= 0) && t.deepest >= F.floor - 1.5) {
@@ -966,7 +1101,12 @@ export class RealSand {
     const want = { top: v.Pts(top), bottom: v.Pts(total - top) };
     const f = fromLattice(cpu, this.glass, { top: want.top, bottom: want.bottom, down: this._down(), seed: (this._rng() * 4294967296) >>> 0 });
     const data = packParticles(f.pts, MATERIAL, f.seeds);
+    const marks = markSides(data, f.top + f.bottom, this.glass.cy, v.parity);
+    if (marks.above) this._lay.share = marks.above1 / marks.above;
+    // (the Reset's sweep shows this bed as it is poured in)
+    if (this._sweep) this._sweepFill = this._sweepPoints(f.pts, f.top);
     const sides = this.solver.upload(data, f.top + f.bottom);
+    this._toneUploaded();
     v.fill(top, total, sides.above, sides.below);
     this._fillDue = false; this.n.fills++;
     this._xferPours = []; this._xferPourPts = 0;
@@ -1006,10 +1146,11 @@ export class RealSand {
       const now = this._wall();
       this.valve.plan({ now, target: this.valve.nTop, gateOpen: false, flipping: this.flipping, gy: this.gy, rem: T ? T.rem : Infinity, tailMs: T ? T.tailMs : 0, steps: 1 });
       const w = this.valve.run({ steps: n, now, simDt: n / SET.hz });
-      const f = this._uprightField(), gen = this._gen, last = left <= 0;
+      const f = this._uprightField(), gen = this._gen, last = left <= 0, parity = this.valve.parity;
+      this._toneField = f;
       const p = this.solver.run(n, this._set(SET.hz), () => f, last ? enc => this.grains.encode(enc, this.solver.count, this._look(SET.hz)) : null, w);
       this.simTime += n / SET.hz;
-      if (p) p.then(t => { if (t && gen === this._gen) this._onTally(w, t, this.simTime); }, () => { this.n.readbackFails++; });
+      if (p) p.then(t => { if (t && gen === this._gen) this._onTally(w, t, this.simTime, parity); }, () => { this.n.readbackFails++; });
       if (last) { this._drawnParity = this.valve.parity; this._turnCss(); if (this.grains.present) this.grains.present(); }
       await this.device.queue.onSubmittedWorkDone();
       if (last && !this._ready) this._firstFrame();
@@ -1029,6 +1170,7 @@ export class RealSand {
     if (v.flipPending) {
       const w = v.run({ steps: 0, now: this._planNow });
       const f = this._uprightField();
+      this._toneField = f;
       this.solver.run(0, this._set(this.rate.hz), () => f, null, w);
     }
     // (the points read back lie as the GPU's do now: in the ledger's orientation, parity)
@@ -1039,10 +1181,16 @@ export class RealSand {
 
   _xferDone(gen, data) {
     if (gen !== this._xferGen || !this._xfer || this._gone) return;
-    const v = this.valve, g = this.glass, line = Math.fround(g.cy), W = PARTICLE_WORDS;
+    const v = this.valve, g = this.glass, line = Math.fround(g.cy), W = PARTICLE_WORDS, kind = this._xfer.kind;
     const n = Math.floor(data.length / W);
     // a swap while the readback was on its way: the points turned half a turn, as the flip pass would
     if (this._xfer.parity !== v.parity) this._mirror(data, n);
+    // the layers switch: every point's tone afresh, by its depth from the CPU Sim's strata (7.4)
+    if (kind === 'retone') {
+      retoneAll(data, n, this.layers, { cpu: this.cpu, line, seed: (this._rng() * 4294967296) >>> 0,
+        map: (x, y) => this._appCell(x, y) });
+      this.n.retones = (this.n.retones || 0) + 1;
+    }
     const above = [];
     for (let i = 0; i < n; i++) {
       const o = i * W;
@@ -1050,7 +1198,8 @@ export class RealSand {
       const x = data[o], y = data[o + 1];
       if (x === x && y === y && Math.abs(y) < 1e9 && y > line) above.push(i);
     }
-    const m = v.transferPlan(above.length);
+    // (a re-tone with no catch-up owed moves nothing)
+    const m = v.xfer ? v.transferPlan(above.length) : 0;
     // the points nearest the neck: what would have flowed next
     above.sort((a, b) => {
       const ax = data[a * W] - g.cx, ay = data[a * W + 1] - g.cy, bx = data[b * W] - g.cx, by = data[b * W + 1] - g.cy;
@@ -1062,13 +1211,22 @@ export class RealSand {
     const out = new Float32Array((n + pourPts) * W);
     out.set(data.subarray(0, n * W));
     if (spots.length) {
-      const seeds = moved.slice(0, spots.length / 2).map(i => data[i * W + 20]);
+      let seeds = moved.slice(0, spots.length / 2).map(i => (data[i * W + 20] | 0) & 255);
+      // layered sand: laid in the schedule's tones, lowest first, as the points the GPU would have laid
+      if (this.layers) {
+        const L = this._lay;
+        L.plan.ensure(L.known + seeds.length + 64, L.share, this._heapWide());
+        seeds = seeds.map((sd, k) => (sd & 127) | (L.plan.toneOf(L.known + k) << 7));
+        L.known += seeds.length;
+      }
       const fresh = packParticles(spots, MATERIAL, seeds);
       for (let k = 0; k < spots.length / 2; k++) out.set(fresh.subarray(k * W, (k + 1) * W), moved[k] * W);
     }
     let at = n * W;
     for (const p of pours) { if (p.parity !== v.parity) this._mirror(p.recs, p.recs.length / W); out.set(p.recs, at); at += p.recs.length; }
+    markSides(out, n + pourPts, g.cy, v.parity);
     const sides = this.solver.upload(out, n + pourPts);
+    this._toneUploaded();
     const target = this.T && this.T.state === 'done' ? 0 : this.targetTop;
     v.transferDone(sides.above, sides.below, target);
     this._xfer = null; this._xferPours = []; this._xferPourPts = 0;
@@ -1123,6 +1281,75 @@ export class RealSand {
     const v = this.valve;
     this.syncCpu();
     this._upload(Math.max(0, v.nTop - (v.xfer ? v.xfer.hold : 0)), v.total);
+  }
+
+  /* ---------------------------------------------------------------------------------------- *
+   *  Layered sand on the GPU (design 7.4; layers.mjs, shaders/tone.wgsl)
+   * ---------------------------------------------------------------------------------------- */
+  /** A grid point's app cell [x, y] (continuous): drawn inside the app's neck (the warp), y down. */
+  _appCell(x, y) {
+    const g = this.glass, j = Math.min(g.H - 1, Math.max(0, Math.floor(y))), k = g.warp ? g.warp[j] : 1;
+    return [this.cpu.W / 2 + (x - g.cx) * k / this.s, this.cpu.H / 2 - (y - g.cy) / this.s];
+  }
+  /** The lower heap's width at its surface, app cells (a layer is so many rows of it: physics.js _layer). */
+  _heapWide() { const g = this.glass; return 2 * g.halfDrawn(Math.max(0, this._drop(this.nBottom))) / this.s; }
+
+  /** The tone pass of a run (solver.mjs post, after its tally): its flags, the schedule's table, each bulb's new pattern. */
+  _tonePass(enc, n) {
+    if (!this.toner || !this.layers) return;
+    const L = this._lay, now = this._wall(), g = this.glass;
+    const turning = this.flipping || this.gy < 0.9 || this.valve.flipPending, developing = now < L.until;
+    let flags = TONE_FRESH;
+    if (turning || developing) flags |= TONE_TRACK;
+    if (developing && L.pats) flags |= TONE_LAY;
+    L.plan.ensure(L.known + 2048, L.share, this._heapWide());
+    L.plan.drop(L.known);
+    const perf = this.clock.perf(), dt = this._toneAt === null ? 1 / 60 : Math.min(0.25, Math.max(0, (perf - this._toneAt) / 1000));
+    this._toneAt = perf;
+    const f = this._toneField || this._uprightField();
+    this.toner.encode(enc, n, { flags, parity: this.valve.parity, line: g.cy, cx: g.cx, cy: g.cy, s: this.s, dt: 1 / this.rate.hz,
+      gravity: f.gravity, appW: this.cpu.W, appH: this.cpu.H, layP: 1 - Math.exp(-dt / LAY_S), frame: this.n.runs,
+      pats: L.pats, segs: L.plan.table(L.base, L.known) });
+  }
+
+  /** A readback's tone counts (its run's orientation, parity): how far the GPU has laid, the top bulb's share, tones(). */
+  _toneCounts(tw, parity) {
+    const L = this._lay;
+    L.known = Math.max(L.known, L.base + tw.laid);
+    L.words = tw; L.wordsParity = parity;
+    const top = parity === this.valve.parity ? [tw.above1, tw.above] : [tw.below1, tw.below];
+    if (top[1] > 0) L.share = top[0] / top[1];
+    const pts = tw.above + tw.below, total = this.total;
+    if (pts > 0) { const t1 = Math.round(total * (tw.above1 + tw.below1) / pts); this._tones = [total - t1, t1]; }
+  }
+
+  /** After an upload: the GPU numbers its crossings from 0 again, from where the plan stands. */
+  _toneUploaded() {
+    const L = this._lay;
+    L.base = L.known; L.words = null;
+    if (this.toner) this.toner.reset();
+  }
+
+  /**
+   * A swap with layered sand: each bulb takes a pattern of its own as its sand comes to rest
+   * (the CPU Sim's, drawn at its completeFlip: physics.js _turned), in the share of tone 1 the
+   * bulb held at the swap, for 4 s; the heap's next layers are laid another way too.
+   */
+  _turnedLayers() {
+    const cpu = this.cpu, L = this._lay, w = L.words, rec = cpu._rec;
+    L.plan.style(); L.plan.replan(L.known);
+    if (!rec || !rec[0] || !rec[1]) { L.pats = null; return; }
+    // the bulb on top now was below in the orientation before the swap
+    let d0 = cpu._duty ? cpu._duty[0] : 0.5, d1 = cpu._duty ? cpu._duty[1] : 0.5;
+    if (w) {
+      const before = L.wordsParity !== this.valve.parity;
+      const nowTop = before ? [w.below1, w.below] : [w.above1, w.above], nowBot = before ? [w.above1, w.above] : [w.below1, w.below];
+      if (nowTop[1] > 0) d0 = nowTop[0] / nowTop[1];
+      if (nowBot[1] > 0) d1 = nowBot[0] / nowBot[1];
+    }
+    L.pats = [Object.assign({}, rec[0], { duty: d0 }), Object.assign({}, rec[1], { duty: d1 })];
+    const LAY = this.P && this.P.Sim && this.P.Sim.LAYERS;
+    L.until = this._wall() + (LAY && LAY.settle > 0 ? LAY.settle / 120 * 1000 : DEVELOP_MS);
   }
 
   /* ---------------------------------------------------------------------------------------- *
@@ -1188,6 +1415,8 @@ export class RealSand {
       points: v.points, gpuCount: this.solver ? this.solver.count : 0,
       tally: t ? { points: t.points, above: t.above, below: t.below, queue: t.queue, refused: t.refused, crossings: t.crossings, nan: t.nan, outside: t.outside, moving: t.moving } : null,
       ledger: v.stats(), fall: { s: F.s, wall: F.wall, floor: F.floor, log: F.log.slice() },
+      layers: { on: this.layers, toner: !!this.toner, known: this._lay.known, share: this._lay.share, words: this._lay.words,
+        developing: this._wall() < this._lay.until, tones: this.tones() },
       times: Object.assign({}, this.times), n: Object.assign({}, this.n), lost: this._lostInfo
     };
   }

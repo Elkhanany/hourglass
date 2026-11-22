@@ -163,7 +163,8 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
         env.device = new Device();
         return { adapter: {}, device: env.device, info: { fallback: !!env.fallback } };
       },
-      Solver: Mock, GrainRenderer: Grains
+      // (no tone pass: layered sand on the GPU is realsand-gpu's)
+      Solver: Mock, GrainRenderer: Grains, Toner: null
     };
   }
 

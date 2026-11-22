@@ -34,6 +34,7 @@ var SHELL = [
   './realsand/fill.mjs',
   './realsand/glass.mjs',
   './realsand/grains.mjs',
+  './realsand/layers.mjs',
   './realsand/modes.mjs',
   './realsand/pace.mjs',
   './realsand/palette.mjs',
@@ -56,7 +57,8 @@ var SHELL = [
   './realsand/shaders/spreadShift.wgsl',
   './realsand/shaders/tally.wgsl',
   './realsand/shaders/flip.wgsl',
-  './realsand/shaders/grains.wgsl'
+  './realsand/shaders/grains.wgsl',
+  './realsand/shaders/tone.wgsl'
 ];
 
 self.addEventListener('install', function (event) {
