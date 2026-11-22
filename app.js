@@ -1208,8 +1208,10 @@
     var dtMs = now - lastFrame;
     lastFrame = now;
     if (dtMs <= 0) return;
-    // Real sand has drawn its first frame: it takes over between two frames (not inside a Reset's sweep)
-    if (realDue && !sweep && !resetting && (!realEng || realEng.ready)) handover('gpu');
+    // Real sand has drawn its first frame: it takes over between two frames, in a quiet one (not
+    // inside a Reset's sweep, a turn, a pour, or while a hand has the glass or it moves on its own:
+    // the engine's bed settled upright, and the cross-fade must not join a bed that has slid)
+    if (realDue && !sweep && !resetting && !flip.active && !pour.active && !bodyBusy() && (!realEng || realEng.ready)) handover('gpu');
 
     tickClock();
     if (sweep) stepSweep(now);
@@ -3111,6 +3113,8 @@
     realLog('Real sand did not start (' + code + '): ' + (e && e.message || e));
     if (realEng) { try { realEng.destroy(); } catch (x) {} realEng = null; }
     realDue = false;
+    // the engine's shaders are of another build than its modules: an update is on its way (not counted)
+    if (code === 'stamp') { showReal('updating'); return; }
     if (e && e.capability) {
       settings.realSand = false; settings.realSandFails = 0; settings.realSandWhy = ''; save();
       showReal('na', why);
@@ -3136,7 +3140,8 @@
   function handover(to) {
     if (to === 'gpu') {
       realDue = false;
-      if (!realEng || real || realEng.destroyed) return;
+      // (ready: drawn and not lost; a loss since adopt() or onBack() leaves it to the rebuild's onBack)
+      if (!realEng || real || realEng.destroyed || !realEng.ready) return;
       try { realEng.takeOver(); } catch (e) {
         var x = new Error('The sand could not be handed over: ' + (e && e.message || e)); x.code = 'error';
         realFail(x);
@@ -3158,6 +3163,7 @@
   function onRealLost(info) {
     info = info || {};
     var was = !!real;
+    realDue = false;                 // (an adopt or a rebuild that finished before the loss hands nothing over)
     handover('cpu');
     if (info.final) showReal('paused', info.message || REAL_WHY.lost);
     else if (info.lifecycle) showReal('starting');

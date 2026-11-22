@@ -52,6 +52,10 @@
  *        silent and rebuilt once the page is back; one in view shows the toast and is rebuilt
  *        after 2 s; a second such loss within 10 minutes leaves the CPU sand for the session,
  *        with the note, the setting kept and nothing counted; the clock is untouched each time.
+ *        A loss right after adopt() resolved, before the frame that hands over: the sand is
+ *        never handed to the lost engine (the rebuild takes over, the count does not jump back
+ *        up, the glass ends on time); a second loss right after the rebuild's onBack: final, the
+ *        CPU sand stays, never "On".
  *  NOREBUILD a rebuild that cannot open a device: the CPU sand stays, the note says it will try
  *        again next launch, nothing is counted, and the next launch takes over again.
  *  CRASH the glass does not crack with Real sand on (owner's choice: crash waits for a later
@@ -60,8 +64,15 @@
  *        turned on stays, leaks nothing and can be mended; Reset makes the glass whole. The theme
  *        and the layers switch while the GPU sand is live: the grains take the Renderer's new
  *        colours, and the layers' re-tone is a transfer that moves no grain.
+ *  RESIDUE points stuck on the funnel's wall after the end are moved by the residue rule: on a
+ *        glass that ends in view (the control), and on a sequence that ends while hidden (its
+ *        last fill made at 00:00.0 on return); then the GPU sand sleeps.
+ *  ASLEEP the GPU sand asleep is drawn again after a theme, the screen turned and back, and the
+ *        Frame switch, in #c-sand's box; a layout that changes nothing does not touch #c-gpu.
+ *  QUIET the engine ready in the middle of a Flip takes over only once the turn is over.
  *
  *   node tools/test/app-realsand.test.js [--port 8905] [--only slow]
+ *   (cases: off nogpu mock fail stamp again slow wake life norebuild crash residue asleep quiet)
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -88,6 +99,25 @@ function pageInit(arg) {
     document.dispatchEvent(new Event('visibilitychange'));
     if (!on) { var h = held; held = []; h.forEach(function (cb) { raf(cb); }); }
   };
+  // a hook on the mock engine's adopt(), set before boot.mjs hands the app its class: as the first
+  // adopt() resolves, before the app's next frame, 'lose' loses the device and 'flip' begins a Flip
+  if (arg.adopt) {
+    var mc = null;
+    window.__adopts = 0;
+    Object.defineProperty(window, '__mockClass', { configurable: true, get: function () { return mc; }, set: function (C) {
+      mc = C;
+      var adopt = C.prototype.adopt;
+      C.prototype.adopt = function () {
+        return adopt.apply(this, arguments).then(function (r) {
+          if (++window.__adopts === 1) {
+            if (arg.adopt === 'lose') window.__mockEnv.device.loseIt('unknown', 'mock: lost between adopt() and the handover');
+            if (arg.adopt === 'flip') { window.Hourglass.flipNow(); window.__flipAt = window.__mockEnv.V.frame; }
+          }
+          return r;
+        });
+      };
+    } });
+  }
   // a screen wake lock that is granted (a headless Chromium refuses the real one): how many are held
   if (arg.wake) {
     var W = window.__wake = { held: 0, requests: 0, releases: 0 };
@@ -111,7 +141,7 @@ function mockRoute() {
 }
 function openMock(env, mock, settings, o) {
   return env.open({ storage: { 'hourglass.settings.v1': Object.assign({ realSand: true, durationMs: 10000 }, settings || {}) },
-    init: pageInit, initArg: { plant: PLANT, mock: mock || {}, wake: !!(o && o.wake) }, routes: [mockRoute()], query: o && o.query });
+    init: pageInit, initArg: { plant: PLANT, mock: mock || {}, wake: !!(o && o.wake), adopt: o && o.adopt }, routes: [mockRoute()], query: o && o.query });
 }
 /** Wait until the GPU sand is the app's sim and the monitor follows it. */
 function waitLive(t, ms) {
@@ -748,6 +778,227 @@ async function testLife(s, env) {
             C2.top < C.top, JSON.stringify(C2));
     await H.invariants(s, t, 'LIFE');
   } finally { await t.close(); }
+  await lifeLossBefore(s, env);
+  await lifeFinalBack(s, env);
+}
+
+/** Each frame: [Date.now, state, rem, lastTick, nTop, the plant's points above, its last crossing (s), live, the engine lost, total, mock frame]. */
+function recordLoss(t) {
+  return t.eval(function () {
+    __rec.start(function (Hg) {
+      var e = window.__mockEnv, pl = e && e.solver && e.solver.plant, rs = Hg.realSand;
+      return [Date.now(), Hg.timer.state, Hg.timer.rem, Hg.timer.lastTick, Hg.sim.nTop, pl ? pl.above : -1,
+        pl ? pl.lastCrossT : NaN, Hg.sim === rs ? 1 : 0, rs && (rs._lostInfo || rs._gone) ? 1 : 0, Hg.sim.total, e ? e.V.frame : 0];
+    }, { frame: true });
+  });
+}
+/** The largest rise of nTop from one frame to the next while running, with the same total. */
+function maxRise(rows) {
+  var m = 0;
+  for (var i = 1; i < rows.length; i++) {
+    var a = rows[i - 1], b = rows[i];
+    if (a[1] === 'running' && b[1] === 'running' && a[9] === b[9]) m = Math.max(m, b[4] - a[4]);
+  }
+  return m;
+}
+
+/*
+ * LIFE: the device lost right after adopt() resolved, before the app's next frame (the frame that
+ * would hand over): the app must not hand the sand to the lost engine (before the fix: 127 frames
+ * with the lost engine as the sim, the note "On", and the rebuild's adopt filled from a CPU Sim
+ * not stepped since, so 2 s of sand went back above). The CPU sand runs on; the engine is rebuilt
+ * after 2 s and takes over; the count never jumps back up; the glass ends on time.
+ */
+async function lifeLossBefore(s, env) {
+  // (a start of 1.5 s: the loss is not taken for a lock or an app switch, so the rebuild waits 2 s)
+  var t = await openMock(env, { seed: 7, startDelay: 1500 }, { durationMs: 10000 }, { adopt: 'lose' });
+  try {
+    await watchToasts(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await recordLoss(t);
+    await waitFor(t, function () { return window.__adopts >= 1; }, 20000);
+    await sleep(200);
+    var a = await t.eval(function () {
+      var Hg = window.Hourglass, rs = Hg.realSand;
+      return { cpu: Hg.sim instanceof window.HourglassPhysics.Sim, lost: !!(rs && rs._lostInfo), ready: !!(rs && rs.ready),
+        real: document.getElementById('app').classList.contains('real'), note: document.getElementById('realsand-note').textContent };
+    });
+    s.check('LIFE (LOST BEFORE THE HANDOVER): the device lost after adopt(), before the handover\'s frame: the CPU sand stays the sim, the engine not ready, the note says it paused',
+            a.cpu && a.lost && !a.ready && !a.real && a.note === 'Real sand paused: the graphics chip was reset', JSON.stringify(a));
+    await waitLive(t, 10000);
+    await waitFor(t, function () { var Hg = window.Hourglass; return Hg.timer.state === 'done' && Hg.sim.nTop === 0; }, 20000);
+    await sleep(300);
+    var rows = await t.eval(function () { return __rec.stop(); });
+    var b = await t.eval(function () { var rs = window.Hourglass.realSand, T = window.Hourglass.timer; return { n: rs.stats().n, rate: T.rate, note: document.getElementById('realsand-note').textContent }; });
+    var lostLive = rows.filter(function (r) { return r[7] === 1 && r[8] === 1; }).length, rise = maxRise(rows), k = -1;
+    for (var i = 0; i < rows.length; i++) if (rows[i][7] === 1) { k = i; break; }
+    var end = endOf(rows.slice(k));
+    s.check('LIFE (LOST BEFORE THE HANDOVER): no frame runs on the lost engine; rebuilt after 2 s, it takes over ("On"); nTop rises by no more than the settle\'s flow (0.4 s of the clock\'s) at the handover',
+            lostLive === 0 && k > 0 && b.n.losses === 1 && b.n.rebuilds === 1 && b.note === 'On' && rise <= Math.max(12, Math.ceil(0.4 * b.rate)) + 1,
+            JSON.stringify({ lostLive: lostLive, handoverFrame: k, rise: rise, rate: b.rate, losses: b.n.losses, rebuilds: b.n.rebuilds, note: b.note }));
+    s.check('LIFE (LOST BEFORE THE HANDOVER): the glass ends on time on the rebuilt engine', end.done && end.liveAll && end.d >= -5 && end.d <= 30 && end.early === 0, fmtEnd(end));
+    await H.invariants(s, t, 'LIFE (LOST BEFORE THE HANDOVER)');
+  } finally { await t.close(); }
+}
+
+/*
+ * LIFE: a second loss in view right after the rebuild's onBack (before the app's next frame): final.
+ * The app must not take over the destroyed engine (before the fix it stayed the sim for the
+ * session, with the note "On": a frozen picture on a phone, and nTop stuck at 1 after the end).
+ */
+async function lifeFinalBack(s, env) {
+  var t = await openMock(env, { seed: 9 }, { durationMs: 30000 });
+  try {
+    await waitLive(t);
+    await watchToasts(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1500);
+    await t.eval(function () {
+      var rs = window.Hourglass.realSand, back = rs.o.onBack;
+      rs.o.onBack = function () { back(); window.__mockEnv.device.loseIt('unknown', 'mock: reset again'); };
+      window.__mockEnv.device.loseIt('unknown', 'mock: the graphics chip was reset');
+    });
+    await sleep(4500);
+    var FINAL = 'Paused after the graphics chip was reset twice; it will try again next launch';
+    var a = await t.eval(function () {
+      var Hg = window.Hourglass, rs = Hg.realSand, st = rs.stats();
+      return { cpu: Hg.sim instanceof window.HourglassPhysics.Sim, live: Hg.sim === rs, ready: rs.ready, real: document.getElementById('app').classList.contains('real'),
+        note: document.getElementById('realsand-note').textContent, losses: st.n.losses, rebuilds: st.n.rebuilds, toasts: window.__toasts.slice(), run: Hg.timer.state, top: Hg.sim.nTop };
+    });
+    await sleep(1000);
+    var top2 = await t.eval(function () { return window.Hourglass.sim.nTop; });
+    s.check('LIFE (LOST AGAIN AT ONCE): a second loss right after the rebuild\'s onBack is final: the CPU sand stays the sim and runs on, the note says so, never "On"',
+            a.cpu && !a.live && !a.ready && !a.real && a.note === FINAL && a.losses === 2 && a.rebuilds === 1 && a.run === 'running' && top2 < a.top,
+            JSON.stringify(a) + ', nTop 1 s later ' + top2);
+    await H.invariants(s, t, 'LIFE (LOST AGAIN AT ONCE)');
+  } finally { await t.close(); }
+}
+
+/*
+ * RESIDUE: points stuck on the funnel's wall after the end are moved by the residue rule, also
+ * when the end comes with a fill made at 00:00.0: a 1-round sequence whose rest ends while the page
+ * is hidden (the unseen turn's fill is made on return, after the catch-up). Before the fix that
+ * fill turned the rule off: nTop read 2 for good, the GPU never slept, Play ran a 2-grain glass.
+ * The control: the same stuck points on a glass that ends in view.
+ */
+async function testResidue(s, env) {
+  var t = await openMock(env, { seed: 31, plant: { stuck: 3 } }, { durationMs: 10000 });
+  try {
+    await waitLive(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await waitFor(t, function () { return window.Hourglass.timer.state === 'done'; }, 20000);
+    await sleep(4000);
+    var c = await t.eval(function () { var Hg = window.Hourglass, rs = Hg.realSand; return { top: Hg.sim.nTop, residues: rs.stats().n.residues, above: window.__mockEnv.solver.plant.above }; });
+    s.check('RESIDUE (control): 3 points stuck above at the end of a glass in view: the residue rule moves them, nTop 0 within 4 s',
+            c.top === 0 && c.residues >= 1 && c.above === 0, JSON.stringify(c));
+  } finally { await t.close(); }
+  t = await openMock(env, { seed: 31, plant: { stuck: 3 } }, { durationMs: 10000, restMs: 10000, rounds: 1 });
+  try {
+    await waitLive(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1500);
+    await t.eval(function () { window.__hide(true); });
+    await sleep(21000);
+    await t.eval(function () { window.__hide(false); });
+    await waitFor(t, function () { return window.Hourglass.sim.nTop === 0; }, 6000).catch(function () {});
+    var a = await t.eval(function () {
+      var Hg = window.Hourglass, rs = Hg.realSand, st = rs.stats();
+      return { state: Hg.timer.state, top: Hg.sim.nTop, live: Hg.sim === rs, residues: st.n.residues, deferred: st.n.deferred,
+        above: window.__mockEnv.solver.plant.above, audit: rs.audit() && rs.audit().ok };
+    });
+    await sleep(3000);
+    var m = await t.eval(function () { return window.Hourglass.realSand.modes.mode; });
+    s.check('RESIDUE: a sequence ended while hidden (its last fill made on return, at 00:00.0): the stuck points are moved by the residue rule, nTop 0 within 6 s; then the GPU sand sleeps',
+            a.state === 'done' && a.top === 0 && a.live && a.residues >= 1 && a.deferred >= 1 && a.above === 0 && a.audit !== false && m === 'asleep',
+            JSON.stringify(a) + ', mode 3 s on: ' + m);
+    await H.invariants(s, t, 'RESIDUE');
+  } finally { await t.close(); }
+}
+
+/*
+ * ASLEEP: the GPU sand at rest (asleep: no GPU work) is drawn again when what it looks like
+ * changes: a theme, the screen turned (a resize) and back, the Frame switch. #c-gpu keeps
+ * #c-sand's box; a layout that changes nothing leaves its width and height alone (setting either
+ * clears a canvas's picture). Before the fix none of these drew anything (old colours, or a blank
+ * or stretched picture, until the glass was started or tilted).
+ */
+async function testAsleep(s, env) {
+  var t = await openMock(env, { seed: 61 }, {});
+  try {
+    await waitLive(t);
+    await waitFor(t, function () { return window.Hourglass.realSand.modes.mode === 'asleep'; }, 15000);
+    await sleep(500);
+    await t.eval(function () {
+      var c = document.getElementById('c-gpu'), W = window.__sets = { width: 0, height: 0 };
+      ['width', 'height'].forEach(function (k) {
+        var d = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, k);
+        Object.defineProperty(c, k, { configurable: true, get: function () { return d.get.call(c); }, set: function (v) { W[k]++; d.set.call(c, v); } });
+      });
+    });
+    var look = function () {
+      return t.eval(function () {
+        var rs = window.Hourglass.realSand, c = document.getElementById('c-gpu'), cs = document.getElementById('c-sand');
+        return { draws: window.__mockEnv.grains.draws, frame: window.__mockEnv.V.frame, mode: rs.modes.mode, w: c.width, h: c.height,
+          sets: window.__sets.width + window.__sets.height, same: ['width', 'height', 'left', 'top'].every(function (k) { return c.style[k] === cs.style[k]; }),
+          box: c.style.width + ' x ' + c.style.height };
+      });
+    };
+    // drawn again once, soon after the change, still asleep
+    async function after(what, fn, ms) {
+      var a = await look();
+      await fn();
+      await t.page.waitForFunction(function (d) { return window.__mockEnv.grains.draws > d; }, a.draws, { timeout: ms || 1500, polling: 16 }).catch(function () {});
+      var b = await look();
+      await sleep(300);
+      var c = await look();
+      return { what: what, draws: b.draws - a.draws, frames: b.frame - a.frame, asleep: c.mode === 'asleep' && c.draws === b.draws, same: c.same, sets: c.sets - a.sets, box: c.box, w: c.w };
+    }
+    var r0 = await after('a layout that changes nothing', function () { return t.eval(function () { window.dispatchEvent(new Event('resize')); }); }, 600);
+    var r1 = await after('a theme', function () { return t.eval(function () { window.Hourglass.setTheme('volcanic'); }); });
+    var r2 = await after('landscape', function () { return t.page.setViewportSize({ width: 844, height: 390 }); });
+    await sleep(400);
+    var r3 = await after('portrait again', function () { return t.page.setViewportSize({ width: 390, height: 844 }); });
+    await sleep(400);
+    var r4 = await after('the Frame switch', function () { return t.page.$eval('#opt-frame', function (el) { el.click(); }); }, 2000);
+    s.check('ASLEEP: a layout that changes nothing sets neither width nor height of #c-gpu and draws nothing',
+            r0.sets === 0 && r0.draws === 0 && r0.asleep, JSON.stringify(r0));
+    s.check('ASLEEP: a theme chosen: the GPU sand is drawn again within 2 frames (with its new palette), and sleeps on',
+            r1.draws >= 1 && r1.frames <= 2 && r1.asleep, JSON.stringify(r1));
+    s.check('ASLEEP: the screen turned to landscape and back: drawn again each time at its new size, in #c-sand\'s box, and sleeps on',
+            [r2, r3].every(function (r) { return r.draws >= 1 && r.sets >= 1 && r.same && r.asleep; }) && r2.w !== r3.w, JSON.stringify([r2, r3]));
+    s.check('ASLEEP: the Frame switch (the glass sits larger): drawn again, in #c-sand\'s box, and sleeps on',
+            r4.draws >= 1 && r4.sets >= 1 && r4.same && r4.asleep, JSON.stringify(r4));
+    await H.invariants(s, t, 'ASLEEP');
+  } finally { await t.close(); }
+}
+
+/*
+ * QUIET: the handover waits for a quiet frame (review finding 10): the engine ready in the middle of
+ * a Flip (begun as adopt() resolved) takes the sand only once the turn is over, so the cross-fade
+ * never joins the CPU's turned bed to the GPU's upright one.
+ */
+async function testQuiet(s, env) {
+  var t = await openMock(env, { seed: 71, startDelay: 600 }, { durationMs: 10000 }, { adopt: 'flip' });
+  try {
+    await t.eval(function () { window.Hourglass.start(); });
+    var ho = await t.eval(function () {
+      var Hg = window.Hourglass, t0 = performance.now(), endAt = null;
+      return new Promise(function (res) {
+        (function w() {
+          if (performance.now() - t0 > 20000) { res(null); return; }
+          if (window.__flipAt !== undefined && !Hg.flip.active && endAt === null) endAt = window.__mockEnv.V.frame;
+          if (Hg.sim === Hg.realSand) { res({ flipAt: window.__flipAt, flipEnd: endAt, at: window.__mockEnv.V.frame, active: Hg.flip.active, angle: Hg.sim.angle }); return; }
+          requestAnimationFrame(w);
+        })();
+      });
+    });
+    s.check('QUIET: the engine ready in the middle of a Flip takes the sand only once the turn is over (within a few frames after it)',
+            !!ho && ho.flipAt !== undefined && !ho.active && ho.angle === 0 && ho.flipEnd !== null && ho.at - ho.flipAt > 60 && ho.at - ho.flipEnd <= 3, JSON.stringify(ho));
+    await t.eval(function () { __rec.start(function (Hg) { var e = window.__mockEnv, pl = e.solver.plant; return [Date.now(), Hg.timer.state, Hg.timer.rem, Hg.timer.lastTick, Hg.sim.nTop, pl.above, pl.lastCrossT, Hg.sim === Hg.realSand ? 1 : 0, e.V.frame]; }, { frame: true }); });
+    var end = await runToEnd(t, 20000);
+    s.check('QUIET: ... and the glass ends on time', end.done && end.liveAll && end.d >= -5 && end.d <= 30 && end.early === 0, fmtEnd(end));
+    await H.invariants(s, t, 'QUIET');
+  } finally { await t.close(); }
 }
 
 async function testNoRebuild(s, env) {
@@ -931,7 +1182,8 @@ async function main() {
   try {
     var only = env.args.only;
     var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp, again: testAgain,
-      slow: testSlow, wake: testWake, life: testLife, norebuild: testNoRebuild, crash: testCrash };
+      slow: testSlow, wake: testWake, life: testLife, norebuild: testNoRebuild, crash: testCrash, residue: testResidue, asleep: testAsleep,
+      quiet: testQuiet };
     for (var k in cases) {
       if (only && only !== k) continue;
       try { await cases[k](s, env); } catch (e) {
