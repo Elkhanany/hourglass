@@ -36,12 +36,18 @@ check(Array.isArray(SHELL) && SHELL.length > 10, 'sw.js has its SHELL', SHELL &&
 check(/^hourglass-v\d+\.\d+\.\d+$/.test(VERSION), 'sw.js VERSION names a release', VERSION);
 
 // 1. every path exists
-var missing = SHELL.filter(function (u) {
-  var p = path.join(ROOT, u.replace(/^\.\//, ''));
-  if (u === './') return !fs.existsSync(path.join(ROOT, 'index.html'));
-  return !fs.existsSync(p) || fs.statSync(p).isDirectory();
-});
+function absent(list) {
+  return list.filter(function (u) {
+    var p = path.join(ROOT, u.replace(/^\.\//, ''));
+    if (u === './') return !fs.existsSync(path.join(ROOT, 'index.html'));
+    return !fs.existsSync(p) || fs.statSync(p).isDirectory();
+  });
+}
+var missing = absent(SHELL);
 check(missing.length === 0, 'every path in SHELL exists (cache.addAll fails the install on one that does not)', missing.join(', '));
+// (the control: a shell with a module and a shader that are not there, and a folder, is caught on all three)
+var control = absent(SHELL.concat(['./realsand/not-there.mjs', './realsand/shaders/not-there.wgsl', './realsand/shaders']));
+check(control.length === 3, '... and that check finds paths that are not files (control)', control.join(', '));
 var dup = SHELL.filter(function (u, i) { return SHELL.indexOf(u) !== i; });
 check(dup.length === 0, 'no path is in SHELL twice', dup.join(', '));
 var inShell = {};
