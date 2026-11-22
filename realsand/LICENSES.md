@@ -1,11 +1,11 @@
 # Licences of the sand engine
 
-The sand engine (this folder, `realsand/`, used by the sand lab in
-`lab/sand/`) is part of the Hourglass project, which is licensed under the
-GNU General Public License, version 3 (see `LICENSE` at the root of the
-repository). Its solver is derived from two other projects, whose notices are
-kept in every file derived from them and whose full texts follow. Both
-licences are compatible with the GPL-3.0.
+The sand engine (this folder, `realsand/`, used by the app's Real sand and
+by the sand lab in `lab/sand/`) is part of the Hourglass project, which is
+licensed under the GNU General Public License, version 3 (see `LICENSE` at
+the root of the repository). Its solver is derived from two other projects,
+whose notices are kept in every file derived from them and whose full texts
+follow. Both licences are compatible with the GPL-3.0.
 
 | File | Derived from | Licence of the original |
 |---|---|---|

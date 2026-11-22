@@ -331,9 +331,12 @@ sand a second, more (up to 1,440) while a bed of sand moves fast, drawn
 every frame. A glass running calmly, the phone lying still or held still in
 the hand, is drawn 30 times a second at the same 480 steps. A glass that
 the chip has kept below 0.6 of real time for 20 s drops to that calm rate
-(the heat guard). There is no economy mode: it uses more battery than the
-current sand, most on long glasses (the 60-minute glass kept the iPhone's
-graphics chip 85 % busy in the sand lab).
+(the heat guard). Calm saves little on a long glass, since its steps are
+most of the work: the 60-minute glass kept the iPhone's graphics chip 85 %
+busy in the sand lab, and 79 % calm. So when the phone is hot the sand may
+simply run slower than real time for a while; the clock stays exact, and
+the report (below) logs each time the guard trips. There is no economy
+mode: it uses more battery than the current sand, most on long glasses.
 
 Keep the screen awake. While the phone is locked or another app is in front,
 the new sand stands still and the clock does not; back on screen, the sand
@@ -372,17 +375,22 @@ The note under the switch says how it is doing:
 Around a lock or a switch to another app, a reset graphics chip is
 rebuilt without a word.
 
-To report how it does: open the app in Safari with `?debug=sand` after its
-address (`https://elkhanany.github.io/hourglass/?debug=sand`). Small white
-figures at the bottom left show its power mode, its rate, how fast the sand
-runs against real time, the sand above the neck, the stream's first fall
-from the neck to the floor and how long the start took. Tap **copy the
-report** and paste it into your message, with what you did (which glass,
-the phone still or in the hand, Real motion on or off) and what you saw. A
-web app on the home screen always opens at its own address, so the figures
-are Safari's. For the battery: run the same 30-minute glass with Real sand
-on and then off, at a fixed brightness (Auto-Brightness off), not charging,
-and note the battery before and after each.
+To report how it does: with the switch on, Tune has **Copy a report** under
+it. Tap it and paste the report into your message, with what you did (which
+glass, the phone still or in the hand, Real motion on or off) and what you
+saw. It holds how long the start took, the stream's first fall from the neck
+to the floor, the power mode and rate, each heat guard trip and the engine's
+log, from the app as you use it, home-screen web app included. To watch the
+figures live, open the app in Safari with `?debug=sand` after its address
+(`https://elkhanany.github.io/hourglass/?debug=sand`): small white figures
+at the bottom left show the power mode, the rate, how fast the sand runs
+against real time, the sand above the neck, the first fall and the start,
+with the same report under **copy the report**. (A web app on the home
+screen keeps its own storage and always opens at its own address, so
+`?debug=sand` cannot reach it; those figures are Safari's.) For the battery:
+run the same 30-minute glass with Real sand on and then off, at a fixed
+brightness (Auto-Brightness off), not charging, and note the battery before
+and after each.
 
 ## How it works
 
@@ -1056,20 +1064,26 @@ adapter (`realsand/app-sand.mjs`, `RealSand`) and hands its class and the
 engine's build stamp to `Hourglass.attachRealSand`. A stamp other than the
 one `app.js` was written for (`REALSAND_BUILD`) means a mix of old and new
 files in the cache: the current sand this launch, and the note says Real
-sand is updating. Otherwise the engine starts (the device, its pipelines and
-a self-test) and fills the GPU from the CPU sand. The CPU sand keeps running
-and showing all the while, however long the start takes (a cold start in a
-home-screen web app took 3.4 s on an iPhone); once the GPU has drawn its
-first frame the sand changes hands between two frames: `sim` becomes the GPU
-sand, which has every member of the CPU Sim the app uses, and `#c-gpu`
-fades in over `#c-sand` (hidden by opacity, never `display: none`, since a
-knock is placed by `#c-sand`'s box). The clock, the glass, gestures, sound,
-motion and sessions run through the same code as before; the frame calls
-the engine's `submit` instead of `drawSand`, and the sweep, the theme and
-layered sand's colours, the layout and the page's visibility are passed on.
-The screen wake lock is the app's own, as before, and after any gap (a
-lock, another app) the app's catch-up moves what is owed through the
-engine's transfer.
+sand is updating. The shaders carry the stamp too (the line "Engine build"
+in `shaders/common.inc.wgsl`), checked against the modules' at the start,
+and a page fetches its shaders once: a rebuild after a lost device or a
+retried start compiles the sources the page started with, never a newer copy
+that a new release's service worker has put in the cache meanwhile.
+Otherwise the engine starts (the device, its pipelines and a self-test) and
+fills the GPU from the CPU sand. The CPU sand keeps running and showing all
+the while, however long the start takes (a cold start in a home-screen web
+app took 3.4 s on an iPhone); once the GPU has drawn its first frame, and is
+not lost, the sand changes hands between two quiet frames (no Reset's sweep,
+turn, pour, or glass in a hand or moving on its own: the GPU's bed settled
+upright): `sim` becomes the GPU sand, which has every member of the CPU Sim
+the app uses, and `#c-gpu` fades in over `#c-sand` (hidden by opacity, never
+`display: none`, since a knock is placed by `#c-sand`'s box). The clock, the
+glass, gestures, sound, motion and sessions run through the same code as
+before; the frame calls the engine's `submit` instead of `drawSand`, and the
+sweep, the theme and layered sand's colours, the layout and the page's
+visibility are passed on. The screen wake lock is the app's own, as before,
+and after any gap (a lock, another app) the app's catch-up moves what is
+owed through the engine's transfer.
 
 Where it cannot run, the CPU sand stays, with the clock untouched, and the
 note under the switch says why. Without WebGPU, or with a graphics adapter
@@ -1123,11 +1137,12 @@ slams, and so the landing buzz (Android); every other buzz is the app's own.
 With Real sand on the glass does not crack: a blow thumps and clacks, cracks
 the glass already has stay and can be mended, and Reset makes it whole. The
 glow, rim light and depth shading of the CPU sand are not drawn. Grain still
-sets the current sand's grain; the GPU sand keeps its own. `?debug=sand`
-shows the engine's figures (its power mode, rate, counts, the stream's first
-fall, the start-up times) and copies a report for the owner's notes;
-`?offscreen=1` is for the tests only (the engine draws offscreen and accepts
-a software adapter).
+sets the current sand's grain; the GPU sand keeps its own. With the switch
+on, the row's **Copy a report** copies the engine's figures (its power mode,
+rate, counts, the stream's first fall, the start-up times, the heat guard's
+trips, its log) for the owner's notes, also from a home-screen web app;
+`?debug=sand` shows them on screen too; `?offscreen=1` is for the tests only
+(the engine draws offscreen and accepts a software adapter).
 
 ### Real sand: the engine, the frame and the valve
 
@@ -1167,15 +1182,17 @@ CPU sand, and `sim` is `RealSand`:
    count: at the frame's first step the valve plans the frame's count from
    the clock's target, and the count reaches it in equal parts.
 4. `real.submit(now)` in place of `renderer.drawSand()`: nothing while
-   hidden; a transfer under way holds the runs (abandoned after 1 s, the
-   CPU sand then brought to the ledger's counts and the GPU filled from it);
-   a fill put off while hidden goes first; then the power mode. A run is
-   skipped when two frames are in flight or every readback slot is taken
-   (the canvas is then turned half a turn by CSS while its picture is from
-   before a swap). Otherwise the run: the valve's words for the neck, the
-   substeps at the chosen rate, the tally, the tone pass, the grains drawn,
-   one submit. Its readback comes back some frames later and is read
-   against the ledger.
+   hidden; a transfer under way holds the runs (abandoned after 1 s, the CPU
+   sand then brought to the ledger's counts and the GPU filled from it); a
+   fill put off while hidden goes first; then the power mode. Asleep,
+   nothing runs, but a picture whose look changed (a palette, a canvas of a
+   new size, back from hidden, a new bed) is drawn again by a run of no
+   substeps. A run is skipped when two frames are in flight or every
+   readback slot is taken (the canvas is then turned half a turn by CSS
+   while its picture is from before a swap). Otherwise the run: the valve's
+   words for the neck, the substeps at the chosen rate, the tally, the tone
+   pass, the grains drawn, one submit. Its readback comes back some frames
+   later and is read against the ledger.
 5. The glass, its cracks (the CPU Sim's), the sound (from `sim.frame`,
    which RealSand fills from the ledger: the grains through the neck this
    frame, and their landings after the fall) and the readout, as before.
@@ -1197,7 +1214,7 @@ readbacks so that a small queue waits on the line. A readback is read in
 the present terms by replaying the pours and turns made since its run; one
 from before a fill or a transfer is dropped. After the end, grains still
 above (the residue) are moved below by a transfer once they have had 1.5 s
-to flow.
+to flow (from the end, or from a fill or transfer made after it).
 
 Any change to the engine raises the stamp in `realsand/build.mjs`,
 `REALSAND_BUILD` in `app.js` and `BUILD_EXPECTED` in `lab/sand/main.mjs`
@@ -1374,14 +1391,19 @@ node tools/test/run-all.js realsand-gpu  # Real sand on WebGPU in software (only
   and every gap caught up by a transfer, also one past the end; the
   graphics chip lost while hidden (silent, rebuilt on return), in view (the
   toast, rebuilt after 2 s), and a second time within 10 minutes (the CPU
-  sand for the session, nothing counted), and a rebuild that finds no
-  device; and a glass that does not crack: the drop that cracks the CPU
-  sand's glass (its control) only thumps and clacks, quick knocks crack
+  sand for the session, nothing counted), lost just after the engine adopted
+  the sand or just after a rebuild handed it back (never handed to the lost
+  engine), and a rebuild that finds no device; points stuck above after a
+  sequence ended while hidden (moved by the residue rule); the GPU sand
+  asleep drawn again after a theme, a turn of the screen and the Frame
+  switch; the handover held until a Flip is over; and a glass that does not
+  crack: the drop that cracks the CPU sand's glass (its control) only thumps
+  and clacks, quick knocks crack
   nothing, a crack from before stays, leaks nothing and mends, Reset makes
   it whole, and a theme or layered sand chosen while the GPU sand runs (the
-  new colours at once; a re-tone that moves no grain); and `?debug=sand`,
-  whose overlay and copied report carry the start-up times and the
-  stream's first fall to the owner's reports. The monitor every suite runs (`stubs/page-init.js`) follows
+  new colours at once; a re-tone that moves no grain); and `?debug=sand`
+  and the row's "Copy a report", whose report carries the start-up times
+  and the stream's first fall to the owner's reports. The monitor every suite runs (`stubs/page-init.js`) follows
   `Hourglass.sim` when Real sand takes over, and checks the GPU's readbacks
   against its count (`audit()`). `app-regression`'s service worker check
   serves a new build of the engine midway: the app keeps its cached engine,
@@ -1449,13 +1471,17 @@ node tools/test/run-all.js realsand-gpu  # Real sand on WebGPU in software (only
   00:00.0 and never reading empty while a point is above; blows that thump
   without damage, mending, the brim, the scales of a phone and a tablet and
   the Fine and Finest grains, the start-up's failures, a phone held still in
-  the hand (calm, and no motion for the clock), the heat guard, sleep, a
-  device lost around a lock, and the canvas turned half a turn while its
-  picture is from before a swap.
+  the hand (calm, and no motion for the clock), the heat guard (and its
+  log), sleep, a device lost around a lock, and the canvas turned half a
+  turn while its picture is from before a swap; and the stage 1b review's
+  cases: a lost engine never ready nor taken over, a handover after the CPU
+  caught up (by a transfer, the count never back up), a brief lock while the
+  device opened, the picture drawn again while asleep, and one shader
+  library a page with the shaders' build checked.
   `realsand-shell` checks the service worker's shell for Real sand: every
   path in it exists (one missing would fail the whole install), every module
   `realsand/boot.mjs` loads and every shader of the engine is in it, and
-  `app.js`, the lab and the engine name the same build stamp.
+  `app.js`, the lab, the engine and its shaders name the same build stamp.
   `realsand-gpu` runs only when named (`node tools/test/run-all.js
   realsand-gpu`, 10 to 15 minutes, every core busy): the app with Real sand
   and layered sand on the real engine, on Chromium's WebGPU in software
