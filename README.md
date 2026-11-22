@@ -993,9 +993,46 @@ the same frame at the GPU sand's counts, with a toast (none around a lock or
 an app switch), and the GPU sand comes back when it can; a second reset
 within ten minutes leaves the current sand for the rest of the session.
 
+What the GPU sand looks like. Each simulated point is drawn as one grain in
+the colour of the CPU sand's grain at its place (its seed, carried into every
+fill), from the Renderer's own colour table, so the theme, the sand presets
+and layered sand's second tone are the same as the current sand's and change
+with them at once. The solver's neck is a little wider than the drawn one, so
+each grain is drawn pulled in toward the axis near the neck (by the drawn
+width over the simulated one, row by row) and the sand lies inside the glass
+the app draws. The grains are lit from the upper left of the room: the canvas
+turns with the glass, so the light is turned back by the glass's angle on
+screen. Grains in flight are drawn as their streaks, a bed moving as a whole
+sharp (the lab's rule). Reset is drawn as the current sand draws it, in about
+a second: the old sand drawn into the neck (every grain's squared distance
+from the neck falling by the same amount, the sand frozen), then the new bed
+shown from the neck up under a rising heap, with the thread that pours it.
+
+Layered sand on the GPU. A grain keeps its colour while it falls; when it
+first comes to rest below the neck it takes the tone the layer schedule
+gives it, so the lower heap grows in strata as the current sand's does
+(layers of a style's depth across the heap, one tone under the other,
+changing from layer to layer, poured sand in layers of its own). The tones
+given keep pace with the tones of the grains that came (within about a
+stratum's worth: a stratum ends early when the sand for it runs out), so
+each tone keeps its count, as the current sand's sifting does. After every
+turn (a Flip, a turn by hand or by real motion) the grains that moved take a
+fresh pattern as they come to rest, a pattern drawn anew for each bulb and
+turn (the current sand's own drawing of it); they trade tones in equal
+numbers, so each bulb keeps its count of each tone. Turning layered sand on
+or off re-tones every grain from the current sand's strata, by its depth in
+its column, behind the usual slow cross-fade.
+
+What it sounds like. The stream is the grains the GPU sand lets through the
+neck each frame (the same count the clock reads); each lands after its fall
+from the neck to the heap, on glass while the lower bulb is nearly empty,
+and poured sand lands in the top bulb; the tail follows the last grains, and
+the fill the lower bulb. Blows thump and clack; mending chimes. Knowingly
+silent for now: the bed's landing thumps, the avalanche hiss and the bed's
+slams, and so the landing buzz (Android); every other buzz is the app's own.
+
 With Real sand on the glass does not crack: a blow thumps and clacks, cracks
-the glass already has stay and can be mended, and Reset makes it whole.
-Landing thumps, the avalanche hiss and the bed's slams are silent, and the
+the glass already has stay and can be mended, and Reset makes it whole. The
 glow, rim light and depth shading of the CPU sand are not drawn. Grain still
 sets the current sand's grain; the GPU sand keeps its own. `?debug=sand`
 shows the engine's figures (its power mode, rate, counts, the stream's first
@@ -1146,9 +1183,11 @@ node tools/test/app-gestures.test.js     # any single suite
   never before, Reset, a pour, a hidden gap caught up by a transfer, a Flip,
   the canvas turned by CSS while the chip's runs are held at a swap, and a
   chip lost mid-run (the CPU sand at the same counts in the same frame, the
-  clock untouched, the toast, then back); a start that fails keeps the
-  setting and stops after three launches; a stale build stamp says it is
-  updating. The monitor every suite runs (`stubs/page-init.js`) follows
+  clock untouched, the toast, then back), and what audio.js is given (the
+  stream's flow from the grains released, landings after their fall, events
+  in range, poured sand landing in the top bulb, nothing for the thumps,
+  slams and slides, no landing buzz); a start that fails keeps the setting
+  and stops after three launches; a stale build stamp says it is updating. The monitor every suite runs (`stubs/page-init.js`) follows
   `Hourglass.sim` when Real sand takes over, and checks the GPU's readbacks
   against its count (`audit()`). `app-regression`'s service worker check
   serves a new build of the engine midway: the app keeps its cached engine,
@@ -1223,13 +1262,20 @@ node tools/test/app-gestures.test.js     # any single suite
   `realsand/boot.mjs` loads and every shader of the engine is in it, and
   `app.js`, the lab and the engine name the same build stamp.
   `realsand-gpu` runs only when named (`node tools/test/run-all.js
-  realsand-gpu`, about a minute, every core busy): the app with Real sand on
-  the real engine, on Chromium's WebGPU in software (SwiftShader), loaded
-  with `?offscreen=1`: the start and the handover, a 10 s glass to its end
-  with every readback agreeing with the count, Reset, and a Flip of a full
-  glass. In software the sand runs at a few hundredths of real time, so the
-  glass empties through the app's catch-up: the time of the last grain is
-  `app-realsand`'s to check.
+  realsand-gpu`, 10 to 15 minutes, every core busy): the app with Real sand
+  and layered sand on the real engine, on Chromium's WebGPU in software
+  (SwiftShader), loaded with `?offscreen=1`. Software runs the sand at a few
+  hundredths of real time, so once the engine has started the page's clock
+  is made virtual (its time, frames and timers driven by the test, a frame
+  at a time, each once the chip has done the last), and the sand runs at
+  real time in it. Seven cases on 10 s glasses: the start and the handover;
+  a glass to its end, its last grain crossing within one frame after
+  00:00.0 by the chip's own record, with no catch-up and no residue; Reset;
+  a Flip at 4 s; a pour, then real motion turning the glass over while sand
+  is poured; 30 s hidden and caught up by one transfer; and the chip lost
+  mid-run (the CPU sand at the same counts in the same frame, the clock
+  untouched, then back). With `--shots <dir>` it saves pictures of the app
+  with Real sand on.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
