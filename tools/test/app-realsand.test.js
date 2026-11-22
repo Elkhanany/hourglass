@@ -40,11 +40,14 @@
  *  SLOW  a cold start as slow as the owner's iPhone's in a home-screen web app (Gate A: 3.4 s to
  *        the engine's first frame; here 4 s): the CPU sand shows and runs meanwhile, the boot veil
  *        is not held for it, the canvases cross-fade only once the engine has drawn, the clock
- *        runs on through the handover untouched, no failure is counted, the glass ends on time.
+ *        runs on through the handover untouched, no failure is counted, the glass ends on time;
+ *        ?debug=sand shows, and its copied report holds, the start-up times and the first fall.
  *  WAKE  Gate A's 4-minute glass ended 7 minutes late: the lab held no screen wake lock and had no
  *        catch-up. With the GPU sand running the app holds its wake lock (a stand-in for the
  *        browser's, which a headless Chromium refuses), lets it go while hidden and takes it back
- *        on return; every gap is caught up by a transfer, also one that runs past the end.
+ *        on return; every gap is caught up by a transfer, also one that runs past the end. The
+ *        stream's first fall (Gate A: slow in a home-screen web app and in the hand) is in
+ *        ?debug=sand's overlay and report.
  *  LIFE  losses of the graphics chip (design 7.9): one while hidden (a lock or an app switch) is
  *        silent and rebuilt once the page is back; one in view shows the toast and is rebuilt
  *        after 2 s; a second such loss within 10 minutes leaves the CPU sand for the session,
@@ -67,6 +70,7 @@ var sleep = H.sleep;
 var KEY = 'hourglass.settings.v1';
 var PLANT = fs.readFileSync(path.join(__dirname, 'lib', 'realsand-plant.js'), 'utf8');
 var MOCK = fs.readFileSync(path.join(__dirname, 'stubs', 'realsand-mock-boot.mjs'), 'utf8');
+var ENGINE_BUILD = (/export const BUILD = '([^']+)'/.exec(fs.readFileSync(path.join(__dirname, '..', '..', 'realsand', 'build.mjs'), 'utf8')) || [])[1];
 
 /** Before the page's scripts: the plant, the mock's settings, and a page that can be hidden (no animation frames then, as on the phone). */
 function pageInit(arg) {
@@ -107,11 +111,22 @@ function mockRoute() {
 }
 function openMock(env, mock, settings, o) {
   return env.open({ storage: { 'hourglass.settings.v1': Object.assign({ realSand: true, durationMs: 10000 }, settings || {}) },
-    init: pageInit, initArg: { plant: PLANT, mock: mock || {}, wake: !!(o && o.wake) }, routes: [mockRoute()] });
+    init: pageInit, initArg: { plant: PLANT, mock: mock || {}, wake: !!(o && o.wake) }, routes: [mockRoute()], query: o && o.query });
 }
 /** Wait until the GPU sand is the app's sim and the monitor follows it. */
 function waitLive(t, ms) {
   return waitFor(t, function () { var Hg = window.Hourglass; return !!Hg.realSand && Hg.sim === Hg.realSand && __mon.sim === Hg.sim; }, ms || 20000);
+}
+/** What ?debug=sand shows (its overlay) and what its "copy the report" copies (Hourglass.realSandReport). */
+function debugReport(t) {
+  return t.eval(function () {
+    var r = JSON.parse(window.Hourglass.realSandReport()), el = document.getElementById('debug-sand');
+    var F = r.stats && r.stats.fall, tm = r.stats && r.stats.times;
+    return { overlay: el ? el.textContent : null, copy: !!el && /copy the report/.test(el.textContent),
+      fall: F && F.log && F.log[0], times: tm && { device: tm.device, pipelines: tm.pipelines, selfTest: tm.selfTest, firstFrame: tm.firstFrame },
+      started: (r.log || []).filter(function (l) { return /started in|first frame/.test(l); }).length,
+      fallLogged: (r.log || []).filter(function (l) { return /first fall/.test(l); }).length, live: r.live, build: r.build };
+  });
 }
 /** Every toast the page shows from now on (its text, each time it is set). */
 function watchToasts(t) {
@@ -540,7 +555,7 @@ async function testAgain(s, env) {
 async function testSlow(s, env) {
   // Gate A: in a home-screen web app the pipelines took 2.8 s and the first frame came 3.4 s after
   // the page began (0.6 s in Chrome). Here the engine's start() is held 4 s before it begins.
-  var t = await openMock(env, { seed: 9, startDelay: 4000 });
+  var t = await openMock(env, { seed: 9, startDelay: 4000 }, {}, { query: '?debug=sand' });
   try {
     await t.eval(function () { window.Hourglass.start(); });
     await t.eval(function () {
@@ -615,12 +630,18 @@ async function testSlow(s, env) {
     var st = await state(t);
     s.check('SLOW: a slow start is not a failure: "On", the setting kept, nothing counted', st.note === 'On' && st.setting === true && !st.fails && !st.why,
             JSON.stringify({ note: st.note, setting: st.setting, fails: st.fails, why: st.why }));
+    // what the owner sends back from the phone (?debug=sand): the start-up times, in the overlay
+    // and in the copied report, with the engine's log
+    var rep = await debugReport(t);
+    s.check('SLOW: ?debug=sand: the overlay shows the start-up times, and the copied report holds them (device, pipelines, self-test, first frame: here after 4 s) with the engine\'s log',
+            !!rep.overlay && /first frame/.test(rep.overlay) && rep.copy && !!rep.times && rep.times.pipelines >= 0 && rep.times.selfTest >= 0 &&
+            rep.times.firstFrame > 4000 && rep.started >= 1 && rep.live === true && rep.build === ENGINE_BUILD, JSON.stringify(rep.times) + ', ' + rep.started + ' log lines of the start');
     await H.invariants(s, t, 'SLOW');
   } finally { await t.close(); }
 }
 
 async function testWake(s, env) {
-  var t = await openMock(env, { seed: 21 }, {}, { wake: true });
+  var t = await openMock(env, { seed: 21 }, {}, { wake: true, query: '?debug=sand' });
   try {
     await waitLive(t);
     await sleep(400);
@@ -630,6 +651,13 @@ async function testWake(s, env) {
     var w1 = await t.eval(function () { var Hg = window.Hourglass; return { held: window.__wake.held, state: Hg.wakeState(), live: Hg.sim === Hg.realSand, run: Hg.timer.state }; });
     s.check('WAKE: the GPU sand running holds the screen wake lock (none while the glass stood idle)',
             w0.held === 0 && w1.held === 1 && w1.state === 'active' && w1.live && w1.run === 'running', JSON.stringify({ idle: w0, running: w1 }));
+    // the stream's first fall from the neck to the floor of an empty lower bulb (Gate A: 0.83 s in a
+    // home-screen web app and 1.03 s in the hand, 0.42-0.45 s elsewhere), for the owner's reports
+    await sleep(600);
+    var rep = await debugReport(t), f0 = rep.fall || {};
+    s.check('WAKE: ?debug=sand: the stream\'s first fall is in the overlay and in the copied report (simulated and wall time, mode and rate) and the engine\'s log',
+            !!rep.overlay && /first fall \d/.test(rep.overlay) && rep.copy && f0.s >= 0 && f0.wall >= 0 && !!f0.mode && f0.hz >= 480 && rep.fallLogged === 1,
+            JSON.stringify({ fall: rep.fall, logged: rep.fallLogged, overlay: rep.overlay && rep.overlay.split('\n')[3] }));
     var gaps = [];
     for (var g = 0; g < 2; g++) {
       var a = await t.eval(function () { return { ff: __mon.ff.length, xfer: window.Hourglass.realSand.stats().n.transfers }; });
