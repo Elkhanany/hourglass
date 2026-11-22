@@ -199,21 +199,29 @@ export class RealSand {
     }
     this._useDevice(dev);
     this.times.device = perf() - t0;
-    const t1 = perf();
+    this._hiddenInStart = this.hidden;
     try {
-      this.solver = await this.engine.Solver.create(this.device, this.shaderBase);
-      this._makeCanvas();
-      this.grains = new this.engine.GrainRenderer(this.device, this.canvas, { offscreen: this.offscreen });
-      await this.grains.init(this.solver.shaders);
+      const t1 = perf();
+      try {
+        this.solver = await this.engine.Solver.create(this.device, this.shaderBase);
+        this._makeCanvas();
+        this.grains = new this.engine.GrainRenderer(this.device, this.canvas, { offscreen: this.offscreen });
+        await this.grains.init(this.solver.shaders);
+      } catch (e) {
+        const msg = String(e && e.message || e);
+        throw startError(/Could not load|fetch|HTTP/i.test(msg) ? 'load' : 'compile', 'The sand engine could not be loaded: ' + msg, false, e);
+      }
+      this.times.pipelines = perf() - t1;
+      this._configure();
+      await this._selfTest();
+      const doc = globalThis.document;
+      if (this._gone) throw startError('lost', 'The graphics chip was reset while Real sand started');
+      if (this._hiddenInStart || this.hidden || (doc && doc.hidden)) throw startError('hidden', 'The page was hidden while Real sand started');
     } catch (e) {
-      const msg = String(e && e.message || e);
-      throw startError(/Could not load|fetch|HTTP/i.test(msg) ? 'load' : 'compile', 'The sand engine could not be loaded: ' + msg, false, e);
+      // (the device is let go: the app keeps its current sand, and tries again at the next launch)
+      try { this.dev.device.destroy && this.dev.device.destroy(); } catch (e2) { /* (gone already) */ }
+      throw e;
     }
-    this.times.pipelines = perf() - t1;
-    this._configure();
-    await this._selfTest();
-    if (this._gone) throw startError('lost', 'The graphics chip was reset while Real sand started');
-    if (this.hidden) throw startError('hidden', 'The page was hidden while Real sand started');
     this.started = true;
     this.log('Real sand: started in ' + Math.round(perf() - t0) + ' ms (device ' + Math.round(this.times.device) + ', pipelines ' +
       Math.round(this.times.pipelines) + ', self-test ' + Math.round(this.times.selfTest) + ')');
@@ -396,6 +404,7 @@ export class RealSand {
     hidden = !!hidden;
     if (hidden === this.hidden) return;
     this.hidden = hidden;
+    if (hidden && !this.started) this._hiddenInStart = true;
     if (!hidden) {
       this._visibleAt = this.clock.perf();
       this._lastNow = 0; this._lastDrawn = 0; this._acc = 0; this._lastRunPerf = null;
@@ -661,7 +670,11 @@ export class RealSand {
    *  The Sim contract: blows and damage (the glass does not crack in Real sand, section 12)
    * ---------------------------------------------------------------------------------------- */
   /** A blow of v px/s: 1 (it thumps and clacks, as a creaking blow) from 700 px/s, else 0; no damage. */
-  impact(nx, ny, v) { return fin(v) >= IMPACT_V ? 1 : 0; }
+  impact(nx, ny, v) {
+    // (a blow jolts the sand: awake, and full for a while, whatever it does to the glass)
+    this._wake = true; this.modes.busyUntil = Math.max(this.modes.busyUntil, this._wall() + MODES.HOLD_MS);
+    return fin(v) >= IMPACT_V ? 1 : 0;
+  }
   knock() { return -1; }
   flick() { return 0; }
   shake() { return -1; }

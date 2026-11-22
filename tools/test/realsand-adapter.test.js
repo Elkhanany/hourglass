@@ -400,11 +400,13 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     app.hide = function (ms) { app.hiddenUntil = V.wall + ms; if (app.realObj) app.realObj.setHidden(true); app.pour.held = false; };
     /** RealSand from the CPU Sim as the app hands over at boot: create, start, adopt, takeOver. */
     app.attach = async function (extra) {
-      var real = await RS.RealSand.create(Object.assign({ P: P, cpuSim: cpu, timer: T, glass: glassFor(cpu.geo), engine: makeEngine(env),
+      // (a test's own engine pumps its own queue: the default is made only when none is given)
+      var engine = extra && extra.engine ? extra.engine : makeEngine(env);
+      var real = await RS.RealSand.create(Object.assign({ P: P, cpuSim: cpu, timer: T, glass: glassFor(cpu.geo), engine: engine,
         clock: { wall: function () { return V.wall; }, perf: function () { return V.perf; } }, canvas: { style: {}, width: 1, height: 1 },
         sleep: async function () {}, log: function (s) { if (process.env.VERBOSE) log('      ' + s); },
         onLost: function (info) { app.losses.push(info); app.sim = cpu; app.real = null; },
-        onBack: function () { app.backs++; app.sim = real; app.real = real; real.takeOver(); } }, extra || {}));
+        onBack: function () { app.backs++; app.sim = real; app.real = real; real.takeOver(); } }, extra || {}, { engine: engine }));
       env.parity = function () { return real.valve.parity; };
       app.realObj = real;
       var started = real.start(), done = false, err = null;
@@ -719,6 +721,19 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   X.env.fallback = true;
   var err2 = null;
   try { await X.attach(); } catch (e2) { err2 = e2; }
+  X.env.fallback = false;
+  var err3 = null, err4 = null, err5 = null, engBad = makeEngine(X.env);
+  engBad.Solver = { create: async function () { throw new Error('g2p2g: 12:3 unresolved identifier'); } };
+  try { await X.attach({ engine: engBad }); } catch (e3) { err3 = e3; }
+  var engLoad = makeEngine(X.env);
+  engLoad.Solver = { create: async function () { throw new Error('Could not load tally: HTTP 404'); } };
+  try { await X.attach({ engine: engLoad }); } catch (e4) { err4 = e4; }
+  var engHide = makeEngine(X.env), MockS = engHide.Solver;
+  engHide.Solver = { create: async function (d) { X.realObj.setHidden(true); return MockS.create(d); } };
+  try { await X.attach({ engine: engHide }); } catch (e5) { err5 = e5; }
+  check(err3 && err3.code === 'compile' && err3.capability === false && err4 && err4.code === 'load' && err4.capability === false &&
+    err5 && err5.code === 'hidden' && err5.capability === false && X.env.device.destroyed,
+    'other start failures keep the setting (retry at the next launch): a shader that does not compile, one that does not load, the page hidden during start; the device is let go');
   check(err1 && err1.code === 'nogpu' && err1.capability === true && err2 && err2.code === 'fallback' && err2.capability === true,
     'start() without WebGPU throws "' + (err1 && err1.message) + '" and with a fallback adapter "' + (err2 && err2.message) + '", both a missing capability (the setting is cleared)');
 
