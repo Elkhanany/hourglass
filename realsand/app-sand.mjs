@@ -25,13 +25,20 @@
  *  await real.start()       the device, the pipelines, the buffers, a self-test (no latency
  *                           limit: a slow start is not a failure). Throws an Error with code,
  *                           message and capability (true: WebGPU or a usable adapter is missing,
- *                           so the setting is cleared; false: retry at the next launch).
+ *                           so the setting is cleared; false: retry at the next launch). Code
+ *                           'stamp': the shaders are of another build than the modules (an
+ *                           update under way). A page fetches its shaders once: a rebuild or a
+ *                           retried start compiles the same sources.
  *  await real.adopt()       the GPU bed from the CPU Sim's lattice and counts now, settled 0.4 s
  *                           (simulated) with the neck shut; ready is true once it is drawn.
- *  real.takeOver()          the app now uses real as its sim (sim = real, between two frames):
- *                           RealSand takes the CPU Sim's angle, tilt and turn, and fills again
- *                           if the CPU sand was poured, turned or reset meanwhile; grains the CPU
- *                           released meanwhile are owed and leave through the valve.
+ *  real.ready              adopt()'s bed is drawn and the engine is not lost: only then may the
+ *                           app hand it the sand (false from a loss until the rebuild's onBack).
+ *  real.takeOver()          the app now uses real as its sim (sim = real, between two frames;
+ *                           throws if the engine is lost): RealSand takes the CPU Sim's angle,
+ *                           tilt and turn, and fills again if the CPU sand was poured, turned or
+ *                           reset meanwhile; grains the CPU released meanwhile are owed and leave
+ *                           through the valve, or, more than its catch-up lets flow after a gap
+ *                           (0.4 s of the clock's flow, at least 12), are moved by a transfer.
  *  Each frame, as app.js's frame() runs (design 5.1): the clock, pours (pour), swaps
  *  (completeFlip), the valve's fields (gateOpen, deepRelease, targetTop, relCap, flipping),
  *  isActive(), beginFrame(), the catch-up (fastForward), the 120 Hz steps (feel, setMotion,
@@ -98,6 +105,20 @@ const EV_CAP = 48;                         // landings a frame for the audio (ph
 const SELF_TEST_POINTS = 500;
 
 const ENGINE = { createDevice, Solver, GrainRenderer, ShaderLibrary, Toner };
+
+/**
+ * One shader library a page, for each base URL: its sources are fetched once, so a rebuild after
+ * a lost device or a retried start compiles the very shaders the page started with. (A new
+ * release's service worker takes the page over and answers fetches with the new files, while the
+ * page's modules stay the old ones.)
+ */
+const LIBRARIES = new Map();
+function libraryFor(Lib, base) {
+  const key = String(base);
+  let lib = LIBRARIES.get(key);
+  if (!lib || !(lib instanceof Lib)) { lib = new Lib(base); LIBRARIES.set(key, lib); }
+  return lib;
+}
 const SWEEP_MIN = 0.05;                    // app cells^2: a grain drawn this near the neck in the sweep's first half is swallowed (the CPU's 0.2 px^2)
 const THREAD_MAX = 1024;                   // the sweep's thread: grains drawn at most
 const DEVELOP_MS = 4000;                   // after a turn, sand coming to rest is laid in its new pattern this long (physics.js LAY.settle)
@@ -137,6 +158,7 @@ export class RealSand {
     this.log = opts.log || (() => {});
     this.offscreen = !!opts.offscreen;
     this.shaderBase = opts.shaderBase || new URL('./shaders/', import.meta.url);
+    this.shaders = libraryFor(this.engine.ShaderLibrary || ShaderLibrary, this.shaderBase);
     const cpu = this.cpu, geo = cpu.geo;
     // the contract's own fields (the app writes them)
     this.angle = fin(cpu.angle); this.tilt = fin(cpu.tilt); this.flipping = !!cpu.flipping;
@@ -149,7 +171,9 @@ export class RealSand {
     // units (design 3.3): s solver cells per app cell, ppg points per app grain
     this.s = CELLS_AT_Q1 / geo.q;
     this.ppg = PPC * PPC * this.s * this.s;
+    const tGlass = this.clock.perf();
     this.glass = opts.glass || buildGlass({ s: this.s, neckMin: 5.5, geo, profile: this.P ? this.P.profile : undefined });
+    const msGlass = this.clock.perf() - tGlass;
     this.Gg = this.s * cpu.G;                // gravity at app speed, solver cells/s^2
     this._bulbTable();
     this.valve = new Valve({ ppg: this.ppg });
@@ -171,6 +195,9 @@ export class RealSand {
     this._lastNow = 0; this._lastDrawn = 0; this._acc = 0; this._lastSteps = 0; this._lastRunPerf = null; this._behind = 0;
     this._rafLog = []; this._frames = [];
     this._drawnParity = this.valve.parity; this._cssTurned = false;
+    // the picture must be drawn again although nothing moves (a new palette, a resized canvas, back
+    // from hidden, a new bed): asleep, the next submit draws it in a run of no substeps
+    this._redraw = false; this._guardOn = false;
     this._land = []; this._r2 = [0, 0];
     this._tally = null; this._gen = 0;
     this._fall = { from: null, wallFrom: null, s: NaN, wall: NaN, floor: this._floorDepth(), log: [] };
@@ -182,9 +209,10 @@ export class RealSand {
     this.started = false; this.live = false; this.destroyed = false; this._gone = false;
     this.dev = null; this.device = null; this.solver = null; this.grains = null; this.canvas = opts.canvas || null;
     this._css = { w: 0, h: 0, dpr: 1 };
-    this.times = { start: null, device: null, pipelines: null, selfTest: null, selfTestRun: null, firstFrame: null };
+    // (the main thread's longest pieces of work, for Gate B: building the glass, the last fill; review finding 9)
+    this.times = { start: null, device: null, pipelines: null, selfTest: null, selfTestRun: null, firstFrame: null, glass: msGlass, fill: null };
     this.n = { runs: 0, skips: 0, calmSkips: 0, asleep: 0, cssTurns: 0, transfers: 0, xferTimeouts: 0, residues: 0, fills: 0,
-      deferred: 0, readbackFails: 0, losses: 0, rebuilds: 0, pours: 0, swaps: 0, errors: 0, refills: 0 };
+      deferred: 0, readbackFails: 0, losses: 0, rebuilds: 0, pours: 0, swaps: 0, errors: 0, refills: 0, handoverCatchUps: 0, redraws: 0, guards: 0 };
     this._rng = rand32((cpu.rng | 0) ^ 0x5bd1e995);
     // layered sand on the GPU (design 7.4, layers.mjs): the tone pass, the layer schedule, the
     // crossing numbers it has reached (known: of the plan, from the readbacks; base: the plan's
@@ -206,6 +234,7 @@ export class RealSand {
   async start() {
     const perf = () => this.clock.perf(), t0 = perf();
     this.times.start = t0;
+    this._hiddenInStart = false;           // (setHidden(true) while the device opens sets it)
     let dev;
     try { dev = await this.engine.createDevice(); } catch (e) {
       const cap = e && (e.code === 'nogpu' || e.code === 'noadapter');
@@ -218,19 +247,21 @@ export class RealSand {
     }
     this._useDevice(dev);
     this.times.device = perf() - t0;
-    this._hiddenInStart = this.hidden;
+    this._hiddenInStart = this._hiddenInStart || this.hidden;
     try {
       const t1 = perf();
       try {
-        this.solver = await this.engine.Solver.create(this.device, this.shaderBase);
+        this.solver = await this.engine.Solver.create(this.device, this.shaders);
         this._makeCanvas();
         this.grains = new this.engine.GrainRenderer(this.device, this.canvas, { offscreen: this.offscreen });
         await this.grains.init(this.solver.shaders);
         await this._makeToner();
       } catch (e) {
+        await this._checkShaderBuild();
         const msg = String(e && e.message || e);
         throw startError(/Could not load|fetch|HTTP/i.test(msg) ? 'load' : 'compile', 'The sand engine could not be loaded: ' + msg, false, e);
       }
+      await this._checkShaderBuild();
       this.times.pipelines = perf() - t1;
       this._configure();
       await this._selfTest();
@@ -245,6 +276,19 @@ export class RealSand {
     this.started = true;
     this.log('Real sand: started in ' + Math.round(perf() - t0) + ' ms (device ' + Math.round(this.times.device) + ', pipelines ' +
       Math.round(this.times.pipelines) + ', self-test ' + Math.round(this.times.selfTest) + ')');
+  }
+
+  /**
+   * The shaders loaded are of this engine's build (the line "Engine build" in common.inc.wgsl):
+   * else old and new files of an update have met (code 'stamp': the app says it is updating).
+   */
+  async _checkShaderBuild() {
+    const lib = this.shaders;
+    if (!lib || !lib.sources || !lib.sources.has('common.inc')) return;     // (a mock engine loads no shader)
+    let src = '';
+    try { src = await lib.sources.get('common.inc'); } catch (e) { return; }
+    const m = /^\/\/ Engine build: (\S+)/m.exec(src), b = m ? m[1] : null;
+    if (b !== BUILD) throw startError('stamp', `The sand engine's shaders are build ${b}, its modules build ${BUILD}: a mix of old and new files`);
   }
 
   _useDevice(dev) {
@@ -309,8 +353,9 @@ export class RealSand {
     if (this._gone) throw startError('lost', 'The graphics chip was reset while Real sand took over the sand');
   }
 
-  /** The app makes RealSand its sim (between two frames). */
+  /** The app makes RealSand its sim (between two frames); only when ready (a lost engine throws). */
   takeOver() {
+    if (this._lostInfo || this._gone || this.destroyed || !this.solver) throw new Error('RealSand: the engine is lost or not started');
     const cpu = this.cpu, v = this.valve, A = this._adopted;
     this.angle = fin(cpu.angle); this.tilt = fin(cpu.tilt); this.flipping = !!cpu.flipping;
     this.gateOpen = !!cpu.gateOpen; this.deepRelease = !!cpu.deepRelease; this.targetTop = cpu.targetTop; this.relCap = fin(cpu.relCap);
@@ -319,6 +364,14 @@ export class RealSand {
     if (!A || cpu.total !== v.total || (cpu.glassFlip | 0) !== A.flip || cpu.nTop > v.nTop) {
       this.n.refills++;
       this._upload(cpu.nTop, cpu.total);
+    } else {
+      // the CPU released grains meanwhile: owed, they leave through the valve as the stream (the
+      // settle's 0.4 s of flow, design 7.8). More than the app lets flow after a gap (its catch-up
+      // on return: 0.4 s of the clock's flow, at least 12 grains), as when the page was hidden
+      // while the engine adopted and the CPU caught up on return, is moved below by a transfer,
+      // as the app's catch-up would: the count never goes back up to the adoption's
+      const owed = v.nTop - cpu.nTop, rate = this.T && this.T.rate > 0 ? this.T.rate : 0;
+      if (owed > Math.max(12, rate * 0.4)) { v.fastForward(owed); this.n.handoverCatchUps++; }
     }
     this._adopted = null;
     // (layers turned on or off while the CPU sand was the app's: the GPU's tones follow)
@@ -366,7 +419,8 @@ export class RealSand {
     if (this.destroyed || this._lostInfo) return;
     const now = this.clock.perf();
     const wasLive = this.live;
-    this.live = false; this._gone = true; this.n.losses++;
+    // (not ready until a rebuilt engine has drawn its settled bed: the app must not hand it the sand)
+    this.live = false; this._gone = true; this._ready = false; this.n.losses++;
     this._xfer = null; this._xferGen++; this._gen++;
     let final = false;
     if (!lifecycle) {
@@ -396,7 +450,7 @@ export class RealSand {
       const dev = await this.engine.createDevice();
       if (this.destroyed) return;
       this._useDevice(dev);
-      this.solver = await this.engine.Solver.create(this.device, this.shaderBase);
+      this.solver = await this.engine.Solver.create(this.device, this.shaders);
       this.grains = new this.engine.GrainRenderer(this.device, this.canvas, { offscreen: this.offscreen });
       await this.grains.init(this.solver.shaders);
       await this._makeToner();
@@ -446,12 +500,14 @@ export class RealSand {
     if (!hidden) {
       this._visibleAt = this.clock.perf();
       this._lastNow = 0; this._lastDrawn = 0; this._acc = 0; this._lastRunPerf = null;
+      this._redraw = true;                  // (iOS may have let the canvas's picture go meanwhile)
       const w = this._visWait; this._visWait = [];
       for (const r of w) r();
     }
   }
 
-  get ready() { return this._ready; }
+  /** The engine has drawn its settled bed and is not lost: the app may hand it the sand (takeOver). */
+  get ready() { return this._ready && !this._lostInfo && !this._gone && !this.destroyed; }
   get points() { return this.valve.points; }
 
   /* ---------------------------------------------------------------------------------------- *
@@ -710,11 +766,11 @@ export class RealSand {
   /** The app's lastMotionAt: RealSand's own thresholds (a phone held still in the hand does not count). */
   motionActive() { return this._motion; }
 
-  /** False only while asleep with nothing owed. */
+  /** False only while asleep with nothing owed and nothing to draw again. */
   isActive() {
     if (this._gone && !this.live) return false;
     return this.modes.mode !== 'asleep' || this._wake || this._fillDue || !!this.valve.xfer || !!this._xfer ||
-      this.valve.flipPending || this.flipping || !!this._sweep;
+      this.valve.flipPending || this.flipping || !!this._sweep || this._redraw || this._retoneDue;
   }
   /** A glass asleep wakes only when its lean has changed by more than 1 degree since it fell asleep (9.1). */
   wakeAll() {
@@ -769,8 +825,12 @@ export class RealSand {
     if (!(cssW > 0 && cssH > 0)) { cssW = this.cpu.W * 1.5; cssH = this.cpu.H * 1.5; }
     let dpr = Math.max(1, Math.min(globalThis.devicePixelRatio || 1, 3));
     while (cssW * dpr * cssH * dpr > 4.2e6 && dpr > 1) dpr -= 0.25;
-    c.width = Math.max(1, Math.round(cssW * dpr)); c.height = Math.max(1, Math.round(cssH * dpr));
-    this._css = { w: cssW, h: cssH, dpr };
+    // (setting a canvas's width or height, even to the same value, clears its picture: only when it changes)
+    const w = Math.max(1, Math.round(cssW * dpr)), h = Math.max(1, Math.round(cssH * dpr)), o = this._css;
+    if (c.width !== w) c.width = w;
+    if (c.height !== h) c.height = h;
+    if (o.w !== cssW || o.h !== cssH || o.dpr !== dpr || o.bw !== w || o.bh !== h) this._redraw = true;
+    this._css = { w: cssW, h: cssH, dpr, bw: w, bh: h };
   }
 
   /** The grains' palette from the Renderer's table (its theme, layered sand), design 6.2. */
@@ -780,6 +840,7 @@ export class RealSand {
     const fromLUT = Pal.paletteFromLUT || paletteFromLUT;
     this.grains.setPalette(R && R.lut && R.isMica ? fromLUT(R.lut, R.isMica) : Pal.palette('coarse'));
     this._palKey = this._paletteKey();
+    this._redraw = true;
   }
   /** A few of the table's colours at the palette's light level: when they change, so has the sand's colour. */
   _paletteKey() {
@@ -939,7 +1000,14 @@ export class RealSand {
     // the power mode: asleep runs nothing; calm draws every other frame at the same rate
     const mode = this._modeFor(wall);
     this._wake = false;
-    if (mode === 'asleep') { this.n.asleep++; this._lastDrawn = 0; this._acc = 0; this._lastRunPerf = null; this._turnCss(); return; }
+    if (this.modes.guard !== this._guardOn) this._guardSays(this.modes.guard, now, mode);
+    if (mode === 'asleep') {
+      this.n.asleep++; this._lastDrawn = 0; this._acc = 0; this._lastRunPerf = null;
+      // a new palette, a resized canvas, back from hidden: drawn again, with no substep and no change of mode
+      if (this._redraw && this.pace.inflight < QUEUE) { this.n.redraws++; this._run(0, this.rate.hz, wall, now, true, this._displayMs()); this._lastRunPerf = null; }
+      this._turnCss();
+      return;
+    }
     const T0 = this._displayMs(), Tm = frameMsFor(mode, T0);
     paceFrame(this.pace, Tm);
     if (mode === 'calm' && this._lastDrawn && now - this._lastDrawn < Tm - 0.5 * T0) {
@@ -986,7 +1054,7 @@ export class RealSand {
     const gen = this._gen, parity = v.parity;
     this._toneField = fields[fields.length - 1];
     const p = sol.run(steps, set, k => fields[Math.min(k, fields.length - 1)], draw ? enc => this.grains.encode(enc, sol.count, this._look(hz)) : null, w);
-    if (draw) { this._drawnParity = v.parity; this._turnCss(); }
+    if (draw) { this._drawnParity = v.parity; this._turnCss(); this._redraw = false; }
     const tSim = this.simTime, seq = paceSubmit(this.pace, this.clock.perf()), tSub = this.clock.perf();
     this._lastSteps = steps; this._lastRunPerf = perfNow; this.n.runs++;
     const pace = this.pace;
@@ -1002,7 +1070,10 @@ export class RealSand {
 
   /** The first GPU frame is drawn: ready (the boot veil may lift); its time from the page's start and from start(), logged (Gate A). */
   _firstFrame() {
-    this._ready = true; this._firstFrameAt = this.clock.perf();
+    this._ready = true;
+    // (after a rebuild: ready again; the start's own times are kept for the report)
+    if (this._firstFrameAt !== null) { this.log('Real sand: the rebuilt engine drew its first frame'); return; }
+    this._firstFrameAt = this.clock.perf();
     this.times.firstFrame = this._firstFrameAt;
     this.times.firstFrameFromStart = this._firstFrameAt - (this.times.start || 0);
     this.log('Real sand: first frame ' + Math.round(this.times.firstFrame) + ' ms after the page\'s start (' + Math.round(this.times.firstFrameFromStart) + ' ms after start())');
@@ -1082,6 +1153,14 @@ export class RealSand {
       pending: !!(this.flipping || v.flipPending || v.xfer || this._fillDue), ratio: this._ratio(lastNow), atBase: this.rate.hz === SET.hz });
   }
 
+  /** The heat guard tripped (calm from now) or was lifted (a new bed): logged with the time, for Gate B's reports (design 9.1). */
+  _guardSays(on, now, mode) {
+    this._guardOn = on;
+    if (on) this.n.guards++;
+    const r = this._ratio(now), at = new Date(this.clock.wall()).toISOString().slice(11, 19);
+    this.log(`Real sand: the heat guard ${on ? 'tripped (calm from now)' : 'lifted'} at ${at} UTC: sim/real ${Number.isFinite(r) ? r.toFixed(2) : '-'}, ${mode}, ${this.rate.hz} Hz`);
+  }
+
   /** A run's readback: to the ledger, auto Hz, the modes, the first fall's log, layered sand's counts. */
   _onTally(w, t, tSim, parity) {
     this.valve.onReadback(w.seq, t);
@@ -1114,7 +1193,7 @@ export class RealSand {
 
   /** A fill from the CPU lattice with top grains above of total, uploaded; the ledger takes the upload's own counts. */
   _upload(top, total) {
-    const v = this.valve, cpu = this.cpu;
+    const v = this.valve, cpu = this.cpu, tFill = this.clock.perf();
     top = Math.max(0, Math.min(total, Math.round(top)));
     const want = { top: v.Pts(top), bottom: v.Pts(total - top) };
     const f = fromLattice(cpu, this.glass, { top: want.top, bottom: want.bottom, down: this._down(), seed: (this._rng() * 4294967296) >>> 0 });
@@ -1131,8 +1210,10 @@ export class RealSand {
     this._xferPours = []; this._xferPourPts = 0;
     this._r2 = this._meanR2(f.pts, f.top);
     this._afterUpload();
+    this._redraw = true;
     this._settleUntil = this._wall() + SETTLE_S * 1000;
     this._fall.from = null; this._fall.s = NaN; this._fall.wall = NaN;
+    this.times.fill = this.clock.perf() - tFill;
     return sides;
   }
   _afterUpload() {
@@ -1170,7 +1251,7 @@ export class RealSand {
       const p = this.solver.run(n, this._set(SET.hz), () => f, last ? enc => this.grains.encode(enc, this.solver.count, this._look(SET.hz)) : null, w);
       this.simTime += n / SET.hz;
       if (p) p.then(t => { if (t && gen === this._gen) this._onTally(w, t, this.simTime, parity); }, () => { this.n.readbackFails++; });
-      if (last) { this._drawnParity = this.valve.parity; this._turnCss(); if (this.grains.present) this.grains.present(); }
+      if (last) { this._drawnParity = this.valve.parity; this._turnCss(); this._redraw = false; if (this.grains.present) this.grains.present(); }
       await this.device.queue.onSubmittedWorkDone();
       if (last && !this._ready) this._firstFrame();
     }
@@ -1251,6 +1332,7 @@ export class RealSand {
     const target = this.T && this.T.state === 'done' ? 0 : this.targetTop;
     v.transferDone(sides.above, sides.below, target);
     this._xfer = null; this._xferPours = []; this._xferPourPts = 0;
+    this._redraw = true;                    // (asleep after a re-tone: the new tones are drawn)
     // (the first fall is timed only on a stream that a transfer did not cut short: it lays sand on the floor)
     const F = this._fall;
     if (!(F.s >= 0)) { F.from = null; F.s = NaN; F.wall = NaN; }

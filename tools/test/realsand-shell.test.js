@@ -12,7 +12,8 @@
  *    includes and the grains', each named by the code checked here too), and LICENSES.md;
  *  - the stamp app.js was written for (REALSAND_BUILD) and the one the lab page expects
  *    (BUILD_EXPECTED) equal the engine's own (realsand/build.mjs), so a release never ships a
- *    mix that the app itself would refuse;
+ *    mix that the app itself would refuse, and so does the shaders' own line "Engine build" (in
+ *    shaders/common.inc.wgsl, which RealSand checks against its modules' stamp when it starts);
  *  - app.js loads the engine through boot.mjs and has no module syntax of its own (an old
  *    parser would reject the whole classic script).
  *
@@ -98,6 +99,8 @@ var APP = (/var REALSAND_BUILD = '([^']+)'/.exec(read('app.js')) || [])[1];
 var LAB = (/const BUILD_EXPECTED = '([^']+)'/.exec(read('lab/sand/main.mjs')) || [])[1];
 check(!!BUILD && APP === BUILD, 'app.js was written for the engine\'s build (REALSAND_BUILD ' + APP + ', realsand/build.mjs ' + BUILD + ')');
 check(LAB === BUILD, 'the lab page expects the engine\'s build too (BUILD_EXPECTED ' + LAB + ')');
+var WGSL = (/^\/\/ Engine build: (\S+)/m.exec(read('realsand/shaders/common.inc.wgsl')) || [])[1];
+check(WGSL === BUILD, 'the shaders carry the engine\'s build (common.inc.wgsl\'s "Engine build" ' + WGSL + ')');
 
 // 5. app.js: a classic script that loads the engine as a module script, never by import()
 var app = read('app.js');

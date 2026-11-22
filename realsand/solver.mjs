@@ -213,8 +213,12 @@ export function dispatchesPerSubstep(iterations, m) {
 }
 
 export class Solver {
-  static async create(device, shaderBase) {
-    const s = new Solver(device, new ShaderLibrary(shaderBase));
+  /**
+   * shaders: the shaders' base URL, or a ShaderLibrary to reuse (the app keeps one a page, so
+   * that a rebuilt solver compiles the very sources the page started with, never a newer copy).
+   */
+  static async create(device, shaders) {
+    const s = new Solver(device, shaders && typeof shaders.module === 'function' ? shaders : new ShaderLibrary(shaders));
     await s.init();
     return s;
   }

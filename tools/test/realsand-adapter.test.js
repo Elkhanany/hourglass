@@ -30,7 +30,14 @@
  *    in solver cells, the ledger reporting the app's own target while the neck is supplied;
  *  - the self-test at start, a missing capability, the hand-held phone's thresholds, a device
  *    lost around a lock (the CPU takes over with the clock untouched, then back), and the
- *    swap frame's CSS turn on a skipped run.
+ *    swap frame's CSS turn on a skipped run;
+ *  - the stage 1b review's findings: a device lost after adopt() makes the engine not ready and
+ *    takeOver() refuses it, the rebuild is ready again; a handover after the CPU caught up a
+ *    backlog takes the CPU's count by a transfer (a few grains still flow); a brief lock while
+ *    the device opened fails the start with 'hidden'; asleep, the picture is drawn again after a
+ *    palette, a new size and back from hidden, and a layout that changes nothing touches nothing;
+ *    one shader library a page (a rebuild fetches no shader) and the shaders' build checked
+ *    ('stamp'); the heat guard's trip is logged.
  *
  *   node tools/test/realsand-adapter.test.js
  */
@@ -418,6 +425,8 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
       adopted.then(function () { done = true; }, function (e) { done = true; err = e; });
       while (!done) { V.frame++; env.pump(); await tick(); }
       if (err) throw err;
+      // (adoptOnly: started and adopted, not yet handed the sand: the test calls takeOver)
+      if (extra && extra.adoptOnly) return real;
       app.sim = real; app.real = real;
       real.takeOver();
       return real;
@@ -789,7 +798,8 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
 
   // the heat guard: full (a hand shaking the glass) and slower than 0.6 of real time for 20 s: calm
   var K = makeApp({ ms: 120000, seed: 161 });
-  var rK = await K.attach(); K.calibrate(); K.T.rem = K.T.durationMs; K.start();
+  var kLog = [];
+  var rK = await K.attach({ log: function (s) { kLog.push(s); } }); K.calibrate(); K.T.rem = K.T.durationMs; K.start();
   K.motionIn = function (a, now) { return { fx: 0.15 * Math.sin(now / 50), fy: 0, w: 0 }; };
   var guardAt = null, t0K = K.V.wall;
   K.after = function (a) { if (guardAt === null && rK.modes.guard) guardAt = a.V.wall - t0K; };
@@ -797,8 +807,11 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   var endK = K.V.wall + 24000;
   while (K.V.wall < endK) { K.V.frame++; K.env.pump(); await tick(); K.frame(120); }
   K.after = null; K.motionIn = null;
-  check(guardAt !== null && guardAt >= 20000 && guardAt < 22000 && rK.modes.mode === 'calm',
-    'the heat guard: shaken (full) at 0.42 of real time, the glass ran calm after ' + (guardAt === null ? 'never' : f1(guardAt / 1000) + ' s'));
+  var kTrip = kLog.filter(function (l) { return /heat guard tripped/.test(l); });
+  check(guardAt !== null && guardAt >= 20000 && guardAt < 22000 && rK.modes.mode === 'calm' && rK.n.guards === 1 && kTrip.length === 1 &&
+    /\d\d:\d\d:\d\d UTC: sim\/real 0\.[0-5]\d, calm, \d+ Hz/.test(kTrip[0]),
+    'the heat guard: shaken (full) at 0.42 of real time, the glass ran calm after ' + (guardAt === null ? 'never' : f1(guardAt / 1000) + ' s') +
+    '; the trip is logged with its time, the ratio, the mode and the rate (' + (kTrip[0] || 'not logged') + ')');
 
   // asleep: a paused glass at rest runs nothing; wakeAll wakes it only past 1 degree of lean
   Y.T.state = 'paused';
@@ -841,6 +854,131 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   check(rQ.n.skips >= 2 && turned >= 1 && wrong === 0 && rQ.n.cssTurns >= 1 && rQ.canvas.style.transform === '',
     'every readback slot busy at the Flip\'s swap: ' + rQ.n.skips + ' runs skipped; the canvas was turned half a turn in ' + turned + ' frames, exactly while its picture was from before the swap, and is upright after');
   endOk(Q, 'the Flip with its swap\'s runs skipped');
+
+  /* ------------------------------------------------------------------------------------ *
+   *  6. The stage 1b review's findings
+   * ------------------------------------------------------------------------------------ */
+  // a loss after adopt(), before the app's handover: not ready (the app hands it nothing) and
+  // takeOver() refuses it; the rebuild draws its bed and is ready again, and is handed the sand
+  var LB = makeApp({ ms: 10000, seed: 181 }), engLB = makeEngine(LB.env);
+  LB.calibrate(); LB.T.rem = LB.T.durationMs; LB.start();
+  await LB.run(1500);
+  var rLB = await LB.attach({ engine: engLB, adoptOnly: true, onBack: function () { LB.backs++; } });
+  var readyBefore = rLB.ready;
+  LB.env.device.loseIt('unknown', 'reset');
+  await tick(); await tick();
+  var lbReady = rLB.ready, lbThrew = false;
+  try { rLB.takeOver(); } catch (e) { lbThrew = /lost/.test(e.message); }
+  while (!LB.backs && LB.V.frame < 5000) { LB.V.frame++; LB.env.pump(); await tick(); }
+  var lbBack = rLB.ready;
+  LB.sim = rLB; LB.real = rLB; rLB.takeOver();
+  await runGlass(LB, 9000, []);
+  check(readyBefore && !lbReady && lbThrew && LB.losses.length === 1 && LB.backs === 1 && lbBack && LB.sim === rLB,
+    'a device lost after adopt(), before the handover: ready is false at once and takeOver() refuses the lost engine; rebuilt, it is ready again (onBack) and takes the sand');
+  endOk(LB, 'the glass handed over after the rebuild');
+
+  // hidden while the engine adopted: on return the CPU caught up (the app's catch-up) before the
+  // handover; the GPU takes the CPU's count by a transfer, and the count never goes back up to
+  // the adoption's (a backlog leaving as a gulp). A few grains released meanwhile flow, as before.
+  async function handoverAfter(owed, seed) {
+    var HA = makeApp({ ms: 30000, seed: seed }), engHA = makeEngine(HA.env);
+    HA.calibrate(); HA.T.rem = HA.T.durationMs; HA.start();
+    await HA.run(2000);
+    var rHA = await HA.attach({ engine: engHA, adoptOnly: true });
+    var adopted = rHA.nTop;
+    HA.cpu.fastForward(owed);                     // (the CPU, still the app's sim, let these through)
+    HA.sim = rHA; HA.real = rHA; rHA.takeOver();
+    var at = { gpu: rHA.nTop, cpu: HA.cpu.nTop, adopted: adopted, catchUps: rHA.n.handoverCatchUps, xfer: !!rHA.valve.xfer };
+    var rose = 0, prev = rHA.nTop;
+    HA.after = function (a) { if (a.sim.nTop > prev) rose = Math.max(rose, a.sim.nTop - prev); prev = a.sim.nTop; };
+    await runGlass(HA, 28000, []);
+    HA.after = null;
+    at.rose = rose; at.transfers = rHA.n.transfers;
+    return { app: HA, at: at };
+  }
+  var hBig = await handoverAfter(300, 191), hSmall = await handoverAfter(5, 193);
+  check(hBig.at.catchUps === 1 && hBig.at.gpu <= hBig.at.cpu + 1 && hBig.at.xfer && hBig.at.transfers >= 1 && hBig.at.rose <= 1 &&
+    hSmall.at.catchUps === 0 && hSmall.at.gpu === hSmall.at.adopted && hSmall.at.gpu - hSmall.at.cpu === 5,
+    'the handover after the CPU caught up 300 grains: nTop ' + hBig.at.cpu + ' (CPU) -> ' + hBig.at.gpu + ' (GPU), moved by a transfer, never back to the adoption\'s ' + hBig.at.adopted +
+    ' (largest rise after ' + hBig.at.rose + '); after 5 grains: owed, they flow (' + hSmall.at.cpu + ' -> ' + hSmall.at.gpu + ')');
+  endOk(hBig.app, 'the glass after a handover that caught up');
+
+  // the page hidden and shown again while the device opened: start() still says 'hidden' (it was
+  // overwritten by the page's state after the device opened)
+  var HS = makeApp({ ms: 10000, seed: 197 }), engHS = makeEngine(HS.env), devHS = engHS.createDevice, errHS = null;
+  engHS.createDevice = async function () { HS.realObj.setHidden(true); HS.realObj.setHidden(false); return devHS(); };
+  try { await HS.attach({ engine: engHS }); } catch (e) { errHS = e; }
+  check(errHS && errHS.code === 'hidden' && HS.env.device.destroyed, 'a brief lock while the device opened: start() fails with \'hidden\' (tried again once in view), the device let go');
+
+  // asleep, the picture is drawn again (with no substep, still asleep) after a new palette, a
+  // canvas whose size changed, and back from hidden; a layout that changes nothing leaves the
+  // canvas's width and height alone (setting them clears its picture)
+  var AS = makeApp({ ms: 10000, seed: 199 });
+  var rAS = await AS.attach(); AS.calibrate(); AS.T.rem = AS.T.durationMs;
+  AS.T.state = 'paused';
+  await AS.run(3500);
+  var sets = 0, cw = rAS.canvas.width, ch = rAS.canvas.height;
+  Object.defineProperty(rAS.canvas, 'width', { get: function () { return cw; }, set: function (v) { sets++; cw = v; } });
+  Object.defineProperty(rAS.canvas, 'height', { get: function () { return ch; }, set: function (v) { sets++; ch = v; } });
+  var asleepNow = function () { return rAS.modes.mode === 'asleep' && !rAS.isActive(); };
+  async function redrawn(fn) {
+    var d0 = AS.env.grains.draws, steps0 = AS.env.solver.runs, mode0 = rAS.modes.mode;
+    fn();
+    var wake = rAS.isActive();
+    await AS.run(100);
+    return { wake: wake, draws: AS.env.grains.draws - d0, runs: AS.env.solver.runs - steps0, asleep: asleepNow(), was: mode0 };
+  }
+  var as0 = asleepNow();
+  var rdSame = await redrawn(function () { rAS.layout(); });
+  var rdPal = await redrawn(function () { rAS.setPalette(); });
+  var rdBox = await redrawn(function () { rAS.o.cSand = { style: { width: '300px', height: '640px', left: '10px', top: '20px' } }; rAS.layout(); });
+  var setsBox = sets;
+  var rdBack = await redrawn(function () { rAS.setHidden(true); rAS.setHidden(false); });
+  var okRd = function (r) { return r.wake && r.draws === 1 && r.runs === 1 && r.asleep && r.was === 'asleep'; };
+  check(as0 && !rdSame.wake && rdSame.draws === 0 && okRd(rdPal) && okRd(rdBox) && setsBox === 2 && okRd(rdBack) && rAS.n.redraws === 3 && cw === 300 && ch === 640,
+    'asleep, the GPU sand is drawn again once (one run of no substeps, still asleep) after a new palette (' + rdPal.draws + '), a new size (' + rdBox.draws +
+    ', ' + setsBox + ' sets of width and height) and back from hidden (' + rdBack.draws + '); a layout that changes nothing sets nothing and draws nothing (' + rdSame.draws + ')');
+
+  // one shader library a page: a rebuild after a loss compiles the sources the page started with
+  // (no fetch); shaders of another build than the modules fail the start with 'stamp'
+  var shaderDir = path.join(ROOT, 'realsand', 'shaders'), fetches = [], fetchWas = globalThis.fetch, stampAs = null;
+  globalThis.fetch = async function (u) {
+    var url = new URL(String(u)), f = path.join(shaderDir, path.basename(url.pathname));
+    fetches.push(path.basename(url.pathname));
+    var txt = fs.readFileSync(f, 'utf8');
+    if (stampAs !== null) txt = txt.replace(/^\/\/ Engine build: \S+/m, '// Engine build: ' + stampAs);
+    return { ok: true, status: 200, text: async function () { return txt; } };
+  };
+  function shaderEngine(env, libs) {
+    var eng = makeEngine(env), Ms = eng.Solver;
+    // (as the real Solver.create: a library given is used, a base URL makes a new one; the solver loads its shaders)
+    eng.Solver = { create: async function (d, shaders) {
+      var lib = shaders && typeof shaders.module === 'function' ? shaders : new SOL.ShaderLibrary(shaders);
+      libs.push(lib);
+      await lib.source('tally'); await lib.source('g2p2g');
+      var m = await Ms.create(d); m.shaders = lib; return m;
+    } };
+    return eng;
+  }
+  var base = require('url').pathToFileURL(shaderDir + path.sep).href;
+  try {
+    var SL = makeApp({ ms: 10000, seed: 211 }), libs = [];
+    var rSL = await SL.attach({ engine: shaderEngine(SL.env, libs), shaderBase: base + '?page=1' });
+    var first = fetches.length;
+    SL.calibrate(); SL.T.rem = SL.T.durationMs; SL.start();
+    await SL.run(1500);
+    SL.env.device.loseIt('unknown', 'reset');
+    await SL.run(4000);
+    var again = fetches.length - first;
+    var SB = makeApp({ ms: 10000, seed: 213 }), errSB = null;
+    stampAs = '3';
+    try { await SB.attach({ engine: shaderEngine(SB.env, []), shaderBase: base + '?page=2' }); } catch (e) { errSB = e; }
+    stampAs = null;
+    check(first >= 3 && again === 0 && libs.length === 2 && libs[0] === libs[1] && SL.backs === 1 && SL.sim === rSL,
+      'one shader library a page: the start fetched ' + first + ' shader files; the rebuild after a lost device used the same library and fetched ' + again);
+    check(errSB && errSB.code === 'stamp' && errSB.capability === false && SB.env.device.destroyed,
+      'shaders of another build than the modules ("Engine build: 3" against ' + RS.BUILD + '): start() fails with \'stamp\' (' + (errSB && errSB.message) + ')');
+  } finally { globalThis.fetch = fetchWas; }
 
   log('realsand-adapter: ' + (failures ? failures + ' of ' + count + ' checks FAILED' : 'all ' + count + ' checks passed') + ' (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)');
   process.exit(failures ? 1 : 0);
