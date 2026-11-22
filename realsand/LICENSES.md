@@ -16,6 +16,7 @@ licences are compatible with the GPL-3.0.
 | `shaders/prepare.wgsl`, `gridClear.wgsl`, `tally.wgsl`, `load.wgsl`, `spreadSplat.wgsl`, `spreadShift.wgsl`, `flip.wgsl` | new, using the shared include above | GPL-3.0 (with the notices of the include) |
 | `glass.mjs`, `palette.mjs` | the Hourglass app (`physics.js`) | GPL-3.0 |
 | `pace.mjs`, `build.mjs`, `valve.mjs`, `fill.mjs`, `rate.mjs`, `felt.mjs` | new (the last three taken out of the lab page's `main.mjs`) | GPL-3.0 |
+| `modes.mjs` | taken out of the lab's Timer, `lab/sand/timer.mjs` | GPL-3.0 |
 | `grains.mjs` | taken out of the lab page's `main.mjs`; its quad per point follows Smoosh's `density.wgsl` | GPL-3.0, with the idea from MIT (Smoosh) |
 | the lab page, `lab/sand/` (`main.mjs`, `index.html`, `lab.css`) | the Hourglass app (`physics.js`, `styles.css`, `motion.js`) | GPL-3.0 |
 | the lab's Timer, `lab/sand/timer.mjs` | the Hourglass app (`app.js`: `grainsFor`, `calibrate`, `topAt`, `remAt`, the breathing) | GPL-3.0 |
