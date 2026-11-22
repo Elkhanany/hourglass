@@ -1280,7 +1280,7 @@ Chromium:
 
 ```bash
 npm install && npx playwright install chromium
-npm test                       # every suite, one line each (about 20 minutes)
+npm test                       # every suite, one line each (about 45 minutes)
 npm run test:physics           # the simulation only, in Node (about 3 minutes)
 node tools/test/app-gestures.test.js     # any single suite
 node tools/test/run-all.js --port 8900   # every suite on one port, one after another
