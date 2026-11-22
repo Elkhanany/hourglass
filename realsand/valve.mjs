@@ -269,6 +269,10 @@ export class Valve {
     this.tallies = []; this.duty = 0;
     this.newEpoch(top, pTop);
     this.endConfirmed = pTop === 0;
+    // a fill made while the clock reads 00:00.0 (an unseen turn's fill on return, an adopt, a
+    // transfer given up after a gap past the end): the end is forgotten, so the residue counts from
+    // the fill, as from a transfer (residueDue)
+    if (this.prevNow !== null && this.prevRem <= 0) this.xferAt = this.prevNow;
     return { top: pTop, bottom: pBottom };
   }
 
@@ -520,12 +524,12 @@ export class Valve {
    * above 0, the clock still at 00:00.0, no crossing for 0.5 s and 1.5 s after it (the end is
    * forgotten once the clock has time again), and as long after a transfer (the catch-up after
    * a gap that ran past the end leaves a few grains to flow, which reach the neck only as the
-   * hole it left closes). Move them by a transfer:
+   * hole it left closes) or a fill made at 00:00.0 (which forgets the end). Move them by a transfer:
    * fastForward(nTop), then transferPlan / transferDone as for the catch-up.
    */
   residueDue(now) {
-    const from = Math.max(this.endAt, this.xferAt);
-    return this.endAt !== null && this.prevRem <= 0 && !this.xfer && !this.closed && this.tail && this.gTop > 0 &&
+    const from = Math.max(this.endAt === null ? -Infinity : this.endAt, this.xferAt);
+    return from > -Infinity && this.prevRem <= 0 && !this.xfer && !this.closed && this.tail && this.gTop > 0 &&
       now - from >= 1500 && now - Math.max(this.lastCrossAt, from) >= 500;
   }
 

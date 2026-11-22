@@ -42,7 +42,8 @@
  * target, by at most 3 points (not for the fastest rests, whose breathing asks more than the
  * open neck gives, nor with readbacks 15 frames late). Directly: the units, the closed words,
  * a mirrored pour, the zero target in the substep that holds 00:00.0 also when the frame that
- * holds it runs 0 substeps, readbacks that stop after a swap (stalled() after 60 runs, the pending
+ * holds it runs 0 substeps, the residue due 1.5 s after a fill made at 00:00.0 (which forgets
+ * the end), readbacks that stop after a swap (stalled() after 60 runs, the pending
  * base's age, records and events bounded), pourable (room, maxTotal, the brim). Control: the first version's
  * bookkeeping (an append wrote tally[1] and allow carried the pour: counted twice) must let
  * points cross below the target in every pour into an open neck.
@@ -111,6 +112,29 @@ async function main() {
   var zs = [zeroSub(1), zeroSub(0)];
   check(zs.every(function (x) { return x.from <= 1100 + 1e-6 && 1100 < x.to; }),
     'the zero target falls in the substep that holds 00:00.0, also when that frame runs 0 substeps (' + zs.map(function (x) { return f1(x.from - 1100) + ' to ' + f1(x.to - 1100) + ' ms'; }).join('; ') + ')');
+
+  // the residue after a fill made while the clock reads 00:00.0 (an unseen turn's fill on return,
+  // an adopt, a transfer given up after a gap past the end): 3 points stay above (on the funnel's
+  // wall); the fill forgets the end, so the residue counts from the fill, 1.5 s after it, as from a
+  // transfer. (Before: never, and nTop read 1 or 2 for good.)
+  function residueAfter(fillAtMs) {
+    var v = new Valve({ ppg: 1.69 }); v.fill(100, 1155);
+    var now = 1e6, rem = 2000, fillAt = null;
+    for (var f = 0; f < 600; f++) {
+      v.plan({ now: now, target: Math.ceil(rem / 20), gateOpen: true, deepRelease: rem <= 0, relCap: 0, flipping: false, gy: 1, rem: rem, tailMs: 500, steps: 2 });
+      var w = v.run({ steps: 8, now: now, simDt: 8 / 480 });
+      var above = rem > 0 ? Math.max(3, v.pT(v.gT)) : 3;
+      v.onReadback(w.seq, { above: above, below: v.points - above, queue: 0, crossings: rem > 0 ? 1 : 0, refused: 0 });
+      if (fillAtMs !== null && fillAt === null && rem <= 0 && now >= 1e6 + 2000 + fillAtMs) { v.fill(2, 1155); fillAt = now; }
+      now += 1000 / 60; rem = Math.max(0, rem - 1000 / 60);
+      if (v.residueDue(now)) return { after: now - (fillAt === null ? 1e6 + 2000 : fillAt), top: v.nTop };
+    }
+    return { after: null, top: v.nTop };
+  }
+  var ra = [residueAfter(null), residueAfter(300), residueAfter(1200)];
+  check(ra.every(function (x) { return x.after !== null && x.after >= 1500 && x.after < 1550; }),
+    'points stuck above after the end are due as residue 1.5 s after 00:00.0, and 1.5 s after a fill made at 00:00.0 (0.3 s and 1.2 s after the end), not never (' +
+    ra.map(function (x) { return x.after === null ? 'never, nTop ' + x.top : f1(x.after) + ' ms'; }).join(', ') + ')');
 
   // readbacks stop (a failing mapAsync): a swap's base stays pending and the neck shut, so after
   // 60 runs with none the valve says it has stalled; the pending base's age is in stats(); the
