@@ -1181,9 +1181,10 @@ CPU sand, and `sim` is `RealSand`:
    frame, and their landings after the fall) and the readout, as before.
 
 The valve. What the clock and the sound read (`sim.nTop`) is the ledger,
-in the app's whole grains; the GPU counts material points (1.69 a grain on
-the phone). Each fill, transfer or settled count starts an epoch with an
-exact base in both, so the clock's target in grains is a target in points.
+in the app's whole grains; the GPU counts material points (1.69 a grain
+of the classic sand on a phone). Each fill, transfer or settled count
+starts an epoch with an exact base in both, so the clock's target in
+grains is a target in points.
 On the GPU, sand just above the counting line may move down no faster than
 the valve's speed (the throttle), and a point may cross the line downward
 only with a ticket: a substep's tickets are the points above less the
@@ -1378,7 +1379,9 @@ node tools/test/run-all.js realsand-gpu  # Real sand on WebGPU in software (only
   sand's glass (its control) only thumps and clacks, quick knocks crack
   nothing, a crack from before stays, leaks nothing and mends, Reset makes
   it whole, and a theme or layered sand chosen while the GPU sand runs (the
-  new colours at once; a re-tone that moves no grain). The monitor every suite runs (`stubs/page-init.js`) follows
+  new colours at once; a re-tone that moves no grain); and `?debug=sand`,
+  whose overlay and copied report carry the start-up times and the
+  stream's first fall to the owner's reports. The monitor every suite runs (`stubs/page-init.js`) follows
   `Hourglass.sim` when Real sand takes over, and checks the GPU's readbacks
   against its count (`audit()`). `app-regression`'s service worker check
   serves a new build of the engine midway: the app keeps its cached engine,
