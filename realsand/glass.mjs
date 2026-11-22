@@ -51,9 +51,22 @@ export const PAD = 6;                 // grid cells between the glass's widest/f
  * The glass on a grid of s cells per app cell. The neck is widened, if it
  * has to be, to at least neckMin cells across (the solver needs room to
  * flow); the widening fades out by the bulb's widest point.
+ *
+ * geo, prof: the app's own glass (physics.js makeGeometry(q, shape) and
+ * profile(u, geo)), so that the sand fills the glass the app draws, at any
+ * scale and in any shape; without them the classic glass at scale q, as the
+ * lab has always used it (the same numbers: physics.js's classic branch).
+ *
+ * Besides the field, the glass carries the drawn glass's half-width
+ * (halfDrawn: the neck not widened) and, per grid row, warp = halfDrawn /
+ * half (1 where the neck was not widened): drawn at x = cx + (x - cx) warp,
+ * a point inside the widened neck lies inside the neck the app draws.
  */
-export function buildGlass({ s = 0.8, neckMin = 5.5, q = APP_Q } = {}) {
-  const g = classicGeometry(q);
+export function buildGlass({ s = 0.8, neckMin = 5.5, q = APP_Q, geo = null, profile: prof = null } = {}) {
+  const g = geo ? { q: geo.q, R: geo.R, HB: geo.HB, RN: geo.RN, equator: geo.equator, wall: geo.wall, shape: geo.shape || null }
+    : classicGeometry(q);
+  // the inner half-width at u with a neck of half-width RN (app cells)
+  const shapeAt = prof ? (u, RN) => prof(u, Object.assign({}, g, { RN })) : (u, RN) => profile(u, g, RN);
   const neckApp = 2 * g.RN;                         // 7 app cells
   const neckCells0 = neckApp * s;
   const neckCells = Math.max(neckCells0, neckMin);
@@ -63,7 +76,9 @@ export function buildGlass({ s = 0.8, neckMin = 5.5, q = APP_Q } = {}) {
   const H = Math.ceil(2 * HBc) + 2 * PAD + 1;
   const cx = W / 2, cy = H / 2;                     // the neck centre, grid coordinates
   /** Inner half-width in cells at height |dy| cells from the neck centre. */
-  const half = ady => (ady >= HBc ? 0 : profile(ady / HBc, g, RNapp) * s);
+  const half = ady => (ady >= HBc ? 0 : shapeAt(ady / HBc, RNapp) * s);
+  /** The same, of the glass the app draws (its neck not widened). */
+  const halfDrawn = ady => (ady >= HBc ? 0 : shapeAt(ady / HBc, g.RN) * s);
 
   // The outline of one quarter (x >= 0, y >= 0), neck to tip, with points
   // close together where it turns fast (near the tip and through the neck).
@@ -72,7 +87,7 @@ export function buildGlass({ s = 0.8, neckMin = 5.5, q = APP_Q } = {}) {
   for (let k = 0; k <= N; k++) {
     const a = k / N;
     const u = 0.5 - 0.5 * Math.cos(Math.PI * a);   // dense at both ends
-    pts.push([profile(u, g, RNapp) * s, u * HBc]);
+    pts.push([shapeAt(u, RNapp) * s, u * HBc]);
   }
   pts[N] = [0, HBc];
   const px = new Float64Array(pts.length), py = new Float64Array(pts.length);
@@ -125,11 +140,18 @@ export function buildGlass({ s = 0.8, neckMin = 5.5, q = APP_Q } = {}) {
   const rows = 4000;
   for (let k = 0; k < rows; k++) bulbArea += 2 * half((k + 0.5) / rows * HBc) * HBc / rows;
 
+  // per grid row (its centre), the drawn half-width over the simulated one
+  const warp = new Float32Array(H);
+  for (let j = 0; j < H; j++) {
+    const ady = Math.abs(j + 0.5 - cy), h = half(ady);
+    warp[j] = h > 0 ? Math.min(1, halfDrawn(ady) / h) : 1;
+  }
+
   return {
-    s, q, geo: g, W, H, cx, cy, HBc, Rc,
+    s, q: g.q, geo: g, W, H, cx, cy, HBc, Rc,
     neckCells, neckCells0, neckWidened: neckCells / neckCells0 - 1,
     rn: neckCells / 2, wallCells: g.wall * s,
-    half, sdfAt, field, bulbArea,
+    half, halfDrawn, warp, sdfAt, field, bulbArea,
     outline: pts                                      // quarter outline, cells, (x, y from the neck)
   };
 }
