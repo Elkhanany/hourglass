@@ -9,7 +9,7 @@
  *                                             "lab-" runs the lab pages' suites,
  *                                             lab-sand's browser run included;
  *                                             "realsand-" the sand engine's (Node,
- *                                             seconds: realsand-valve)
+ *                                             seconds: realsand-valve, -fill, -adapter)
  */
 'use strict';
 var fs = require('fs'), path = require('path'), cp = require('child_process');

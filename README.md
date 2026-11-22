@@ -1119,6 +1119,21 @@ node tools/test/app-gestures.test.js     # any single suite
   refused), the grains' colour seeds against the grain shader's own hash, and
   the felt jolts against the lab's code from before they moved to
   `realsand/`.
+  `realsand-adapter` checks `RealSand` (`realsand/app-sand.mjs`), the
+  adapter through which the app runs the GPU sand as its `sim`, on a mock
+  engine whose neck is the valve test's model, inside a copy of the app's
+  frame: every `sim.` member the app and the audio use, with the CPU Sim's
+  type; the fills from the CPU Sim's lattice (exact counts, each grain's
+  colour); each place where the sand sets the clock (a start after the end,
+  the Flip's swap, a tilt swap, pours, a re-time after a starved neck, a
+  sequence's next phase turned unseen, also while hidden, a session restored
+  at boot, the catch-up after the page was hidden, also across the end, and
+  the finish), every glass ending with its last point out at 00:00.0 and
+  never reading empty while a point is above; blows that thump without
+  damage, mending, the brim, the scales of a phone and a tablet and the Fine
+  and Finest grains, the start-up's failures, a phone held still in the hand
+  (calm, and no motion for the clock), sleep, a device lost around a lock,
+  and the canvas turned half a turn while its picture is from before a swap.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
