@@ -972,7 +972,7 @@ export class RealSand {
     this._r2 = this._meanR2(f.pts, f.top);
     this._afterUpload();
     this._settleUntil = this._wall() + SETTLE_S * 1000;
-    if (this._fall.log) { this._fall.from = null; this._fall.s = NaN; this._fall.wall = NaN; }
+    this._fall.from = null; this._fall.s = NaN; this._fall.wall = NaN;
     return sides;
   }
   _afterUpload() {
@@ -1068,6 +1068,9 @@ export class RealSand {
     const target = this.T && this.T.state === 'done' ? 0 : this.targetTop;
     v.transferDone(sides.above, sides.below, target);
     this._xfer = null; this._xferPours = []; this._xferPourPts = 0;
+    // (the first fall is timed only on a stream that a transfer did not cut short: it lays sand on the floor)
+    const F = this._fall;
+    if (!(F.s >= 0)) { F.from = null; F.s = NaN; F.wall = NaN; }
     this._tally = null; this._gen++; this._lastRunPerf = null;
   }
 
