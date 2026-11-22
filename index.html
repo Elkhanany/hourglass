@@ -175,7 +175,7 @@
           <input id="opt-layers" class="switch" type="checkbox" role="switch">
         </label>
         <div class="row" id="grain-row">
-          <span><b>Grain</b><small>Finer sand is more grains, and more work for the phone</small></span>
+          <span><b>Grain</b><small id="grain-note">Finer sand is more grains, and more work for the phone</small></span>
         </div>
         <div class="sub">
           <div id="grains" class="segmented" role="radiogroup" aria-label="Sand grain">
@@ -184,6 +184,10 @@
             <button type="button" role="radio" aria-checked="false" data-grain="2" aria-label="Finest: four times the grains">Finest <i>×4</i></button>
           </div>
         </div>
+        <label class="row" for="opt-realsand" id="realsand-row">
+          <span><b>Real sand</b><small id="realsand-note">Each grain simulated on the graphics chip. Uses more battery.</small></span>
+          <input id="opt-realsand" class="switch" type="checkbox" role="switch">
+        </label>
       </div>
 
       <h3>Acoustic character</h3>
@@ -251,7 +255,7 @@
         </label>
       </div>
 
-      <p class="colophon"><span id="grain-count">—</span> grains<span id="spilled"></span>, each one simulated. Every sound is synthesised live.</p>
+      <p class="colophon"><span id="grain-count">—</span> grains<span id="spilled"></span>, each one simulated<span id="sim-where"></span>. Every sound is synthesised live.</p>
     </div>
   </section>
 

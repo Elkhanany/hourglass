@@ -47,7 +47,10 @@
     hintCrack: false,                // the one-time "the glass can crack" note was shown
     hintZen: 0,                      // how often the way back out of Zen has been said (three times at most)
     grain: 0,                        // the sand's grain: 0 classic, 1 fine (twice the grains), 2 finest (four times)
-    hintMotion: 0                    // how often the tilt icon has been pointed out (three times at most)
+    hintMotion: 0,                   // how often the tilt icon has been pointed out (three times at most)
+    realSand: false,                 // Real sand: the sand simulated on the graphics chip (off: the sand as it has been)
+    realSandFails: 0,                // launches in a row at which Real sand did not start (it stops trying at 3)
+    realSandWhy: ''                  // ... and why the last one did not
   };
   try {
     var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -85,6 +88,10 @@
   var fine = P.Sim.setPace ? [1, Math.SQRT2, 2][settings.grain] : 1, fine2 = fine * fine;
   if (fine > 1) P.Sim.setPace(fine);
   var sim = new P.Sim({ scale: (roomy ? 1.3 : 1.08) * fine, seed: (Date.now() & 0x7fffffff) | 1 });
+  // Real sand (Tune, off by default; see "Real sand" below): while it runs, `sim` is the GPU sand
+  // (`real`), which has the CPU Sim's members; the CPU Sim stays alive as the glass's model and the
+  // fallback. With the switch off `real` stays null and nothing of it is loaded.
+  var cpuSim = sim, real = null;
   var renderer = new P.Renderer(sim, {
     back: $('c-back'), sand: $('c-sand'), bloom: $('c-bloom'), front: $('c-front'), light: lightCanvas,
     glBack: $('c-glass-back'), glFront: $('c-glass-front')
@@ -353,11 +360,11 @@
     var p = (now - sweep.t0) / (sweep.phase === 1 ? SWEEP_OUT : SWEEP_IN);
     dirty = true;
     if (sweep.phase === 1) {
-      if (p < 1) { renderer.setSweep(1, p); return; }
+      if (p < 1) { renderer.setSweep(1, p); if (real) real.setSweep(1, p); return; }
       sweepTurn();
       sweep.t0 = now; p = 0;
     }
-    if (p < 1) { renderer.setSweep(2, p); sweep.pour = p > 0.06 && p < 0.84; return; }
+    if (p < 1) { renderer.setSweep(2, p); if (real) real.setSweep(2, p); sweep.pour = p > 0.06 && p < 0.84; return; }
     sweepDone();
   }
   /** Between the two halves: the glass is made new. */
@@ -369,6 +376,7 @@
   function sweepDone() {
     var redo = sweep.redo, keep = sweep.keep;
     renderer.setSweep(0, 0);
+    if (real) real.setSweep(0, 0);
     sweep = null;
     app.classList.remove('sweep');
     resetting = false;
@@ -977,6 +985,8 @@
     // a blow pushes it for a moment more (bodyHit), and while the glass falls
     // freely its sand falls with it, all but weightless
     var fx = mx - K_DRAG * KPX * body.ax + body.jx, fy = my - K_DRAG * KPX * body.ay + body.jy;
+    // (Real sand plays jolts back slowed, as the lab does: it takes them before the free fall, unturned)
+    if (real) real.feel(tS, fx, fy, body.air, rho);
     if (body.air) fy -= 0.9;
     var G = sim.G;
     var w = body.w + mw;
@@ -1198,6 +1208,7 @@
     var dtMs = now - lastFrame;
     lastFrame = now;
     if (dtMs <= 0) return;
+    if (realDue && !sweep && !resetting) handover('gpu');   // Real sand ready: it takes over between two frames
 
     tickClock();
     if (sweep) stepSweep(now);
@@ -1287,7 +1298,8 @@
       if (n === MAX_STEPS) acc = 0;
       var s1 = performance.now();
       simMs = s1 - s0;
-      renderer.drawSand();
+      if (real) real.submit(now);               // Real sand: this frame's substeps and its picture, on the GPU
+      else renderer.drawSand();
       drawMs = performance.now() - s1;
       dirty = false;
     }
@@ -1311,6 +1323,7 @@
     showTime(flip.active ? flip.shown : T.rem);
     updateZen(now);
     if (dbg) updateDebug(now, dtMs);
+    if (dbgSand) updateSandDebug(now);
 
     var pi = perf.i;
     perf.frameMs[pi] = performance.now() - t0;
@@ -1760,6 +1773,7 @@
     // never let a grain grow past ~2.3 CSS px: it stops reading as sand
     zh = Math.min(zh, renderer._box().h * 2.3);
     var r = renderer.layout(zw, zh, window.devicePixelRatio || 1);
+    if (realEng) realEng.layout();                     // Real sand's canvas takes the sand canvas's box
     var x = zl + (zr - zl - r.width) / 2, y = zt + (zb - zt - r.height) / 2;
     zoom.style.width = r.width + 'px';
     zoom.style.height = r.height + 'px';
@@ -2414,8 +2428,8 @@
     settings.theme = id; save();
     document.documentElement.dataset.theme = id;
     themeName.textContent = P.THEMES[id].short;
-    if (soft) softSwap('theme', function () { renderer.setTheme(id); });
-    else renderer.setTheme(id);
+    if (soft) softSwap('theme', function () { renderer.setTheme(id); if (realEng) realEng.setPalette(); });
+    else { renderer.setTheme(id); if (realEng) realEng.setPalette(); }
     dirty = true;
     var cards = document.querySelectorAll('#themes .card');
     for (var i = 0; i < cards.length; i++) {
@@ -2493,7 +2507,9 @@
   var closers = document.querySelectorAll('.sheet-close');
   for (var ci = 0; ci < closers.length; ci++) closers[ci].addEventListener('click', function () { closeSheet(); });
   btnSettings.addEventListener('click', function () {
-    $('grain-count').textContent = sim.total.toLocaleString();
+    // (Real sand: the material points the graphics chip simulates)
+    $('grain-count').textContent = (real ? real.points : sim.total).toLocaleString();
+    $('sim-where').textContent = real ? ' on the graphics chip' : '';
     $('spilled').textContent = sim.lost > 0 ? ' · ' + sim.lost.toLocaleString() + ' spilled' : '';
     openSheet(sheetSettings, btnSettings);
     buzz(8);
@@ -2572,6 +2588,7 @@
     softSwap('layers', function () {
       sim.setLayers(settings.layers);
       renderer.setLayers(settings.layers);
+      if (realEng) realEng.setPalette();               // (Real sand's colours come from the renderer's table)
     });
   });
   // 'click', not 'change': iOS only shows its motion prompt from a direct tap
@@ -2823,6 +2840,7 @@
     }
   }
   document.addEventListener('visibilitychange', function () {
+    if (realEng) realEng.setHidden(document.hidden);   // Real sand: no GPU work while hidden (catch-up on return)
     if (document.hidden) endSweep();     // (a glass being made new is made at once)
     if (!document.hidden) back = true;   // before tickClock: an end found on return is not held
     tickClock();
@@ -2945,6 +2963,272 @@
   }
 
   /* ======================================================================
+   *  Real sand (Tune: off by default)
+   *
+   *  The sand simulated on the graphics chip, the sand lab's engine
+   *  (realsand/), with an exact neck. With the switch off nothing of it is
+   *  loaded and the app is as it was. With it on, and where WebGPU exists,
+   *  the page loads realsand/boot.mjs, which hands this script the engine's
+   *  class and build stamp (attachRealSand). The CPU sand runs, and shows,
+   *  while the engine starts (a cold start in a home-screen web app took
+   *  3.4 s on the owner's iPhone), and a slow start is never a failure. Once
+   *  the engine has drawn its first frame it takes over between two frames
+   *  (handover): `sim` becomes the GPU sand, which has every member of the
+   *  CPU Sim this script uses, and the two canvases cross-fade. Any failure
+   *  gives the CPU sand back in the same frame, the clock untouched.
+   *    - WebGPU missing (or only a software adapter): the switch is greyed
+   *      with the reason and the setting cleared;
+   *    - anything else at start: the CPU sand this session, the setting
+   *      kept, the note says why; the next launch tries again, and after
+   *      three launches in a row that failed it stops trying;
+   *    - hidden, or the graphics chip reset, while it started: again once
+   *      the page is in view (iOS keeps a home-screen app alive for days,
+   *      so "the next launch" can be far off);
+   *    - a build stamp other than this script's: a mix of old and new
+   *      files in the cache, the CPU sand until the next launch;
+   *    - the graphics chip lost while running: the engine has brought the
+   *      CPU Sim to its counts; the CPU sand takes over in this frame, and
+   *      the engine comes back on its own (onBack) unless it was the second
+   *      such loss within ten minutes.
+   *  ?offscreen=1 is for the tests only: the engine draws into a texture
+   *  shown on a 2-D canvas and takes a software adapter (a headless
+   *  browser's WebGPU canvas cannot be read back). ?debug=sand shows the
+   *  engine's figures for the owner's reports.
+   * ==================================================================== */
+  var REALSAND_BUILD = '3';          // the engine's stamp this script was written for (realsand/build.mjs)
+  var REAL_TEST = /[?&]offscreen=1(?:&|$)/.test(location.search);
+  var realEng = null;                // the engine: starting, live (then real === realEng), lost or rebuilding
+  var realCls = null, realAttached = false, realDue = false, realRetries = 0, realState = 'off';
+  var realLogLines = [];
+  var optReal = $('opt-realsand'), realNote = $('realsand-note'), realRow = $('realsand-row');
+  var REAL_WHY = {
+    nogpu: 'Needs WebGPU (iOS 26 or later)', noadapter: 'Needs WebGPU (iOS 26 or later)',
+    fallback: 'This device\'s graphics are too slow for Real sand',
+    device: 'the graphics chip could not be opened', load: 'the sand engine could not be loaded',
+    compile: 'the sand engine could not be built on this device', selftest: 'its self-test failed',
+    lost: 'the graphics chip was reset', hidden: 'the app was put away as it started'
+  };
+  function realLog(s) {
+    realLogLines.push(Math.round(performance.now()) + ' ' + s);
+    if (realLogLines.length > 200) realLogLines.splice(0, realLogLines.length - 200);
+    if (dbgSand) try { console.info(s); } catch (e) {}
+  }
+  function realReason(e) {
+    return REAL_WHY[e && e.code] || 'an error (' + String(e && e.message || e).slice(0, 80) + ')';
+  }
+  /** The switch and its note (design 11). */
+  function showReal(state, why) {
+    realState = state;
+    var na = state === 'na';
+    optReal.checked = !na && settings.realSand;
+    optReal.disabled = na;
+    realRow.classList.toggle('na', na);
+    realNote.textContent =
+      na ? why :
+      state === 'starting' ? 'Starting…' :
+      state === 'on' ? 'On' :
+      state === 'failed' ? 'Could not start this time: ' + why + '. It will try again next launch' :
+      state === 'gaveup' ? 'Did not start 3 times: ' + why + '. Turn it off and on to try again' :
+      state === 'updating' ? 'Real sand is updating; it will be back at the next launch' :
+      state === 'lost' ? 'Real sand paused: the graphics chip was reset' :
+      state === 'paused' ? why :
+      'Each grain simulated on the graphics chip. Uses more battery.';
+    $('grain-note').textContent = settings.realSand && !na ? 'Real sand keeps its own grain; this sets the classic sand'
+      : 'Finer sand is more grains, and more work for the phone';
+  }
+  /** At boot, with the switch on: load the engine (only then is anything under realsand/ requested). */
+  function loadRealSand() {
+    if (!('gpu' in navigator)) {
+      if (settings.realSand) { settings.realSand = false; save(); }
+      showReal('na', REAL_WHY.nogpu);
+      return;
+    }
+    if (!settings.realSand) { showReal('off'); return; }
+    if ((settings.realSandFails | 0) >= 3) { showReal('gaveup', settings.realSandWhy || REAL_WHY.load); return; }
+    showReal('starting');
+    var el = document.createElement('script');
+    el.type = 'module';
+    el.src = './realsand/boot.mjs';
+    var failed = function (msg) {
+      if (realAttached) return;
+      realAttached = true;
+      var e = new Error(msg); e.code = 'load';
+      realFail(e);
+    };
+    el.addEventListener('error', function () { failed('The sand engine could not be loaded'); });
+    // (a module that loaded but failed as it ran fires 'load' without having called attachRealSand)
+    el.addEventListener('load', function () { failed('The sand engine did not start'); });
+    document.head.appendChild(el);
+  }
+  /** boot.mjs: the engine's class and its build stamp. */
+  function attachRealSand(Cls, build) {
+    if (realAttached || !settings.realSand || typeof Cls !== 'function') return false;
+    realAttached = true;
+    if (String(build) !== REALSAND_BUILD) {
+      realLog('Real sand: the engine is build ' + build + ', this page was written for ' + REALSAND_BUILD + ': a mix of old and new files');
+      showReal('updating');
+      return false;
+    }
+    realCls = Cls;
+    startReal();
+    return true;
+  }
+  /** The engine made, started (device, pipelines, self-test) and given the CPU sand; then handed over. */
+  function startReal() {
+    var eng = null;
+    showReal('starting');
+    Promise.resolve().then(function () {
+      return realCls.create({
+        P: P, cpuSim: cpuSim, renderer: renderer, rotor: rotor, cSand: $('c-sand'), timer: T,
+        offscreen: REAL_TEST, allowFallback: REAL_TEST, log: realLog, onLost: onRealLost, onBack: onRealBack
+      });
+    }).then(function (e) {
+      eng = realEng = e;
+      return eng.start();
+    }).then(function () {
+      return eng.adopt();
+    }).then(function () {
+      if (eng !== realEng) return;
+      realDue = true;                // the next frame hands the sand over (once a Reset's sweep is done)
+      dirty = true;
+    }).catch(function (e) {
+      if (!eng || eng === realEng) realFail(e);
+    });
+  }
+  function whenVisible(fn) {
+    if (!document.hidden) { fn(); return; }
+    var on = function () {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', on);
+      fn();
+    };
+    document.addEventListener('visibilitychange', on);
+  }
+  /** The engine did not start (design 10.1). */
+  function realFail(e) {
+    var code = (e && e.code) || 'error', why = realReason(e);
+    realLog('Real sand did not start (' + code + '): ' + (e && e.message || e));
+    if (realEng) { try { realEng.destroy(); } catch (x) {} realEng = null; }
+    realDue = false;
+    if (e && e.capability) {
+      settings.realSand = false; settings.realSandFails = 0; settings.realSandWhy = ''; save();
+      showReal('na', why);
+      return;
+    }
+    if ((code === 'hidden' || code === 'lost') && realCls && realRetries < 3) {
+      realRetries++;
+      showReal('starting');
+      whenVisible(function () { setTimeout(function () { if (!realEng && !real) startReal(); }, 1000); });
+      return;
+    }
+    settings.realSandFails = (settings.realSandFails | 0) + 1;
+    settings.realSandWhy = why;
+    save();
+    showReal(settings.realSandFails >= 3 ? 'gaveup' : 'failed', why);
+  }
+  /**
+   * Between two frames, the sand changes hands (design 7.8). To the GPU: the engine takes the
+   * CPU Sim's angle, tilt and turn (and fills again if the CPU sand was poured, turned or made
+   * new while it settled); grains the CPU let through meanwhile leave through the valve. To the
+   * CPU: the engine has brought the CPU Sim to its counts already, the clock is not touched.
+   */
+  function handover(to) {
+    if (to === 'gpu') {
+      realDue = false;
+      if (!realEng || real || realEng.destroyed) return;
+      try { realEng.takeOver(); } catch (e) {
+        var x = new Error('The sand could not be handed over: ' + (e && e.message || e)); x.code = 'error';
+        realFail(x);
+        return;
+      }
+      real = sim = realEng;
+      app.classList.add('real');     // #c-gpu fades in over the CPU sand's canvas (styles.css)
+      if (settings.realSandFails || settings.realSandWhy) { settings.realSandFails = 0; settings.realSandWhy = ''; save(); }
+      showReal('on');
+    } else {
+      if (!real) return;
+      real = null;
+      sim = cpuSim;
+      app.classList.remove('real');
+    }
+    dirty = true;
+  }
+  /** The graphics chip is gone (design 7.9). */
+  function onRealLost(info) {
+    info = info || {};
+    var was = !!real;
+    handover('cpu');
+    if (info.final) showReal('paused', info.message || REAL_WHY.lost);
+    else if (info.lifecycle) showReal('starting');
+    else showReal('lost');
+    if (was && !info.lifecycle && info.message && !document.hidden) toast(info.message, 3200);
+  }
+  function onRealBack() { realDue = true; dirty = true; }
+  optReal.addEventListener('change', function (e) {
+    // on or off, the page is built afresh, as for another grain; the running time is kept
+    settings.realSand = e.target.checked;
+    settings.realSandFails = 0; settings.realSandWhy = '';
+    save();
+    saveSession();
+    app.classList.add('regrain');
+    setTimeout(function () { location.reload(); }, 320);
+  });
+
+  /* ---- ?debug=sand: the engine's figures, for the owner's reports ------ */
+  var dbgSand = /[?&]debug=sand(?:&|$)/.test(location.search) ? { el: null, text: null, at: 0 } : null;
+  if (dbgSand) {
+    dbgSand.el = document.createElement('div');
+    dbgSand.el.id = 'debug-sand';
+    dbgSand.el.setAttribute('aria-hidden', 'true');
+    dbgSand.el.style.cssText = 'position:fixed;left:6px;bottom:calc(env(safe-area-inset-bottom, 0px) + 4px);z-index:30;' +
+      'font:10px/1.35 ui-monospace,Menlo,Consolas,monospace;color:#fff;opacity:0.55;pointer-events:none;white-space:pre';
+    dbgSand.text = document.createElement('div');
+    var copy = document.createElement('a');
+    copy.textContent = 'copy the report';
+    copy.style.cssText = 'display:inline-block;pointer-events:auto;color:#fff;text-decoration:underline;padding:4px 0';
+    copy.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      var txt = realReport();
+      try { navigator.clipboard.writeText(txt).then(function () { toast('Copied'); }, function () { toast('Could not copy'); }); }
+      catch (x) { toast('Could not copy'); }
+    });
+    dbgSand.el.appendChild(dbgSand.text);
+    dbgSand.el.appendChild(copy);
+    app.appendChild(dbgSand.el);
+  }
+  /** Everything the owner's report needs: the device, the switch, the engine's figures and its log. */
+  function realReport() {
+    var st = null;
+    try { st = realEng ? realEng.stats() : null; } catch (e) { st = String(e); }
+    return JSON.stringify({
+      at: new Date().toISOString(), ua: navigator.userAgent, standalone: !!navigator.standalone ||
+        !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches),
+      build: REALSAND_BUILD, setting: settings.realSand, state: realState, note: realNote.textContent, live: !!real,
+      timer: { state: T.state, rem: Math.round(T.rem), durationMs: T.durationMs, total: sim.total, top: sim.nTop },
+      stats: st, log: realLogLines
+    }, null, 1);
+  }
+  function updateSandDebug(now) {
+    if (now - dbgSand.at < 500) return;
+    dbgSand.at = now;
+    var st = null;
+    try { st = realEng ? realEng.stats() : null; } catch (e) { st = null; }
+    if (!st) { dbgSand.text.textContent = 'Real sand: ' + realState + (real ? '' : ' (CPU sand)'); return; }
+    var L = st.ledger || {}, t = st.tally || {}, F = st.fall || {}, tm = st.times || {};
+    var r = function (x, d) { return x === x && x !== null && x !== undefined ? (+x).toFixed(d || 0) : '-'; };
+    dbgSand.text.textContent =
+      'Real sand ' + realState + (real ? '' : ' (CPU sand)') + '  build ' + st.build + '  ' + st.mode + (st.why ? ' (' + st.why + ')' : '') +
+        (st.guard ? '  heat guard' : '') + '\n' +
+      st.hz + ' Hz  ' + st.steps + ' steps  sim/real ' + r(st.ratio, 2) + '  display ' + r(st.display, 1) + ' ms  in flight ' + st.inflight + '\n' +
+      'grains ' + L.top + ' / ' + L.total + '  points ' + st.points + '  above ' + r(t.above) + '  queue ' + r(t.queue) +
+        '  refused ' + r(t.refused) + '  kv ' + r(L.kv, 1) + '\n' +
+      'first fall ' + r(F.s, 2) + ' s sim, ' + r(F.wall / 1000, 2) + ' s wall' + '\n' +
+      'start: device ' + r(tm.device) + ', pipelines ' + r(tm.pipelines) + ', self-test ' + r(tm.selfTest) +
+        ', first frame ' + r(tm.firstFrame) + ' ms after the page began' + '\n' +
+      'losses ' + st.n.losses + '  rebuilds ' + st.n.rebuilds + '  transfers ' + st.n.transfers + '  skips ' + st.n.skips;
+  }
+
+  /* ======================================================================
    *  Boot
    * ==================================================================== */
   sim.reset(grainsFor(T.durationMs));
@@ -2999,7 +3283,7 @@
 
   // A small handle for the curious (and for automated tests).
   window.Hourglass = {
-    sim: sim, renderer: renderer, audio: audio, timer: T, flip: flip, stats: S, seq: seq,
+    renderer: renderer, audio: audio, timer: T, flip: flip, stats: S, seq: seq,
     start: start, pause: pause, toggle: toggle, reset: reset,
     flipNow: startFlip, setDuration: setDuration, setTheme: setTheme,
     topAt: topAt, remAt: remAt, grainsFor: grainsFor,
@@ -3019,6 +3303,17 @@
   Object.defineProperty(window.Hourglass, 'reduceMotion', {
     get: function () { return reduceMotion; }, enumerable: true
   });
+  // the sand the app runs now: the CPU Sim, or the GPU sand while Real sand runs
+  Object.defineProperty(window.Hourglass, 'sim', {
+    get: function () { return sim; }, enumerable: true
+  });
+  // Real sand: its engine (starting, live, lost; null with the switch off), and the hook boot.mjs calls
+  Object.defineProperty(window.Hourglass, 'realSand', {
+    get: function () { return realEng; }, enumerable: true
+  });
+  window.Hourglass.attachRealSand = attachRealSand;
+  window.Hourglass.realSandReport = realReport;
+  loadRealSand();
   Object.defineProperty(window.Hourglass.debug, 'mpg0', {
     get: function () { return T.mpg0; }, enumerable: true
   });
