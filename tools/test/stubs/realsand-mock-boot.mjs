@@ -12,11 +12,15 @@
  *   window.__RealsandPlant   the plant library (its CommonJS exports)
  *   window.__mock            { seed, plant, build (a stamp other than the engine's),
  *                              failStart (a start() error code), failCapability,
- *                              failTimes (only the first n starts fail) }
+ *                              failTimes (only the first n starts fail),
+ *                              startDelay (ms of wall time before start() begins: a slow
+ *                              cold start, as the pipelines' 2.8 s in a home-screen web app) }
  * and reads window.__mockEnv: { V.frame, solver (its plant, runs, uploads, flips), device
- * (loseIt), creates, hold (true: no GPU work completes, so runs are skipped) }.
+ * (loseIt), creates, starts, devices (devices opened), grains (its palettes and draws),
+ * paletteFromLUT, hold (true: no GPU work completes, so runs are skipped), failDevice (true:
+ * no device opens, as a rebuild that fails) }.
  */
-import { RealSand, BUILD } from './app-sand.mjs';
+import { RealSand, BUILD, paletteFromLUT } from './app-sand.mjs';
 import * as FI from './fill.mjs';
 import * as GL from './glass.mjs';
 import * as SOL from './solver.mjs';
@@ -27,7 +31,7 @@ const MATERIAL = SOL.MATERIALS.coarse, PW = SOL.PARTICLE_WORDS;
 
 const env = window.__mockEnv = {
   V: { frame: 0 }, rnd: L.rng(M.seed || 5), plant: M.plant || {}, xferFrames: M.xferFrames || 1,
-  hold: false, creates: 0, starts: 0, solver: null, device: null,
+  hold: false, creates: 0, starts: 0, devices: 0, failDevice: false, solver: null, device: null, paletteFromLUT,
   parity: () => (window.Hourglass && window.Hourglass.realSand ? window.Hourglass.realSand.valve.parity : 0)
 };
 let q = [];
@@ -134,6 +138,8 @@ function makeEngine() {
   Grains.prototype.present = function () {};
   return {
     createDevice: async () => {
+      if (env.failDevice) throw new Error('mock: the graphics device could not be opened');
+      env.devices++;
       env.device = new Device();
       return { adapter: {}, device: env.device, info: { fallback: false } };
     },
@@ -149,6 +155,7 @@ class MockSand extends RealSand {
   }
   async start() {
     env.starts++;
+    if (M.startDelay > 0) await new Promise(r => setTimeout(r, M.startDelay));
     if (M.failStart && !(M.failTimes > 0 && env.starts > M.failTimes)) {
       const e = new Error('mock start failure: ' + M.failStart);
       e.code = M.failStart; e.capability = !!M.failCapability;

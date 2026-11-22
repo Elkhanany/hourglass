@@ -35,8 +35,28 @@
  *        kept, no engine.
  *  AGAIN a start cut short because the page was hidden: tried again once the page is in view,
  *        and taken over then, with no failure counted.
+ *  SLOW  a cold start as slow as the owner's iPhone's in a home-screen web app (Gate A: 3.4 s to
+ *        the engine's first frame; here 4 s): the CPU sand shows and runs meanwhile, the boot veil
+ *        is not held for it, the canvases cross-fade only once the engine has drawn, the clock
+ *        runs on through the handover untouched, no failure is counted, the glass ends on time.
+ *  WAKE  Gate A's 4-minute glass ended 7 minutes late: the lab held no screen wake lock and had no
+ *        catch-up. With the GPU sand running the app holds its wake lock (a stand-in for the
+ *        browser's, which a headless Chromium refuses), lets it go while hidden and takes it back
+ *        on return; every gap is caught up by a transfer, also one that runs past the end.
+ *  LIFE  losses of the graphics chip (design 7.9): one while hidden (a lock or an app switch) is
+ *        silent and rebuilt once the page is back; one in view shows the toast and is rebuilt
+ *        after 2 s; a second such loss within 10 minutes leaves the CPU sand for the session,
+ *        with the note, the setting kept and nothing counted; the clock is untouched each time.
+ *  NOREBUILD a rebuild that cannot open a device: the CPU sand stays, the note says it will try
+ *        again next launch, nothing is counted, and the next launch takes over again.
+ *  CRASH the glass does not crack with Real sand on (owner's choice: crash waits for a later
+ *        stage): a drop that cracks the CPU sand's glass (the control, switch off) only thumps and
+ *        clacks on the GPU sand, and quick knocks creak nothing; a crack from before the switch was
+ *        turned on stays, leaks nothing and can be mended; Reset makes the glass whole. The theme
+ *        and the layers switch while the GPU sand is live: the grains take the Renderer's new
+ *        colours, and the layers' re-tone is a transfer that moves no grain.
  *
- *   node tools/test/app-realsand.test.js [--port 8905]
+ *   node tools/test/app-realsand.test.js [--port 8905] [--only slow]
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -62,15 +82,58 @@ function pageInit(arg) {
     document.dispatchEvent(new Event('visibilitychange'));
     if (!on) { var h = held; held = []; h.forEach(function (cb) { raf(cb); }); }
   };
+  // a screen wake lock that is granted (a headless Chromium refuses the real one): how many are held
+  if (arg.wake) {
+    var W = window.__wake = { held: 0, requests: 0, releases: 0 };
+    var api = { request: function () {
+      W.requests++; W.held++;
+      var lock = new EventTarget();
+      lock.type = 'screen'; lock.released = false;
+      lock.release = function () {
+        if (!lock.released) { lock.released = true; W.held--; W.releases++; lock.dispatchEvent(new Event('release')); }
+        return Promise.resolve();
+      };
+      return Promise.resolve(lock);
+    } };
+    Object.defineProperty(navigator, 'wakeLock', { configurable: true, get: function () { return api; } });
+  }
 }
 function mockRoute() {
   return { url: '**/realsand/boot.mjs', handler: function (route) {
     route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: MOCK });
   } };
 }
-function openMock(env, mock, settings) {
+function openMock(env, mock, settings, o) {
   return env.open({ storage: { 'hourglass.settings.v1': Object.assign({ realSand: true, durationMs: 10000 }, settings || {}) },
-    init: pageInit, initArg: { plant: PLANT, mock: mock || {} }, routes: [mockRoute()] });
+    init: pageInit, initArg: { plant: PLANT, mock: mock || {}, wake: !!(o && o.wake) }, routes: [mockRoute()] });
+}
+/** Wait until the GPU sand is the app's sim and the monitor follows it. */
+function waitLive(t, ms) {
+  return waitFor(t, function () { var Hg = window.Hourglass; return !!Hg.realSand && Hg.sim === Hg.realSand && __mon.sim === Hg.sim; }, ms || 20000);
+}
+/** Every toast the page shows from now on (its text, each time it is set). */
+function watchToasts(t) {
+  return t.eval(function () {
+    var el = document.getElementById('toast'), out = window.__toasts = [];
+    new MutationObserver(function () { out.push(el.textContent); }).observe(el, { childList: true, characterData: true, subtree: true });
+  });
+}
+/** The device lost now; read back after the microtasks that answer it (no frame runs between). */
+function loseNow(t, why) {
+  return t.eval(function (why) {
+    var Hg = window.Hourglass, rs = Hg.realSand;
+    var before = { top: Hg.sim.nTop, total: Hg.sim.total, rem: Hg.timer.rem, tick: Hg.timer.lastTick, live: Hg.sim === rs };
+    window.__mockEnv.device.loseIt('unknown', why);
+    return Promise.resolve().then(function () {}).then(function () {}).then(function () {
+      var sim = Hg.sim;
+      return { before: before, cpu: sim instanceof window.HourglassPhysics.Sim, top: sim.nTop, total: sim.total, rem: Hg.timer.rem,
+        tick: Hg.timer.lastTick, real: document.getElementById('app').classList.contains('real'),
+        note: document.getElementById('realsand-note').textContent, toasts: window.__toasts.slice() };
+    });
+  }, why);
+}
+function untouched(L) {
+  return L.cpu && !L.real && L.before.live && L.top === L.before.top && L.total === L.before.total && L.rem === L.before.rem && L.tick === L.before.tick;
 }
 /** The page's state of Real sand. */
 function state(t) {
@@ -450,12 +513,373 @@ async function testAgain(s, env) {
   } finally { await t.close(); }
 }
 
+async function testSlow(s, env) {
+  // Gate A: in a home-screen web app the pipelines took 2.8 s and the first frame came 3.4 s after
+  // the page began (0.6 s in Chrome). Here the engine's start() is held 4 s before it begins.
+  var t = await openMock(env, { seed: 9, startDelay: 4000 });
+  try {
+    await t.eval(function () { window.Hourglass.start(); });
+    await t.eval(function () {
+      __rec.start(function (Hg) {
+        var e = window.__mockEnv, pl = e && e.solver && e.solver.plant;
+        return [Date.now(), Hg.timer.state, Hg.timer.rem, Hg.timer.lastTick, Hg.sim.nTop, pl ? pl.above : -1,
+          pl ? pl.lastCrossT : NaN, Hg.sim === Hg.realSand ? 1 : 0, e ? e.V.frame : 0];
+      }, { frame: true });
+    });
+    await sleep(2500);
+    var mid = await t.eval(function () {
+      var Hg = window.Hourglass, cg = document.getElementById('c-gpu'), rs = Hg.realSand;
+      var st = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
+      return { note: document.getElementById('realsand-note').textContent, cpu: Hg.sim instanceof window.HourglassPhysics.Sim,
+        engine: !!rs, starts: window.__mockEnv.starts, ready: !!(rs && rs.ready), real: document.getElementById('app').classList.contains('real'),
+        sand: getComputedStyle(document.getElementById('c-sand')).opacity, gpu: cg ? getComputedStyle(cg).opacity : 'none',
+        veil: +getComputedStyle(document.getElementById('veil')).opacity, state: Hg.timer.state, top: Hg.sim.nTop, total: Hg.sim.total,
+        fails: st.realSandFails | 0 };
+    });
+    s.check('SLOW: 2.5 s into a 4 s start: the CPU sand is the sim, shown, and running (grains through the neck); "Starting…"; the engine not ready',
+            mid.cpu && mid.engine && mid.starts === 1 && !mid.ready && !mid.real && mid.sand === '1' && (mid.gpu === 'none' || mid.gpu === '0') &&
+            mid.state === 'running' && mid.top < mid.total && mid.note === 'Starting…', JSON.stringify(mid));
+    s.check('SLOW: the boot veil is not held for the engine: it has lifted', mid.veil < 0.02, 'veil opacity ' + mid.veil);
+    // the handover, seen from inside the page: the frame it happens in, and the canvases 150 ms and 700 ms on
+    var ho = await t.eval(function () {
+      var Hg = window.Hourglass, t0 = performance.now();
+      return new Promise(function (res) {
+        (function w() {
+          if (performance.now() - t0 > 15000) { res(null); return; }
+          if (Hg.sim === Hg.realSand) {
+            var rs = Hg.realSand, cg = document.getElementById('c-gpu'), cs = document.getElementById('c-sand');
+            var out = { after: performance.now() - t0, ready: rs.ready, draws: window.__mockEnv.grains.draws,
+              firstFrame: rs.stats().times.firstFrame, page: performance.now() };
+            setTimeout(function () {
+              out.gpuMid = +getComputedStyle(cg).opacity; out.sandMid = +getComputedStyle(cs).opacity;
+              setTimeout(function () { out.gpuEnd = +getComputedStyle(cg).opacity; out.sandEnd = +getComputedStyle(cs).opacity; res(out); }, 550);
+            }, 150);
+            return;
+          }
+          requestAnimationFrame(w);
+        })();
+      });
+    });
+    s.check('SLOW: the sand changes hands only once the engine has drawn its first frame (ready, its picture drawn)',
+            !!ho && ho.ready && ho.draws >= 1 && ho.firstFrame > 4000, JSON.stringify(ho));
+    s.check('SLOW: the canvases cross-fade: 150 ms after the handover both are part-way, 700 ms after the GPU sand is shown and the CPU sand gone',
+            !!ho && ho.gpuMid > 0.05 && ho.gpuMid < 0.95 && ho.sandMid > 0.05 && ho.sandMid < 0.95 && ho.gpuEnd === 1 && ho.sandEnd === 0, JSON.stringify(ho));
+    var e = await t.eval(function () {
+      return new Promise(function (res) {
+        (function w() {
+          var Hg = window.Hourglass;
+          if (Hg.timer.state === 'done' && Hg.sim.nTop === 0) { setTimeout(function () { res(__rec.stop()); }, 300); return; }
+          requestAnimationFrame(w);
+        })();
+      });
+    });
+    // the clock through the handover: the end it foresees (lastTick + rem) does not move, from a
+    // second before the handover to a second after it, and over the whole run
+    var k0 = -1, near = 0, all = 0;
+    for (var i = 0; i < e.length; i++) if (e[i][7] === 1) { k0 = i; break; }
+    for (i = 1; i < e.length; i++) {
+      if (e[i][1] !== 'running' || e[i - 1][1] !== 'running') continue;
+      var d = Math.abs((e[i][3] + e[i][2]) - (e[i - 1][3] + e[i - 1][2]));
+      all = Math.max(all, d);
+      if (Math.abs(i - k0) <= 60) near = Math.max(near, d);
+    }
+    s.check('SLOW: the clock runs on through the handover untouched (the end it foresees moves by less than 1 ms, a second either side of it)',
+            k0 > 60 && near < 1, 'handover at frame ' + k0 + '; the end moved by ' + near.toFixed(2) + ' ms near it, ' + all.toFixed(2) + ' ms at most over the run');
+    var end = endOf(e.slice(k0));
+    s.check('SLOW: the glass begun on the CPU sand ends on the GPU sand on time: last point within 30 ms of 00:00.0, nTop 0 within 3 frames after, never before',
+            end.done && end.liveAll && end.d >= -5 && end.d <= 30 && end.frames >= 0 && end.frames <= 3 && end.early === 0, fmtEnd(end));
+    var st = await state(t);
+    s.check('SLOW: a slow start is not a failure: "On", the setting kept, nothing counted', st.note === 'On' && st.setting === true && !st.fails && !st.why,
+            JSON.stringify({ note: st.note, setting: st.setting, fails: st.fails, why: st.why }));
+    await H.invariants(s, t, 'SLOW');
+  } finally { await t.close(); }
+}
+
+async function testWake(s, env) {
+  var t = await openMock(env, { seed: 21 }, {}, { wake: true });
+  try {
+    await waitLive(t);
+    await sleep(400);
+    var w0 = await t.eval(function () { return { held: window.__wake.held, state: window.Hourglass.wakeState() }; });
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(700);
+    var w1 = await t.eval(function () { var Hg = window.Hourglass; return { held: window.__wake.held, state: Hg.wakeState(), live: Hg.sim === Hg.realSand, run: Hg.timer.state }; });
+    s.check('WAKE: the GPU sand running holds the screen wake lock (none while the glass stood idle)',
+            w0.held === 0 && w1.held === 1 && w1.state === 'active' && w1.live && w1.run === 'running', JSON.stringify({ idle: w0, running: w1 }));
+    var gaps = [];
+    for (var g = 0; g < 2; g++) {
+      var a = await t.eval(function () { return { ff: __mon.ff.length, xfer: window.Hourglass.realSand.stats().n.transfers }; });
+      await t.eval(function () { window.__hide(true); });
+      await sleep(g ? 1500 : 2000);
+      var hid = await t.eval(function () { return window.__wake.held; });
+      await t.eval(function () { window.__hide(false); });
+      await sleep(900);
+      gaps.push(await t.eval(function (a) {
+        var Hg = window.Hourglass, rs = Hg.realSand;
+        return { ff: __mon.ff.slice(a.ff).map(function (x) { return x.n; }), xfer: rs.stats().n.transfers - a.xfer, held: window.__wake.held,
+          live: Hg.sim === rs, audit: rs.audit().ok, run: Hg.timer.state };
+      }, a));
+      gaps[g].hidden = hid;
+    }
+    s.check('WAKE: hidden, the lock is let go; back in view, it is held again',
+            gaps.every(function (x) { return x.hidden === 0 && x.held === 1; }), JSON.stringify(gaps));
+    s.check('WAKE: every gap is caught up: each return moves what is owed (the catch-up\'s fastForward) by one transfer, the GPU sand still the sim',
+            gaps.every(function (x) { return x.ff.length === 1 && x.ff[0] > 0 && x.xfer === 1 && x.live && x.audit && x.run === 'running'; }), JSON.stringify(gaps));
+    // a gap that runs past the end: back in view the glass is done and its sand is all below
+    var a3 = await t.eval(function () { var Hg = window.Hourglass; return { ff: __mon.ff.length, xfer: Hg.realSand.stats().n.transfers, rem: Hg.timer.rem }; });
+    await t.eval(function () { window.__hide(true); });
+    await sleep(a3.rem + 2000);
+    await t.eval(function () { window.__hide(false); });
+    await waitFor(t, function () { var Hg = window.Hourglass; return Hg.timer.state === 'done' && Hg.sim.nTop === 0 && window.__mockEnv.solver.plant.above === 0; }, 6000).catch(function () {});
+    var g3 = await t.eval(function (a) {
+      var Hg = window.Hourglass, rs = Hg.realSand, pl = window.__mockEnv.solver.plant;
+      return { run: Hg.timer.state, top: Hg.sim.nTop, above: pl.above, below: pl.below, total: Hg.sim.total, pts: rs.valve.Pts(Hg.sim.total),
+        xfer: rs.stats().n.transfers - a.xfer, ff: __mon.ff.slice(a.ff).map(function (x) { return x.n; }), live: Hg.sim === rs, audit: rs.audit().ok };
+    }, a3);
+    s.check('WAKE: a gap past the end: back in view the glass is done, nothing above (ledger and GPU), every point below, through a transfer',
+            g3.run === 'done' && g3.top === 0 && g3.above === 0 && g3.below === g3.pts && g3.xfer >= 1 && g3.ff.length >= 1 && g3.live && g3.audit, JSON.stringify(g3));
+    await H.invariants(s, t, 'WAKE');
+  } finally { await t.close(); }
+}
+
+async function testLife(s, env) {
+  var t = await openMock(env, { seed: 31 }, { durationMs: 30000 });
+  try {
+    await waitLive(t);
+    await watchToasts(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1500);
+    // a loss while the page is hidden: a lock or an app switch
+    await t.eval(function () { window.__hide(true); });
+    await sleep(300);
+    var A = await loseNow(t, 'mock: the app was put away');
+    s.check('LIFE: lost while hidden: the CPU Sim is the sim in the same frame, at the ledger\'s counts, the clock untouched',
+            untouched(A), JSON.stringify(A));
+    await sleep(1000);
+    var hiddenNow = await t.eval(function () { return { live: window.Hourglass.sim === window.Hourglass.realSand, rebuilds: window.Hourglass.realSand.stats().n.rebuilds }; });
+    await t.eval(function () { window.__hide(false); });
+    await waitLive(t, 8000);
+    var A2 = await t.eval(function () {
+      var Hg = window.Hourglass, st = Hg.realSand.stats();
+      return { note: document.getElementById('realsand-note').textContent, toasts: window.__toasts.slice(), rebuilds: st.n.rebuilds, losses: st.n.losses,
+        devices: window.__mockEnv.devices, creates: window.__mockEnv.creates, run: Hg.timer.state };
+    });
+    s.check('LIFE: ... silently (no toast, "Starting…"); rebuilt only once the page is back, and the GPU sand takes over again: "On"',
+            A.note === 'Starting…' && A.toasts.length === 0 && A2.toasts.length === 0 && !hiddenNow.live && hiddenNow.rebuilds === 0 &&
+            A2.note === 'On' && A2.rebuilds === 1 && A2.losses === 1 && A2.devices === 2 && A2.creates === 1 && A2.run === 'running',
+            JSON.stringify({ lost: A.note, hidden: hiddenNow, back: A2 }));
+    // a loss in view (not around a lock or an app switch): the toast, then rebuilt after 2 s
+    await sleep(1500);
+    var B = await loseNow(t, 'mock: the graphics chip was reset');
+    var tB = Date.now();
+    await waitLive(t, 8000);
+    var B2 = await t.eval(function () { var st = window.Hourglass.realSand.stats(); return { note: document.getElementById('realsand-note').textContent, rebuilds: st.n.rebuilds, losses: st.n.losses }; });
+    var backMs = Date.now() - tB;
+    s.check('LIFE: lost in view: the CPU sand in the same frame, the clock untouched, the toast and the note say Real sand paused',
+            untouched(B) && B.toasts.indexOf('Real sand paused: the graphics chip was reset') >= 0 && B.note === 'Real sand paused: the graphics chip was reset', JSON.stringify(B));
+    s.check('LIFE: ... and it comes back after 2 s: "On"', B2.note === 'On' && B2.rebuilds === 2 && B2.losses === 2 && backMs >= 1900,
+            JSON.stringify(B2) + ', back after ' + backMs + ' ms');
+    // a second loss in view within 10 minutes: final for this session
+    await sleep(1500);
+    var C = await loseNow(t, 'mock: reset again');
+    await sleep(4000);
+    var C2 = await t.eval(function () {
+      var Hg = window.Hourglass, st = Hg.realSand.stats(), S = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
+      return { note: document.getElementById('realsand-note').textContent, cpu: Hg.sim instanceof window.HourglassPhysics.Sim, rebuilds: st.n.rebuilds,
+        devices: window.__mockEnv.devices, setting: S.realSand, fails: S.realSandFails | 0, run: Hg.timer.state, top: Hg.sim.nTop };
+    });
+    var FINAL = 'Paused after the graphics chip was reset twice; it will try again next launch';
+    s.check('LIFE: a second loss in view within 10 minutes: the CPU sand, the clock untouched, the toast and the note say it is paused until the next launch',
+            untouched(C) && C.note === FINAL && C.toasts.indexOf(FINAL) >= 0, JSON.stringify(C));
+    s.check('LIFE: ... no rebuild (4 s on), the CPU sand runs on, the setting kept and nothing counted',
+            C2.note === FINAL && C2.cpu && C2.rebuilds === 2 && C2.devices === 3 && C2.setting === true && C2.fails === 0 && C2.run === 'running' &&
+            C2.top < C.top, JSON.stringify(C2));
+    await H.invariants(s, t, 'LIFE');
+  } finally { await t.close(); }
+}
+
+async function testNoRebuild(s, env) {
+  var t = await openMock(env, { seed: 41 }, { durationMs: 30000 });
+  try {
+    await waitLive(t);
+    await watchToasts(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1500);
+    await t.eval(function () { window.__mockEnv.failDevice = true; });
+    var L = await loseNow(t, 'mock: reset');
+    var MSG = 'Real sand could not restart after the graphics chip was reset; it will try again next launch';
+    await waitFor(t, function (m) { return document.getElementById('realsand-note').textContent === m; }, 8000, MSG).catch(function () {});
+    var st = await state(t), n = await t.eval(function () { var Hg = window.Hourglass; return { rebuilds: Hg.realSand.stats().n.rebuilds, run: Hg.timer.state }; });
+    s.check('NOREBUILD: the rebuild finds no device: the CPU sand stays (taken over in the frame of the loss), the note says it will try again next launch',
+            untouched(L) && st.cpu && !st.live && !st.real && st.note === MSG && n.rebuilds === 1 && n.run === 'running', JSON.stringify({ L: L, note: st.note, n: n }));
+    s.check('NOREBUILD: ... the setting kept, nothing counted', st.setting === true && !st.fails && st.checked && !st.disabled, JSON.stringify(st));
+    await t.reload();
+    await waitLive(t);
+    st = await state(t);
+    s.check('NOREBUILD: the next launch takes over again: "On"', st.live && st.note === 'On' && st.setting === true && !st.fails, JSON.stringify({ note: st.note, fails: st.fails }));
+    await H.invariants(s, t, 'NOREBUILD');
+  } finally { await t.close(); }
+}
+
+/** Lift the glass by its waist 280 px over 1.5 s, hold, let go: it falls and lands on the desk (replay-finger's drop from the top of its travel). */
+async function dropGlass(t) {
+  var g = await t.glass();
+  await t.touch.down(g.cx, g.cy);
+  await sleep(40);
+  await t.touch.path(function (u) { var e = u * u * (3 - 2 * u); return { x: g.cx, y: g.cy - 280 * e }; }, 1500, false);
+  await sleep(300);
+  // every blow the glass takes, as the sim answers it (sim.impact: 0 a clink, 1 a creak or a thump, 2 a crack, 3 a breach)
+  await t.eval(function () {
+    var sim = window.Hourglass.sim, f = sim.impact, H = window.__hits = [];
+    sim.impact = function (nx, ny, v) { var r = f.apply(sim, arguments); H.push([v, r]); return r; };
+  });
+  await t.touch.up();
+  await sleep(1800);
+  return t.eval(function () {
+    var Hg = window.Hourglass, hard = [0, 0];
+    delete Hg.sim.impact;
+    window.__hits.forEach(function (h) { if (h[0] > hard[0]) hard = h; });
+    return { hits: window.__hits.length, v: hard[0], grade: hard[1], cracks: Hg.sim.cracks.map(function (c) { return { L: c.L, sealed: !!c.sealed }; }) };
+  });
+}
+/** Count what audio.js is asked to play for blows and damage, from now on. */
+function spyBlows(t) {
+  return t.eval(function () {
+    var A = window.Hourglass.audio, B = window.__blows = { thump: 0, clack: 0, crack: 0, creak: 0, crackGrow: 0, mended: 0 };
+    Object.keys(B).forEach(function (k) {
+      var f = A[k];
+      if (typeof f !== 'function' || f.__spied) return;
+      A[k] = function () { window.__blows[k]++; return f.apply(this, arguments); };
+      A[k].__spied = true;
+    });
+  });
+}
+var UPPER_SHOULDER = 6;           // a wall segment of the upper bulb (app-gestures.test.js)
+
+async function testCrash(s, env) {
+  // the switch off, with the mock engine served for when it is turned on
+  var t = await openMock(env, { seed: 51 }, { realSand: false });
+  try {
+    await spyBlows(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    var d0 = await dropGlass(t);
+    var b0 = await t.eval(function () { return window.__blows; });
+    s.check('CRASH (control, the CPU sand): the drop lands hard and cracks the glass, with its crack sound',
+            d0.hits >= 1 && d0.v >= 920 && d0.grade >= 2 && d0.cracks.length === 1 && b0.crack === 1, JSON.stringify({ drop: d0, sounds: b0 }));
+    // Real sand on: the page saves the session (the paused glass and its crack) and loads again
+    await t.eval(function () { window.Hourglass.pause(); });
+    await t.page.$eval('#opt-realsand', function (el) { el.click(); });
+    await sleep(800);
+    await t.page.waitForFunction(function () { return window.Hourglass && window.__mon && window.__mon.hooked; }, null, { timeout: 15000 });
+    await waitLive(t);
+    await sleep(800);
+    await spyBlows(t);
+    var c1 = await t.eval(function () {
+      var Hg = window.Hourglass;
+      return { cracks: Hg.sim.cracks.map(function (c) { return { L: c.L, sealed: !!c.sealed }; }), live: Hg.sim === Hg.realSand };
+    });
+    s.check('CRASH: a crack from before Real sand was turned on stays, open, as it was', c1.live && c1.cracks.length === 1 && !c1.cracks[0].sealed &&
+            Math.abs(c1.cracks[0].L - d0.cracks[0].L) < 1e-6, JSON.stringify(c1));
+    var d1 = await dropGlass(t);
+    var b1 = await t.eval(function () { return window.__blows; });
+    s.check('CRASH: on the GPU sand the same drop only thumps and clacks (impact 1): no new crack, the old one not grown, no crack or creak sound',
+            d1.hits >= 1 && d1.v >= 920 && d1.grade === 1 && d1.cracks.length === 1 && Math.abs(d1.cracks[0].L - c1.cracks[0].L) < 1e-6 && !d1.cracks[0].sealed &&
+            b1.thump >= 1 && b1.clack >= 1 && b1.crack === 0 && b1.crackGrow === 0 && b1.creak === 0, JSON.stringify({ drop: d1, sounds: b1 }));
+    // quick knocks near one place (eight crack the CPU sand's glass: sim-knock, replay-finger)
+    await t.eval(function () {
+      var rs = window.Hourglass.realSand, k = rs.knock, K = window.__knocks = [];
+      rs.knock = function () { var r = k.apply(rs, arguments); K.push(r); return r; };
+    });
+    var g = await t.glass();
+    for (var i = 0; i < 10; i++) { await t.touch.tap(g.cx - 28, g.cy - 120, 50); await sleep(250); }
+    await sleep(600);
+    var k1 = await t.eval(function () {
+      var Hg = window.Hourglass;
+      delete Hg.realSand.knock;
+      return { knocks: window.__knocks, cracks: Hg.sim.cracks.length, blows: window.__blows };
+    });
+    s.check('CRASH: ten quick knocks reach the GPU sand (knock answers -1) and creak and crack nothing',
+            k1.knocks.length >= 8 && k1.knocks.every(function (r) { return r === -1; }) && k1.cracks === 1 && k1.blows.creak === 0 && k1.blows.crack === 0,
+            JSON.stringify(k1));
+    // the cracked glass runs: nothing leaks (the CPU Sim is not stepped; the GPU's glass has no breach)
+    var counts = function () {
+      var Hg = window.Hourglass, rs = Hg.realSand, pl = window.__mockEnv.solver.plant;
+      return { total: Hg.sim.total, top: Hg.sim.nTop, spill: Hg.spill.count, lost: Hg.sim.lost, cpuLost: rs.cpu.lost, points: rs.valve.points,
+        plant: pl.above + pl.below, state: Hg.timer.state };
+    };
+    var r0 = await t.eval(counts);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(2000);
+    await t.eval(function () { window.Hourglass.pause(); });
+    var r1 = await t.eval(counts);
+    s.check('CRASH: a cracked glass leaks nothing on the GPU sand (2 s running: the grains, the spill and the GPU\'s points unchanged; sand ran)',
+            r0.state === 'paused' && r1.total === r0.total && r1.spill === r0.spill && r1.lost === 0 && r1.cpuLost === 0 && r1.points === r0.points &&
+            r0.plant === r0.points && r1.plant === r1.points && r1.top < r0.top, JSON.stringify({ before: r0, after: r1 }));
+    // mending: a still press of 1.6 s on the glass (app-gestures' MEND)
+    await t.eval(function () {
+      var R = window.Hourglass.renderer, f = R.setMend;
+      window.__mendMax = 0;
+      R.setMend = function (p) { if (+p > window.__mendMax) window.__mendMax = +p; return f.apply(this, arguments); };
+    });
+    await sleep(500);
+    g = await t.glass();
+    await t.touch.down(g.cx, g.cy);
+    await sleep(1600);
+    await t.touch.up();
+    await sleep(300);
+    var m = await t.eval(function () {
+      var Hg = window.Hourglass;
+      delete Hg.renderer.setMend;
+      return { cracks: Hg.sim.cracks.map(function (c) { return !!c.sealed; }), max: window.__mendMax, mended: window.__blows.mended, live: Hg.sim === Hg.realSand };
+    });
+    s.check('CRASH: the crack is mended on the GPU sand: sealed, the gold run to the end, the mend heard', m.live && m.cracks.length === 1 && m.cracks[0] && m.max === 1 && m.mended === 1,
+            JSON.stringify(m));
+
+    // the theme changed while the GPU sand is live: the grains take the Renderer's new colours
+    var th = await t.eval(function () {
+      var Hg = window.Hourglass, G = window.__mockEnv.grains, R = Hg.renderer, n0 = G.palettes, p0 = Array.from(G.pal);
+      var want0 = Array.from(window.__mockEnv.paletteFromLUT(R.lut, R.isMica));
+      Hg.setTheme('volcanic');
+      var p1 = Array.from(G.pal), want1 = Array.from(window.__mockEnv.paletteFromLUT(R.lut, R.isMica));
+      var same = function (a, b) { return a.length === b.length && a.every(function (x, i) { return x === b[i]; }); };
+      return { calls: G.palettes - n0, before: same(p0, want0), after: same(p1, want1), changed: !same(p0, p1), n: p1.length };
+    });
+    s.check('CRASH (THEME): a theme chosen while the GPU sand runs: its grains take the Renderer\'s new table at once (and it is not the old one)',
+            th.calls >= 1 && th.before && th.after && th.changed && th.n > 0, JSON.stringify(th));
+    // the layers switch while the GPU sand is live (paused): the re-tone is a transfer that moves no grain
+    var la0 = await t.eval(function () {
+      var Hg = window.Hourglass, rs = Hg.realSand, pl = window.__mockEnv.solver.plant;
+      return { top: Hg.sim.nTop, total: Hg.sim.total, above: pl.above, below: pl.below, xfer: rs.stats().n.transfers, rem: Hg.timer.rem, layers: rs.cpu.layers };
+    });
+    await t.page.$eval('#opt-layers', function (el) { el.click(); });
+    await sleep(1500);
+    var la1 = await t.eval(function () {
+      var Hg = window.Hourglass, rs = Hg.realSand, pl = window.__mockEnv.solver.plant;
+      var au = rs.audit();
+      return { top: Hg.sim.nTop, total: Hg.sim.total, above: pl.above, below: pl.below, xfer: rs.stats().n.transfers, rem: Hg.timer.rem, layers: rs.cpu.layers,
+        rsLayers: rs.layers, audit: au ? au.ok : 'no readback since', live: Hg.sim === rs, state: Hg.timer.state };
+    });
+    s.check('CRASH (LAYERS): layered sand turned on while the GPU sand is live: the CPU Sim lays its strata, the GPU re-tones by one transfer, no grain moves and no time passes',
+            !la0.layers && la1.layers && la1.rsLayers && la1.xfer === la0.xfer + 1 && la1.top === la0.top && la1.total === la0.total &&
+            la1.above === la0.above && la1.below === la0.below && la1.rem === la0.rem && la1.audit !== false && la1.live && la1.state === 'paused', JSON.stringify({ before: la0, after: la1 }));
+
+    // Reset makes the glass whole
+    await t.eval(function () { window.Hourglass.reset(); });
+    await waitFor(t, function () { return !document.getElementById('app').classList.contains('sweep'); }, 5000);
+    await sleep(300);
+    var w = await t.eval(function () { var Hg = window.Hourglass; return { cracks: Hg.sim.cracks.length, live: Hg.sim === Hg.realSand }; });
+    s.check('CRASH: Reset makes the glass whole', w.cracks === 0 && w.live, JSON.stringify(w));
+    await H.invariants(s, t, 'CRASH');
+  } finally { await t.close(); }
+}
+
 async function main() {
   var s = new H.Suite('app-realsand');
   var env = await H.start();
   try {
     var only = env.args.only;
-    var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp, again: testAgain };
+    var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp, again: testAgain,
+      slow: testSlow, wake: testWake, life: testLife, norebuild: testNoRebuild, crash: testCrash };
     for (var k in cases) {
       if (only && only !== k) continue;
       try { await cases[k](s, env); } catch (e) {
