@@ -574,6 +574,9 @@ input[type="range"]::-moz-range-thumb {
 /* a switch this device cannot have (Real sand without WebGPU): greyed, its note says why */
 .row.na b, .row.na .switch { opacity: 0.4; }
 .row.na .switch { cursor: default; }
+/* Real sand on: the row's link that copies the report (the home-screen app cannot open ?debug=sand) */
+#realsand-report { justify-self: start; padding: 4px 0 2px; font-size: 12.5px; color: var(--ink-2); text-decoration: underline; }
+#realsand-report[hidden] { display: none; }
 .rows .sub i { font-style: normal; font-size: 0.92em; font-variant-numeric: tabular-nums; color: var(--ink-3); margin-left: 2px; }
 .switch {
   -webkit-appearance: none; appearance: none; flex: none; margin: 0;

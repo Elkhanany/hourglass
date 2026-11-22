@@ -3038,6 +3038,41 @@
       'Each grain simulated on the graphics chip. Uses more battery.';
     $('grain-note').textContent = settings.realSand && !na ? 'Real sand keeps its own grain; this sets the classic sand'
       : 'Finer sand is more grains, and more work for the phone';
+    showReportLink(settings.realSand && !na);
+  }
+  /**
+   * With the switch on, the row has a link that copies the report (realReport). A web app on the
+   * home screen keeps its own storage and opens at its own address, so ?debug=sand never reaches
+   * it, and that is where the owner uses the app (and where Gate A found the slow start).
+   */
+  var realReportEl = null;
+  function showReportLink(on) {
+    if (!on) { if (realReportEl) realReportEl.hidden = true; return; }
+    if (!realReportEl) {
+      realReportEl = document.createElement('a');
+      realReportEl.id = 'realsand-report';
+      realReportEl.href = '#';
+      realReportEl.textContent = 'Copy a report';
+      // (inside the switch's label: the link copies, it does not turn the switch)
+      realReportEl.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); copyReport(); });
+      realNote.parentNode.insertBefore(realReportEl, realNote.nextSibling);
+    }
+    realReportEl.hidden = false;
+  }
+  /** The report to the clipboard, and a toast that says whether it went. */
+  function copyReport() {
+    var txt = realReport();
+    var done = function () { toast('Copied'); };
+    var byHand = function () {
+      // (no Clipboard API, or it refused: the old way, from a selected text field)
+      var ok = false, ta = document.createElement('textarea');
+      ta.value = txt; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+      document.body.appendChild(ta);
+      try { ta.select(); ta.setSelectionRange(0, txt.length); ok = document.execCommand('copy'); } catch (x) {}
+      document.body.removeChild(ta);
+      toast(ok ? 'Copied' : 'Could not copy');
+    };
+    try { navigator.clipboard.writeText(txt).then(done, byHand); } catch (x) { byHand(); }
   }
   /** At boot, with the switch on: load the engine (only then is anything under realsand/ requested). */
   function loadRealSand() {
@@ -3195,9 +3230,7 @@
     copy.style.cssText = 'display:inline-block;pointer-events:auto;color:#fff;text-decoration:underline;padding:4px 0';
     copy.addEventListener('click', function (e) {
       e.preventDefault(); e.stopPropagation();
-      var txt = realReport();
-      try { navigator.clipboard.writeText(txt).then(function () { toast('Copied'); }, function () { toast('Could not copy'); }); }
-      catch (x) { toast('Could not copy'); }
+      copyReport();
     });
     dbgSand.el.appendChild(dbgSand.text);
     dbgSand.el.appendChild(copy);

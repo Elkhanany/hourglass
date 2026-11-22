@@ -5,8 +5,8 @@
  *  OFF   the switch off (the default): nothing under realsand/ is requested (by the page's own
  *        record, and at the network through a route, also after a run, Tune, a theme, layered
  *        sand and a Reset; NOGPU's same route is the control), no engine, the CPU Sim is the
- *        sim; the row "Real sand" sits in the Material group after Grain, off, with its note;
- *        Tune has 10 rows.
+ *        sim; the row "Real sand" sits in the Material group after Grain, off, with its note
+ *        and no "Copy a report"; Tune has 10 rows.
  *  NOGPU the switch on, the real engine, in this Chromium (navigator.gpu, but no adapter): the
  *        engine is loaded, does not start, the switch greys with "Needs WebGPU", the setting
  *        is cleared, the CPU sand runs, no errors.
@@ -47,7 +47,8 @@
  *        browser's, which a headless Chromium refuses), lets it go while hidden and takes it back
  *        on return; every gap is caught up by a transfer, also one that runs past the end. The
  *        stream's first fall (Gate A: slow in a home-screen web app and in the hand) is in
- *        ?debug=sand's overlay and report.
+ *        ?debug=sand's overlay and report, and in the report the row's "Copy a report" copies
+ *        (a home-screen web app cannot open ?debug=sand), which leaves the switch alone.
  *  LIFE  losses of the graphics chip (design 7.9): one while hidden (a lock or an app switch) is
  *        silent and rebuilt once the page is back; one in view shows the toast and is rebuilt
  *        after 2 s; a second such loss within 10 minutes leaves the CPU sand for the session,
@@ -69,7 +70,8 @@
  *        last fill made at 00:00.0 on return); then the GPU sand sleeps.
  *  ASLEEP the GPU sand asleep is drawn again after a theme, the screen turned and back, and the
  *        Frame switch, in #c-sand's box; a layout that changes nothing does not touch #c-gpu.
- *  QUIET the engine ready in the middle of a Flip takes over only once the turn is over.
+ *  QUIET the engine ready in the middle of a Flip takes over only once the turn is over; without
+ *        ?debug=sand the row still has "Copy a report".
  *
  *   node tools/test/app-realsand.test.js [--port 8905] [--only slow]
  *   (cases: off nogpu mock fail stamp again slow wake life norebuild crash residue asleep quiet)
@@ -99,6 +101,11 @@ function pageInit(arg) {
     document.dispatchEvent(new Event('visibilitychange'));
     if (!on) { var h = held; held = []; h.forEach(function (cb) { raf(cb); }); }
   };
+  // the clipboard: what "Copy a report" and ?debug=sand's "copy the report" write to it
+  window.__copied = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, get: function () {
+    return { writeText: function (t) { window.__copied.push(String(t)); return Promise.resolve(); } };
+  } });
   // a hook on the mock engine's adopt(), set before boot.mjs hands the app its class: as the first
   // adopt() resolves, before the app's next frame, 'lose' loses the device and 'flip' begins a Flip
   if (arg.adopt) {
@@ -193,6 +200,7 @@ function state(t) {
       cpu: Hg.sim instanceof window.HourglassPhysics.Sim, live: !!Hg.realSand && Hg.sim === Hg.realSand,
       real: document.getElementById('app').classList.contains('real'), gpu: !!gpu,
       grainNote: document.getElementById('grain-note').textContent,
+      report: (function (a) { return a ? (a.hidden ? 'hidden' : a.textContent) : null; })(document.getElementById('realsand-report')),
       requested: performance.getEntriesByType('resource').map(function (e) { return new URL(e.name).pathname; })
         .filter(function (p) { return p.indexOf('/realsand/') >= 0; }) };
   });
@@ -259,9 +267,9 @@ async function testOff(s, env) {
     s.check('OFF: the row "Real sand", a labelled switch, sits in the Material group right after Grain\'s choices; Tune has 10 rows',
             ui.tag === 'LABEL' && ui.for === 'opt-realsand' && ui.title === 'Real sand' && ui.role === 'switch' && ui.type === 'checkbox' &&
             ui.cls === 'switch' && ui.afterGrain && ui.material && ui.last && ui.rows === 10, JSON.stringify(ui));
-    s.check('OFF: off, with its note; Grain\'s note as before',
+    s.check('OFF: off, with its note; Grain\'s note as before; no "Copy a report" link',
             !st.checked && !st.disabled && !st.greyed && st.note === 'Each grain simulated on the graphics chip. Uses more battery.' &&
-            st.grainNote === 'Finer sand is more grains, and more work for the phone', JSON.stringify([st.note, st.grainNote]));
+            st.grainNote === 'Finer sand is more grains, and more work for the phone' && st.report === null, JSON.stringify([st.note, st.grainNote, st.report]));
     // the glass run, Tune opened, a theme and layered sand chosen, a Reset: still nothing of the engine
     await t.eval(function () { window.Hourglass.start(); });
     await sleep(1500);
@@ -288,8 +296,8 @@ async function testNoGpu(s, env) {
     s.check('NOGPU: the engine is loaded (boot.mjs and its modules, seen by the page and at the network) and does not start: this Chromium has no adapter',
             st.requested.indexOf('/realsand/boot.mjs') >= 0 && st.requested.indexOf('/realsand/app-sand.mjs') >= 0 && !st.engine &&
             net.hits.indexOf('/realsand/boot.mjs') >= 0 && net.hits.indexOf('/realsand/app-sand.mjs') >= 0, st.requested.length + ' requested, ' + net.hits.length + ' at the network');
-    s.check('NOGPU: the switch greys, off, and says "Needs WebGPU (iOS 26 or later)"; the setting is cleared',
-            st.greyed && st.disabled && !st.checked && st.note === 'Needs WebGPU (iOS 26 or later)' && st.setting === false, JSON.stringify(st));
+    s.check('NOGPU: the switch greys, off, and says "Needs WebGPU (iOS 26 or later)"; the setting is cleared; no report link shown',
+            st.greyed && st.disabled && !st.checked && st.note === 'Needs WebGPU (iOS 26 or later)' && st.setting === false && st.report !== 'Copy a report', JSON.stringify(st));
     await t.eval(function () { window.Hourglass.start(); });
     await sleep(600);
     var run = await t.eval(function () { return { st: window.Hourglass.timer.state, cpu: window.Hourglass.sim instanceof window.HourglassPhysics.Sim, real: document.getElementById('app').classList.contains('real') }; });
@@ -688,6 +696,27 @@ async function testWake(s, env) {
     s.check('WAKE: ?debug=sand: the stream\'s first fall is in the overlay and in the copied report (simulated and wall time, mode and rate) and the engine\'s log',
             !!rep.overlay && /first fall \d/.test(rep.overlay) && rep.copy && f0.s >= 0 && f0.wall >= 0 && !!f0.mode && f0.hz >= 480 && rep.fallLogged === 1,
             JSON.stringify({ fall: rep.fall, logged: rep.fallLogged, overlay: rep.overlay && rep.overlay.split('\n')[3] }));
+    // the home-screen web app cannot open ?debug=sand (its own storage, its own address): with the
+    // switch on, the row has "Copy a report", which copies the same report (and leaves the switch alone)
+    var lk = await t.eval(function () {
+      var a = document.getElementById('realsand-report'), cb = document.getElementById('opt-realsand'), n = window.__copied.length, was = cb.checked;
+      if (!a) return null;
+      var inRow = document.getElementById('realsand-row').contains(a) && a.previousElementSibling === document.getElementById('realsand-note');
+      a.click();
+      return new Promise(function (res) {
+        setTimeout(function () {
+          res({ text: a.textContent, hidden: a.hidden, inRow: inRow, kept: cb.checked === was && was, copied: window.__copied[n] || null,
+            toast: document.getElementById('toast').textContent });
+        }, 150);
+      });
+    });
+    var got = null;
+    try { got = lk && lk.copied ? JSON.parse(lk.copied) : null; } catch (e) { got = null; }
+    var gs = got && got.stats, gf = gs && gs.fall && gs.fall.log && gs.fall.log[0];
+    s.check('WAKE: "Copy a report" in the Real sand row copies the report (the start-up times and the stream\'s first fall) with a toast, and leaves the switch on',
+            !!lk && lk.text === 'Copy a report' && !lk.hidden && lk.inRow && lk.kept && lk.toast === 'Copied' && !!gs && gs.times && gs.times.pipelines >= 0 &&
+            gs.times.firstFrame > 0 && gs.times.glass >= 0 && !!gf && gf.s >= 0 && gf.wall >= 0 && got.setting === true && got.live === true,
+            JSON.stringify({ link: lk && { text: lk.text, hidden: lk.hidden, inRow: lk.inRow, kept: lk.kept, toast: lk.toast }, times: gs && gs.times, fall: gf }));
     var gaps = [];
     for (var g = 0; g < 2; g++) {
       var a = await t.eval(function () { return { ff: __mon.ff.length, xfer: window.Hourglass.realSand.stats().n.transfers }; });
@@ -997,6 +1026,8 @@ async function testQuiet(s, env) {
     await t.eval(function () { __rec.start(function (Hg) { var e = window.__mockEnv, pl = e.solver.plant; return [Date.now(), Hg.timer.state, Hg.timer.rem, Hg.timer.lastTick, Hg.sim.nTop, pl.above, pl.lastCrossT, Hg.sim === Hg.realSand ? 1 : 0, e.V.frame]; }, { frame: true }); });
     var end = await runToEnd(t, 20000);
     s.check('QUIET: ... and the glass ends on time', end.done && end.liveAll && end.d >= -5 && end.d <= 30 && end.early === 0, fmtEnd(end));
+    var st = await state(t), dbg = await t.eval(function () { return !!document.getElementById('debug-sand'); });
+    s.check('QUIET: without ?debug=sand (as the home-screen web app opens) the row still has "Copy a report"', st.report === 'Copy a report' && !dbg, JSON.stringify({ report: st.report, overlay: dbg }));
     await H.invariants(s, t, 'QUIET');
   } finally { await t.close(); }
 }
