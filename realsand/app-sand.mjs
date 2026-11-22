@@ -192,7 +192,9 @@ export class RealSand {
     const Ls = this.P && this.P.Sim;
     this.toner = null; this._retoneDue = false; this._toneAt = null; this._toneField = null;
     this._lay = { plan: new LayerPlan({ ppg: this.ppg, pace: Ls && Ls.pace ? Ls.pace() : 1, lay: Ls && Ls.LAYERS, seed: ((cpu.rng | 0) ^ 0x6C8E9CF5) >>> 0 }),
-      base: 0, known: 0, share: 0.5, words: null, wordsParity: 0, pats: null, until: -Infinity };
+      base: 0, known: 0, share: 0.5, words: null, wordsParity: 0, pats: null, until: -Infinity,
+      // the debt: tone-1 grains given less those that crossed (the tone pass keeps it within a slack)
+      debt: 0 };
     // the Reset's sweep: how far the farthest grain lies from the neck (grid cells^2), the new bed's points
     this._sweepFar = 0; this._sweepFill = null; this._sweepFrame = 0;
   }
@@ -777,6 +779,15 @@ export class RealSand {
     const R = this.view;
     const fromLUT = Pal.paletteFromLUT || paletteFromLUT;
     this.grains.setPalette(R && R.lut && R.isMica ? fromLUT(R.lut, R.isMica) : Pal.palette('coarse'));
+    this._palKey = this._paletteKey();
+  }
+  /** A few of the table's colours at the palette's light level: when they change, so has the sand's colour. */
+  _paletteKey() {
+    const lut = this.view && this.view.lut;
+    if (!lut) return 0;
+    let k = 0;
+    for (let s = 0; s < 256; s += 17) k = (Math.imul(k, 31) + (lut[(21 << 8) | s] | 0)) | 0;
+    return k;
   }
 
   /**
@@ -895,6 +906,9 @@ export class RealSand {
     if (this._rafLog.length > 61) this._rafLog.shift();
     this._sound();
     if (!this.live || this.hidden || this.destroyed) return;
+    // (the Renderer's table rebuilt by anything else than a theme or the layers switch, a sand of
+    // its own: the grains take its colours at once)
+    if (this.grains && this._paletteKey() !== this._palKey) this.setPalette();
     try { this._submit(now); } catch (e) {
       this.n.errors++;
       this.log('Real sand: ' + (e && e.stack || e));
@@ -1103,6 +1117,7 @@ export class RealSand {
     const data = packParticles(f.pts, MATERIAL, f.seeds);
     const marks = markSides(data, f.top + f.bottom, this.glass.cy, v.parity);
     if (marks.above) this._lay.share = marks.above1 / marks.above;
+    this._lay.debt = 0;
     // (the Reset's sweep shows this bed as it is poured in)
     if (this._sweep) this._sweepFill = this._sweepPoints(f.pts, f.top);
     const sides = this.solver.upload(data, f.top + f.bottom);
@@ -1190,6 +1205,7 @@ export class RealSand {
       retoneAll(data, n, this.layers, { cpu: this.cpu, line, seed: (this._rng() * 4294967296) >>> 0,
         map: (x, y) => this._appCell(x, y) });
       this.n.retones = (this.n.retones || 0) + 1;
+      this._lay.debt = 0;
     }
     const above = [];
     for (let i = 0; i < n; i++) {
@@ -1216,8 +1232,9 @@ export class RealSand {
       if (this.layers) {
         const L = this._lay;
         L.plan.ensure(L.known + seeds.length + 64, L.share, this._heapWide());
-        seeds = seeds.map((sd, k) => (sd & 127) | (L.plan.toneOf(L.known + k) << 7));
-        L.known += seeds.length;
+        const g = L.plan.give(L.known, seeds.map(sd => (sd >> 7) & 1), L.debt);
+        seeds = seeds.map((sd, k) => (sd & 127) | (g.tones[k] << 7));
+        L.debt = g.debt; L.known += seeds.length;
       }
       const fresh = packParticles(spots, MATERIAL, seeds);
       for (let k = 0; k < spots.length / 2; k++) out.set(fresh.subarray(k * W, (k + 1) * W), moved[k] * W);
@@ -1302,13 +1319,14 @@ export class RealSand {
     let flags = TONE_FRESH;
     if (turning || developing) flags |= TONE_TRACK;
     if (developing && L.pats) flags |= TONE_LAY;
-    L.plan.ensure(L.known + 2048, L.share, this._heapWide());
+    L.plan.ensure(L.known + 1024, L.share, this._heapWide());
     L.plan.drop(L.known);
     const perf = this.clock.perf(), dt = this._toneAt === null ? 1 / 60 : Math.min(0.25, Math.max(0, (perf - this._toneAt) / 1000));
     this._toneAt = perf;
     const f = this._toneField || this._uprightField();
     this.toner.encode(enc, n, { flags, parity: this.valve.parity, line: g.cy, cx: g.cx, cy: g.cy, s: this.s, dt: 1 / this.rate.hz,
-      gravity: f.gravity, appW: this.cpu.W, appH: this.cpu.H, layP: 1 - Math.exp(-dt / LAY_S), frame: this.n.runs,
+      gravity: f.gravity, appW: this.cpu.W, appH: this.cpu.H, trade: 1 - Math.exp(-dt / LAY_S), dither: this._rng(),
+      slack: L.plan.slackAt(L.known), frame: this.n.runs,
       pats: L.pats, segs: L.plan.table(L.base, L.known) });
   }
 
@@ -1316,6 +1334,7 @@ export class RealSand {
   _toneCounts(tw, parity) {
     const L = this._lay;
     L.known = Math.max(L.known, L.base + tw.laid);
+    L.debt = tw.debt;
     L.words = tw; L.wordsParity = parity;
     const top = parity === this.valve.parity ? [tw.above1, tw.above] : [tw.below1, tw.below];
     if (top[1] > 0) L.share = top[0] / top[1];
@@ -1327,7 +1346,7 @@ export class RealSand {
   _toneUploaded() {
     const L = this._lay;
     L.base = L.known; L.words = null;
-    if (this.toner) this.toner.reset();
+    if (this.toner) this.toner.reset(L.debt);
   }
 
   /**

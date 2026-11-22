@@ -8,13 +8,18 @@
  *  - Toner, the tone pass (shaders/tone.wgsl), once a run after the tally: a point that has
  *    crossed the counting line is numbered and marked fresh with the tone the layer schedule
  *    gives its number, and takes that tone when it first comes to rest below the line; after
- *    a turn, points that moved take the tone of their bulb's new pattern as they come to rest.
- *    It counts each bulb's tones; its 8 words are read back with the tally (solver.mjs post).
+ *    a turn, points that moved take the tone of their bulb's new pattern as they come to rest,
+ *    trading tones in equal numbers each way (a counting pass first, then ranks), so each bulb
+ *    keeps its count of each tone, as the app's sand does. It counts each bulb's tones; its
+ *    first 8 words are read back with the tally (solver.mjs post).
  *  - LayerPlan, the schedule: the lower heap grows in layers of layNeed grains (physics.js
  *    _layer: a style's depth of rows times the heap's width), each laid as two strata, one
  *    tone under the other in the shares the top bulb holds, the tone below changing from
  *    layer to layer (physics.js _sift, _siftAll); poured sand comes in layers of its own
- *    (physics.js _pourLayer).
+ *    (physics.js _pourLayer). A grain that crosses takes the schedule's tone, not its own, within
+ *    a debt: the tone pass keeps the tone-1 grains it gives within a slack of the tone-1 grains
+ *    that crossed (about a stratum's worth), so a stratum ends early when the sand for it runs
+ *    out, and the tones keep their counts within the slack.
  *  - The points the page writes (fills, transfers, pours) carry the side of the counting line
  *    they lie on (markSides), so that the tone pass does not take them for crossings; and the
  *    retone of every point when layers are turned on or off (retone).
@@ -34,10 +39,8 @@ export const FRESH = 256, FRESH_TONE = 512, MOVED = 1024;
 export const TONE_FRESH = 1, TONE_TRACK = 2, TONE_LAY = 4;
 /** Segments of the schedule the GPU is given at once (tone.wgsl seg). */
 export const SEGMENTS = 16;
-const UNIFORM_BYTES = 5 * 16 + 8 * 16 + SEGMENTS * 16;
-/** A grain at rest moves slower than this, cells/s (tally.wgsl's surface rule); one faster than MOVE_V has moved. */
-export const REST_V = 2, MOVE_V = 6;
-/** After a turn, the chance a resting grain that moved is laid in its pattern in a pass is 1 - exp(-dt / LAY_S). */
+const UNIFORM_BYTES = 6 * 16 + 8 * 16 + SEGMENTS * 16;
+/** After a turn, the share of the possible trades of tone made in a pass is 1 - exp(-dt / LAY_S). */
 export const LAY_S = 0.6;
 
 /** The tone pass on the GPU. */
@@ -46,55 +49,74 @@ export class Toner {
     this.device = device; this.shaders = shaders;
     const U = GPUBufferUsage;
     this.uniform = device.createBuffer({ label: 'tone uniform', size: UNIFORM_BYTES, usage: U.UNIFORM | U.COPY_DST });
-    this.counts = device.createBuffer({ label: 'tone counts', size: 32, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    // 16 words: 8 read back (toneWords), 2 of grains that would trade, 4 ranks for the trades
+    this.counts = device.createBuffer({ label: 'tone counts', size: 64, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     this.data = new ArrayBuffer(UNIFORM_BYTES);
     this.f = new Float32Array(this.data); this.u = new Uint32Array(this.data);
   }
   async init() {
-    const module = await this.shaders.module(this.device, 'tone');
-    this.pipeline = await this.device.createComputePipelineAsync({ label: 'tone', layout: 'auto', compute: { module, entryPoint: 'csMain' } });
+    const d = this.device, module = await this.shaders.module(d, 'tone'), S = GPUShaderStage.COMPUTE;
+    this.layout = d.createBindGroupLayout({ label: 'tone layout', entries: [
+      { binding: 0, visibility: S, buffer: { type: 'uniform' } }, { binding: 1, visibility: S, buffer: { type: 'read-only-storage' } },
+      { binding: 2, visibility: S, buffer: { type: 'storage' } }, { binding: 3, visibility: S, buffer: { type: 'storage' } }] });
+    const layout = d.createPipelineLayout({ bindGroupLayouts: [this.layout] });
+    [this.pipeline, this.counter] = await Promise.all([
+      d.createComputePipelineAsync({ label: 'tone', layout, compute: { module, entryPoint: 'csMain' } }),
+      d.createComputePipelineAsync({ label: 'tone count', layout, compute: { module, entryPoint: 'countMain' } })]);
   }
   /** The solver's count and particle buffers (after each configure). */
   bind(countBuf, particles) {
     this.group = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
+      layout: this.layout,
       entries: [{ binding: 0, resource: { buffer: this.uniform } }, { binding: 1, resource: { buffer: countBuf } },
         { binding: 2, resource: { buffer: particles } }, { binding: 3, resource: { buffer: this.counts } }]
     });
   }
-  /** After an upload: the crossings are numbered from 0 again. */
-  reset() { this.device.queue.writeBuffer(this.counts, 0, new Uint32Array(8)); }
+  /** After an upload: the crossings are numbered from 0 again, the debt (tone-1 grains given less those that crossed) carried. */
+  reset(debt = 0) {
+    const w = new Uint32Array(16);
+    w[5] = Math.max(0, -debt); w[6] = Math.max(0, debt);
+    this.device.queue.writeBuffer(this.counts, 0, w);
+  }
   /**
    * Encode the pass for n points into enc (after the run's substeps and tally). o: { flags, parity,
-   * line, cx, cy, s, dt, gravity [x, y], appW, appH (the app lattice's size), layP, frame,
-   * pats: [top, bottom] (physics.js _pattern objects with duty) or null, segs: [[start, tone], ...] }.
+   * line, cx, cy, s, dt, gravity [x, y], appW, appH (the app lattice's size), trade (after a turn,
+   * the share of the possible trades of tone made this pass), dither (0 to 1), slack (the debt
+   * allowed, points), frame, pats: [top, bottom] (physics.js _pattern objects with duty) or null,
+   * segs: [[start, tone], ...] }.
    */
   encode(enc, n, o) {
     if (!this.group || !n) return;
     const f = this.f, u = this.u;
     f.fill(0);
     f[0] = o.line; f[1] = o.cx; f[2] = o.cy; f[3] = o.s;
-    f[4] = o.dt; f[5] = REST_V; f[6] = o.gravity[0]; f[7] = o.gravity[1];
-    f[8] = o.appW / 2; f[9] = o.appH / 2; f[10] = MOVE_V; f[11] = o.layP || 0;
-    u[12] = o.flags >>> 0; u[13] = o.parity & 1; u[14] = Math.min(SEGMENTS, o.segs ? o.segs.length : 0); u[15] = o.appW | 0;
+    f[4] = o.dt; f[6] = o.gravity[0]; f[7] = o.gravity[1];
+    f[8] = o.appW / 2; f[9] = o.appH / 2;
+    f[12] = o.trade || 0; f[13] = o.dither || 0; f[14] = o.slack || 0;
+    u[16] = o.flags >>> 0; u[17] = o.parity & 1; u[18] = Math.min(SEGMENTS, o.segs ? o.segs.length : 0); u[19] = o.appW | 0;
     const pats = o.pats;
     if (pats) {
-      u[16] = pats[0].salt >>> 0; u[17] = pats[1].salt >>> 0;
+      u[20] = pats[0].salt >>> 0; u[21] = pats[1].salt >>> 0;
       for (let b = 0; b < 2; b++) {
-        const R = pats[b], k = 20 + b * 16;
+        const R = pats[b], k = 24 + b * 16;
         f[k] = R.y0; f[k + 1] = R.cx; f[k + 2] = R.hw; f[k + 3] = R.P;
         f[k + 4] = R.tilt; f[k + 5] = R.bend; f[k + 6] = R.fold; f[k + 7] = R.kx;
         f[k + 8] = R.ky; f[k + 9] = R.p1; f[k + 10] = R.p2; f[k + 11] = R.km;
         f[k + 12] = R.p3; f[k + 13] = R.duty;
       }
     }
-    u[18] = o.frame >>> 0;
+    u[22] = o.frame >>> 0;
     const segs = o.segs || [];
-    for (let i = 0; i < Math.min(SEGMENTS, segs.length); i++) { u[52 + 4 * i] = segs[i][0] >>> 0; u[53 + 4 * i] = segs[i][1] & 1; }
+    for (let i = 0; i < Math.min(SEGMENTS, segs.length); i++) { u[56 + 4 * i] = segs[i][0] >>> 0; u[57 + 4 * i] = segs[i][1] & 1; }
     this.device.queue.writeBuffer(this.uniform, 0, this.data);
-    enc.clearBuffer(this.counts, 4, 28);
-    const pass = enc.beginComputePass({ label: 'tone' });
-    pass.setPipeline(this.pipeline); pass.setBindGroup(0, this.group); pass.dispatchWorkgroups(Math.ceil(n / 64));
+    // (words 0, 5 and 6 run on from the last upload)
+    enc.clearBuffer(this.counts, 4, 16);
+    enc.clearBuffer(this.counts, 32, 24);
+    const pass = enc.beginComputePass({ label: 'tone' }), wg = Math.ceil(n / 64);
+    pass.setBindGroup(0, this.group);
+    // after a turn: first who would trade, each bulb and way, so that as many trade each way
+    if (o.flags & TONE_LAY) { pass.setPipeline(this.counter); pass.dispatchWorkgroups(wg); }
+    pass.setPipeline(this.pipeline); pass.dispatchWorkgroups(wg);
     pass.end();
   }
   destroy() { this.uniform.destroy?.(); this.counts.destroy?.(); }
@@ -103,7 +125,7 @@ export class Toner {
 /** The tone pass's words, as read back (solver.mjs post): what each means. */
 export function toneWords(w) {
   if (!w) return null;
-  return { laid: w[0], above1: w[1], above: w[2], below1: w[3], below: w[4], fresh: w[5], moved: w[6] };
+  return { laid: w[0], above1: w[1], above: w[2], below1: w[3], below: w[4], crossed1: w[5], given1: w[6], debt: w[6] - w[5] };
 }
 
 /**
@@ -116,8 +138,9 @@ export class LayerPlan {
   constructor(o = {}) {
     this.ppg = o.ppg || 1; this.pace = o.pace || 1; this.lay = o.lay || { pour: 420 };
     this.rnd = rand32((o.seed >>> 0) || 0x2545F491);
-    this.segs = [];               // [start, tone], absolute crossing numbers, in order
+    this.segs = [];               // [start, tone, tone-1 crossings before start], absolute crossing numbers, in order
     this.end = 0;                 // where the last layer planned ends
+    this.ones1 = 0;               // tone-1 crossings before the first segment kept (none planned yet)
     this.up = this.rnd() < 0.5 ? 1 : 0;
     this.pourTone = this.rnd() < 0.5 ? 1 : 0; this.pourLeft = 0;
     this.style();
@@ -133,10 +156,15 @@ export class LayerPlan {
     let i = 0;
     while (i < this.segs.length && this.segs[i][0] <= from) i++;
     // (the segment holding `from` stays, and ends where the next layer begins)
+    if (i === 0) this.ones1 = this.ones(from);
     this.segs.length = i;
     this.end = from;
   }
-  /** Plan layers until crossing `to` is covered: share, tone 1's share of the top bulb; wide, the lower heap's width (app cells). */
+  /**
+   * Plan layers until crossing `to` is covered: share, tone 1's share of the top bulb; wide, the
+   * lower heap's width (app cells). Each layer's slack is the most its two strata, in its share,
+   * run ahead of the tones that come with it (a fourth of it at most), and a little.
+   */
   ensure(to, share, wide) {
     const q = Math.min(1, Math.max(0, share === share ? share : 0));
     let guard = 0;
@@ -144,11 +172,48 @@ export class LayerPlan {
       const need = (this.layMin + this.laySpan * Math.pow(this.rnd(), this.layPow)) * Math.max(wide || 0, 24 * this.pace);
       const L = Math.max(8, Math.round(need * this.ppg)), n1 = Math.round(q * L), n0 = L - n1;
       const first = this.up, nf = first ? n1 : n0;
-      if (nf > 0) this.segs.push([this.end, first]);
-      if (L - nf > 0) this.segs.push([this.end + nf, first ^ 1]);
+      const slack = Math.ceil(q * (1 - q) * L) + 8;
+      if (nf > 0) this._push(this.end, first, slack);
+      if (L - nf > 0) this._push(this.end + nf, first ^ 1, slack);
       this.end += L;
       this.up ^= 1;
     }
+  }
+  _push(start, tone, slack) {
+    const p = this.segs[this.segs.length - 1];
+    const before = p ? p[2] + (p[1] ? start - p[0] : 0) : this.ones1;
+    this.segs.push([start, tone, before, slack]);
+  }
+  /** The slack of the layer holding crossing k (8 before any is planned). */
+  slackAt(k) {
+    let s = null;
+    for (const x of this.segs) { if (x[0] <= k) s = x; else break; }
+    return s ? s[3] : (this.segs.length ? this.segs[0][3] : 8);
+  }
+  /**
+   * The tones for n crossings from crossing k laid by the page (a transfer), lowest first: the
+   * schedule's, within the debt as the tone pass keeps it; own: each grain's own tone. Returns
+   * { tones, debt } (the debt after them).
+   */
+  give(k, own, debt) {
+    const tones = [];
+    for (let i = 0; i < own.length; i++) {
+      let t = this.toneOf(k + i);
+      const slack = this.slackAt(k + i);
+      debt -= own[i];
+      if (t === 1 && debt + 1 > slack) t = 0;
+      else if (t === 0 && -debt >= slack) t = 1;
+      debt += t;
+      tones.push(t);
+    }
+    return { tones, debt };
+  }
+  /** Tone-1 crossings planned before crossing k (k at or after the first segment kept). */
+  ones(k) {
+    let s = null;
+    for (const x of this.segs) { if (x[0] <= k) s = x; else break; }
+    if (!s) return this.ones1;
+    return s[2] + (s[1] ? k - s[0] : 0);
   }
   /** The tone of crossing k (absolute). */
   toneOf(k) {
@@ -171,7 +236,7 @@ export class LayerPlan {
   drop(k) {
     let i = 0;
     while (i + 1 < this.segs.length && this.segs[i + 1][0] <= k) i++;
-    if (i > 0) this.segs.splice(0, i);
+    if (i > 0) { this.segs.splice(0, i); this.ones1 = this.segs[0][2]; }
   }
   /** The tone (as bit 7) of the next n grains poured in: layers of pour to 2 pour grains, each in the other tone (physics.js _pourLayer). */
   pourBits(n) {
