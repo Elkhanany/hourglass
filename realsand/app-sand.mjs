@@ -824,14 +824,18 @@ export class RealSand {
     return Math.max(top > 0 ? reach(top, true) : 0, bot > 0 ? reach(bot, false) : 0) + this.s * this.s;
   }
 
-  /** The new bed's top-bulb points for the sweep's second half: their heights and drawn distances from the axis (grid). */
+  /**
+   * The new bed's top-bulb points for the sweep's second half: their heights and drawn distances
+   * from the axis (grid), every k-th of them (at most 4,096: the apex's bisection runs each frame).
+   */
   _sweepPoints(pts, nTop) {
-    const g = this.glass, ys = new Float32Array(nTop), ax = new Float32Array(nTop);
-    for (let i = 0; i < nTop; i++) {
-      const x = pts[2 * i], y = pts[2 * i + 1], j = Math.min(g.H - 1, Math.max(0, Math.floor(y)));
-      ys[i] = y; ax[i] = Math.abs(x - g.cx) * (g.warp ? g.warp[j] : 1);
+    const g = this.glass, k = Math.max(1, Math.ceil(nTop / 4096)), m = Math.ceil(nTop / k);
+    const ys = new Float32Array(m), ax = new Float32Array(m);
+    for (let q = 0; q < m; q++) {
+      const i = q * k, x = pts[2 * i], y = pts[2 * i + 1], j = Math.min(g.H - 1, Math.max(0, Math.floor(y)));
+      ys[q] = y; ax[q] = Math.abs(x - g.cx) * (g.warp ? g.warp[j] : 1);
     }
-    return { n: nTop, ys, ax };
+    return { n: m, ys, ax };
   }
 
   /** The sweep's look for grains.mjs encode (grid units), as physics.js _sweepOut and _sweepIn draw it. */
