@@ -11,7 +11,8 @@
  * The test sets, before the page loads:
  *   window.__RealsandPlant   the plant library (its CommonJS exports)
  *   window.__mock            { seed, plant, build (a stamp other than the engine's),
- *                              failStart (a start() error code), failCapability }
+ *                              failStart (a start() error code), failCapability,
+ *                              failTimes (only the first n starts fail) }
  * and reads window.__mockEnv: { V.frame, solver (its plant, runs, uploads, flips), device
  * (loseIt), creates, hold (true: no GPU work completes, so runs are skipped) }.
  */
@@ -26,7 +27,7 @@ const MATERIAL = SOL.MATERIALS.coarse, PW = SOL.PARTICLE_WORDS;
 
 const env = window.__mockEnv = {
   V: { frame: 0 }, rnd: L.rng(M.seed || 5), plant: M.plant || {}, xferFrames: M.xferFrames || 1,
-  hold: false, creates: 0, solver: null, device: null,
+  hold: false, creates: 0, starts: 0, solver: null, device: null,
   parity: () => (window.Hourglass && window.Hourglass.realSand ? window.Hourglass.realSand.valve.parity : 0)
 };
 let q = [];
@@ -146,7 +147,8 @@ class MockSand extends RealSand {
     return new MockSand(Object.assign({}, o, { engine: makeEngine() }));
   }
   async start() {
-    if (M.failStart) {
+    env.starts++;
+    if (M.failStart && !(M.failTimes > 0 && env.starts > M.failTimes)) {
       const e = new Error('mock start failure: ' + M.failStart);
       e.code = M.failStart; e.capability = !!M.failCapability;
       throw e;

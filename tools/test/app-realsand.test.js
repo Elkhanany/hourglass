@@ -29,6 +29,8 @@
  *        clears the count.
  *  STAMP a build stamp other than app.js's: the note says Real sand is updating, the setting
  *        kept, no engine.
+ *  AGAIN a start cut short because the page was hidden: tried again once the page is in view,
+ *        and taken over then, with no failure counted.
  *
  *   node tools/test/app-realsand.test.js [--port 8905]
  */
@@ -164,7 +166,7 @@ async function testMock(s, env) {
   var t = await openMock(env, { seed: 7 });
   try {
     /* ---- HANDOVER ------------------------------------------------------- */
-    await waitFor(t, function () { var Hg = window.Hourglass; return !!Hg.realSand && Hg.sim === Hg.realSand; }, 20000);
+    await waitFor(t, function () { var Hg = window.Hourglass; return !!Hg.realSand && Hg.sim === Hg.realSand && __mon.sim === Hg.sim; }, 20000);
     await sleep(700);
     var st = await state(t);
     var h = await t.eval(function () {
@@ -322,7 +324,8 @@ async function testMock(s, env) {
             L.cpu && !L.real && L.top === L.before.top && L.total === L.before.total && L.rem === L.before.rem && L.tick === L.before.tick, JSON.stringify(L));
     s.check('LOSS: the toast and the note say Real sand paused: the graphics chip was reset',
             L.toast === 'Real sand paused: the graphics chip was reset' && L.note === 'Real sand paused: the graphics chip was reset', JSON.stringify([L.toast, L.note]));
-    await waitFor(t, function () { var Hg = window.Hourglass; return Hg.sim === Hg.realSand; }, 8000);
+    // (and the monitor has looked since: it hooks a new sim at its next frame)
+    await waitFor(t, function () { var Hg = window.Hourglass; return Hg.sim === Hg.realSand && __mon.sim === Hg.sim; }, 8000);
     var back = await t.eval(function () {
       var Hg = window.Hourglass, st = Hg.realSand.stats();
       return { note: document.getElementById('realsand-note').textContent, real: document.getElementById('app').classList.contains('real'),
@@ -387,12 +390,23 @@ async function testStamp(s, env) {
   } finally { await t.close(); }
 }
 
+async function testAgain(s, env) {
+  var t = await openMock(env, { failStart: 'hidden', failTimes: 1 });
+  try {
+    await waitFor(t, function () { var Hg = window.Hourglass; return !!Hg.realSand && Hg.sim === Hg.realSand; }, 20000);
+    var st = await state(t), n = await t.eval(function () { return { creates: window.__mockEnv.creates, starts: window.__mockEnv.starts }; });
+    s.check('AGAIN: a start cut short by the page being hidden is tried again once it is in view, and takes over; no failure counted',
+            st.live && st.note === 'On' && st.setting === true && !st.fails && n.creates === 2 && n.starts === 2, JSON.stringify({ st: st.note, fails: st.fails, n: n }));
+    await H.invariants(s, t, 'AGAIN');
+  } finally { await t.close(); }
+}
+
 async function main() {
   var s = new H.Suite('app-realsand');
   var env = await H.start();
   try {
     var only = env.args.only;
-    var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp };
+    var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp, again: testAgain };
     for (var k in cases) {
       if (only && only !== k) continue;
       try { await cases[k](s, env); } catch (e) {

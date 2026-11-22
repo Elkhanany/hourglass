@@ -1208,7 +1208,8 @@
     var dtMs = now - lastFrame;
     lastFrame = now;
     if (dtMs <= 0) return;
-    if (realDue && !sweep && !resetting) handover('gpu');   // Real sand ready: it takes over between two frames
+    // Real sand has drawn its first frame: it takes over between two frames (not inside a Reset's sweep)
+    if (realDue && !sweep && !resetting && (!realEng || realEng.ready)) handover('gpu');
 
     tickClock();
     if (sweep) stepSweep(now);
