@@ -210,7 +210,31 @@ async function testServiceWorker(s, root) {
     }, B);
     s.check('SW: lab/ pages are never cached, and what a lab page fetched of the engine was not stored (the cached shader is the installed one)',
             after.lab.length === 0 && after.grains.length === 1 && after.grains[0].fresh === false, JSON.stringify(after));
-    s.check('SW: no page or console errors', t.errors.length === 0, t.errors.slice(0, 3).join(' | '));
+    // Should a lab page meet an engine of another build all the same (here: the lab written for
+    // build C, the engine at B), it drops the engine from the app's caches and loads once more,
+    // only once (sessionStorage stops a loop)
+    fs.writeFileSync(path.join(copy, 'lab', 'sand', 'main.mjs'), fs.readFileSync(path.join(copy, 'lab', 'sand', 'main.mjs'), 'utf8').replace(/const BUILD_EXPECTED = '[^']+'/, "const BUILD_EXPECTED = 'sw-test-C'"));
+    var engineCached = function () {
+      return caches.keys().then(function (keys) {
+        return Promise.all(keys.filter(function (k) { return k.indexOf('hourglass-') === 0; }).map(function (k) {
+          return caches.open(k).then(function (c) { return c.keys(); }).then(function (reqs) {
+            return reqs.filter(function (q) { return new URL(q.url).pathname.indexOf('/realsand/') >= 0; }).length;
+          });
+        }));
+      }).then(function (n) { return n.reduce(function (a, b) { return a + b; }, 0); });
+    };
+    var cached0 = await t.eval(engineCached);
+    var loads = 0;
+    lp.on('load', function () { loads++; });
+    await lp.reload();
+    await lp.waitForFunction(function () { return !!window.__lab && window.__lab.build().expected === 'sw-test-C'; }, null, { timeout: 15000 });
+    await sleep(2500);
+    var purge = await lp.evaluate(function () { return { build: window.__lab.build(), mark: sessionStorage.getItem('hourglass.lab.purged') }; });
+    var cached1 = await t.eval(engineCached);
+    s.check('SW: a lab page that meets an engine of another build drops the engine from the app\'s caches and loads once more, once only',
+            cached0 >= 30 && cached1 === 0 && loads === 2 && purge.build.build === B && purge.mark === B + '/sw-test-C',
+            JSON.stringify({ cachedBefore: cached0, cachedAfter: cached1, loads: loads, purge: purge }));
+    s.check('SW: no page or console errors', t.errors.length === 0 && labErrors.length === 0, t.errors.concat(labErrors).slice(0, 3).join(' | '));
     await lp.close();
     await t.close();
   } finally {
