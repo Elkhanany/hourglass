@@ -234,6 +234,8 @@ async function open(env, o) {
     }, o.storage);
   }
   if (o.init) await context.addInitScript(o.init, o.initArg);
+  // routes of the test's own, set before the page first loads: [{ url, handler }] (page.route's)
+  for (var ri = 0; ri < (o.routes || []).length; ri++) await context.route(o.routes[ri].url, o.routes[ri].handler);
   var caps = env.caps, useMotionStub = !!o.motionStub || !caps.motion;
   var prefix = (useMotionStub ? STUB.motion + '\n' : '') + (caps.render ? '' : STUB.render + '\n') +
                (caps.audio ? '' : STUB.audio + '\n');

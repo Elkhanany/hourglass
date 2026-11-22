@@ -16,7 +16,11 @@
  *  - Invariant monitor: every 15 frames sim.census() must match sim.total
  *    and sim.nTop; when nTop first reaches 0 and when the timer turns
  *    'done' (Date.now(), noted after every physics step); every
- *    sim.fastForward call with the app's motionRecent at the time.
+ *    sim.fastForward call with the app's motionRecent at the time. It
+ *    follows Hourglass.sim: when Real sand takes over (or gives the sand
+ *    back), the new sim is hooked too, and while Real sand runs the
+ *    census is its engine's audit() (the newest readback of the GPU
+ *    against its ledger), since its census() is the ledger itself.
  *                                                          → window.__mon
  *  - Recorders: window.__rec.start(fn) calls fn(H) after every physics step
  *    (or every frame with {frame: true}) and keeps what it returns.
@@ -118,6 +122,7 @@
   var mon = window.__mon = {
     frames: 0, checks: 0, censusFails: [], emptyAt: -1, doneAt: -1, ff: [],
     flips: 0, steps: 0, hooked: false, downAt: -1, upAt: -1,
+    sim: null, hooks: 0, audits: 0,
     reset: function () { mon.emptyAt = -1; mon.doneAt = -1; mon.ff.length = 0; mon.flips = 0; }
   };
   var rec = window.__rec = {
@@ -127,9 +132,12 @@
   };
   function hook() {
     var H = window.Hourglass;
-    if (!H || mon.hooked) return;
-    mon.hooked = true;
-    var sim = H.sim, step = sim.step, ff = sim.fastForward, cf = sim.completeFlip;
+    if (!H || !H.sim || (mon.hooked && mon.sim === H.sim)) return;
+    var sim = H.sim;
+    mon.hooked = true; mon.sim = sim; mon.hooks++;
+    if (sim.__monHooked) return;                   // (the CPU Sim again, after Real sand gave the sand back)
+    try { Object.defineProperty(sim, '__monHooked', { value: true }); } catch (e) {}
+    var step = sim.step, ff = sim.fastForward, cf = sim.completeFlip;
     sim.step = function () {
       step.call(sim);
       mon.steps++;
@@ -154,9 +162,12 @@
       if (mon.frames % 15 === 0) {
         var c = H.sim.census();
         mon.checks++;
-        if (c.total !== H.sim.total || c.top !== H.sim.nTop) {
+        var bad = c.total !== H.sim.total || c.top !== H.sim.nTop;
+        var rs = H.realSand, a = rs && H.sim === rs && rs.audit ? rs.audit() : null;
+        if (a) { mon.audits++; if (!a.ok) bad = true; }
+        if (bad) {
           if (mon.censusFails.length < 50) {
-            mon.censusFails.push({ t: Date.now(), total: H.sim.total, cTotal: c.total, nTop: H.sim.nTop, cTop: c.top });
+            mon.censusFails.push({ t: Date.now(), total: H.sim.total, cTotal: c.total, nTop: H.sim.nTop, cTop: c.top, audit: a });
           }
         }
       }

@@ -73,6 +73,90 @@ export function makeFill(glass, kind, opts = {}) {
   return pts;
 }
 
+/** physics.js: a lattice cell at or above this holds a grain (REST, MOVE). */
+const CPU_SAND = 2;
+
+/**
+ * Points for a fill of the glass from the app's own sand (design 7.1): the CPU Sim's
+ * lattice, at rest, gives the bed's shape and each grain's colour seed. sim: the CPU Sim
+ * (W, H, cell, seed, gateY); glass: buildGlass's for the same glass (its warp maps a grid
+ * point to where it is drawn, and so to the app's cell under it). o: { top, bottom } the
+ * points wanted above and below the counting line; down: the field's direction on the grid
+ * ([0, -1], the glass upright), for what is low; seed: the jitter's.
+ *
+ * Each solver cell holds PPC x PPC jittered points (as lattice()); a point is kept where the
+ * app cell under its drawn position holds sand in its own bulb (top above the gate row, the
+ * lower bulb below it), and takes that grain's seed. Then each bulb is cut to its count from
+ * its surface down (the highest go), or made up at its surface (the lowest free points
+ * inside the glass, each with the seed of the nearest grain of its bulb, or a random one
+ * when the bulb has none). Points keep 0.6 cell from the counting line, as makeFill's do.
+ * Returns { pts (x0, y0, ...: the top bulb's first), seeds, top, bottom }: top and bottom
+ * the points made, fewer than asked only when a bulb cannot hold them.
+ */
+export function fromLattice(sim, glass, o = {}) {
+  const g = glass, s = g.s, cx = g.cx, cy = g.cy, warp = g.warp;
+  const Wa = sim.W, Ha = sim.H, gate = sim.gateY, cell = sim.cell, sd = sim.seed;
+  const ax = Wa / 2, ay = Ha / 2, r = rand32(o.seed || 7);
+  const down = o.down || [0, -1];
+  const want = [Math.max(0, Math.floor(o.top || 0)), Math.max(0, Math.floor(o.bottom || 0))];
+  // per bulb: x, y, the app cell under the point holding sand there (-1: none), height
+  const cand = [[], []];
+  for (let j = 0; j < g.H; j++) {
+    const k = warp ? warp[j] : 1;
+    for (let i = 0; i < g.W; i++) for (let b = 0; b < PPC; b++) for (let a = 0; a < PPC; a++) {
+      const x = i + (a + 0.5 + (r() - 0.5) * 0.3) / PPC, y = j + (b + 0.5 + (r() - 0.5) * 0.3) / PPC;
+      const bulb = y > cy + 0.6 ? 0 : y < cy - 0.6 ? 1 : -1;
+      if (bulb < 0 || sampleField(g, x, y)[2] <= 0.45) continue;
+      const xa = Math.floor(ax + (x - cx) * k / s), ya = Math.floor(ay - (y - cy) / s);
+      let c = -1;
+      if (xa >= 0 && xa < Wa && ya >= 0 && ya < Ha && (bulb === 0 ? ya < gate : ya > gate)) {
+        const idx = ya * Wa + xa;
+        if (cell[idx] >= CPU_SAND) c = idx;
+      }
+      cand[bulb].push({ x, y, c, h: -(x * down[0] + y * down[1]) });
+    }
+  }
+  const out = [[], []];
+  for (let bulb = 0; bulb < 2; bulb++) {
+    const n = want[bulb], all = cand[bulb];
+    const full = all.filter(p => p.c >= 0).sort((p, q) => p.h - q.h);
+    let keep = full.slice(0, n);
+    if (keep.length < n) {
+      const free = all.filter(p => p.c < 0).sort((p, q) => p.h - q.h).slice(0, n - keep.length);
+      for (const p of free) p.c = nearestSand(sim, ax + (p.x - cx) / s, ay - (p.y - cy) / s, bulb);
+      keep = keep.concat(free);
+    }
+    out[bulb] = keep;
+  }
+  const n = out[0].length + out[1].length, pts = new Array(2 * n), seeds = new Array(n);
+  let m = 0;
+  for (const list of out) for (const p of list) {
+    pts[2 * m] = p.x; pts[2 * m + 1] = p.y;
+    seeds[m] = p.c >= 0 ? sd[p.c] : (r() * 256) | 0;
+    m++;
+  }
+  return { pts, seeds, top: out[0].length, bottom: out[1].length };
+}
+
+/** The app cell of the nearest grain to (x, y) (app cells) in a bulb (0 top), within 12 cells; -1: none. */
+function nearestSand(sim, x, y, bulb) {
+  const Wa = sim.W, Ha = sim.H, gate = sim.gateY, cell = sim.cell, x0 = Math.floor(x), y0 = Math.floor(y);
+  for (let d = 0; d <= 12; d++) {
+    let best = -1, bd = Infinity;
+    for (let v = -d; v <= d; v++) for (let u = -d; u <= d; u++) {
+      if (Math.max(Math.abs(u), Math.abs(v)) !== d) continue;
+      const xi = x0 + u, yi = y0 + v;
+      if (xi < 0 || xi >= Wa || yi < 0 || yi >= Ha || (bulb === 0 ? yi >= gate : yi <= gate)) continue;
+      const idx = yi * Wa + xi;
+      if (cell[idx] < CPU_SAND) continue;
+      const e = u * u + v * v;
+      if (e < bd) { bd = e; best = idx; }
+    }
+    if (best >= 0) return best;
+  }
+  return -1;
+}
+
 /**
  * The lab's colour seed for the point at index i: the palette entry the grain
  * shader picks for that instance (grains.wgsl: hash(i * 2654435761 + 17) & 255),

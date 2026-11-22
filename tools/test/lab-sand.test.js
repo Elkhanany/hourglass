@@ -1035,8 +1035,16 @@ async function main() {
     log('  burst (software GPU, not a phone): ' + f2(b20.msStep) + ' ms a substep, ' + f2(b20.msDraw) + ' ms a frame\'s drawing; shares full ' + f2(b20.full) + ', calm ' + f2(b20.calm));
     check(isFinite(b20.msStep) && b20.msStep > 0 && b20.calm < b20.full && same20, 'the burst times the GPU a substep and puts the sand back exactly (' + f2(b20.msStep) + ' ms, sand ' + (same20 ? 'unchanged' : 'MOVED') + ')');
     var text20 = await L(function () { return window.__lab.report(); });
-    check(/\nEngine build: 2 \(realsand\/build\.mjs\); this page was written for 2\n/.test(text20) && /\nTimer: 10 s \(1155 grains = 1952 points/.test(text20) && /end 1: last point/.test(text20) && /GPU cost by a burst/.test(text20) && /\nMode: auto/.test(text20) && /Lifecycle \(ms since the page began\): .*pipelines/.test(text20),
-      'Copy results has the build stamp, the mode, the Timer\'s record and end, the burst and the lifecycle log');
+    // (the engine's stamp as realsand/build.mjs has it now, and the page written for the same)
+    var build20 = (/export const BUILD = '([^']+)'/.exec(fs.readFileSync(path.join(ROOT, 'realsand', 'build.mjs'), 'utf8')) || [])[1];
+    var parts20 = {
+      stamp: !!build20 && text20.indexOf('\nEngine build: ' + build20 + ' (realsand/build.mjs); this page was written for ' + build20 + '\n') >= 0,
+      timer: /\nTimer: 10 s \(1155 grains = 1952 points/.test(text20), end: /end 1: last point/.test(text20), burst: /GPU cost by a burst/.test(text20),
+      mode: /\nMode: auto/.test(text20), lifecycle: /Lifecycle \(ms since the page began\): .*pipelines/.test(text20)
+    };
+    var miss20 = Object.keys(parts20).filter(function (k) { return !parts20[k]; });
+    check(miss20.length === 0, 'Copy results has the build stamp (' + build20 + '), the mode, the Timer\'s record and end, the burst and the lifecycle log' +
+      (miss20.length ? ' (missing: ' + miss20.join(', ') + ')' : ''));
     // the 1-minute amount timed short
     var c20 = await timer20('1m', { timer: { ms: 12000 } });
     log('  1-minute amount timed to 12 s: ' + desc20(c20));

@@ -8,6 +8,11 @@
 //
 // This file gathers what EA's and Smoosh's dispatch.inc, simConstants.inc,
 // particle.inc, matrix.inc, bukkit.inc and domain.inc held.
+//
+// The line below is the engine's build stamp (realsand/build.mjs): the app
+// checks the shaders it loaded against its modules' (a mix of old and new files
+// after an update), and realsand-shell checks that the two agree.
+// Engine build: 4
 //-----------------------------------------------------------------------------
 
 const ParticleDispatchSize = 64;

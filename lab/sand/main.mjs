@@ -35,7 +35,7 @@ const OFFSCREEN = QUERY.has('offscreen');
 // the Rotor probe (?rotor=1): the grains' canvas in a turning div between two WebGL canvases
 const ROTOR = QUERY.get('rotor') === '1';
 // the engine's build stamp this page was written for (realsand/build.mjs; Copy results prints both)
-const BUILD_EXPECTED = '2';
+const BUILD_EXPECTED = '4';
 // the lifecycle log: visibility, device loss, start-up times (ms since the page began)
 const lifeLog = [];
 let lastVisibleAt = 0;
@@ -45,6 +45,30 @@ function life(kind, detail = '') {
   if (lifeLog.length > 200) lifeLog.splice(1, 1);        // (the first entry, the start, is kept)
 }
 life('start', document.hidden ? 'hidden' : 'visible');
+// Belt and braces (design 2.3): the service worker answers this page's requests for the engine
+// from the network, so the engine here should always be the newest. Should a cached copy slip
+// through all the same (a stamp other than this page's), the engine's entries are dropped from
+// the app's caches and the page loads once more; sessionStorage stops a loop, and Copy results
+// prints both stamps.
+if (BUILD !== BUILD_EXPECTED) purgeEngine();
+async function purgeEngine() {
+  const KEY = 'hourglass.lab.purged', mark = BUILD + '/' + BUILD_EXPECTED;
+  try {
+    if (sessionStorage.getItem(KEY) === mark) return;
+    sessionStorage.setItem(KEY, mark);
+  } catch (e) { return; }
+  life('stamp', `the engine is build ${BUILD}, this page was written for ${BUILD_EXPECTED}: its cached copies dropped, loaded again`);
+  try {
+    if (globalThis.caches) {
+      for (const k of await caches.keys()) {
+        if (k.indexOf('hourglass-') !== 0) continue;
+        const c = await caches.open(k);
+        for (const r of await c.keys()) if (new URL(r.url).pathname.indexOf('/realsand/') >= 0) await c.delete(r);
+      }
+    }
+  } catch (e) { /* (no caches here: the reload alone) */ }
+  location.reload();
+}
 
 /* ------------------------------------------------------------------ *
  *  Constants
