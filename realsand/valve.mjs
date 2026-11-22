@@ -220,6 +220,7 @@ export class Valve {
     this.closed = true; this.gT = 0; this.tail = false;
     this.prevNow = null; this.prevRem = 0; this.zeroAt = null; this.endAt = null;
     this.lastRunNow = null; this.lastCrossAt = -Infinity; this.duty = 0;
+    this.xferAt = -Infinity;        // when the last transfer was done (the frame's now)
     this.unread = 0;                // runs since the last readback came
     this.pendingAt = null;          // when the pending base began (the frame's now)
     this.last = null;               // the last run's words
@@ -335,6 +336,8 @@ export class Valve {
     this.gen++; this.tallies = []; this.xfer = null; this.anchor = null; this.lastRunNow = null;
     this.newEpoch(this.gTop, above, target === undefined ? this.gTop : Math.max(0, Math.floor(target)));
     this.endConfirmed = above === 0;
+    // (the grains it leaves above come down to the neck as its hole closes: their residue waits as an end's does)
+    this.xferAt = this.prevNow === null ? -Infinity : this.prevNow;
     this.n.transfers++;
   }
 
@@ -515,12 +518,15 @@ export class Valve {
   /**
    * Points stuck above after the end (on the funnel's wall): done and draining with the count
    * above 0, the clock still at 00:00.0, no crossing for 0.5 s and 1.5 s after it (the end is
-   * forgotten once the clock has time again). Move them by a transfer:
+   * forgotten once the clock has time again), and as long after a transfer (the catch-up after
+   * a gap that ran past the end leaves a few grains to flow, which reach the neck only as the
+   * hole it left closes). Move them by a transfer:
    * fastForward(nTop), then transferPlan / transferDone as for the catch-up.
    */
   residueDue(now) {
+    const from = Math.max(this.endAt, this.xferAt);
     return this.endAt !== null && this.prevRem <= 0 && !this.xfer && !this.closed && this.tail && this.gTop > 0 &&
-      now - this.endAt >= 1500 && now - Math.max(this.lastCrossAt, this.endAt) >= 500;
+      now - from >= 1500 && now - Math.max(this.lastCrossAt, from) >= 500;
   }
 
   /**
