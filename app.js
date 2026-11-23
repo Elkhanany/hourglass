@@ -985,7 +985,8 @@
     // a blow pushes it for a moment more (bodyHit), and while the glass falls
     // freely its sand falls with it, all but weightless
     var fx = mx - K_DRAG * KPX * body.ax + body.jx, fy = my - K_DRAG * KPX * body.ay + body.jy;
-    // (Real sand plays jolts back slowed, as the lab does: it takes them before the free fall, unturned)
+    // (Real sand plays the glass's motion to its sand itself, as the lab does (realsand/felt.mjs:
+    // live by default): it takes it before the free fall, unturned, with the turn rho)
     if (real) real.feel(tS, fx, fy, body.air, rho);
     if (body.air) fy -= 0.9;
     var G = sim.G;
