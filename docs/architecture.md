@@ -95,17 +95,45 @@ pools of light take their width from the height (`--b1` to `--b3`), so the
 swell stays a halo round the glass instead of a band across the screen. A
 saved pattern this version does not know falls back to Calm.
 
+Tune (`#sheet-settings`) is four tabs, Sand, Glass, Sound and Time, at one
+height. Its top edge sits 44 px under the neck of the glass as it is drawn:
+`layout()` (and entering or leaving Zen) sets `--tune-top` on the sheet from
+the glass's centre at home, `R0.cy + R0.dy`, so the upper bulb, the neck and
+the stream stay in view while anything is chosen; the sheet is never less
+than 220 px tall, and a phone on its side keeps the old limit (the sheet's
+top 28 px under the safe area: the glass is beside it there). The tab row
+never moves; what a tab holds changes only how far it scrolls. All four
+panels are in `index.html`, one of them shown (the others `hidden`), so
+every button is there for the haptic labels at boot. Tune opens on the tab
+last used (the setting `tuneTab`), each tab from its top; a tap on a tab
+saves it and ticks, the arrow keys, Home and End move along the tab row.
+The tests find every control through this markup and nothing else, so a
+later Tune must keep three things: every control inside one
+`[role="tabpanel"]` inside `#sheet-settings`, each panel named by a tab's
+`aria-controls`, and a panel that is not shown having the `hidden`
+attribute. Behind Tune the scrim is 0.2 dark (0.5 behind the custom
+duration), so the colours above the sheet read true.
+
+The last thing in the Time tab is a quiet link, "Put the look and sound
+back as they came". Its first tap asks for a second within three seconds (a
+second tap sooner than 0.4 s, half of a double tap, is not an answer); the
+second sets the material, the frame, layered sand, the volume, the sand's
+sound, the ambience and its level and the completion bowl to their records'
+defaults, saves once, and tells the engines only what differed, the look
+behind one cross-fade. Everything else is kept, and nothing is loaded again.
+
 A toast said while Tune is open (the breathing hint, a Real motion message)
-would lie on the rows it is about, so it sits in the sheet's head instead,
-between the title and the close button, placed from where the sheet really
-is, and it fades there when the sheet is closed. Said anywhere else, a toast
-keeps its place above the controls.
+would lie on the rows it is about, so it sits just above the sheet, its
+lower edge 4 px over the sheet's top, placed from where the sheet really is
+(at the top of the screen on a phone on its side), and it fades when the
+sheet is closed. Said anywhere else, a toast keeps its place above the
+controls.
 
 ## `app/settings.js`
 
 What the app keeps from one launch to the next is one JSON object in
 `localStorage`, under `hourglass.settings.v1`. The settings store holds it as
-a table of records, one for every saved key (31 today), in the order the
+a table of records, one for every saved key (32 today), in the order the
 keys are saved:
 
 - `id`, the key;
@@ -113,7 +141,7 @@ keys are saved:
   saved value of another type is dropped;
 - `valid(value, reg)`, where a value must be checked: false puts the default
   back (the material must be one of `HourglassPhysics.THEMES`, the grain 1 or
-  2, the accelerometer's sign 1 or -1). It does not clamp: a value outside
+  2, the accelerometer's sign 1 or -1, Tune's tab one of the four). It does not clamp: a value outside
   its range comes up as the default, not as the nearest end;
 - `from(saved, reg)`, where a setting is made from older ones: the value for
   a save that has no such key yet. A migration is keyed on its own key being
@@ -223,7 +251,7 @@ the app's page.
 The worker answers which release it serves: a message `{ type: 'version' }`
 with a port gets `{ version: VERSION }`. `index.html` says the page's own
 release in `<meta name="hourglass-version">`, equal to `VERSION`
-(`check-release`). The last line of Tune shows both, made by `app.js`:
+(`check-release`). The last line of Tune's Sand tab shows both, made by `app.js`:
 "Version 1.10.0" when they agree; "· offline copy not installed yet" with
 no worker or no answer within a second; "· update 1.11.0 ready: close and
 reopen" when a newer release was installed while the page ran; "· offline
@@ -273,7 +301,7 @@ as they are, without running Jekyll.
 When you change any shipped file, raise `VERSION` in `sw.js` (see Releasing,
 below): an installed copy changes only with `VERSION`. An installed app picks
 up a new release on its second launch after the deploy: the first launch runs
-the release it has and installs the new one meanwhile (Tune's last line then
+the release it has and installs the new one meanwhile (Tune's version line then
 says the update is ready), and the next one runs the new release.
 
 ## Releasing
@@ -299,7 +327,7 @@ the tests, the lab) needs none of this. For every change to a shipped file:
    match, and that every module and shader the engine loads is in `SHELL`.
 4. **A new, moved or removed file the page loads ships only once the phone
    runs release 1.10.0 or later**, the first with the snapshot worker: Tune's
-   last line shows its version with nothing after the number. Before it, an
+   version line shows its version with nothing after the number. Before it, an
    update interrupted on its way could leave the installed copy unable to
    start offline until one launch with a connection.
 5. **The check group, the suites the change touches, and every `app-*` and
@@ -307,7 +335,7 @@ the tests, the lab) needs none of this. For every change to a shipped file:
    Timing checks are judged on a quiet machine: a failure under load is run
    again alone before it counts.
 6. **After the merge, on a phone with the app installed:** open it once
-   with a connection, close it, and open it again; Tune's last line shows
+   with a connection, close it, and open it again; Tune's version line shows
    the new version and nothing after it. Then, in airplane mode, it opens
    and runs.
 

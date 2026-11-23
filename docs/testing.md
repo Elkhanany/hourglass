@@ -190,7 +190,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   ends with the app's shortcut: `./?t=300` over a saved session of a running
   5-minute glass is a new glass, after a plain launch has picked that glass
   up (the control). `app-breath` covers breathing pace: the Tune row and what is
-  saved, the toast's place in the sheet's head, the three patterns against
+  saved, the toast's place just above the sheet, the three patterns against
   the wall clock, a blocked main thread, a hidden page and a long sleep,
   easing back to rest, Reduce Motion, Full Zen, the landscape halo, a damaged
   saved pattern, and that only a compositor transition of opacity and scale
@@ -265,7 +265,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Chromium with the service worker on, the app served from a scratch copy
   swapped under the same address, and offline meaning the server stopped:
   `origin/main` installed, then this tree, two launches with a connection
-  and one offline (no error, no 504, one cache, and Tune's last line
+  and one offline (no error, no 504, one cache, and Tune's version line
   "Version X.Y.Z" with nothing after it), then a newer release installed
   while the page is open (the line says the update is ready); a deploy
   that lands while an install is downloading (no copy of two releases is
@@ -291,6 +291,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   lines; with those taken out as well, it says nothing). It needs
   `origin/main` and 13a9772 from git
   (`HOURGLASS_MAIN=<ref>` names another first release).
+  `app-tune` covers Tune's four tabs: one panel shown and remembered, the
+  tab row in one place on every tab, the sheet's top 44 px under the neck,
+  the tabs as a screen reader meets them, the haptic labels on every button
+  at boot, and the reset link (what it puts back and what it keeps). The
+  suites reach a control of Tune through `lib/tune.js`, which opens the
+  sheet and taps the tab whose panel holds it, read from the page.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-ambience` covers the six
   ambience cards: the radio group as a screen reader meets it, two rows of
