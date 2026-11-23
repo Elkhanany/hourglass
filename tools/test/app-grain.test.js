@@ -1,8 +1,9 @@
 /*
  * Grain (Tune): the same glass in finer sand.
  *
- *   TUNE    the row and its three choices, Classic chosen at first; the sand
- *           as it has been (scale 1.08, pace 1)
+ *   TUNE    the row and its three choices, in the Sand tab right after Real
+ *           sand, Classic chosen at first; the sand as it has been (scale
+ *           1.08, pace 1)
  *   CHOOSE  Finest, chosen while a glass runs: the page builds the glass
  *           afresh at twice the scale, with four times the grains and the
  *           pace set; the choice is saved and shown; the time runs on
@@ -17,6 +18,7 @@
  */
 'use strict';
 var H = require('./stubs/harness.js');
+var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 var KEY = 'hourglass.settings.v1';
 
@@ -34,10 +36,7 @@ function snap(t) {
 }
 /** Choose a grain in Tune; the page builds the glass afresh. Resolves when it is there. */
 async function choose(t, grain, want) {
-  await t.page.tap('#btn-settings');
-  await sleep(800);
-  await t.page.$eval('#grains', function (el) { el.scrollIntoView({ block: 'center' }); });
-  await sleep(300);
+  await tune.show(t, '#grains [data-grain="' + grain + '"]');   // (Tune open on the choice's tab: lib/tune.js)
   var c = await center(t, '#grains [data-grain="' + grain + '"]');
   await t.touch.tap(c.x, c.y, 60);
   for (var i = 0; i < 60; i++) {
@@ -67,13 +66,17 @@ async function run(s, env) {
     /* ---- TUNE ----------------------------------------------------------- */
     var ui = await t.eval(function () {
       var g = document.getElementById('grains'), bs = g.querySelectorAll('button[role="radio"]'), row = document.getElementById('grain-row');
-      var rows = document.getElementById('opt-layers').closest('.rows');
+      var rows = document.getElementById('opt-layers').closest('.rows'), panel = row.closest('[role="tabpanel"]');
+      var tab = panel ? document.getElementById(panel.getAttribute('aria-labelledby')) : null;
       return { role: g.getAttribute('role'), n: bs.length, names: Array.prototype.map.call(bs, function (b) { return b.textContent.replace(/\s+/g, ' ').trim(); }),
-               head: row.querySelector('b').textContent, after: rows.contains(g) && !!(row.compareDocumentPosition(g) & 4) };
+               head: row.querySelector('b').textContent, tab: tab ? tab.textContent.trim() : null,
+               after: rows.contains(g) && row.previousElementSibling === document.getElementById('realsand-row') && row.nextElementSibling === g.parentNode,
+               shown: !row.hidden && !g.parentNode.hidden };
     });
     var a = await snap(t);
-    s.check('TUNE: a Grain row with three choices sits under Layered sand', ui.role === 'radiogroup' && ui.n === 3 && ui.head === 'Grain' && ui.after &&
-            ui.names.join(' / ') === 'Classic / Fine ×2 / Finest ×4', ui.names.join(' / '));
+    s.check('TUNE: a Grain row with three choices sits in the Sand tab, in Layered sand\'s rows right after Real sand, and is shown while Real sand is off',
+            ui.role === 'radiogroup' && ui.n === 3 && ui.head === 'Grain' && ui.tab === 'Sand' && ui.after && ui.shown &&
+            ui.names.join(' / ') === 'Classic / Fine ×2 / Finest ×4', ui.names.join(' / ') + ' ' + JSON.stringify([ui.tab, ui.after, ui.shown]));
     s.check('TUNE: Classic is chosen at first, and the sand is as it has been', a.shown === '0' && a.q === 1.08 && a.pace === 1 && (a.saved === undefined || a.saved === 0),
             'scale ' + a.q + ', pace ' + a.pace + ', ' + a.total + ' grains');
     await t.eval(function () { window.Hourglass.setDuration(30000); });
@@ -108,8 +111,7 @@ async function run(s, env) {
     var poured2 = await pourSecond(t);
     s.check('SAME: a second of Sand adds as much time as on the classic glass', poured0 > 1500 && poured2 > 0.7 * poured0 && poured2 < 1.4 * poured0,
             'classic +' + (poured0 / 1000).toFixed(1) + ' s, finest +' + (poured2 / 1000).toFixed(1) + ' s');
-    await t.page.tap('#btn-settings');
-    await sleep(800);
+    await tune.show(t, '#grain-count');
     var shown = await t.eval(function () { return document.getElementById('grain-count').textContent; });
     await t.page.keyboard.press('Escape');
     await sleep(700);

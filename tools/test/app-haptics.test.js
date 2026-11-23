@@ -6,8 +6,9 @@
  * Engine. What is checked here is the plumbing, in a browser given an
  * iPhone's shape (a touch screen and no navigator.vibrate):
  *
- *   MOUNT   one label on every button, switch row, the readout and the
- *           stage; none in a browser that can vibrate
+ *   MOUNT   one label on every button (Tune's tabs and its reset link are
+ *           buttons too), switch row, the readout and the stage; none in a
+ *           browser that can vibrate
  *   TAP     the hidden switch flips exactly when the app asked for a tap
  *           (which is when the phone would tick), and the control does its
  *           work exactly once: Play, Mute, a pill, a card, a switch row,
@@ -16,16 +17,19 @@
  *   GLASS   a tap on the glass starts it once and flips the stage's
  *           switch; a knock flips it again; a tap beside the glass, and
  *           carrying the glass, flip nothing
- *   REST    scrolling Tune with a finger that starts on a card still
- *           scrolls and chooses nothing; holding Sand still pours; a pinch
- *           still brings and leaves Zen
+ *   REST    scrolling a tab of Tune with a finger that starts on a card
+ *           still scrolls and chooses nothing; holding Sand still pours; a
+ *           pinch still brings and leaves Zen
  *
- * Whether the phone then ticks can only be felt on a phone.
+ * Whether the phone then ticks can only be felt on a phone. (A control of
+ * Tune is reached through lib/tune.js, which opens Tune and shows its tab;
+ * that the tabs and the reset link tick is app-tune's.)
  *
  *   node tools/test/app-haptics.test.js [--root <dir>] [--port <n>]
  */
 'use strict';
 var H = require('./stubs/harness.js');
+var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 
 /** An iPhone has no navigator.vibrate. */
@@ -96,40 +100,43 @@ async function run(s, env) {
     s.check('TAP: Close asks for no tap: the sheet closes, its switch stays as it was', !f7 && closed, 'flipped ' + f7 + ', closed ' + closed);
     // Tune: a card, a switch row
     await tapOn(t, '#btn-settings', 900);
+    await tune.show(t, '#themes [data-theme-id="lapis"]');
     var theme = function () { return t.eval(function () { return document.querySelector('#themes [aria-checked="true"]').dataset.themeId; }); };
     var th0 = await theme(), f8 = await tapOn(t, '#themes [data-theme-id="lapis"]', 600), th1 = await theme();
     s.check('TAP: a material card is chosen by one tap, with its flip', f8 && th0 === 'sahara' && th1 === 'lapis', th0 + ' → ' + th1);
-    await t.page.$eval('#opt-frame', function (el) { el.closest('.row').scrollIntoView({ block: 'center' }); });
-    await sleep(300);
+    await tune.show(t, 'label[for="opt-frame"]');
     var checked = function (id) { return t.eval(function (q) { return document.getElementById(q).checked; }, id); };
     var fr0 = await checked('opt-frame'), f9 = await tapOn(t, 'label[for="opt-frame"]', 700), fr1 = await checked('opt-frame');
     var f10 = await tapOn(t, 'label[for="opt-frame"]', 700), fr2 = await checked('opt-frame');
     s.check('TAP: a switch row flips its own switch once a tap, and the hidden one with it', f9 && f10 && fr0 === true && fr1 === false && fr2 === true, [fr0, fr1, fr2].join(' → '));
     // Haptics off: everything still works, nothing flips
-    await t.page.$eval('#opt-haptics', function (el) { el.closest('.row').scrollIntoView({ block: 'center' }); });
-    await sleep(300);
+    await tune.show(t, 'label[for="opt-haptics"]');
     var f11 = await tapOn(t, 'label[for="opt-haptics"]', 600), hap = await checked('opt-haptics');
+    await tune.show(t, 'label[for="opt-awake"]');
     var fr3 = await tapOn(t, 'label[for="opt-awake"]', 600);
     s.check('TAP: Haptics switched off: that tap and the next flip nothing', !f11 && hap === false && !fr3, 'haptics ' + hap + ', flipped ' + f11 + ' / ' + fr3);
     await tapOn(t, 'label[for="opt-awake"]', 600);
+    await tune.show(t, 'label[for="opt-haptics"]');
     var f12 = await tapOn(t, 'label[for="opt-haptics"]', 600);
     s.check('TAP: switched on again, it answers at once', f12 && (await checked('opt-haptics')) === true);
 
     /* ---- REST: scrolling Tune from a card ------------------------------------ */
-    await t.page.$eval('#sheet-settings .sheet-body', function (el) { el.scrollTop = 0; });
-    await sleep(300);
+    // the card at the lower edge of what its tab shows, so that the tab has room to scroll under the finger
+    await tune.show(t, '#characters [data-character="warm"]', { block: 'end' });
     var c = await center(t, '#characters [data-character="warm"]');
     var ch0 = await t.eval(function () { return document.querySelector('#characters [aria-checked="true"]').dataset.character; });
     var w0 = await sw(t, '#characters [data-character="warm"]');
+    var top0 = await t.eval(function () { return window.__tune.scroller('#characters').scrollTop; });
     await t.touch.down(c.x, c.y);
     await t.touch.path(function (u) { return { x: c.x, y: c.y - 220 * u }; }, 350);
     await t.touch.up();
     await sleep(700);
     var sc = await t.eval(function () {
-      return { top: document.querySelector('#sheet-settings .sheet-body').scrollTop, ch: document.querySelector('#characters [aria-checked="true"]').dataset.character };
+      return { top: window.__tune.scroller('#characters').scrollTop, ch: document.querySelector('#characters [aria-checked="true"]').dataset.character };
     });
-    s.check('REST: a finger that starts on a card and slides scrolls Tune, chooses nothing and flips nothing',
-            sc.top > 100 && sc.ch === ch0 && (await sw(t, '#characters [data-character="warm"]')) === w0, 'scrolled ' + Math.round(sc.top) + ' px, character ' + sc.ch);
+    s.check('REST: a finger that starts on a card and slides scrolls its tab of Tune, chooses nothing and flips nothing',
+            sc.top - top0 > 100 && sc.ch === ch0 && (await sw(t, '#characters [data-character="warm"]')) === w0,
+            'scrolled ' + Math.round(sc.top - top0) + ' px (from ' + Math.round(top0) + '), character ' + sc.ch);
     await t.page.keyboard.press('Escape');
     await sleep(800);
 

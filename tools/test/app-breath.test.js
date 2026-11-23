@@ -2,14 +2,16 @@
  * Breathing pace: the glow behind the glass swells through the in-breath,
  * holds, and fades through the out-breath, while the sand is running.
  *
- *   tune    the Tune row after Full Zen (off by default), its note, the
+ *   tune    the Tune row (the Time tab: the first under "While it runs",
+ *           before Full Zen; off by default), its note, the
  *           three-way choice under it (hidden while off; Calm 4·6, Box
  *           4·4·4·4, Deep 4·7·8), one toast on switching on, both saved,
  *           the choice on one line at 360, 390 and 430 px, the main screen
  *           as lean as before; switched on while the sand runs it swells at
  *           once, switched off it eases back before the layer goes; the
- *           toast sits in the sheet's head, clear of the rows, fades there
- *           when the sheet is closed, and elsewhere keeps its usual place
+ *           toast sits just above the sheet, clear of the tabs and the rows,
+ *           fades there when the sheet is closed, and elsewhere keeps its
+ *           usual place
  *   calm    from the start of the glass: in for 4 s on a sine ease, out for
  *           6 s, again at 10 s; only opacity and scale move, as two
  *           transitions on a compositor layer of its own that is never
@@ -35,6 +37,7 @@
  */
 'use strict';
 var H = require('./stubs/harness.js');
+var tuneSheet = require('./lib/tune.js');
 var sleep = H.sleep;
 
 var SKEY = 'hourglass.settings.v1';
@@ -198,21 +201,18 @@ function seed(o) {
   return st;
 }
 function breathT0(t) { return t.eval(function () { return window.Hourglass.breath.t0; }); }
-/** Open Tune and bring the Breathing pace row into view (out of Zen first: two fingers pinching together). */
+/** Open Tune on the tab that holds Breathing pace and bring its row into view (out of Zen first: two fingers pinching together). */
 async function openTune(t) {
   if (await t.eval(function () { return document.getElementById('app').classList.contains('zen'); })) {
     var g = await t.glass();
     await t.touch.pinch(g.cx, g.cy, 230, 90, 260);
     await sleep(650);
   }
-  await t.page.tap('#btn-settings');
-  await sleep(750);
-  await t.page.$eval('#opt-breath', function (el) { el.closest('.row').scrollIntoView({ block: 'center' }); });
-  await sleep(200);
+  await tuneSheet.show(t, '#opt-breath');          // (lib/tune.js: Tune opened, the row's tab shown, the row in view)
 }
 async function closeTune(t) {
-  await t.page.tap('#sheet-settings .sheet-close');
-  await sleep(750);
+  await tuneSheet.close(t);
+  await sleep(150);
 }
 
 /* ---- tune: the row, the choice, the toast, what is saved --------------- */
@@ -226,16 +226,18 @@ async function tune(s, env) {
     }).observe(toast, { childList: true });
   });
   var ui = await t.eval(function () {
-    var rows = [].slice.call(document.querySelectorAll('#sheet-settings .rows:not(.rows-single) > *'));
-    var row = document.getElementById('opt-breath').closest('.row'), i = rows.indexOf(row);
-    var sw = document.getElementById('opt-breath'), layer = document.getElementById('breath');
+    // its group: the rows under one heading of one tab
+    var row = document.getElementById('opt-breath').closest('.row'), rows = [].slice.call(row.parentNode.children), i = rows.indexOf(row);
+    var sw = document.getElementById('opt-breath'), layer = document.getElementById('breath'), w = window.__tune.where('#opt-breath');
+    var head = row.parentNode.previousElementSibling;
     return {
       top: document.querySelectorAll('#hud-top button').length,
       bottom: document.querySelectorAll('#hud-bottom button').length,
       rows: document.querySelectorAll('#sheet-settings .row').length,
-      before: rows[i - 1] && rows[i - 1].querySelector('b').textContent,
+      tab: w.name, group: head && head.tagName === 'H3' ? head.textContent : null,
+      before: i > 0 ? rows[i - 1].id || rows[i - 1].tagName : '(first)',
       then: rows[i + 1] && rows[i + 1].id,
-      after: rows[i + 2] && rows[i + 2].querySelector('b').textContent,
+      after: rows[i + 2] && rows[i + 2].querySelector('b') && rows[i + 2].querySelector('b').textContent,
       name: row.querySelector('b').textContent, note: row.querySelector('small').textContent,
       label: row.tagName + ' for ' + row.getAttribute('for'),
       sw: sw.type + ' ' + sw.getAttribute('role') + ' ' + sw.checked,
@@ -247,9 +249,9 @@ async function tune(s, env) {
   });
   s.check('TUNE: the main screen has the same buttons (4 top, one of them hidden; 12 bottom); Tune has its row (10 in all, with Layered sand, Grain and Real sand)',
           ui.top === 4 && ui.bottom === 12 && ui.rows === 10, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
-  s.check('TUNE: "Breathing pace" follows Full Zen, its choice sits directly under it, then Haptics',
-          ui.before === 'Full Zen' && ui.then === 'breath-row' && ui.after === 'Haptics' && ui.name === 'Breathing pace',
-          ui.before + ' / ' + ui.name + ' / #' + ui.then + ' / ' + ui.after);
+  s.check('TUNE: "Breathing pace" is the first row of the Time tab\'s "While it runs", its choice sits directly under it, then Full Zen',
+          ui.tab === 'Time' && ui.group === 'While it runs' && ui.before === '(first)' && ui.then === 'breath-row' && ui.after === 'Full Zen' && ui.name === 'Breathing pace',
+          ui.tab + ' / ' + ui.group + ': ' + ui.before + ' / ' + ui.name + ' / #' + ui.then + ' / ' + ui.after);
   s.check('TUNE: its note', ui.note === NOTE, '"' + ui.note + '"');
   s.check('TUNE: a labelled switch like the others, off by default',
           ui.label === 'LABEL for opt-breath' && ui.sw === 'checkbox switch false', ui.label + '; ' + ui.sw);
@@ -257,14 +259,18 @@ async function tune(s, env) {
           ui.choiceHidden && ui.layerShown === 'none' && ui.layerIn === 'ambient true' && !ui.on,
           'choice hidden ' + ui.choiceHidden + ', layer ' + ui.layerShown + ' in #' + ui.layerIn);
 
-  // switch it on, with the row at the very bottom of what the sheet shows
+  // switch it on, with the row low in what the sheet shows, so that the choice opens below the fold.
+  // (Since Tune has tabs the row is near the top of the Time tab: on a phone of 375 x 667 the tab
+  // opens with the row whole and the choice's place cut off by the sheet's lower edge.)
+  await t.page.setViewportSize({ width: 375, height: 667 });
+  await sleep(450);
   await openTune(t);
   var box = await t.eval(function () {
-    var body = document.querySelector('#sheet-settings .sheet-body'), sw = document.getElementById('opt-breath');
+    var body = window.__tune.scroller('#opt-breath'), sw = document.getElementById('opt-breath');
     var row = sw.closest('.row');
-    body.scrollTop += row.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom;
+    body.scrollTop = 0;
     var r = sw.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2, gap: row.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom };
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, gap: row.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom, top: body.scrollTop };
   });
   await sleep(150);
   await t.touch.tap(box.x, box.y, 60);
@@ -300,22 +306,23 @@ async function tune(s, env) {
           on.running === 'idle' && !on.on && on.layer === 'block 0 false', on.running + ', layer ' + on.layer);
   await sleep(700);
   var view = await t.eval(function () {
-    var body = document.querySelector('#sheet-settings .sheet-body').getBoundingClientRect();
+    var bodyEl = window.__tune.scroller('#breath-row'), body = bodyEl.getBoundingClientRect();
     var row = document.getElementById('breath-row').getBoundingClientRect();
     var toast = document.getElementById('toast').getBoundingClientRect(), sheet = document.getElementById('sheet-settings').getBoundingClientRect();
-    return { top: row.top - body.top, bottom: body.bottom - row.bottom, page: document.scrollingElement.scrollTop + document.getElementById('app').scrollTop,
-             toast: [toast.left, toast.top, toast.right, toast.bottom].map(Math.round), rows: Math.round(body.top), sheet: Math.round(sheet.top),
-             title: Math.round(document.getElementById('settings-title').getBoundingClientRect().right),
-             close: Math.round(document.querySelector('#sheet-settings .sheet-close').getBoundingClientRect().left),
+    return { top: row.top - body.top, bottom: body.bottom - row.bottom, h: row.height, scrolled: bodyEl.scrollTop,
+             page: document.scrollingElement.scrollTop + document.getElementById('app').scrollTop,
+             toast: [toast.left, toast.top, toast.right, toast.bottom], sheet: sheet.top, iw: window.innerWidth,
              shown: document.getElementById('toast').classList.contains('show') };
   });
+  // (before the tap the row's lower edge stood box.gap px from the sheet's: the choice, h px high, could not have fitted)
   s.check('TUNE: the choice scrolls into view under the switch (and nothing else scrolls)',
-          Math.abs(box.gap) < 1 && view.bottom >= -0.5 && view.top >= 0 && view.page === 0,
-          'below the fold before; now ' + view.bottom.toFixed(1) + ' px above the sheet\'s lower edge');
-  s.check('TUNE: the toast sits in the sheet\'s head, between "Tune" and the close button, and covers no row',
-          view.shown && view.toast[3] <= view.rows && view.toast[1] >= view.sheet && view.toast[0] > view.title && view.toast[2] < view.close,
-          'toast x ' + view.toast[0] + ' to ' + view.toast[2] + ', y ' + view.toast[1] + ' to ' + view.toast[3] + '; the sheet begins at y ' + view.sheet +
-          ', its rows at ' + view.rows + '; the title ends at x ' + view.title + ', the close button begins at ' + view.close);
+          box.top === 0 && box.gap < 0 && box.gap + view.h > 1 && view.scrolled > 0 && view.bottom >= -0.5 && view.top >= 0 && view.page === 0,
+          'the row ' + (-box.gap).toFixed(1) + ' px above the sheet\'s lower edge, the choice ' + view.h.toFixed(1) + ' px high: below the fold before; now scrolled ' +
+          Math.round(view.scrolled) + ' px, ' + view.bottom.toFixed(1) + ' px above the sheet\'s lower edge');
+  s.check('TUNE: the toast sits just above the sheet (its lower edge 4 px over the sheet\'s top), centred, so it covers no tab and no row',
+          view.shown && Math.abs(view.toast[3] - (view.sheet - 4)) <= 1 && view.toast[1] >= 0 && Math.abs((view.toast[0] + view.toast[2]) / 2 - view.iw / 2) <= 1,
+          'toast x ' + view.toast[0].toFixed(1) + ' to ' + view.toast[2].toFixed(1) + ', y ' + view.toast[1].toFixed(1) + ' to ' + view.toast[3].toFixed(1) +
+          '; the sheet begins at y ' + view.sheet.toFixed(1));
   var st = await settingsOf(t);
   s.check('TUNE: saved with the other settings: breath true, breathPattern "calm"', st.breath === true && st.breathPattern === 'calm',
           JSON.stringify({ breath: st.breath, breathPattern: st.breathPattern }));
@@ -415,13 +422,14 @@ async function tune(s, env) {
   // the toast goes with the sheet: Tune closed while it is up, it fades where it is and does not jump down the screen
   await t.page.tap('#opt-breath');
   await sleep(700);
-  await t.eval(function () {
+  var sheetTop = await t.eval(function () {
     var toast = document.getElementById('toast'), w = window.__tw = { on: true, out: [] };
     (function tick() {
       if (!w.on) return;
-      w.out.push([toast.getBoundingClientRect().top, +getComputedStyle(toast).opacity]);
+      w.out.push([toast.getBoundingClientRect().top, +getComputedStyle(toast).opacity, toast.getBoundingClientRect().bottom]);
       requestAnimationFrame(tick);
     })();
+    return document.getElementById('sheet-settings').getBoundingClientRect().top;
   });
   await closeTune(t);
   var tw = await t.eval(function () {
@@ -432,8 +440,8 @@ async function tune(s, env) {
   seen.forEach(function (x) { drift = Math.max(drift, Math.abs(x[0] - tw.out[0][0])); });
   // (8 px is the toast's own way of leaving)
   s.check('TUNE: Tune closed while the toast is up: the toast fades where it is, with the sheet',
-          tw.toasts === 3 && tw.out[0][1] === 1 && tw.out[0][0] < 100 && drift <= 8.5 && !tw.shown && tw.out[tw.out.length - 1][1] === 0,
-          'at y ' + Math.round(tw.out[0][0]) + ', moved ' + drift.toFixed(1) + ' px while it faded over ' + seen.length + ' frames');
+          tw.toasts === 3 && tw.out[0][1] === 1 && Math.abs(tw.out[0][2] - (sheetTop - 4)) <= 1 && drift <= 8.5 && !tw.shown && tw.out[tw.out.length - 1][1] === 0,
+          'at y ' + Math.round(tw.out[0][0]) + ' (above the sheet at ' + Math.round(sheetTop) + '), moved ' + drift.toFixed(1) + ' px while it faded over ' + seen.length + ' frames');
   // ... and what is said with no sheet open keeps its usual place (here: the Custom sheet's note, as that sheet closes)
   await t.eval(function () {
     document.getElementById('pill-custom').click();
@@ -642,9 +650,7 @@ async function rest(s, env) {
   // the end of a glass: Deep holds full from 4 s to 11 s, and this glass ends at 10 s
   await t.eval(function () { window.Hourglass.setDuration(10000); });
   await sleep(1400);
-  await t.page.tap('#btn-settings');
-  await sleep(700);
-  await t.page.tap('#breaths button[data-breath="deep"]');
+  await tuneSheet.tap(t, '#breaths button[data-breath="deep"]');
   await closeTune(t);
   await t.eval(function () { __mon.reset(); });
   await sampleStart(t);

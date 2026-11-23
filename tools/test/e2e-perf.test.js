@@ -32,6 +32,7 @@
  */
 'use strict';
 var H = require('./stubs/harness.js');
+var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 
 /* ---- --trace -------------------------------------------------------------- */
@@ -170,14 +171,10 @@ function longTasks() {
 }
 
 async function realMotionOn(t) {
-  await t.page.tap('#btn-settings');
-  await sleep(700);
-  await t.page.$eval('#opt-tilt', function (el) { el.scrollIntoView({ block: 'center' }); });
-  await sleep(150);
-  await t.page.tap('#opt-tilt');
+  await tune.tap(t, '#opt-tilt');                  // (Tune opened, the switch's tab shown: lib/tune.js)
   await sleep(300);
-  await t.page.tap('#sheet-settings .sheet-close');
-  await sleep(700);
+  await tune.close(t);
+  await sleep(100);
 }
 function ms(v) { return v.toFixed(2) + ' ms'; }
 

@@ -1,9 +1,9 @@
 /*
- * The ambience cards, in the app: Tune → Ambience.
+ * The ambience cards, in the app: Tune → Sound → Ambience.
  *   - six cards in a radio group (None, Brook, Rain, Ocean, Waterfall,
  *     Drips), as a screen reader meets them: a labelled radiogroup, each
  *     card a radio named by its text, exactly one checked, the icons hidden
- *   - one family with the acoustic characters above: the same hourglass in
+ *   - one family with the sand's sounds under them: the same hourglass in
  *     every card, the sound drawn beside it; every id is one the engine has,
  *     under the same name
  *   - two rows of three at 320, 360, 390 and 430 px and in landscape: cards
@@ -17,20 +17,18 @@
  */
 'use strict';
 var H = require('./stubs/harness.js');
+var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 
 var NAMES = ['None', 'Brook', 'Rain', 'Ocean', 'Waterfall', 'Drips'];
 var IDS = ['none', 'brook', 'rain', 'ocean', 'waterfall', 'drips'];
 
+/** Tune open on the tab that holds the ambience cards, the cards in view (lib/tune.js finds the tab from the page). */
 async function openTune(t) {
-  await t.page.tap('#btn-settings');
-  await sleep(700);
-  await t.page.$eval('#ambiences', function (el) { el.scrollIntoView({ block: 'center' }); });
-  await sleep(250);
+  await tune.show(t, '#ambiences');
 }
 async function closeTune(t) {
-  await t.page.tap('#sheet-settings .sheet-close');
-  await sleep(600);
+  await tune.close(t);
 }
 function state(t) {
   return t.eval(function () {
@@ -46,9 +44,11 @@ async function testCards(s, env) {
   var a = await t.eval(function () {
     var g = document.getElementById('ambiences'), b = Array.prototype.slice.call(g.querySelectorAll('button'));
     var glass = document.querySelector('#characters button svg path').getAttribute('d'), AMB = window.HourglassAudio.AMBIENCES;
+    var panel = g.closest('[role="tabpanel"]'), tab = panel ? document.getElementById(panel.getAttribute('aria-labelledby')) : null;
     return {
       role: g.getAttribute('role'), label: g.getAttribute('aria-label'), kids: g.children.length,
       heading: g.previousElementSibling.tagName + ':' + g.previousElementSibling.textContent,
+      tab: tab ? tab.textContent.trim() : null, withSounds: !!panel && panel.contains(document.getElementById('characters')),
       cards: b.map(function (x) {
         var svg = x.querySelector('svg'), paths = svg.querySelectorAll('path'), text = x.textContent.trim();
         return { id: x.dataset.ambience, role: x.getAttribute('role'), type: x.type, checked: x.getAttribute('aria-checked'), name: text,
@@ -59,8 +59,9 @@ async function testCards(s, env) {
       engine: Object.keys(AMB)
     };
   });
-  s.check('GROUP: a radiogroup named "Ambience behind the sand" under the Ambience heading, holding six cards and nothing else',
-          a.role === 'radiogroup' && a.label === 'Ambience behind the sand' && a.kids === 6 && a.cards.length === 6 && a.heading === 'H3:Ambience', JSON.stringify([a.role, a.label, a.kids, a.heading]));
+  s.check('GROUP: a radiogroup named "Ambience behind the sand" under the Ambience heading, holding six cards and nothing else; in the Sound tab, with the sand\'s sounds',
+          a.role === 'radiogroup' && a.label === 'Ambience behind the sand' && a.kids === 6 && a.cards.length === 6 && a.heading === 'H3:Ambience' && a.tab === 'Sound' && a.withSounds,
+          JSON.stringify([a.role, a.label, a.kids, a.heading, a.tab, a.withSounds]));
   s.check('CARDS: None, Brook, Rain, Ocean, Waterfall, Drips, in that order', a.cards.map(function (c) { return c.name; }).join() === NAMES.join() &&
           a.cards.map(function (c) { return c.id; }).join() === IDS.join(), a.cards.map(function (c) { return c.id + '=' + c.name; }).join(', '));
   s.check('SCREEN READER: each card is a radio button named by its text alone, reachable, its icon hidden',
@@ -90,7 +91,7 @@ async function testCards(s, env) {
                    icon: ic.width, vis: r.top >= 0 && r.bottom <= window.innerHeight };
         });
       }
-      var body = document.querySelector('#sheet-settings .sheet-body'), g = document.getElementById('ambiences').getBoundingClientRect();
+      var body = window.__tune.scroller('#ambiences'), g = document.getElementById('ambiences').getBoundingClientRect();   // (what scrolls the cards: the sheet's body)
       return { amb: rects('#ambiences button'), chr: rects('#characters button'), over: body.scrollWidth - body.clientWidth, doc: document.documentElement.scrollWidth,
                w: window.innerWidth, group: [g.left, g.right], fs: getComputedStyle(document.querySelector('#ambiences button')).fontSize };
     });

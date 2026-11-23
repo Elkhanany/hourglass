@@ -15,6 +15,7 @@
  */
 'use strict';
 var H = require('./stubs/harness.js');
+var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 
 var UPPER_SHOULDER = 6;          // upper bulb, left side, u ≈ 0.16 (segment 0·40 + 6)
@@ -553,8 +554,7 @@ async function testZen(s, env) {
   await sleep(150);
   s.check('ZEN: Escape leaves it', !(await zenOn(t)));
   // not while a sheet is open
-  await t.page.tap('#btn-settings');
-  await sleep(700);
+  await tune.open(t);
   await t.touch.pinch(g.cx, 300, 80, 240, 220);
   await sleep(150);
   s.check('ZEN: a pinch while Tune is open does nothing', !(await zenOn(t)));
@@ -580,14 +580,10 @@ async function testReduced(s, env) {
   s.check('REDUCED: a flick gives ≤ 1 half-turn', n <= 1, 'released at ' + rel.w.toFixed(2) + ' rad/s → ' + n);
   if (CFG.e2e) {
     // shaken very hard with Real motion on: gentler sand, and a glass that cannot crack
-    await t.page.tap('#btn-settings');
-    await sleep(700);
-    await t.page.$eval('#opt-tilt', function (el) { el.scrollIntoView({ block: 'center' }); });
-    await sleep(150);
-    await t.page.tap('#opt-tilt');
+    await tune.tap(t, '#opt-tilt');                // (Tune opened, the switch's tab shown: lib/tune.js)
     await sleep(300);
-    await t.page.tap('#sheet-settings .sheet-close');
-    await sleep(700);
+    await tune.close(t);
+    await sleep(100);
     await t.eval(function () {
       window.__drive({ profile: 'calm', conv: 'ios' });
       window.__rm = { air: 0, spray: 0, hops: 0, steps: 0, d0: window.Hourglass.sim.dMax };
