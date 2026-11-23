@@ -41,14 +41,14 @@
  * with its hush 1 % louder, and a loop made from another seed, are told apart (controls).
  *
  * The page is served from memory through Playwright's routing: nothing listens on the port
- * (default $PORT, else 9010). Exits 0 when no sound has changed.
+ * (default $PORT, else 8803, the audio suites'). Exits 0 when no sound has changed.
  */
 'use strict';
 var fs = require('fs'), path = require('path'), vm = require('vm'), cp = require('child_process'), crypto = require('crypto');
 var paths = require('./test/lib/paths.js');
 var ROOT = paths.ROOT, NOW_FILE = paths.script('audio.js');
 
-var argv = process.argv.slice(2), REV = process.env.HOURGLASS_BASE || '', FILE = '', PORT = +process.env.PORT || 9010, BROWSER = true;
+var argv = process.argv.slice(2), REV = process.env.HOURGLASS_BASE || '', FILE = '', PORT = +process.env.PORT || 8803, BROWSER = true;
 for (var ai = 0; ai < argv.length; ai++) {
   if (argv[ai] === '--port') PORT = +argv[++ai];
   else if (argv[ai] === '--file') FILE = argv[++ai];
