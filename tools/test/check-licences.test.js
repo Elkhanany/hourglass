@@ -96,12 +96,17 @@ check(P.missing.length === 0, 'every file the table names exists', P.missing.joi
 check(P.sources.length === 0, 'every file of this repository the table names as a source exists', P.sources.join(', '));
 
 // controls
+// (each control is judged by what it adds to the real tree's own findings)
+function added(list, base) { return list.filter(function (x) { return base.indexOf(x) < 0; }); }
 var c1 = problems(MD, TREE.concat(['realsand/extra.mjs', 'lab/sand/extra.css', 'realsand/shaders/extra.wgsl']), exists);
+c1.unnamed = added(c1.unnamed, P.unnamed);
 check(c1.unnamed.length === 3, '... a new file under realsand/, realsand/shaders/ or lab/sand/ that the table does not name is found (control)', c1.unnamed.join(', '));
 var c2 = problems(MD.replace('`rate.mjs`', '`rates.mjs`').replace('`lab.css`', '`lab2.css`'), TREE, exists);
+c2.missing = added(c2.missing, P.missing); c2.unnamed = added(c2.unnamed, P.unnamed);
 check(c2.missing.length === 2 && c2.unnamed.length === 2 && /rates\.mjs/.test(c2.missing.join()) && /lab\/sand\/lab2\.css/.test(c2.missing.join()),
   '... a name in the table with no file, and the file it should have named, are found (control)', c2.missing.concat(c2.unnamed).join(', '));
 var c3 = problems(MD, TREE, function (f) { return f !== 'physics.js' && exists(f); });
+c3.sources = added(c3.sources, P.sources);
 check(c3.sources.length >= 4 && c3.sources.every(function (s) { return /^physics\.js /.test(s); }),
   '... physics.js gone from the tree (split or moved) is found in each row that names it as a source (control)', c3.sources.join(', '));
 var c4 = problems(MD, TREE, function (f) { return f !== 'lab/sand/main.mjs' && exists(f); });
