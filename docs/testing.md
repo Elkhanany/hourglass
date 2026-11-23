@@ -11,8 +11,25 @@ npm run test:physics           # the simulation only, in Node (about 3 minutes)
 node tools/test/app-gestures.test.js     # any single suite
 node tools/test/run-all.js --port 8900   # every suite on one port, one after another
 node tools/test/run-all.js realsand-gpu  # Real sand on WebGPU in software (only when named)
+node tools/test/run-all.js check-        # the check group, in Node, in seconds
 ```
 
+- `check-*`: the check group, in Node, in seconds, each rule with a control
+  that must fail. `check-shell`: every file `index.html` and the manifest
+  name is in the service worker's `SHELL` (the launch screens and the
+  install screenshots excepted), every `SHELL` path exists, once, and no
+  classic script (the page's and `sw.js`) has module syntax, `import()` or
+  anything newer than ES5. `check-licences`: every file under `realsand/`
+  and `lab/sand/` is in `realsand/LICENSES.md`, and every file the table
+  names exists. `check-release`: a branch that changes a shipped file
+  (`sw.js` or a path of its `SHELL`) raises `VERSION` above both the
+  merge-base's and `origin/main`'s, as a version number, and `index.html`'s
+  version, where the page has one, equals it; it needs `origin/main`
+  (`HOURGLASS_MAIN=<ref>` names another). `check-harness`: the test guards
+  themselves: `tools/test/lib/paths.js` reads the page's scripts from
+  `index.html`, a suite that still reads one `physics.js` fails at once, and
+  the browser harness refuses a tree that lacks a script the page loads,
+  naming it.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
   nothing moving, every grain lands exactly as before. `sim-tone` covers
@@ -66,8 +83,10 @@ node tools/test/run-all.js realsand-gpu  # Real sand on WebGPU in software (only
   nothing clips behind the sand, their synthesis slices, and the fallback for
   browsers that refuse low sample rates.
 - `app-*`: the app's own acceptance tests (permission, gestures, motion,
-  re-timing, session, the existing flow), with stand-ins for any module that
-  is missing. `app-breath` covers breathing pace: the Tune row and what is
+  re-timing, session, the existing flow), on the app as it ships: every
+  script `index.html` loads is served as it is, except that a suite may ask
+  for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
+  then served at `motion.js`'s path. `app-breath` covers breathing pace: the Tune row and what is
   saved, the toast's place in the sheet's head, the three patterns against
   the wall clock, a blocked main thread, a hidden page and a long sleep,
   easing back to rest, Reduce Motion, Full Zen, the landscape halo, a damaged

@@ -151,20 +151,23 @@ the tests, the lab) needs none of this. For every change to a shipped file:
 
 1. **`VERSION` goes up.** Any change to `sw.js` or to a file in its `SHELL`
    raises `VERSION` in `sw.js`, as a version number greater than both
-   `origin/main`'s and the one the branch started from. Without it, installed
-   copies never see the change.
+   `origin/main`'s and the one the branch started from, and `index.html`'s
+   version, where the page has one, equal to it. Without it, installed
+   copies never see the change. `check-release` holds a branch to this.
 2. **A new, moved or removed file** has its `<script>` tag in `index.html`
    (if the page loads it), its line in `SHELL` (one path that does not exist
-   fails the whole install), and its row in `realsand/LICENSES.md` if that
-   table names it.
+   fails the whole install), and its row in `realsand/LICENSES.md` if it is
+   under `realsand/` or `lab/sand/`. `check-shell` and `check-licences` find
+   what is missing.
 3. **A change under `realsand/`** raises the engine's build stamp in all four
    places together: `realsand/build.mjs`, the line "Engine build" in
    `realsand/shaders/common.inc.wgsl`, `REALSAND_BUILD` in `app.js` and
    `BUILD_EXPECTED` in `lab/sand/main.mjs`. `realsand-shell` checks that they
    match, and that every module and shader the engine loads is in `SHELL`.
-4. **The suites the change touches run, and every `app-*` and `e2e-*`
-   suite** (see [Tests](testing.md)). Timing checks are judged on a quiet
-   machine: a failure under load is run again alone before it counts.
+4. **The check group, the suites the change touches, and every `app-*` and
+   `e2e-*` suite run** (see [Tests](testing.md)). Timing checks are judged
+   on a quiet machine: a failure under load is run again alone before it
+   counts.
 5. **After the merge, on a phone with the app installed:** open it once
    with a connection, close it, and open it again; Tune shows the new
    version. Then, in airplane mode, it opens and runs.
@@ -182,8 +185,8 @@ These hold until a change says otherwise, with its reason.
   whole file, and an old parser rejects a file that holds `import()`, so
   `app.js` stays classic and appends `realsand/boot.mjs`, the only module
   the app loads, and only with the Real sand switch on where `navigator.gpu`
-  exists (`realsand-shell` checks that `app.js` holds no `import()` and no
-  module syntax). The
+  exists. `check-shell` checks every classic script for module syntax,
+  `import()` and anything newer than ES5. The
   Node suites load `physics.js` as a classic script into isolated contexts,
   two versions side by side, which ES modules would not allow without a
   flag.
