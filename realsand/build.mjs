@@ -9,4 +9,4 @@
  *
  * Part of the Hourglass project. License: GPL-3.0.
  */
-export const BUILD = '4';
+export const BUILD = '5';

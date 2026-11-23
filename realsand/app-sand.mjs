@@ -46,6 +46,11 @@
  *  follows the clock at the first step of the frame and moves to the frame's count over its
  *  steps; the GPU's run for the frame is encoded in submit.
  *  real.setHidden(hidden)   from visibilitychange: no GPU work while hidden.
+ *  real.jolts               how the glass's motion is played to the sand at app speed (felt.mjs):
+ *                           'live' (the default: at once), 'slowmo' (a lone jolt as a slowed film),
+ *                           'film' (as before 2026-11: half a second late under any shaking) or
+ *                           'plain'; also opts.jolts at create. Under Reduce Motion (real.reduced)
+ *                           it is played plain.
  *  real.layout()            after renderer.layout(); real.setPalette() after a theme or layers
  *                           change; real.setSweep(kind, p) beside renderer.setSweep.
  *  onLost({ reason, lifecycle, final, message }): the GPU sand is gone (a lost device, readbacks
@@ -74,7 +79,7 @@ import { newPace, paceReset, paceSkip, paceBudget, paceFrame, paceSubmit, paceDo
 import { PPC, lattice, packParticles, fromLattice, rand32 } from './fill.mjs';
 import { GrainRenderer, FLIGHT, exposure } from './grains.mjs';
 import * as Rate from './rate.mjs';
-import { GlassFelt } from './felt.mjs';
+import { GlassFelt, JOLT_MODES, kneeOf } from './felt.mjs';
 import { Toner, LayerPlan, markSides, retone as retoneAll, toneWords, TONE_FRESH, TONE_TRACK, TONE_LAY, LAY_S } from './layers.mjs';
 import { Valve, ALLOW_SHUT, NECK_ON } from './valve.mjs';
 import { MODES, newModes, modesReset, chooseMode, frameMsFor } from './modes.mjs';
@@ -181,12 +186,15 @@ export class RealSand {
     // the frame's state
     this.pace = newPace();
     this.rate = Rate.newRate(SET.hz);
-    this.felt = new GlassFelt();
+    // how the glass's motion is played to the sand at app speed (felt.mjs): 'live' (the default),
+    // 'slowmo', 'film' or 'plain'; the app may set it later (a Tune row); Reduce Motion plays it plain
+    this.jolts = JOLT_MODES.includes(opts.jolts) ? opts.jolts : JOLT_MODES[0];
+    this.felt = new GlassFelt({ mode: this.jolts, knee: kneeOf(MATERIAL) });
     this.modes = newModes();
     this.modeSetting = 'auto';
     this.simTime = 0;
     this._smp = []; for (let i = 0; i < SAMPLES; i++) this._smp.push(this._blankSample());
-    this._smpN = 0; this._pend = null; this._lam = LAM0; this._lastW = 0; this._lastAl = 0;
+    this._smpN = 0; this._pend = null; this._lam = LAM0; this._lastW = 0; this._lastAl = 0; this._peakA = 0;
     this._overSince = null; this._leans = []; this._motion = false;
     this._planned = false; this._planNow = 0; this._planPerf = null; this._mid = null;
     this._lastState = this.T ? this.T.state : 'idle'; this._runStart = null; this._endAt = -Infinity;
@@ -211,7 +219,7 @@ export class RealSand {
     this._css = { w: 0, h: 0, dpr: 1 };
     // (the main thread's longest pieces of work, for Gate B: building the glass, the last fill; review finding 9)
     this.times = { start: null, device: null, pipelines: null, selfTest: null, selfTestRun: null, firstFrame: null, glass: msGlass, fill: null };
-    this.n = { runs: 0, skips: 0, calmSkips: 0, asleep: 0, cssTurns: 0, transfers: 0, xferTimeouts: 0, residues: 0, fills: 0,
+    this.n = { runs: 0, skips: 0, calmSkips: 0, asleep: 0, jolts: 0, cssTurns: 0, transfers: 0, xferTimeouts: 0, residues: 0, fills: 0,
       deferred: 0, readbackFails: 0, losses: 0, rebuilds: 0, pours: 0, swaps: 0, errors: 0, refills: 0, handoverCatchUps: 0, redraws: 0, guards: 0 };
     // the owner's report on exact time, as the lab's Timer gives it (_onTally): runs read back, open
     // runs whose crossings left fewer above than their lowest target (the membrane's promise
@@ -698,14 +706,17 @@ export class RealSand {
   }
 
   /**
-   * The glass's linear acceleration the sand feels (g, page frame, before the free fall and the
-   * rotation: composeField's fx, fy), at the app's step time tS (ms). Played through the lab's
-   * slowed playback of jolts (felt.mjs), turned into the glass by rho, the free fall added
-   * unplayed, scaled by G: the field's felt part for the GPU's substeps near tS (design 5.2).
+   * The glass's linear acceleration the sand feels (g, page frame, y down, before the free fall
+   * and the rotation: composeField's fx, fy), at the app's step time tS (ms). Played to the sand
+   * in the mode this.jolts (felt.mjs: live by default; plain under Reduce Motion), its knees in
+   * the frame of the sand's gravity (on the page at angle + tilt - rho: upside down after a
+   * turn-over, on its side), turned into the glass by rho, the free fall added unplayed, scaled by
+   * G: the field's felt part for the GPU's substeps near tS (design 5.2).
    */
   feel(tS, fx, fy, air, rho) {
-    fx = fin(fx); fy = fin(fy);
-    const j = this.felt.feel(fx, fy, DT, fin(tS) / 1000, true, this._lam > 0 ? this._lam : LAM0);
+    fx = fin(fx); fy = fin(fy); rho = fin(rho);
+    this.felt.opt.mode = this.reduced ? 'plain' : (JOLT_MODES.includes(this.jolts) ? this.jolts : JOLT_MODES[0]);
+    const j = this.felt.feel(fx, fy, DT, fin(tS) / 1000, true, this._lam > 0 ? this._lam : LAM0, this.angle + this.tilt - rho);
     const c = Math.cos(rho), s = Math.sin(rho), G = this.cpu.G;
     const px = j[0], py = j[1] - (air ? 0.9 : 0);
     const smp = this._pend || this._takeSample();
@@ -737,6 +748,7 @@ export class RealSand {
     if (!smp.lam) smp.lam = this._lam;
     this._smp[this._smpN % SAMPLES] = smp; this._smpN++;
     this._pend = null;
+    if (smp.a > this._peakA) this._peakA = smp.a;
     this._lastW = smp.w; this._lastAl = smp.al;
     const G = this.cpu.G;
     for (let b = 0; b < 2; b++) { this.bf[2 * b] = G * Math.sin(smp.theta) + smp.ax; this.bf[2 * b + 1] = G * Math.cos(smp.theta) + smp.ay; }
@@ -1003,8 +1015,9 @@ export class RealSand {
     // the layers switch: every point re-toned from a readback (7.4)
     if (this._retoneDue) { this._retoneDue = false; this._startTransfer('retone'); this._turnCss(); return; }
     // the power mode: asleep runs nothing; calm draws every other frame at the same rate
-    const mode = this._modeFor(wall);
+    const before = this.modes.mode, mode = this._modeFor(wall);
     this._wake = false;
+    if (before === 'asleep' && mode !== 'asleep' && this.modes.why === 'jolt') this._fromJolt(now, dtReal);
     if (this.modes.guard !== this._guardOn) this._guardSays(this.modes.guard, now, mode);
     if (mode === 'asleep') {
       this.n.asleep++; this._lastDrawn = 0; this._acc = 0; this._lastRunPerf = null;
@@ -1048,6 +1061,25 @@ export class RealSand {
     this.pace.binding = gpuHeld || !!this.rate.held;
     this._frames.push({ t: now, sim: steps / hz, real: since, steps, hz, mode });
     while (this._frames.length && now - this._frames[0].t > 4000) this._frames.shift();
+  }
+
+  /**
+   * Woken from asleep by a jolt: the first run starts from the jolt's first sample (the first at
+   * or over the felt-motion threshold within the frame's cap of substeps), not from this frame,
+   * so that its push is not lost (the samples hold half a second): its substeps are the time since.
+   */
+  _fromJolt(now, dtReal) {
+    const span = 1000 * this._capFrame() / this.rate.hz, n = Math.min(this._smpN, SAMPLES);
+    let from = null;
+    for (let i = 1; i <= n; i++) {
+      const smp = this._smp[(this._smpN - i) % SAMPLES];
+      if (now - smp.t > span) break;
+      if (smp.a >= MODES.ACC_G) from = smp.t;
+    }
+    if (from === null) return;
+    this._lastRunPerf = Math.max(now - span, from - 0.001);
+    this._acc = Math.max(0, (now - this._lastRunPerf) / 1000 - dtReal);
+    this.n.jolts++;
   }
 
   /** One run: the valve's words, the field of each substep, the solver, the drawing, one submit. */
@@ -1152,7 +1184,9 @@ export class RealSand {
     else if (running && T && T.rem < T.tailMs + 300) busy = 'tail';
     else if (st === 'done' && (draining || wall - this._endAt < MODES.HOLD_MS)) busy = 'end';
     const smp = this._latest();
-    const felt = smp ? { a: smp.a, w: smp.w, alpha: smp.al, lean: smp.theta } : { a: 0, w: 0, alpha: 0, lean: this.angle + this.tilt };
+    // (peak: the hardest felt since the last frame, so that a jolt between two frames counts)
+    const felt = smp ? { a: smp.a, peak: this._peakA, w: smp.w, alpha: smp.al, lean: smp.theta } : { a: 0, peak: this._peakA, w: 0, alpha: 0, lean: this.angle + this.tilt };
+    this._peakA = 0;
     const lastNow = this._rafLog.length ? this._rafLog[this._rafLog.length - 1] : 0;
     return chooseMode(this.modes, { now: wall, setting: this.modeSetting, busy, felt, active: running || draining || !still, still,
       pending: !!(this.flipping || v.flipPending || v.xfer || this._fillDue), ratio: this._ratio(lastNow), atBase: this.rate.hz === SET.hz });
@@ -1551,7 +1585,7 @@ export class RealSand {
     const F = this._fall;
     return {
       build: BUILD, live: this.live, ready: this._ready, mode: this.modes.mode, why: this.modes.why, guard: this.modes.guard,
-      hz: this.rate.hz, steps: this._lastSteps, budget: this.pace.budget, msStep: this.pace.msStep, inflight: this.pace.inflight,
+      hz: this.rate.hz, hzPeak: this.rate.peak, held: this.rate.held, jolts: this.felt.opt.mode, steps: this._lastSteps, budget: this.pace.budget, msStep: this.pace.msStep, inflight: this.pace.inflight,
       ratio: this._ratio(now), display: this._displayMs(), behindS: this._behind, s: this.s, ppg: this.ppg,
       points: v.points, gpuCount: this.solver ? this.solver.count : 0,
       tally: t ? { points: t.points, above: t.above, below: t.below, queue: t.queue, refused: t.refused, crossings: t.crossings, nan: t.nan, outside: t.outside, moving: t.moving } : null,
