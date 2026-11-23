@@ -11,7 +11,9 @@
  *     Idle, at rest: nothing is given to the sound for the bed. Leaned past
  *     the slope (the heading to 43 degrees): the sand slides at thousands of
  *     slides a second, far under the 24,000 the rush begins at under a
- *     stream, and is heard all the same, softly, toward the low side; shaken
+ *     stream, and is heard all the same, softly, in the ear of the side the
+ *     sand runs to (leaned one way and then the other, against where the
+ *     sand's centre went); shaken
  *     (1.5 g at 5 Hz): the rush and the shimmer; no stream and no ambience
  *     in either. The control: the same lean while the glass runs leaves the
  *     rush at nothing, as it always did.
@@ -142,7 +144,14 @@ function sloshWatch(t) {
   });
 }
 function sloshRead(t) {
-  return t.eval(function () { var o = {}, W = window.__sl; for (var k in W) o[k] = W[k]; o.state = window.Hourglass.timer.state; return o; });
+  return t.eval(function () {
+    var o = {}, W = window.__sl; for (var k in W) o[k] = W[k]; o.state = window.Hourglass.timer.state;
+    // where the upper bulb's sand lies across the glass: its grains' mean place from the axis, cells (+: to the right)
+    var sim = window.Hourglass.sim, g = sim.geo, n = 0, sx = 0;
+    for (var y = 0; y < g.cy; y++) for (var x = 0; x < sim.W; x++) if (sim.cell[y * sim.W + x] > 0) { n++; sx += x + 0.5 - g.cx; }
+    o.sandX = n ? sx / n : 0;
+    return o;
+  });
 }
 function sloshShow(w) {
   return JSON.stringify({ state: w.state, updates: w.updates, active: w.active, slides: Math.round(w.slides), agit: +w.agit.toFixed(2), rush: +w.rush.toFixed(3),
@@ -173,9 +182,19 @@ async function testSlosh(s, env) {
     await t.eval(function () { window.__motion.heading = 0; });
     s.check('SLOSH: leaned past the slope before the start, the sand slides (thousands of slides a second, under the 24,000 of a running glass\'s rush) and is heard: the rush, softly',
             lean.state === 'idle' && lean.slides > 3000 && lean.slides < 24000 && lean.rush > 0.04 && lean.rush <= 0.15, sloshShow(lean));
-    s.check('SLOSH: ... toward the low side (the rush panned where the sand runs), with no stream and no ambience',
-            Math.abs(lean.pan) > 0.2 && lean.pan * lean.panAsked > 0 && lean.flow === 0 && lean.stream === 0 && lean.ambient === 0, sloshShow(lean) + ' asked ' + lean.panAsked.toFixed(2));
     await sleep(3500);                   // the sand back at rest, upright
+    // ... and leaned the other way: the sand runs back across the glass, and the rush goes with it
+    await sloshWatch(t);
+    await t.eval(function () { window.__motion.heading = -0.75; });
+    await sleep(2500);
+    var leanL = await sloshRead(t);
+    await t.eval(function () { window.__motion.heading = 0; });
+    s.check('SLOSH: ... in the ear of the side the sand runs to: leaned one way the sand lies to the right and the rush was in the right ear, leaned the other way it runs to the left and the rush is in the left; no stream and no ambience',
+            lean.sandX - rest.sandX > 1 && lean.panAsked > 0.2 && lean.pan > 0.2 && leanL.sandX - lean.sandX < -1 && leanL.panAsked < -0.2 && leanL.pan < -0.2 && leanL.rush > 0.04 &&
+            lean.flow === 0 && lean.stream === 0 && lean.ambient === 0 && leanL.stream === 0 && leanL.ambient === 0,
+            'leaned to 0.75 rad: the sand\'s centre from ' + rest.sandX.toFixed(1) + ' to ' + lean.sandX.toFixed(1) + ' cells, the rush asked at ' + lean.panAsked.toFixed(2) + ' and panned ' + lean.pan.toFixed(2) +
+            '; to -0.75: to ' + leanL.sandX.toFixed(1) + ' cells, asked ' + leanL.panAsked.toFixed(2) + ', panned ' + leanL.pan.toFixed(2) + ', the rush ' + leanL.rush.toFixed(3));
+    await sleep(3500);                   // at rest again, upright
     // shaken: 1.5 g at 5 Hz, side to side
     await sloshWatch(t);
     await t.eval(function () { window.__drive({ whole: true, fn: function (tt, f) { f.x = 1.5 * Math.sin(2 * Math.PI * 5 * tt); } }); });
