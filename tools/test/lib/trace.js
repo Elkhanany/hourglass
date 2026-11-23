@@ -13,13 +13,14 @@
  * Only what the app itself calls is kept (a call an engine makes inside one of its own is
  * not), so a trace says what app.js does, whatever the engines do with it. Numbers are rounded
  * to six places, the Sim's seed and the browser's user agent are not kept, and the Renderer's
- * layout() is kept without its sizes.
+ * layout() is kept without its sizes (they are the window's).
  *
  * The page's side is recorder(), an init script: it wraps storage, navigator.vibrate and the
  * engines' classes as each script has loaded (nothing is added to a file of the app), and
  * keeps the boot's events apart: everything until app.js has run. After that the frame loop
- * calls the engines all the time, so only the calls a setting causes are kept (LATER), but
- * for a control's own tap, which runs with everything kept.
+ * calls the engines all the time, and the window lays the page out when it likes, so only the
+ * calls a setting causes are kept (LATER), but for a control's own tap, which runs with
+ * everything kept.
  *
  *   var trace = require('./lib/trace.js');
  *   trace.STORAGES                       the five saved states of the boot trace
