@@ -232,9 +232,11 @@ the home screen. Without it the switch shows off and says *Needs WebGPU (iOS
 26 or later). Tap to try again*, and the classic sand runs; where the only
 graphics adapter is a software one, it says the device's graphics are too
 slow. The switch is never greyed: a tap on it tries again. A browser with
-WebGPU but no usable adapter is remembered by its user agent, so later
-launches say so without loading the engine; an iOS update changes the user
-agent, and the first launch after it tries again. So does an app update
+WebGPU but no usable adapter is remembered by its user agent for seven
+days, so later launches say so without loading the engine; after that, or
+once an iOS update has changed the user agent, a launch tries again (and one
+that finds no adapter right after the graphics chip was reset or stopped
+answering is not remembered at all). So does an app update
 that brings a new engine, which also forgets three failed starts. A start
 that fails this way while the app is put away is not believed: it is tried
 again once the app is in view.
@@ -326,7 +328,7 @@ The note under the switch says how it is doing:
 | *Starting…* | the graphics chip is getting ready (the classic sand meanwhile) |
 | *On: every grain simulated on the graphics chip* | Real sand runs |
 | *Off: the classic sand* | switched off: the classic sand, nothing of Real sand loaded |
-| *Needs WebGPU (iOS 26 or later). Tap to try again* | not in this browser: the switch shows off; a tap tries again, and so does the first launch after an iOS update |
+| *Needs WebGPU (iOS 26 or later). Tap to try again* | not in this browser: the switch shows off; a tap tries again, and so does a launch seven days on |
 | *Could not start this time: (why). It will try again next launch* | the classic sand until then |
 | *Did not start 3 times: (why). Turn it off and on to try again* | it stops trying |
 | *Real sand is updating; it will be back at the next launch* | old and new files of an update met; the next launch has the new ones |

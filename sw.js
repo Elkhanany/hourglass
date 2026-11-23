@@ -1,8 +1,11 @@
 /*!
  * Hourglass — sw.js
  * Offline-first service worker. An installed copy is a snapshot: only an
- * install writes the app's files (SHELL), all of them or none, and the app is
- * answered from them alone, so a launch never runs files of two releases.
+ * install writes the app's files (SHELL), all of them or none, and keeps them
+ * only if the server still has this release when the last one is in. The app
+ * is answered from them alone, so an installed copy holds one release. (The
+ * one launch that can mix two: a file missing from the copy, answered from a
+ * server that has moved on; see answer.)
  * Every URL is relative to the worker's own location, so the app installs and
  * runs from any sub-path (for example https://<user>.github.io/hourglass/).
  * License: GPL-3.0-or-later.
@@ -88,14 +91,37 @@ function fill(cache) {
   }));
 }
 
-// An install writes this release's cache, whole. One that fails leaves nothing of its own
-// behind: it deletes the cache only if it made it (a cache that was there already is this
-// release's live copy, when an install runs again under the same VERSION), and the release
-// that is installed keeps running, whole.
+/** The release the server has now: the VERSION its sw.js names (null if it names none). */
+function served() {
+  return fetch(self.location.href, { cache: 'no-store' }).then(function (res) {
+    if (!res.ok) throw new Error('sw.js: ' + res.status);
+    return res.text();
+  }).then(function (text) {
+    var m = /\bVERSION\s*=\s*'([^']+)'/.exec(text);
+    return m ? m[1] : null;
+  });
+}
+
+/**
+ * The files are in: the server must still have this release. A deploy that came while they
+ * were downloaded leaves files of two releases in the cache, and such a copy is not kept: the
+ * install fails, and the browser finds the newer release at its next look.
+ */
+function sameRelease() {
+  return served().then(function (v) {
+    if (v !== VERSION) throw new Error('the server has ' + v + ' now, not ' + VERSION);
+  });
+}
+
+// An install writes this release's cache, whole, and keeps it only if the server has not moved
+// on meanwhile (sameRelease). One that fails leaves nothing of its own behind: it deletes the
+// cache only if it made it (a cache that was there already is this release's live copy, when an
+// install runs again under the same VERSION), and the release that is installed keeps running,
+// whole.
 self.addEventListener('install', function (event) {
   event.waitUntil(
     caches.has(VERSION).then(function (existed) {
-      return caches.open(VERSION).then(fill).catch(function (err) {
+      return caches.open(VERSION).then(fill).then(sameRelease).catch(function (err) {
         return (existed ? Promise.resolve() : caches.delete(VERSION)).then(function () { throw err; });
       });
     }).then(function () { return self.skipWaiting(); })
@@ -167,13 +193,17 @@ function fromLab(event, scopePath) {
  * The app's answer.
  * - A file of the app: from this release's cache only, never refreshed in the background (only an
  *   install writes it). Should it be missing there (a hole), it comes from the network, and the
- *   cache is filled again, whole, but only from this same release (repair).
+ *   cache is filled again, whole, but only from this same release (repair). If the server has
+ *   another release by then, that one launch runs a file of it beside this release's.
+ *   The entries are this release's own files, whatever the server's Vary header says of them
+ *   (ignoreVary): a lookup that missed for it would miss again at every launch, since nothing
+ *   but an install writes the cache.
  * - Anything else under the scope (the launch screens, the manifest's screenshots): from the
  *   cache at once, refreshed in the background for next time; from the network when not cached.
  * Offline and not cached, a navigation gets the app's page, and anything else a 504.
  */
 function answer(event, req, url) {
-  return caches.match(req, { cacheName: VERSION, ignoreSearch: true }).then(function (hit) {
+  return caches.match(req, { cacheName: VERSION, ignoreSearch: true, ignoreVary: true }).then(function (hit) {
     if (inShell(url)) {
       if (hit) return hit;
       event.waitUntil(repair());
@@ -196,7 +226,7 @@ function answer(event, req, url) {
 
 /** Offline, and not in the cache: the app's page for a navigation, a 504 for anything else. */
 function offline(req) {
-  if (req.mode === 'navigate') return caches.match('./index.html', { cacheName: VERSION });
+  if (req.mode === 'navigate') return caches.match('./index.html', { cacheName: VERSION, ignoreVary: true });
   return new Response('', { status: 504, statusText: 'Offline' });
 }
 
@@ -208,12 +238,8 @@ function offline(req) {
 var repairing = null;
 function repair() {
   if (repairing) return repairing;
-  repairing = fetch('./sw.js', { cache: 'no-store' }).then(function (res) {
-    if (!res.ok) throw new Error('sw.js: ' + res.status);
-    return res.text();
-  }).then(function (text) {
-    var m = /\bVERSION\s*=\s*'([^']+)'/.exec(text);
-    if (!m || m[1] !== VERSION) return self.registration.update();
+  repairing = served().then(function (v) {
+    if (v !== VERSION) return self.registration.update();
     return caches.open(VERSION).then(fill);
   }).catch(function () {}).then(function () { repairing = null; });
   return repairing;

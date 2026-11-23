@@ -36,7 +36,9 @@
  *        - census every 15 frames through the engine's audit(), no errors.
  *  FAIL  a start failure of the second kind: the CPU sand, the setting kept, the note says why;
  *        after three launches in a row it stops trying (nothing requested); off and on again
- *        clears the count.
+ *        clears the count. An engine file that cannot be had with no connection (a hole in the
+ *        offline copy) is not counted, and the fourth launch still asks for it; with a
+ *        connection (the control) the third launch is the last.
  *  STAMP a build stamp other than app.js's: the note says Real sand is updating, the setting
  *        kept, no engine.
  *  AGAIN a start cut short because the page was hidden: tried again once the page is in view,
@@ -46,6 +48,9 @@
  *        is held 1 s for it and no longer, the canvases cross-fade only once the engine has drawn, the clock
  *        runs on through the handover untouched, no failure is counted, the glass ends on time;
  *        ?debug=sand shows, and its copied report holds, the start-up times and the first fall.
+ *        The latest the veil may lift is worked out from the opening's own frames (liftBy), so
+ *        a long frame on a busy machine moves the bound by its own length and no more; the
+ *        control is an app whose hold is 3 s.
  *  WAKE  Gate A's 4-minute glass ended 7 minutes late: the lab held no screen wake lock and had no
  *        catch-up. With the GPU sand running the app holds its wake lock (a stand-in for the
  *        browser's, which a headless Chromium refuses), lets it go while hidden and takes it back
@@ -90,16 +95,28 @@
  *        (the control) stays off and loads nothing.
  *  BUILD 3 failed launches, or "Needs WebGPU" for this user agent, found with an older engine
  *        build: forgotten and tried again; with this build (the controls): not tried.
+ *        NA-EXPIRE: "Needs WebGPU" kept eight days ago is tried again; six days ago (the
+ *        control): not tried.
  *  HANG  the watchdog (settings design 5.4, in app.js): the GPU stops answering while the glass
  *        runs in view: the CPU sand after 4 s, at the stopped engine's counts, the clock
  *        untouched, the toast; a new engine after 2 s; a second time the same; a third within
  *        ten minutes final; a glass with a swap still ends on time. Controls: readbacks held 8 s
  *        on an idle, a paused and a finished glass (asleep), a running glass whose readbacks come
  *        (calm), and a glass hidden 10 s with its readbacks held then let go: never fires.
+ *        The stopped engine, kept 600 ms for the cross-fade, loses its device 200 ms after the
+ *        swap: not heard (the note stays the watchdog's, also after the third, final time).
+ *  RESTART a start made again in the same session: after the watchdog, or after a start that a
+ *        reset of the chip cut short, "no adapter" keeps nothing and counts nothing ("Real sand
+ *        could not restart; it will try again next launch"), and the next launch asks for the
+ *        engine again. A start that took over gives the session its three retries back: a start
+ *        cut short after three earlier ones and a watchdog swap is still tried again.
+ *
+ *  Some controls are app.js with one thing undone (appWithout), served in its place: the check
+ *  that thing answers must fail on it.
  *
  *   node tools/test/app-realsand.test.js [--port 8905] [--only slow]
  *   (cases: off nogpu mock fail stamp again slow wake life norebuild crash residue asleep quiet
- *    defaultna defaultmock migrate build hang)
+ *    defaultna defaultmock migrate build hang restart)
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -120,12 +137,26 @@ function pageInit(arg) {
   Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return window.__hidden; } });
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: function () { return window.__hidden ? 'hidden' : 'visible'; } });
   var raf = window.requestAnimationFrame.bind(window), held = [];
-  // the opening: the first animation frame, when the veil began to lift, when the GPU sand took over (#app.real)
-  var O = window.__open = { raf0: null, lift: null, real: null };
+  // the opening: the first animation frame, when the veil began to lift, when the GPU sand took over
+  // (#app.real), and when each animation frame's callbacks ran until the lift (the app tests its
+  // 1 s only in a frame, so one long frame moves the lift by its length)
+  // .frames: when each frame's first callback ran; .last: when the last callback before the lift did
+  var O = window.__open = { raf0: null, lift: null, real: null, frames: [], last: null }, frameT = null;
   window.requestAnimationFrame = function (cb) {
     if (window.__hidden) { held.push(cb); return 0; }
-    return raf(O.raf0 === null ? function (t) { if (O.raf0 === null) O.raf0 = performance.now(); cb(t); } : cb);
+    if (O.lift !== null || O.frames.length >= 4000) return raf(cb);
+    return raf(function (t) {
+      var now = performance.now();
+      if (O.raf0 === null) O.raf0 = now;
+      if (O.lift === null) {
+        if (t !== frameT) { frameT = t; O.frames.push(now); }
+        O.last = now;
+      }
+      cb(t);
+    });
   };
+  // a phone with no connection (navigator.onLine false)
+  if (arg.offline) Object.defineProperty(navigator, 'onLine', { configurable: true, get: function () { return false; } });
   new MutationObserver(function () {
     var v = document.getElementById('veil'), a = document.getElementById('app');
     if (O.lift === null && v && !v.classList.contains('boot')) O.lift = performance.now();
@@ -188,7 +219,23 @@ function mockRoute() {
 }
 function openMock(env, mock, settings, o) {
   return env.open({ storage: { 'hourglass.settings.v1': Object.assign({ realSand: true, durationMs: 10000 }, settings || {}) },
-    init: pageInit, initArg: { plant: PLANT, mock: mock || {}, wake: !!(o && o.wake), adopt: o && o.adopt }, routes: [mockRoute()], query: o && o.query });
+    init: pageInit, initArg: { plant: PLANT, mock: mock || {}, wake: !!(o && o.wake), adopt: o && o.adopt },
+    routes: [mockRoute()].concat((o && o.routes) || []), query: o && o.query });
+}
+/**
+ * app.js with one thing undone, for a control: the check that thing answers must fail on it.
+ * `swaps`: [[from, to], ...], each `from` a text of app.js as it is. .found: whether every one was
+ * there (a control whose text is gone proves nothing, and says so); .route serves it as app.js.
+ */
+function appWithout(env, swaps) {
+  var file = require('./lib/paths.js').script('app.js', env.root), src = fs.readFileSync(path.join(env.root, file), 'utf8'), found = true;
+  swaps.forEach(function (sw) {
+    if (src.indexOf(sw[0]) < 0) found = false;
+    src = src.split(sw[0]).join(sw[1]);
+  });
+  return { found: found, route: { url: '**/' + file, handler: function (route) {
+    route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: src });
+  } } };
 }
 /** Wait until the GPU sand is the app's sim and the monitor follows it. */
 function waitLive(t, ms) {
@@ -236,7 +283,7 @@ function state(t) {
     var el = document.getElementById('opt-realsand'), gpu = document.getElementById('c-gpu');
     return { note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state'), checked: el.checked, disabled: el.disabled,
       dstate: document.getElementById('realsand-row').getAttribute('data-state'),
-      setting: s.realSand, fails: s.realSandFails, why: s.realSandWhy, na: s.realSandNa, build: s.realSandBuild, v: s.v, ua: navigator.userAgent,
+      setting: s.realSand, fails: s.realSandFails, why: s.realSandWhy, na: s.realSandNa, naAt: s.realSandNaAt, build: s.realSandBuild, v: s.v, ua: navigator.userAgent,
       grainShown: !document.getElementById('grain-row').hidden && !document.getElementById('grains').parentNode.hidden,
       crackShown: !document.getElementById('tilt-crack').hidden, engine: !!Hg.realSand,
       cpu: Hg.sim instanceof window.HourglassPhysics.Sim, live: !!Hg.realSand && Hg.sim === Hg.realSand,
@@ -612,6 +659,38 @@ async function testFail(s, env) {
             st.dstate === 'off' && st.note === 'Off: the classic sand', JSON.stringify({ loads: loads, st: st }));
     await H.invariants(s, t, 'FAIL');
   } finally { await t.close(); }
+
+  // A file of the engine that cannot be had (a hole in the offline copy; here boot.mjs fails at
+  // the network), four launches in a row: with no connection it is not counted, and the fourth
+  // launch still asks for the engine (so that the worker sees the hole and can fill it); with a
+  // connection (the control) the third is the last.
+  var cannotLoad = async function (offline) {
+    var hits = 0, seen = [];
+    var t2 = await env.open({ storage: { 'hourglass.settings.v1': { realSand: true, durationMs: 10000 } }, init: pageInit,
+      initArg: { plant: PLANT, mock: {}, offline: offline },
+      routes: [{ url: '**/realsand/boot.mjs', handler: function (route) { hits++; route.abort('internetdisconnected'); } }] });
+    try {
+      for (var i = 0; i < 4; i++) {
+        if (i) await t2.reload();
+        await waitFor(t2, function () { return /Could not start|Did not start/.test(document.getElementById('realsand-note').textContent); }, 15000).catch(function () {});
+        await sleep(300);
+        var st2 = await state(t2);
+        seen.push({ dstate: st2.dstate, fails: st2.fails | 0, asked: hits, note: st2.note, cpu: st2.cpu, setting: st2.setting, onLine: await t2.eval(function () { return navigator.onLine; }) });
+      }
+    } finally { await t2.close(); }
+    return seen;
+  };
+  var LOAD_NOTE = 'Could not start this time: the sand engine could not be loaded. It will try again next launch';
+  var off = await cannotLoad(true);
+  s.check('FAIL (no connection): the engine cannot be loaded, four launches in a row with navigator.onLine false: "Could not start this time" each time, nothing counted, ' +
+          'and the fourth launch still asks for the engine; the CPU sand, the setting kept',
+          off.length === 4 && off.every(function (x, i) { return x.dstate === 'failed' && x.fails === 0 && x.asked === i + 1 && x.note === LOAD_NOTE && x.cpu && x.setting === true && x.onLine === false; }),
+          JSON.stringify(off.map(function (x) { return [x.dstate, x.fails, x.asked]; })));
+  var on = await cannotLoad(false);
+  s.check('FAIL (control, with a connection): the same failure is counted: "Did not start 3 times" at the third launch, and the fourth asks for nothing',
+          on.length === 4 && on[0].fails === 1 && on[0].dstate === 'failed' && on[0].note === LOAD_NOTE && on[2].fails === 3 && on[2].dstate === 'gaveup' &&
+          on[3].dstate === 'gaveup' && on[3].asked === 3 && on[0].onLine === true,
+          JSON.stringify(on.map(function (x) { return [x.dstate, x.fails, x.asked]; })));
 }
 
 async function testStamp(s, env) {
@@ -665,8 +744,8 @@ async function testSlow(s, env) {
             mid.state === 'running' && mid.top < mid.total && mid.note === 'Starting…', JSON.stringify(mid));
     var op = await t.eval(function () { return window.__open; });
     s.check('SLOW: the dark opening waits 1 s for the engine\'s first frame and no longer: it began to lift 1 s after the first frame, before the handover; it has lifted',
-            op.raf0 !== null && op.lift !== null && op.lift - op.raf0 >= 950 && op.lift - op.raf0 <= 1400 && op.real === null && mid.veil < 0.02,
-            JSON.stringify({ liftAfterFirstFrame: op.lift - op.raf0, real: op.real, veil: mid.veil }));
+            op.raf0 !== null && op.lift !== null && op.lift - op.raf0 >= 950 && op.lift - op.raf0 <= liftBy(op) && op.real === null && mid.veil < 0.02,
+            openingSays(op) + ', veil ' + mid.veil);
     // the handover, seen from inside the page: the frame it happens in, and the canvases 150 ms and 700 ms on
     var ho = await t.eval(function () {
       var Hg = window.Hourglass, t0 = performance.now();
@@ -726,6 +805,15 @@ async function testSlow(s, env) {
             rep.times.firstFrame > 4000 && rep.started >= 1 && rep.live === true && rep.build === ENGINE_BUILD, JSON.stringify(rep.times) + ', ' + rep.started + ' log lines of the start');
     await H.invariants(s, t, 'SLOW');
   } finally { await t.close(); }
+  // control: an app whose hold is 3 s: the veil lifts too late for the check above
+  var long = appWithout(env, [['var VEIL_HOLD_MS = 1000;', 'var VEIL_HOLD_MS = 3000;']]);
+  var t2 = await openMock(env, { seed: 9, startDelay: 4000 }, {}, { routes: [long.route] });
+  try {
+    await waitFor(t2, function () { return window.__open.lift !== null; }, 15000);
+    var op2 = await t2.eval(function () { return window.__open; });
+    s.check('SLOW (control): app.js with a hold of 3 s: the veil begins to lift 3 s after the first frame, later than the check above allows',
+            long.found && op2.lift - op2.raf0 >= 2900 && op2.lift - op2.raf0 > liftBy(op2), openingSays(op2));
+  } finally { await t2.close(); }
 }
 
 async function testWake(s, env) {
@@ -1301,8 +1389,9 @@ async function testDefaultNa(s, env) {
     s.check('DEFAULT-NA: "Needs WebGPU (iOS 26 or later). Tap to try again", the switch shown off and not disabled; the classic sand with Grain and the crack sentence',
             st.dstate === 'na' && st.note === 'Needs WebGPU (iOS 26 or later). Tap to try again' && !st.checked && !st.disabled && st.grainShown && st.crackShown,
             JSON.stringify(st));
-    s.check('DEFAULT-NA: saved: the setting on (never written off), version 2, the engine build, and this browser\'s user agent; no failure counted',
-            st.setting === true && st.v === 2 && st.build === ENGINE_BUILD && st.na === st.ua && !st.fails, JSON.stringify({ setting: st.setting, v: st.v, build: st.build, na: st.na, fails: st.fails }));
+    s.check('DEFAULT-NA: saved: the setting on (never written off), version 2, the engine build, and this browser\'s user agent with the time it was found; no failure counted',
+            st.setting === true && st.v === 2 && st.build === ENGINE_BUILD && st.na === st.ua && !st.fails && st.naAt > Date.now() - 600000 && st.naAt <= Date.now() + 1000,
+            JSON.stringify({ setting: st.setting, v: st.v, build: st.build, na: st.na, naAt: st.naAt, fails: st.fails }));
     // the next launch in the same browser: says so at once, loads nothing
     var n0 = net.hits.length;
     await t.reload();
@@ -1366,10 +1455,25 @@ async function testDefaultNa(s, env) {
   } finally { await t3.close(); }
 }
 
-/** The veil was held for the GPU sand: it began to lift once the GPU sand had taken over, or 1 s after the first frame (and not before). */
+/**
+ * The latest the veil may begin to lift, in ms after the first frame: the app's 1 s, as it can
+ * keep it. It starts that clock in its second frame, after that frame's drawing (so: by the
+ * fourth frame at the latest), and tests it once a frame, after that frame's work (so: the time
+ * from the frame before the one that lifted to the lift); 50 ms for the rest. On a quiet machine
+ * that is some 1.1 to 1.2 s; a long frame at either end moves it by its own length, no more.
+ */
+function liftBy(o) {
+  var f = (o && o.frames) || [], n = f.length;
+  if (n < 2 || o.last === null) return 1000;
+  return 1000 + (f[Math.min(3, n - 1)] - f[0]) + (o.last - f[n - 2]) + 50;
+}
+/** The veil was held for the GPU sand: it began to lift once the GPU sand had taken over, or 1 s after the first frame (and not before), and no later than liftBy. */
 function held(o) {
-  return !!o && o.raf0 !== null && o.real !== null && o.lift !== null &&
-    ((o.lift >= o.real && o.lift - o.raf0 <= 1100) || (o.lift - o.raf0 >= 950 && o.lift - o.raf0 <= 1100));
+  return !!o && o.raf0 !== null && o.real !== null && o.lift !== null && o.lift - o.raf0 <= liftBy(o) &&
+    (o.lift >= o.real || o.lift - o.raf0 >= 950);
+}
+function openingSays(o) {
+  return JSON.stringify({ real: o.real === null ? null : Math.round(o.real - o.raf0), lift: o.lift === null ? null : Math.round(o.lift - o.raf0), by: Math.round(liftBy(o)), frames: o.frames.length });
 }
 async function testDefaultMock(s, env) {
   // a first launch where Real sand can run (the mock engine): nothing saved
@@ -1383,7 +1487,7 @@ async function testDefaultMock(s, env) {
     s.check('DEFAULT-MOCK: saved: the setting on, version 2, the engine build; nothing counted, nothing kept',
             st.setting === true && st.v === 2 && st.build === ENGINE_BUILD && !st.fails && !st.na && !st.why, JSON.stringify({ setting: st.setting, v: st.v, build: st.build, fails: st.fails, na: st.na }));
     s.check('DEFAULT-MOCK: the dark opening waited for the engine\'s first frame: the veil began to lift as the GPU sand took over (or, on a slower start, after the full second)',
-            held(o), JSON.stringify({ real: o.real - o.raf0, lift: o.lift - o.raf0 }));
+            held(o), openingSays(o));
     await H.invariants(s, t, 'DEFAULT-MOCK');
   } finally { await t.close(); }
   // control: a reload that should open at once ('hourglass.openNow'): not held, and the key used once
@@ -1400,7 +1504,7 @@ async function testDefaultMock(s, env) {
     await sleep(300);
     var o3 = await t2.eval(function () { return window.__open; });
     s.check('DEFAULT-MOCK (control): ... used once: the next launch waits for the first frame again',
-            held(o3), JSON.stringify({ real: o3.real - o3.raf0, lift: o3.lift - o3.raf0 }));
+            held(o3), openingSays(o3));
   } finally { await t2.close(); }
 }
 
@@ -1466,7 +1570,7 @@ async function testBuild(s, env) {
             st.live && st.dstate === 'on' && !st.fails && !st.why && st.build === ENGINE_BUILD, JSON.stringify({ dstate: st.dstate, fails: st.fails, why: st.why, build: st.build }));
   } finally { await t.close(); }
   // "Needs WebGPU" kept for this user agent with an older engine build: tried again too
-  var t2 = await open1({ realSandNa: ua, realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: older });
+  var t2 = await open1({ realSandNa: ua, realSandNaAt: Date.now(), realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: older });
   try {
     await waitLive(t2).catch(function () {});
     var st2 = await state(t2);
@@ -1481,7 +1585,7 @@ async function testBuild(s, env) {
     s.check('BUILD (control): 3 failed launches with this engine build: "Did not start 3 times", nothing requested, Grain shown',
             st3.dstate === 'gaveup' && st3.fails === 3 && st3.requested.length === 0 && !st3.engine && st3.grainShown, JSON.stringify({ dstate: st3.dstate, fails: st3.fails, req: st3.requested.length }));
   } finally { await t3.close(); }
-  var t4 = await open1({ realSandNa: ua, realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: ENGINE_BUILD });
+  var t4 = await open1({ realSandNa: ua, realSandNaAt: Date.now(), realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: ENGINE_BUILD });
   try {
     await sleep(1500);
     var st4 = await state(t4);
@@ -1489,14 +1593,137 @@ async function testBuild(s, env) {
             st4.dstate === 'na' && st4.na === ua && st4.requested.length === 0 && !st4.engine, JSON.stringify({ dstate: st4.dstate, req: st4.requested.length }));
     await H.invariants(s, t4, 'BUILD');
   } finally { await t4.close(); }
+
+  // NA-EXPIRE: "Needs WebGPU" is believed for seven days; then it is tried again all the same
+  // (nothing here may rely on an iOS update changing the user agent)
+  var DAY = 86400000;
+  var t5 = await open1({ realSandNa: ua, realSandNaAt: Date.now() - 8 * DAY, realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: ENGINE_BUILD });
+  try {
+    await waitLive(t5).catch(function () {});
+    var st5 = await state(t5);
+    s.check('NA-EXPIRE: "Needs WebGPU" kept for this user agent eight days ago: tried again, and taken over; what was kept is gone',
+            st5.live && st5.dstate === 'on' && !st5.na && !st5.naAt && st5.requested.indexOf('/realsand/boot.mjs') >= 0, JSON.stringify({ dstate: st5.dstate, na: st5.na, naAt: st5.naAt, req: st5.requested.length }));
+  } finally { await t5.close(); }
+  var t6 = await open1({ realSandNa: ua, realSandNaAt: Date.now() - 6 * DAY, realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: ENGINE_BUILD });
+  try {
+    await sleep(1500);
+    var st6 = await state(t6);
+    s.check('NA-EXPIRE (control): kept six days ago: "na" at once, nothing requested, the user agent and its time still kept',
+            st6.dstate === 'na' && st6.na === ua && st6.naAt > 0 && st6.requested.length === 0 && !st6.engine, JSON.stringify({ dstate: st6.dstate, req: st6.requested.length }));
+  } finally { await t6.close(); }
+}
+
+/*
+ * RESTART: an engine started again in the same session (settings design 5.2). "No adapter" from a
+ * start that follows a chip that stopped answering, or one that was reset as the engine started,
+ * may only be the chip on its way back: nothing is kept, and the next launch tries again. And a
+ * start that took over gives the session its three retries back.
+ */
+var RESTART_NOTE = 'Real sand could not restart; it will try again next launch';
+async function testRestart(s, env) {
+  var NOADAPTER = { code: 'noadapter', capability: true };
+  /** plan: the mock's failPlan. hang: the first start takes over, and the watchdog fires. */
+  var run = async function (plan, hang, routes) {
+    var t = await openMock(env, { seed: 71, failPlan: plan }, { durationMs: 60000 }, { routes: routes }), out = {};
+    var settled = function () {
+      return waitFor(t, function () { var d = document.getElementById('realsand-row').getAttribute('data-state'); return d === 'paused' || d === 'na' || d === 'failed'; }, 20000).catch(function () {});
+    };
+    try {
+      if (hang) {
+        await waitLive(t);
+        await watchToasts(t);
+        await t.eval(function () { window.Hourglass.start(); });
+        await sleep(1500);
+        out.hang = await hangNow(t);
+        await t.eval(function () { window.__mockEnv.hold = false; });
+      }
+      await settled();
+      await sleep(300);
+      out.after = await state(t);
+      out.starts = await t.eval(function () { return window.__mockEnv.starts; });
+      // the next launch
+      await t.reload();
+      await waitFor(t, function () {
+        var Hg = window.Hourglass, d = document.getElementById('realsand-row').getAttribute('data-state');
+        return (!!Hg.realSand && Hg.sim === Hg.realSand) || d === 'paused' || d === 'na' || d === 'failed';
+      }, 20000).catch(function () {});
+      await sleep(300);
+      out.next = await state(t);
+      out.errors = t.errors.slice(0, 2);
+    } finally { await t.close(); }
+    return out;
+  };
+  var kept = function (st) { return { dstate: st.dstate, note: st.note, na: st.na ? (st.na === st.ua ? 'this user agent' : st.na) : '', fails: st.fails | 0, setting: st.setting, req: st.requested.length }; };
+  var nothingKept = function (st) {
+    return st.dstate === 'paused' && st.note === RESTART_NOTE && !st.na && !st.naAt && !st.fails && st.setting === true && st.checked && st.cpu && !st.engine && st.grainShown;
+  };
+  var asked = function (st) { return st.requested.indexOf('/realsand/boot.mjs') >= 0; };
+
+  // (a) the chip stops answering; the engine the watchdog starts 2 s later finds no adapter
+  var a = await run([null, NOADAPTER], true, []);
+  s.check('RESTART: the watchdog fires, and the engine started 2 s later finds no adapter: "' + RESTART_NOTE + '" (data-state paused), the classic sand with Grain shown, ' +
+          'nothing kept or counted, the setting on',
+          hangOk(a.hang) && a.starts === 2 && nothingKept(a.after) && a.errors.length === 0, JSON.stringify({ starts: a.starts, after: kept(a.after), errors: a.errors }));
+  s.check('RESTART: ... and the next launch tries again, and takes over ("On")', asked(a.next) && a.next.live && a.next.dstate === 'on' && !a.next.na, JSON.stringify(kept(a.next)));
+  // (b) the chip is reset as the engine starts ('lost'); the retry a second later finds no adapter
+  var b = await run([{ code: 'lost' }, NOADAPTER], false, []);
+  s.check('RESTART: a start cut short by a reset of the chip, and the retry a second later finds no adapter: the same, nothing kept or counted',
+          b.starts === 2 && nothingKept(b.after), JSON.stringify({ starts: b.starts, after: kept(b.after) }));
+  s.check('RESTART: ... and the next launch asks for the engine again', asked(b.next) && !b.next.na && b.next.dstate !== 'na', JSON.stringify(kept(b.next)));
+  // control: app.js that does not mark the session (as before): "Needs WebGPU" is kept for this
+  // user agent, and the next launches ask for nothing
+  var blind = appWithout(env, [["if (code === 'lost') realShaky = true;", ''], ['    realShaky = true;\n', '']]);
+  var ca = await run([null, NOADAPTER], true, [blind.route]);
+  s.check('RESTART (control): app.js that does not mark a session that saw the chip go fails the first two checks: after the watchdog, "Needs WebGPU" is kept for this user agent, ' +
+          'and the next launch asks for nothing under realsand/',
+          blind.found && hangOk(ca.hang) && ca.after.dstate === 'na' && ca.after.na === ca.after.ua && ca.next.dstate === 'na' && ca.next.requested.length === 0 && !ca.next.live,
+          JSON.stringify({ found: blind.found, after: kept(ca.after), next: kept(ca.next) }));
+  var cb = await run([{ code: 'lost' }, NOADAPTER], false, [blind.route]);
+  s.check('RESTART (control): ... and the other two: after the start cut short, the same',
+          blind.found && cb.after.dstate === 'na' && cb.after.na === cb.after.ua && cb.next.dstate === 'na' && cb.next.requested.length === 0,
+          JSON.stringify({ after: kept(cb.after), next: kept(cb.next) }));
+
+  // The retries are a start's own. Three starts cut short (the page put away as each began), the
+  // fourth takes over; the watchdog fires, and the start after it is cut short again: it is
+  // tried again, as the first three were, and nothing is counted.
+  var CUT = { code: 'hidden' };
+  var retries = async function (routes) {
+    var t = await openMock(env, { seed: 73, failPlan: [CUT, CUT, CUT, null, CUT, null] }, { durationMs: 60000 }, { routes: routes }), out = {};
+    try {
+      await waitLive(t, 30000);
+      await watchToasts(t);
+      out.first = { starts: await t.eval(function () { return window.__mockEnv.starts; }), st: await state(t) };
+      await t.eval(function () { window.Hourglass.start(); });
+      await sleep(1500);
+      out.hang = await hangNow(t);
+      await t.eval(function () { window.__mockEnv.hold = false; });
+      await waitFor(t, function () {
+        var Hg = window.Hourglass, d = document.getElementById('realsand-row').getAttribute('data-state');
+        return (!!Hg.realSand && Hg.sim === Hg.realSand) || d === 'failed' || d === 'gaveup';
+      }, 20000).catch(function () {});
+      await sleep(300);
+      out.st = await state(t);
+      out.starts = await t.eval(function () { return window.__mockEnv.starts; });
+    } finally { await t.close(); }
+    return out;
+  };
+  var r = await retries([]);
+  s.check('RESTART (retries): three starts cut short, the fourth takes over; after the watchdog the fifth is cut short too: tried again (the sixth takes over, "On"), nothing counted',
+          r.first.starts === 4 && r.first.st.live && hangOk(r.hang) && r.starts === 6 && r.st.live && r.st.dstate === 'on' && !r.st.fails,
+          JSON.stringify({ first: r.first.starts, starts: r.starts, dstate: r.st.dstate, fails: r.st.fails | 0 }));
+  var spent = appWithout(env, [['      realRetries = 0;', '      ']]);
+  var rc = await retries([spent.route]);
+  s.check('RESTART (control): app.js that never gives the retries back fails the check: the fifth start, cut short, is counted as a failed launch and not tried again',
+          spent.found && rc.first.starts === 4 && rc.starts === 5 && !rc.st.live && rc.st.dstate === 'failed' && rc.st.fails === 1,
+          JSON.stringify({ found: spent.found, starts: rc.starts, dstate: rc.st.dstate, fails: rc.st.fails | 0, note: rc.st.note }));
 }
 
 /**
  * The GPU stops answering (the mock's hold: no work completes, no readback comes) while the glass
  * runs in view; resolves at the first frame on the CPU sand, with what the swap looked like.
  */
-function hangNow(t) {
-  return t.eval(function () {
+function hangNow(t, loseAfter) {
+  return t.eval(function (loseAfter) {
     var Hg = window.Hourglass, e = window.__mockEnv, t0 = performance.now(), prev = null;
     e.hold = true;
     return new Promise(function (res) {
@@ -1509,13 +1736,15 @@ function hangNow(t) {
           return;
         }
         var rs = Hg.realSand;           // (the stopped engine, kept until the CPU sand's canvas has faded in)
+        // (the browser gives the stuck chip up: the stopped engine's device is lost while it is still kept)
+        if (loseAfter > 0) setTimeout(function () { e.device.loseIt('unknown', 'mock: the stuck chip is given up'); }, loseAfter);
         res({ ms: now - t0, prev: prev, end: Hg.timer.lastTick + Hg.timer.rem, run: Hg.timer.state,
           top: Hg.sim.nTop, total: Hg.sim.total, ledger: rs ? { top: rs.nTop, total: rs.total } : null,
           real: document.getElementById('app').classList.contains('real'), dstate: document.getElementById('realsand-row').getAttribute('data-state'),
           note: document.getElementById('realsand-note').textContent, toasts: window.__toasts.slice(), grainShown: !document.getElementById('grain-row').hidden });
       })();
     });
-  });
+  }, loseAfter || 0);
 }
 /** The swap looked right: in [3.9, 5] s, the clock's end untouched, the CPU Sim at the stopped engine's counts. */
 function hangOk(h) {
@@ -1552,13 +1781,14 @@ async function testHang(s, env) {
     var b2 = await rowState(t);
     s.check('HANG: a second time: the CPU sand again, not final, and a new engine again',
             hangOk(h2) && h2.dstate === 'lost' && b2.live && b2.creates === c0.creates + 2 && b2.watchdog === 2, JSON.stringify({ h: h2 && { ms: h2.ms, dstate: h2.dstate }, b: b2 }));
-    // 3: within ten minutes: final
+    // 3: within ten minutes: final; and 200 ms later the browser gives the stuck chip up (the
+    // stopped engine, kept 600 ms for the cross-fade, loses its device): nothing changes
     await sleep(1500);
-    var h3 = await hangNow(t);
+    var h3 = await hangNow(t, 200);
     await t.eval(function () { window.__mockEnv.hold = false; });
     await sleep(3500);
     var b3 = await rowState(t), st3 = await state(t);
-    s.check('HANG: a third time within ten minutes is final: the CPU sand for the session, the note and toast say so, no new engine',
+    s.check('HANG: a third time within ten minutes is final: the CPU sand for the session, the note and toast say so, no new engine; the stopped engine\'s device lost 200 ms later changes nothing',
             hangOk(h3) && h3.dstate === 'paused' && h3.note === HANG_FINAL && h3.toasts.indexOf(HANG_FINAL) >= 0 &&
             b3.cpu && !b3.engine && b3.gpus === 0 && b3.creates === c0.creates + 2 && b3.dstate === 'paused' && b3.run === 'running' && b3.grainShown,
             JSON.stringify({ h: h3 && { ms: h3.ms, dstate: h3.dstate, note: h3.note }, b: b3 }));
@@ -1566,6 +1796,33 @@ async function testHang(s, env) {
             st3.setting === true && !st3.fails && !st3.na && b3.watchdog === 3 && b3.hangLog === 3, JSON.stringify({ setting: st3.setting, fails: st3.fails, watchdog: b3.watchdog, log: b3.hangLog }));
     await H.invariants(s, t, 'HANG');
   } finally { await t.close(); }
+
+  // the engine the watchdog stopped loses its device 200 ms later, while it is still kept: what
+  // it says then is not heard (the note stays the watchdog's), and the new engine takes over
+  var stoppedLoss = async function (routes) {
+    var tl = await openMock(env, { seed: 65 }, { durationMs: 60000 }, { routes: routes });
+    try {
+      await waitLive(tl);
+      await watchToasts(tl);
+      await tl.eval(function () { window.Hourglass.start(); });
+      await sleep(1500);
+      var h = await hangNow(tl, 200);
+      await sleep(1000);                    // (the loss at 200 ms, the stopped engine destroyed at 600 ms)
+      var a = await rowState(tl);
+      await tl.eval(function () { window.__mockEnv.hold = false; });
+      await waitLive(tl, 15000).catch(function () {});
+      var b = await rowState(tl);
+      return { h: h, a: a, b: b, errors: tl.errors.slice(0, 2) };
+    } finally { await tl.close(); }
+  };
+  var sl = await stoppedLoss([]);
+  s.check('HANG (the stopped engine\'s device lost 200 ms after the swap): not heard: the note stays "' + HANG_MSG + '", one toast, and the new engine takes over as ever',
+          hangOk(sl.h) && sl.a.note === HANG_MSG && sl.a.dstate === 'lost' && sl.a.toasts.length === 1 && sl.b.live && sl.b.dstate === 'on' && sl.b.gpus === 1 && sl.errors.length === 0,
+          JSON.stringify({ a: { note: sl.a.note, dstate: sl.a.dstate, toasts: sl.a.toasts }, b: { live: sl.b.live, dstate: sl.b.dstate, gpus: sl.b.gpus }, errors: sl.errors }));
+  var deaf = appWithout(env, [['if (eng && eng === realEng && eng !== realStopped) onRealLost(info);', 'onRealLost(info);']]);
+  var slc = await stoppedLoss([deaf.route]);
+  s.check('HANG (control): app.js that hears every engine\'s loss fails the check: the stopped engine\'s loss rewrites the note ("the graphics chip was reset")',
+          deaf.found && hangOk(slc.h) && slc.a.note !== HANG_MSG && /was reset/.test(slc.a.note), JSON.stringify({ found: deaf.found, note: slc.a.note, dstate: slc.a.dstate }));
 
   // the glass still ends on time after a watchdog swap and the new engine's takeover
   var t2 = await openMock(env, { seed: 63 }, { durationMs: 14000 });
@@ -1661,7 +1918,8 @@ async function main() {
     var only = env.args.only;
     var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp, again: testAgain,
       slow: testSlow, wake: testWake, life: testLife, norebuild: testNoRebuild, crash: testCrash, residue: testResidue, asleep: testAsleep,
-      quiet: testQuiet, defaultna: testDefaultNa, defaultmock: testDefaultMock, migrate: testMigrate, build: testBuild, hang: testHang };
+      quiet: testQuiet, defaultna: testDefaultNa, defaultmock: testDefaultMock, migrate: testMigrate, build: testBuild, hang: testHang,
+      restart: testRestart };
     for (var k in cases) {
       if (only && only !== k) continue;
       try { await cases[k](s, env); } catch (e) {

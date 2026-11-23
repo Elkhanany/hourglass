@@ -103,8 +103,14 @@ keeps its place above the controls.
 
 Offline first. An installed copy is a snapshot of one release: the app's
 files (`SHELL`) come only from the cache named by `VERSION`, and only an
-install writes that cache, all of the files or none (`cache.addAll`), so a
-launch never runs files of two releases. Nothing refreshes them in the
+install writes that cache, all of the files or none (`cache.addAll`). When
+the last file is in, the install reads the server's `sw.js` once more and
+fails unless it still names the same `VERSION`: a deploy that came during
+the download would leave files of two releases in the cache, and such a
+copy is not kept. So an installed copy holds one release. Lookups ignore
+the server's `Vary` header (`ignoreVary`): the entries are this release's
+own files, and a lookup that missed would miss at every launch. Nothing
+refreshes them in the
 background: a new release reaches a phone only as a new `VERSION`, whose
 install fills a cache of its own; the old one is deleted when the new
 worker takes over. An install that fails (a file that would not download)
@@ -112,11 +118,15 @@ deletes the cache it made and leaves the installed release as it was.
 Should a file be missing from the cache all the same (a hole), it comes
 from the network, and the worker fills its cache again, whole, but only if
 the server's `sw.js` still names the same `VERSION`; if it names another,
-the worker looks for that release, whose install fills its own cache.
+the worker looks for that release, whose install fills its own cache (that
+one launch can run a file of the newer release beside the installed ones:
+the one case left in which two releases meet).
 Offline, a hole cannot be filled: the page then finds a script missing and
 says "Hourglass is updating. Open it again with a connection." instead of
-building anything (`app.js`'s pre-flight check), and the next launch with a
-connection repairs the copy. Other paths under the scope (the launch
+building anything (`app.js`'s pre-flight check; when `app.js` itself or the
+style sheet is the hole, the last lines of `index.html` say it), and the
+next launch with a connection repairs the copy. Other paths under the scope
+(the launch
 screens, the install screenshots) are answered from the cache and refreshed
 in the background, as before; offline, a navigation that is not cached gets
 the app's page.
@@ -260,7 +270,8 @@ These hold until a change says otherwise, with its reason.
 - **Real sand is the default, and its switch is the owner's alone** (1.10.0,
   [settings design 5](design/settings.md)): the app never writes it off. A
   browser that cannot have it is remembered by its user agent and tried
-  again after an iOS update, a new engine build or a tap; the classic sand
+  again after seven days, an iOS update that changes the user agent, a new
+  engine build or a tap; the classic sand
   is always there to run instead. The test harness seeds every page with
   Real sand off (`tools/test/lib/seed.js`) unless the test asks for it.
 - **What an iPhone allows a web app** decides a good deal: motion
