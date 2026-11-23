@@ -39,7 +39,8 @@
  *    one shader library a page (a rebuild fetches no shader) and the shaders' build checked
  *    ('stamp'); the heat guard's trip is logged;
  *  - the glass's motion (felt.mjs) as RealSand's jolts say: live by default (a 0.5 g jolt at once
- *    and as it is, 1.5 g capped at 2 g), 'film' slowed as before, plain under Reduce Motion.
+ *    and as it is, 1.5 g capped at 2 g), 'film' slowed as before, plain under Reduce Motion; asleep,
+ *    a flick wakes the glass in the frame after it begins and its push reaches the first run.
  *
  *   node tools/test/realsand-adapter.test.js
  */
@@ -836,6 +837,37 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   rY.tilt = 1.5 * Math.PI / 180; rY.wakeAll(); var woke = rY.isActive();
   rY.tilt = 0;
   check(asleep && noRuns && stillAsleep && woke, 'a paused glass at rest falls asleep (no runs for 1 s); wakeAll() wakes it only once its lean has changed by more than 1 degree since it slept');
+
+  // asleep, a jolt wakes the glass at once (a flick never woke it: it is over before felt motion has
+  // been held 0.3 s), and its first run starts from the jolt's first sample, so the push is felt;
+  // the hand's jitter (0.2 g at 9 Hz) is no jolt
+  var JW = makeApp({ ms: 10000, seed: 205 });
+  var rJW = await JW.attach(); JW.calibrate(); JW.T.rem = JW.T.durationMs;
+  JW.T.state = 'paused';
+  await JW.run(3500);
+  var jwAsleep = rJW.modes.mode === 'asleep', jwWhys = {};
+  JW.motionIn = function (a, now) { return { fx: 0.2 * Math.sin(now * 2 * Math.PI * 9 / 1000), fy: 0, w: 0 }; };
+  JW.onFrame = function () { jwWhys[rJW.modes.why] = true; };
+  await JW.run(1000);
+  JW.motionIn = null; JW.onFrame = null;
+  await JW.run(3500);
+  var jwAsleep2 = rJW.modes.mode === 'asleep', jolts0 = rJW.n.jolts, runs0J = JW.env.solver.runs;
+  JW.env.recordFields = true; JW.env.solver.fields = [];
+  var tFlick = JW.V.perf, wokeAfter = null, wokeFrames = null, framesJ = 0, firstRun = null, lastStart = tFlick;
+  // (its first frame 0.2 g, under a jolt: the glass wakes in the second, from the first's samples)
+  JW.motionIn = function (a, now) { var u = now - tFlick; return u <= 17 ? { fx: 0.2, fy: 0, w: 0 } : u <= 67 ? { fx: 2, fy: 0, w: 0 } : u <= 117 ? { fx: -2, fy: 0, w: 0 } : null; };
+  JW.onFrame = function (a) {
+    // (at the start of each frame: woken by the frame before, the first of the flick's)
+    if (wokeAfter === null && rJW.modes.mode !== 'asleep') { wokeAfter = lastStart - tFlick; wokeFrames = framesJ; }
+    if (firstRun === null && JW.env.solver.runs > runs0J) firstRun = JW.env.solver.fields.slice();
+    framesJ++; lastStart = a.V.perf;
+  };
+  await JW.run(500, { seed: 4242 });          // (frames of 1/60 s from the first)
+  JW.motionIn = null; JW.onFrame = null; JW.env.recordFields = false;
+  var gx1 = firstRun ? firstRun.map(function (f) { return f.gravity[0] / rJW.Gg; }) : [NaN], push1 = Math.max.apply(null, gx1);
+  check(jwAsleep && !jwWhys.jolt && jwAsleep2 && wokeFrames === 2 && rJW.n.jolts === jolts0 + 1 && gx1[0] > 0.05 && gx1[0] < 0.3 && push1 > 1,
+    'asleep, a flick (a frame of 0.2 g, then 2 g for 50 ms and the stop) wakes the glass in the first frame of its 2 g (' + (wokeFrames === null ? 'never' : 'frame ' + wokeFrames + ', ending ' + Math.round(wokeAfter) + ' ms after it began') +
+    '), and the first run starts from its first sample (its first substep ' + f1(gx1[0]) + ' g, then up to ' + f1(push1) + ' g); the hand\'s jitter is no jolt (' + Object.keys(jwWhys).join(', ') + ')');
 
   // a device lost while hidden (a lock): the CPU takes over with the clock untouched, the GPU comes back on return
   var Z = makeApp({ ms: 10000, seed: 131 });

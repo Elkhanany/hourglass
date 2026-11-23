@@ -194,7 +194,7 @@ export class RealSand {
     this.modeSetting = 'auto';
     this.simTime = 0;
     this._smp = []; for (let i = 0; i < SAMPLES; i++) this._smp.push(this._blankSample());
-    this._smpN = 0; this._pend = null; this._lam = LAM0; this._lastW = 0; this._lastAl = 0;
+    this._smpN = 0; this._pend = null; this._lam = LAM0; this._lastW = 0; this._lastAl = 0; this._peakA = 0;
     this._overSince = null; this._leans = []; this._motion = false;
     this._planned = false; this._planNow = 0; this._planPerf = null; this._mid = null;
     this._lastState = this.T ? this.T.state : 'idle'; this._runStart = null; this._endAt = -Infinity;
@@ -219,7 +219,7 @@ export class RealSand {
     this._css = { w: 0, h: 0, dpr: 1 };
     // (the main thread's longest pieces of work, for Gate B: building the glass, the last fill; review finding 9)
     this.times = { start: null, device: null, pipelines: null, selfTest: null, selfTestRun: null, firstFrame: null, glass: msGlass, fill: null };
-    this.n = { runs: 0, skips: 0, calmSkips: 0, asleep: 0, cssTurns: 0, transfers: 0, xferTimeouts: 0, residues: 0, fills: 0,
+    this.n = { runs: 0, skips: 0, calmSkips: 0, asleep: 0, jolts: 0, cssTurns: 0, transfers: 0, xferTimeouts: 0, residues: 0, fills: 0,
       deferred: 0, readbackFails: 0, losses: 0, rebuilds: 0, pours: 0, swaps: 0, errors: 0, refills: 0, handoverCatchUps: 0, redraws: 0, guards: 0 };
     // the owner's report on exact time, as the lab's Timer gives it (_onTally): runs read back, open
     // runs whose crossings left fewer above than their lowest target (the membrane's promise
@@ -747,6 +747,7 @@ export class RealSand {
     if (!smp.lam) smp.lam = this._lam;
     this._smp[this._smpN % SAMPLES] = smp; this._smpN++;
     this._pend = null;
+    if (smp.a > this._peakA) this._peakA = smp.a;
     this._lastW = smp.w; this._lastAl = smp.al;
     const G = this.cpu.G;
     for (let b = 0; b < 2; b++) { this.bf[2 * b] = G * Math.sin(smp.theta) + smp.ax; this.bf[2 * b + 1] = G * Math.cos(smp.theta) + smp.ay; }
@@ -1013,8 +1014,9 @@ export class RealSand {
     // the layers switch: every point re-toned from a readback (7.4)
     if (this._retoneDue) { this._retoneDue = false; this._startTransfer('retone'); this._turnCss(); return; }
     // the power mode: asleep runs nothing; calm draws every other frame at the same rate
-    const mode = this._modeFor(wall);
+    const before = this.modes.mode, mode = this._modeFor(wall);
     this._wake = false;
+    if (before === 'asleep' && mode !== 'asleep' && this.modes.why === 'jolt') this._fromJolt(now, dtReal);
     if (this.modes.guard !== this._guardOn) this._guardSays(this.modes.guard, now, mode);
     if (mode === 'asleep') {
       this.n.asleep++; this._lastDrawn = 0; this._acc = 0; this._lastRunPerf = null;
@@ -1058,6 +1060,25 @@ export class RealSand {
     this.pace.binding = gpuHeld || !!this.rate.held;
     this._frames.push({ t: now, sim: steps / hz, real: since, steps, hz, mode });
     while (this._frames.length && now - this._frames[0].t > 4000) this._frames.shift();
+  }
+
+  /**
+   * Woken from asleep by a jolt: the first run starts from the jolt's first sample (the first at
+   * or over the felt-motion threshold within the frame's cap of substeps), not from this frame,
+   * so that its push is not lost (the samples hold half a second): its substeps are the time since.
+   */
+  _fromJolt(now, dtReal) {
+    const span = 1000 * this._capFrame() / this.rate.hz, n = Math.min(this._smpN, SAMPLES);
+    let from = null;
+    for (let i = 1; i <= n; i++) {
+      const smp = this._smp[(this._smpN - i) % SAMPLES];
+      if (now - smp.t > span) break;
+      if (smp.a >= MODES.ACC_G) from = smp.t;
+    }
+    if (from === null) return;
+    this._lastRunPerf = Math.max(now - span, from - 0.001);
+    this._acc = Math.max(0, (now - this._lastRunPerf) / 1000 - dtReal);
+    this.n.jolts++;
   }
 
   /** One run: the valve's words, the field of each substep, the solver, the drawing, one submit. */
@@ -1162,7 +1183,9 @@ export class RealSand {
     else if (running && T && T.rem < T.tailMs + 300) busy = 'tail';
     else if (st === 'done' && (draining || wall - this._endAt < MODES.HOLD_MS)) busy = 'end';
     const smp = this._latest();
-    const felt = smp ? { a: smp.a, w: smp.w, alpha: smp.al, lean: smp.theta } : { a: 0, w: 0, alpha: 0, lean: this.angle + this.tilt };
+    // (peak: the hardest felt since the last frame, so that a jolt between two frames counts)
+    const felt = smp ? { a: smp.a, peak: this._peakA, w: smp.w, alpha: smp.al, lean: smp.theta } : { a: 0, peak: this._peakA, w: 0, alpha: 0, lean: this.angle + this.tilt };
+    this._peakA = 0;
     const lastNow = this._rafLog.length ? this._rafLog[this._rafLog.length - 1] : 0;
     return chooseMode(this.modes, { now: wall, setting: this.modeSetting, busy, felt, active: running || draining || !still, still,
       pending: !!(this.flipping || v.flipPending || v.xfer || this._fillDue), ratio: this._ratio(lastNow), atBase: this.rate.hz === SET.hz });

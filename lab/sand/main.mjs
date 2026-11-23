@@ -185,6 +185,8 @@ let readbackOk = 0, readbackFails = 0, readbackErr = '', readbackWarned = false;
 // the power mode's state (timer.mjs chooseMode), and the glass's felt motion at the last substep
 const modes = newModes();
 let feltNow = { a: 0, w: 0, alpha: 0, lean: 0 };
+// the hardest felt since the power mode was last chosen (a jolt between two frames wakes the glass)
+let feltPeak = 0;
 let sleptFrames = 0, calmFrames = 0;
 // the GPU's cost by a burst (design 9.3), each measured this visit
 const bursts = [];
@@ -450,6 +452,7 @@ function feltSample() {
   }
   // (what the power modes read: the glass's own acceleration, its turning, and the lean of the pull)
   feltNow = { a: Math.hypot(lax, lay), w, alpha: a, lean: Math.atan2(gx, gy) };
+  if (feltNow.a > feltPeak) feltPeak = feltNow.a;
   return { gx, gy, w, a, lax, lay };
 }
 /** The field for the next substep, in the glass's frame (advances the clock). */
@@ -792,7 +795,9 @@ function modeFor(now, ratio) {
   else if (T && T.state === 'running' && T.runStart !== null && now - T.runStart < MODES.START_MS) busy = 'start';
   else if (T && T.state === 'running' && T.rem < T.clk.tailMs + 300) busy = 'tail';
   else if (T && T.state === 'done' && (draining || (T.end && now - T.end.zeroAt < MODES.HOLD_MS))) busy = 'end';
-  return chooseMode(modes, { now, setting: S.mode, busy, felt: feltNow, active: running || draining || !still, still,
+  const felt = { ...feltNow, peak: feltPeak };
+  feltPeak = 0;
+  return chooseMode(modes, { now, setting: S.mode, busy, felt, active: running || draining || !still, still,
     pending: !!(T && (T.turning || T.valve.flipPending)), ratio, atBase: rate.hz === S.hz });
 }
 /** Simulated over real time over the last second of frames drawn (NaN: under half a second of them). */

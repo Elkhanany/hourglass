@@ -23,7 +23,10 @@
  *    Felt motion that counts (design 9.1): the glass's acceleration |a| >= 0.05 g, turning
  *    |w| >= 0.5 rad/s or |alpha| >= 5 rad/s^2, held for 0.3 s; or a change of lean of 3 degrees
  *    within 0.5 s. A phone held in the hand passes the app's own idle thresholds every frame,
- *    so these are coarser. Asleep, the glass also wakes once its lean has changed by more than
+ *    so these are coarser. A jolt counts at once: |a| >= JOLT_G (0.3 g) at any moment since the
+ *    last frame (felt.peak, else felt.a), so that a flick wakes a glass asleep in the frame it
+ *    comes (it never did: it is over before 0.3 s) and a shake within a frame or two (it took
+ *    0.25 to 0.45 s), while the hand's jitter (0.28 g and less) and handling do not. Asleep, the glass also wakes once its lean has changed by more than
  *    1 degree since it fell asleep (design 9.1: the app's wakeAll), however slowly.
  *    The heat guard: in mode 'auto', when the simulated time stays under 0.6 of real time for
  *    20 s in a row while full (any other frame starts the count again), the glass runs calm until
@@ -39,6 +42,7 @@ export const MODES = {
   LEAN_MS: 500, LEAN_DEG: 3,
   WAKE_DEG: 1,          // asleep: a change of lean since it fell asleep that wakes it
   ACC_G: 0.05, W: 0.5, ALPHA: 5,
+  JOLT_G: 0.3,          // a jolt: felt motion this strong counts at once, not held
   STILL_MS: 500,        // asleep once still this long
   CALM_FPS: 30,
   GUARD_RATIO: 0.6, GUARD_MS: 20000
@@ -63,7 +67,8 @@ export function modesReset(m, now = 0, hold = MODES.HOLD_MS) {
  *   now (ms), setting ('auto' | 'full' | 'calm'),
  *   busy: something asks for full now (a turn, a finger on the glass, a pour, the run's start,
  *         its tail and end, a swap waiting for its flip pass) - a reason string or '';
- *   felt: { a (g), w (rad/s), alpha (rad/s^2), lean (rad) } the glass's felt motion now;
+ *   felt: { a (g), w (rad/s), alpha (rad/s^2), lean (rad) } the glass's felt motion now, and
+ *         peak (g): the largest a since the last frame (a jolt between two frames);
  *   active: the glass is running or draining, or the sand is not still;
  *   still: the newest readback shows the sand still; pending: a swap or a transfer is owed;
  *   ratio: simulated over real time over the last second (NaN: not known);
@@ -78,6 +83,7 @@ export function chooseMode(m, o) {
   if (over) { if (m.feltSince === null) m.feltSince = now; } else m.feltSince = null;
   let why = o.busy || '';
   if (!why && m.feltSince !== null && now - m.feltSince >= M.FELT_MS) why = 'felt motion';
+  if (!why && Math.max(f.a || 0, f.peak || 0) >= M.JOLT_G) why = 'jolt';
   m.leans.push({ t: now, v: f.lean || 0 });
   while (m.leans.length > 2 && now - m.leans[0].t > M.LEAN_MS) m.leans.shift();
   if (!why) {
