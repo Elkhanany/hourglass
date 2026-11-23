@@ -11,12 +11,20 @@
  *     without a version, storage that throws). Each must give the same settings (the same keys
  *     in the same order, the same values), the same saved JSON byte for byte, the same calls on
  *     storage and the same answer to "was a duration asked for"; and again on a second launch
- *     from what was saved.
+ *     from what was saved. And so must app.js's Settings section of today, the few lines that
+ *     call the store, run as they run in app.js (cut by its banners) over the store.
+ *     The old section knows the 30 keys the app had before the store. They are the store's
+ *     first records, in their order; a record added since comes after them, and is left out of
+ *     this comparison (out of the values, and out of the saved JSON where a save was written),
+ *     so a new setting needs no change here.
  *  3. The migrations: the version step (Real sand on, once, for a save from before version 2),
- *     and a record's `from` (the value for a save without the key), on a made-up store.
- *  4. save(), a blocked storage, bindSwitch (set, save, then the callback, inside the event),
+ *     and a record's `from` (the value for a save without the key), on a made-up store; every
+ *     record of the app with a `from` has its example in FROM below.
+ *  4. The names: every settings.<name> in app.js is a record, and every record is used there.
+ *  5. save(), a blocked storage, bindSwitch (set, save, then the callback, inside the event),
  *     and that the file reads nothing when it loads.
- * Each rule has its control: a store or a table that breaks it must fail the same check.
+ * Each rule has its control: a store, a table or a copy of app.js that breaks it must fail the
+ * same check.
  *
  *   node tools/test/settings-unit.test.js [--base <commit>] [--write]
  *
@@ -27,6 +35,7 @@
 var fs = require('fs'), path = require('path'), vm = require('vm'), crypto = require('crypto');
 var paths = require('./lib/paths.js');
 var base = require('./lib/base.js');
+var scan = require('./lib/scan.js');
 var ROOT = paths.ROOT;
 var count = 0, failures = 0;
 function check(ok, what, detail) {
@@ -84,6 +93,7 @@ function Storage(text, mode) {
       st.ops.push('set ' + k);
       if (st.mode === 'noset') throw new Error('QuotaExceededError');
       st.data[k] = String(v);
+      st.wrote = true;
     }
   };
   /** Reaching the storage itself (window.localStorage): where storage is blocked, this throws. */
@@ -107,16 +117,67 @@ function runRef(text, search, mode) {
   out.ops = st.ops; out.reached = st.reached;
   return out;
 }
-/** One launch of a store: load, then save. `how`: the storage handed over as the function (as app.js does) or as the object. */
-function runStore(store, text, search, mode, how) {
-  var st = Storage(text, mode);
-  var values = store.load(how === 'object' ? st.api : st.reach, search, REG);
-  var p = store.preset(search);
-  var out = { values: entries(values), asked: p ? p.durationMs : null };
-  store.save(values);
-  out.json = Object.prototype.hasOwnProperty.call(st.data, KEY) ? st.data[KEY] : null;
-  out.ops = st.ops; out.reached = st.reached;
+// The keys the app had before the store (30): the old section's, which the store's first records
+// must be, in that order. A record added since comes after them.
+var OLD = runRef(null, '', 'ok').values.length;
+/**
+ * A launch over a store, held to the old keys: the keys added since are taken out of the
+ * values, and out of the saved JSON where this launch wrote it (the whole save is kept as
+ * `full`: the second launch starts from it).
+ */
+function oldKeysOnly(out, keys, wrote) {
+  var newer = keys.slice(OLD), o;
+  out.full = out.json;
+  if (!newer.length) return out;
+  out.values = out.values.filter(function (e) { return newer.indexOf(e[0]) < 0; });
+  if (out.json !== null && wrote) {
+    o = JSON.parse(out.json);
+    newer.forEach(function (k) { delete o[k]; });
+    out.json = JSON.stringify(o);
+  }
   return out;
+}
+/**
+ * A store as a launch: load, then save. `how`: the storage handed over as the function (as
+ * app.js does) or as the object.
+ */
+function storeRun(store, how) {
+  return function (text, search, mode) {
+    var st = Storage(text, mode);
+    var values = store.load(how === 'object' ? st.api : st.reach, search, REG);
+    var p = store.preset(search);
+    var out = { values: entries(values), asked: p ? p.durationMs : null };
+    store.save(values);
+    out.json = Object.prototype.hasOwnProperty.call(st.data, KEY) ? st.data[KEY] : null;
+    out.ops = st.ops; out.reached = st.reached;
+    return oldKeysOnly(out, store.KEYS, st.wrote);
+  };
+}
+/**
+ * A Settings section of app.js over a store, as a launch: the section run as it runs in
+ * app.js (strict, inside a function), where window.HourglassSettings is the store and
+ * localStorage, location and P are the test's; then its save(). A section that throws is a
+ * launch that built nothing.
+ */
+function sectionRun(text0, store) {
+  var box = { P: { THEMES: THEMES }, location: { search: '' }, HourglassSettings: store, __storage: null };
+  Object.defineProperty(box, 'localStorage', { get: function () { return box.__storage(); }, enumerable: true });
+  box.window = box;
+  vm.createContext(box);
+  var script = new vm.Script('(function () {\n\'use strict\';\n' + text0 + '\nreturn { settings: settings, save: save, qt: qt };\n})()', { filename: 'app.js, Settings (persisted)' });
+  return function (text, search, mode) {
+    var st = Storage(text, mode), r, out;
+    box.__storage = st.reach;
+    box.location = { search: search };
+    try { r = script.runInContext(box); } catch (e) {
+      return { values: [['(the section threw: ' + e.message + ')', true]], asked: null, json: null, full: null, ops: st.ops, reached: st.reached };
+    }
+    out = { values: entries(r.settings), asked: r.qt ? r.qt.durationMs : null };
+    r.save();
+    out.json = Object.prototype.hasOwnProperty.call(st.data, KEY) ? st.data[KEY] : null;
+    out.ops = st.ops; out.reached = st.reached;
+    return oldKeysOnly(out, store.KEYS, st.wrote);
+  };
 }
 function show(v) { return typeof v === 'number' && 1 / v === -Infinity ? '-0' : typeof v === 'string' ? JSON.stringify(v) : String(v); }
 /** How two launches differ: [] when they are the same. */
@@ -134,16 +195,17 @@ function differ(a, b) {
   return out;
 }
 /**
- * A case on the old loader and on a store: the first launch, and a second one from what the
- * first saved. (Handed the Storage itself, a store never reaches for it: that count is left out.)
+ * A case on the old loader and on a launch over the store (storeRun, sectionRun): the first
+ * launch, and a second one from what the first saved. (`handed`: the Storage was handed over
+ * itself, so the store never reaches for it, and that count is left out.)
  */
-function compare(store, c, how) {
-  var a = runRef(c.text, c.search, c.mode), b = runStore(store, c.text, c.search, c.mode, how);
-  if (how === 'object') b.reached = a.reached;
+function compare(run, c, handed) {
+  var a = runRef(c.text, c.search, c.mode), b = run(c.text, c.search, c.mode);
+  if (handed) b.reached = a.reached;
   var out = differ(a, b);
   if (!out.length && a.json !== null) {
-    var a2 = runRef(a.json, '', 'ok'), b2 = runStore(store, b.json, '', 'ok', how);
-    if (how === 'object') b2.reached = a2.reached;
+    var a2 = runRef(a.json, '', 'ok'), b2 = run(b.full, '', 'ok');
+    if (handed) b2.reached = a2.reached;
     out = differ(a2, b2).map(function (d) { return 'second launch: ' + d; });
   }
   return out;
@@ -172,8 +234,10 @@ check(S.KEY === KEY && table.length === 0 && S.KEYS.join() === ids.join() && S.R
   'the store has ' + S.RECORDS.length + ' records, well formed (an id, a default that is a string, a number or a boolean), under \'' + S.KEY + '\'', table.join('; '));
 var bad = tableProblems([{ id: 'a', default: 1 }, { id: 'a', default: null }, { id: 'b', default: 'x', valid: 1, to: 2 }, { default: 2 }, { id: 'c', default: 1 / 0 }]);
 check(bad.length === 6, '... and a table with an id twice, a default of null, a valid that is no function, an unknown field, no id and a default that is not finite fails that (control)', bad.join('; '));
-var was = fresh.values.map(function (e) { return e[0] + '=' + show(e[1]); }).join(' '), now = S.RECORDS.map(function (r) { return r.id + '=' + show(r.default); }).join(' ');
-check(was === now, 'the records\' ids and defaults are the old settings\', in the same order (' + fresh.values.length + ' keys, theme to v)', was === now ? '' : now + '  for  ' + was);
+function firstRecords(records) { return records.slice(0, OLD).map(function (r) { return r.id + '=' + show(r.default); }).join(' '); }
+var was = fresh.values.map(function (e) { return e[0] + '=' + show(e[1]); }).join(' '), now = firstRecords(S.RECORDS);
+check(was === now && OLD === 30, 'the first ' + OLD + ' records are the old settings\', ids and defaults, in the same order (theme to v)' +
+  (S.RECORDS.length > OLD ? '; ' + (S.RECORDS.length - OLD) + ' added since come after them: ' + S.KEYS.slice(OLD).join(', ') : ''), was === now ? '' : now + '  for  ' + was);
 check(S.VERSION === 2 && S.STEPS.length === 1 && S.STEPS[0].v === 2, 'the settings\' version is 2, with one version step');
 
 /* ---- 2. the loader, differential ------------------------------------------------------- */
@@ -219,7 +283,7 @@ function oneCase() {
   var present = kind === 'sparse' ? 0.3 : kind === 'full' ? 0.9 : kind === 'damaged' ? 0.7 : 1;
   var pWrong = kind === 'damaged' ? 0.3 : kind === 'typical' ? 0 : 0.06, pOdd = kind === 'damaged' ? 0.4 : kind === 'typical' ? 0 : 0.15;
   var parts = [], c = { missing: false, wrongType: false, odd: false, hasV: false };
-  S.RECORDS.forEach(function (r) {
+  S.RECORDS.slice(0, OLD).forEach(function (r) {         // (the old keys: a record added since changes none of the 500)
     var t = typeof r.default, x;
     if (r.id === 'v' ? rand() < 0.5 : rand() >= present) { c.missing = true; return; }
     if (rand() < pWrong) { x = rand() < 0.5 ? pick(WRONG) : pick(ODD[t === 'string' ? 'number' : t === 'number' ? 'boolean' : 'string']); c.wrongType = true; }
@@ -277,21 +341,49 @@ check(CASES.length === 500 && tally.missing >= 300 && tally.wrongType >= 150 && 
   tally.odd + ' with one out of range, ' + tally.query + ' with "?t=", ' + tally.withV + ' with a version and ' + tally.withoutV + ' without, ' + tally.throws +
   ' on a storage that throws, ' + tally.notJson + ' that are not JSON, ' + tally.notObject + ' that are no object');
 
-/** The cases on which a store differs from the old loader: [{ i, how, ... }]. */
-function differing(store, how) {
+/** The cases on which a launch over the store differs from the old loader: [{ i, how, ... }]. */
+function differing(run, handed) {
   var out = [];
   CASES.forEach(function (c, i) {
-    if (how === 'object' && c.mode === 'blocked') return;       // (a Storage in hand cannot be out of reach)
-    var d = compare(store, c, how);
+    if (handed && c.mode === 'blocked') return;                 // (a Storage in hand cannot be out of reach)
+    var d = compare(run, c, handed);
     if (d.length) out.push({ i: i, how: d[0], text: c.text, search: c.search, mode: c.mode });
   });
   return out;
 }
 function first(list) { return list.slice(0, 3).map(function (d) { return '#' + d.i + ' ' + JSON.stringify(d.text) + ' ' + d.search + ' (' + d.mode + '): ' + d.how; }).join(' | '); }
-var dFn = differing(S, 'function'), dObj = differing(S, 'object');
+var dFn = differing(storeRun(S, 'function')), dObj = differing(storeRun(S, 'object'), true);
 check(dFn.length === 0, 'the loader: on all 500, the store gives what the old section gave: the same settings in the same order, the same saved JSON byte for byte, ' +
   'the same calls on storage, the same answer to "?t=", and the same again on a second launch', first(dFn));
 check(dObj.length === 0, '... and the same with the Storage handed over itself instead of the function that reaches it', first(dObj));
+
+// app.js's own Settings section: the few lines that call the store, run as app.js runs them
+var APP_FILE = paths.script('app.js'), APP_SRC = paths.piece(APP_FILE);
+var APP_SECTION = base.section(APP_SRC, 'Settings (persisted)');
+var dApp = differing(sectionRun(APP_SECTION, S));
+check(dApp.length === 0 && /Store\.load\(/.test(APP_SECTION) && !/getItem|JSON\.parse/.test(APP_SECTION),
+  APP_FILE + '\'s own Settings section (' + (APP_SECTION.split('\n').length - 1) + ' lines, cut by its banners: the call to the store), run as ' + APP_FILE +
+  ' runs it, gives the same on all 500, the count of times storage is reached too', first(dApp));
+// controls: the section with one thing changed in a line that calls the store
+var blockedCases = CASES.filter(function (c) { return c.mode === 'blocked'; }).length;
+var SECTION_CONTROLS = [
+  ['the Storage handed over itself, so that a blocked storage is reached outside the store\'s try', /Store\.load\(function \(\) \{ return localStorage; \}/, 'Store.load(localStorage',
+    function (d) { return d.filter(function (x) { return x.mode === 'blocked' && /the section threw/.test(x.how); }).length === blockedCases && blockedCases >= 10; }],
+  ['the preset asked without the query', /Store\.preset\(location\.search\)/, 'Store.preset()',
+    function (d) { return d.length === tally.query && d.every(function (x) { return /duration asked null/.test(x.how); }); }],
+  ['the settings loaded without the query', /(Store\.load\([^\n]*?)location\.search/, '$1\'\'', function (d) { return d.length >= 60 && d.every(function (x) { return !!S.preset(x.search); }); }],
+  ['the settings loaded without the themes', /\{ themes: P\.THEMES \}/, '{}', function (d) { return d.length === 500; }],
+  ['a save() that saves nothing', /function save\(\) \{ Store\.save\(settings\); \}/, 'function save() {}', function (d) { return d.length >= 400; }]
+];
+var weakSection = [];
+SECTION_CONTROLS.forEach(function (c) {
+  var copy = APP_SECTION.replace(c[1], c[2]);
+  if (copy === APP_SECTION) { weakSection.push(c[0] + ': the copy is the section itself'); return; }
+  var d = differing(sectionRun(copy, S));
+  if (!c[3](d)) weakSection.push(c[0] + ': ' + d.length + ' of 500 differ' + (d.length ? ', the first ' + first(d.slice(0, 1)) : ''));
+});
+check(weakSection.length === 0, '... and that section with one thing changed (' + SECTION_CONTROLS.map(function (c) { return c[0]; }).join('; ') +
+  ') is found out, the first on each of the ' + blockedCases + ' launches whose storage cannot be reached (control)', weakSection.join(' | '));
 
 // controls: stores that differ from the old loader in one thing each must be found out
 function variant(change) {
@@ -301,7 +393,7 @@ function variant(change) {
   return S.make(o.records, o.steps, o.repair);
 }
 var plainCopy = variant(function () {});
-var dCopy = differing(plainCopy, 'function');
+var dCopy = differing(storeRun(plainCopy, 'function'));
 check(dCopy.length === 0, 'a store made again from the same records, steps and repairs gives the same on all 500 (the controls below change one thing each)', first(dCopy));
 var CONTROLS = [
   ['two records in another order (volume after muted)', function (o) { var a = o.records[2]; o.records[2] = o.records[3]; o.records[3] = a; }, 500],
@@ -316,11 +408,25 @@ var CONTROLS = [
 ];
 var weak = [];
 CONTROLS.forEach(function (c) {
-  var n = differing(variant(c[1]), 'function').length;
+  var n = differing(storeRun(variant(c[1]), 'function')).length;
   if (n < c[2]) weak.push(c[0] + ': ' + n + ' of 500 differ, at least ' + c[2] + ' expected');
 });
 check(weak.length === 0 && S.RECORDS[2].id === 'volume' && S.RECORDS[18].id === 'motionSign' && S.RECORDS[22].id === 'grain',
   '... and each of ' + CONTROLS.length + ' stores that differ in one thing (the records\' order, the version step, the theme\'s check, a range, the zero\'s sign, the repairs, "?t=") is found out by the 500 (control)', weak.join('; '));
+
+// a record added since the store: after the old ones it changes nothing here (this file needs no
+// change for a new setting); among them it is found out
+var ADDED = { id: 'posts', default: true, from: function (saved) { return saved.frame; } };
+var atEnd = variant(function (o) { o.records.push(ADDED); }), among = variant(function (o) { o.records.splice(10, 0, ADDED); });
+var dEnd = differing(storeRun(atEnd, 'function')), dEndApp = differing(sectionRun(APP_SECTION, atEnd)), dAmong = differing(storeRun(among, 'function'));
+var endSt = Storage('{"v":2,"frame":false}', 'ok'), endValues = atEnd.load(endSt.reach, '', REG);
+atEnd.save(endValues);
+check(dEnd.length === 0 && dEndApp.length === 0 && atEnd.KEYS.length === OLD + 1 && firstRecords(atEnd.RECORDS) === was &&
+      endValues.posts === false && /,"v":2,"posts":false\}$/.test(endSt.data[KEY]),
+  'a store with a record added after the old ones (a switch made from an older key) gives the same on all 500, by itself and under ' + APP_FILE +
+  '\'s section: its key is left out of the comparison, and is loaded, migrated and saved last', first(dEnd.concat(dEndApp)) + ' ' + endSt.data[KEY]);
+check(dAmong.length === 500 && firstRecords(among.RECORDS) !== was, '... and the same record put among the old ones is found out, by the 500 and by the records\' order (control)',
+  dAmong.length + ' of 500 differ');
 
 /* ---- 3. the migrations ----------------------------------------------------------------- */
 function loadOf(store, saved, search) {
@@ -367,7 +473,68 @@ var fBad = F.filter(function (c) { var r = loadOf(M, c[0]); return M.KEYS.map(fu
 check(fBad.length === 0 && M.VERSION === 3 && calls.length > 0 && calls.every(Boolean),
   'a record\'s `from` gives the value for a save without its key (and only then; another type, or a throw, is the default), and the steps run in order for an older save (a made-up store, ' + F.length + ' cases)', fBad.join('; '));
 
-/* ---- 4. save, a blocked storage, bindSwitch, loading ------------------------------------ */
+// every record of the app that has a `from` is tried on a save of its own: the saved object (without
+// the key), and the value it must come up with, which is not the default (a `from` that reads a
+// misspelt older key gives the default without a word). None has one yet.
+var FROM = {
+  // sand: [{ v: 2, theme: 'lapis' }, 'blue']
+};
+/** What is wrong between a store's `from` records and their examples: [] when each has one that holds. */
+function fromProblems(store, examples) {
+  var out = [];
+  store.RECORDS.forEach(function (r) {
+    var ex = examples[r.id], got;
+    if (!r.from) return;
+    if (!ex) { out.push(r.id + ' has a from and no example'); return; }
+    if (Object.prototype.hasOwnProperty.call(ex[0], r.id)) { out.push(r.id + ': its example holds the key itself, so its from never runs'); return; }
+    if (Object.is(ex[1], r.default)) { out.push(r.id + ': its example comes up with the default, which a from that reads nothing gives too'); return; }
+    got = loadOf(store, ex[0]).values[r.id];
+    if (!Object.is(got, ex[1])) out.push(r.id + ': ' + show(got) + ' for ' + show(ex[1]) + ', from ' + JSON.stringify(ex[0]));
+  });
+  Object.keys(examples).forEach(function (id) {
+    if (!store.RECORDS.some(function (r) { return r.id === id && r.from; })) out.push('an example for ' + id + ', which is no record with a from');
+  });
+  return out;
+}
+var withFrom = S.RECORDS.filter(function (r) { return r.from; }).map(function (r) { return r.id; }), fp = fromProblems(S, FROM);
+check(fp.length === 0, 'every record with a `from` has its example, which comes up with the value named and not with the default (' +
+  (withFrom.length ? withFrom.join(', ') : 'no record has one yet') + ')', fp.join('; '));
+var MF = S.make([
+  { id: 'frame', default: true },
+  { id: 'posts', default: true, from: function (saved) { return saved.frame; } },
+  { id: 'caps', default: true, from: function (saved) { return saved.fraem; } }             // (misspelt)
+], []);
+var f1 = fromProblems(MF, { posts: [{ frame: false }, false] }), f2 = fromProblems(MF, { posts: [{ frame: false }, false], caps: [{ frame: false }, false] });
+var f3 = fromProblems(MF, { posts: [{ frame: true }, true], caps: [{ frame: false, caps: false }, false], frame: [{}, false] });
+check(f1.join() === 'caps has a from and no example' && f2.length === 1 && /^caps: true for false/.test(f2[0]) &&
+      f3.length === 3 && /posts: its example comes up with the default/.test(f3[0]) && /caps: its example holds the key itself/.test(f3[1]) && /an example for frame/.test(f3[2]),
+  '... and a `from` without an example, one that reads a misspelt key, an example that proves nothing and one for a record without a `from` are each found (control, a made-up store)',
+  [f1.join('; '), f2.join('; '), f3.join('; ')].join(' | '));
+
+/* ---- 4. the names app.js uses ----------------------------------------------------------- */
+/**
+ * What is wrong between the settings a controller names and a store's records: [] when every
+ * settings.<name> in its code (strings and comments are not code) is a record, every record
+ * but the version is named there, and no setting is read by a computed name.
+ */
+function nameProblems(src, keys) {
+  var used = scan.members(src, 'settings'), out = [];
+  used.forEach(function (n) { if (keys.indexOf(n) < 0) out.push('settings.' + n + ' is no record of the store'); });
+  keys.forEach(function (k) { if (k !== 'v' && used.indexOf(k) < 0) out.push('the record ' + k + ' is named nowhere'); });
+  if (/(?<![.\w$])settings\s*\[/.test(scan.blank(src).code)) out.push('a setting is read as settings[…], which this check cannot follow');
+  return out;
+}
+var usedNames = scan.members(APP_SRC, 'settings'), np = nameProblems(APP_SRC, S.KEYS);
+check(np.length === 0 && usedNames.length >= 29, 'every settings.<name> in ' + APP_FILE + ' is a record of the store (' + usedNames.length + ' names), and every record but the version is named there',
+  np.join('; '));
+var typo = APP_SRC.replace('settings.chime = e.target.checked;', 'settings.chmie = e.target.checked;');
+var n1 = nameProblems(typo, S.KEYS), n2 = nameProblems(APP_SRC, S.KEYS.concat(['posts'])), n3 = nameProblems(APP_SRC + '\nvar k = settings[name];', S.KEYS);
+var n4 = nameProblems(APP_SRC + '\n// settings.inAComment\nvar t = "settings.inAString";', S.KEYS);
+check(typo !== APP_SRC && n1.join() === 'settings.chmie is no record of the store' && n2.join() === 'the record posts is named nowhere' && n3.length === 1 && /settings\[/.test(n3[0]) && n4.length === 0,
+  '... and a copy of ' + APP_FILE + ' that writes settings.chmie, a record it never names and a setting read by a computed name are each found; a name in a comment or a string is not one (control)',
+  [n1.join('; '), n2.join('; '), n3.join('; '), n4.join('; ')].join(' | '));
+
+/* ---- 5. save, a blocked storage, bindSwitch, loading ------------------------------------ */
 var st1 = Storage('{"v":2,"realSand":false,"theme":"lapis"}', 'ok'), v1 = S.load(st1.reach, '', REG);
 v1.volume = 0.25; S.save();
 var v2 = S.load(st1.reach, '', REG);
