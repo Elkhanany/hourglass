@@ -373,14 +373,14 @@ Inside `submit`: the sound's landings are due (section 8); nothing more while
 hidden; a stall of readbacks is a loss; a transfer in flight holds the runs,
 and is abandoned after 1 s (7.6); a fill put off while hidden is uploaded; a
 transfer, the residue and a re-tone go before any run; then the power mode
-(9.1). Asleep, nothing runs, but a picture whose look changed (a palette, a
-canvas of a new size, back from hidden, a new bed) is drawn again by a run of
-no substeps. Calm draws 30 frames a second. A run is skipped when two
+(9.1). Asleep, no substep runs; a picture whose look changed (a new palette,
+a resized canvas, a page back in view, a new bed) is drawn again by a run of
+zero substeps. Calm draws 30 frames a second. A run is skipped when two
 frames of work are in flight or every readback slot is taken (and the canvas
 is turned by CSS, 6.6). Otherwise the run: the substeps the GPU's budget and
 the rate allow (none in the Reset's first phase), the valve's words for each
 (3.5), the field of each (5.2), the tally, the tone pass (7.4), the grains
-drawn, one submit. Its readback comes back some frames later and is read
+drawn, one submit. The run's readback arrives some frames later and is read
 against the ledger.
 
 ### 5.2 The field
