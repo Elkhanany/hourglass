@@ -20,16 +20,19 @@
  *     0.01 g s; a sustained shake (1.5 g at 5 Hz, 2 s) gives at least twice what the film held
  *     0.5 s behind gave, and within 15 % of what the film gives with no limit to its lag;
  *  3. the hand's jitter (0.2, 0.1 and 0.08 g at 9, 12.3 and 6 Hz), below the knee, passes live
- *     exactly as felt (each substep the smoothed input itself), as does a lift of 0.8 g (under
- *     its own knee of 1 g, though over the sideways one) and a 3 g press; the film plays the same
- *     jitter about 0.5 s late (control);
+ *     exactly as felt (each substep the smoothed input itself), as does all of a push off or
+ *     into the floor: a lift of 0.8 g and of 1.5 g (over the knee along the floor) and a 3 g
+ *     press; the film plays the same jitter about 0.5 s late (control);
  *  4. the reservoir keeps the impulse: for a push the cap holds back (2.5 g for 40 ms), what is
  *     felt beyond the knee plus what is still owed is exactly the push's excess times the gain;
  *     the cap holds (never over 2 g on an axis, or the hand's own acceleration when higher) on
  *     every input here; a phone swung round (6 g held for 2 s) is felt no more 0.2 s after it
  *     stops, where an unbounded reservoir (control) still pushes 1 s after;
- *  5. lift: a vertical shake (1.5 g at 5 Hz) gives a bed the lift beyond 1 g that the film with
- *     no limit to its lag gives, within 15 %;
+ *  5. a shake up and down (1.5 g at 5 Hz) is not turned into a lift: live gives the bed the
+ *     hand's own net push over it, within 0.005 g s, every substep the hand's own (control: a
+ *     knee for lift at 1 g, with pressing as it is, as built first, gives it a net lift of over
+ *     0.2 g s, and on the GPU sand threw the bed up in a column; the film's lift beyond 1 g,
+ *     spread over some 7 s, and the knee's, given at the hand's 5 Hz, are logged);
  *  6. under a sustained shake the film sits about 0.5 s behind the hand (its play head 0.45 to
  *     0.5 s behind for the shake's last second, and it pushes the bed beyond its friction 0.45 s
  *     or more after the hand stops: the control, the owner's "about 0.5 sec delay"); live: 50 ms
@@ -42,7 +45,13 @@
  *     firm and vigorous shakes): the film is 0.25 s behind or more for over 80 % of the moving
  *     time (the control), live's output best matches its input at a lag of 40 ms or less (the
  *     smoothing, and a hard shake's peaks over the cap paid just after), and while the phone is
- *     only handled (gentle) live is exactly what the phone felt.
+ *     only handled (gentle) live is exactly what the phone felt;
+ *  9. however the phone is held: live takes its knees in the frame of the sand's gravity (psi),
+ *     so that the same shakes and flick, along the floor or into it, give the bed the same push
+ *     in its own frame upright, leaning 30 degrees, on either side and upside down (within
+ *     1e-9 g), and an even shake along the floor on its side no net push (within 0.005 g s);
+ *     control: the knees in page axes (psi not given) give a bed on its side about a third of
+ *     the slide along its floor (the push beyond the knee) that it gets upright.
  *
  *   node tools/test/realsand-felt.test.js
  */
@@ -70,6 +79,7 @@ var IN = {
   swing: function (t) { return [t >= 0.2 && t < 2.2 ? 6 : 0, 0]; },
   vshake: function (t) { return [0, t > 0.2 && t < 2.2 ? 1.5 * Math.sin(TAU * 5 * (t - 0.2)) : 0]; },
   lift08: function (t) { return [0, t >= 0.2 && t < 0.6 ? -0.8 : 0]; },
+  lift15: function (t) { return [0, t >= 0.2 && t < 0.6 ? -1.5 : 0]; },
   press3: function (t) { return [0, t >= 0.2 && t < 0.6 ? 3 : 0]; }
 };
 
@@ -157,12 +167,12 @@ async function main() {
   var jL = play(IN.jitter, {}, 2.5), jF = play(IN.jitter, { mode: 'film' }, 2.5), jP = play(IN.jitter, { mode: 'plain' }, 2.5);
   var exact = true, jPeak = 0;
   for (i = 0; i < jL.t.length; i++) { if (jL.ox[i] !== jL.x1[i] || jL.oy[i] !== jL.y1[i] || jP.ox[i] !== jL.ox[i]) exact = false; jPeak = Math.max(jPeak, Math.abs(jL.x[i])); }
-  var lift = play(IN.lift08, {}, 1), press = play(IN.press3, {}, 1), exact2 = true;
-  for (i = 0; i < lift.t.length; i++) if (lift.oy[i] !== lift.y1[i] || press.oy[i] !== press.y1[i]) exact2 = false;
+  var lift = play(IN.lift08, {}, 1), lift15 = play(IN.lift15, {}, 1), press = play(IN.press3, {}, 1), exact2 = true;
+  for (i = 0; i < lift.t.length; i++) if (lift.oy[i] !== lift.y1[i] || lift15.oy[i] !== lift15.y1[i] || press.oy[i] !== press.y1[i]) exact2 = false;
   var jLag = lagOf(jF.t, jF.x, jF.ox, 1.2, 2.2, 0.7);
   log('  jitter peaking at ' + f2(jPeak) + ' g: live ' + (exact ? 'is' : 'is NOT') + ' the smoothed input every substep; the film best matches it ' + ms(jLag) + ' late');
   check(exact && exact2 && jLag >= 0.4,
-    'below the knee live is exactly what the hand gives: jitter (peaks ' + f2(jPeak) + ' g, as plain too), a lift of 0.8 g (under its own knee of 1 g) and a 3 g press, every substep; the film (control) plays the jitter ' + ms(jLag) + ' late (>= 400)');
+    'below the knee live is exactly what the hand gives: jitter (peaks ' + f2(jPeak) + ' g, as plain too), and so is all of a push off or into the floor, a lift of 0.8 g and of 1.5 g and a 3 g press, every substep; the film (control) plays the jitter ' + ms(jLag) + ' late (>= 400)');
 
   // ---- 4. the reservoir and the cap ----
   var paid = 0, owedIn = 0, f4 = null;
@@ -190,12 +200,20 @@ async function main() {
   check(swLast <= 0.2 && swULast >= 1,
     'a push held far beyond the cap is not felt for long after it stops: ' + ms(swLast) + ' (<= 200; with the reservoir unbounded, the control, ' + ms(swULast) + ', >= 1 s)');
 
-  // ---- 5. lift ----
-  var vL = play(IN.vshake, {}, 3), vU = play(IN.vshake, { mode: 'film', lag: Infinity }, 9), vF = play(IN.vshake, { mode: 'film' }, 3);
+  // ---- 5. a shake up and down is not turned into a lift ----
+  // (a knee for lift alone, its excess played at the film's speed and pressing as it is, turns an
+  // even shake into a net lift given at the hand's 5 Hz, where the film spreads its lift over the
+  // slowed shake; on the GPU sand that threw the bed up in a column)
+  var vL = play(IN.vshake, {}, 3), vU = play(IN.vshake, { mode: 'film', lag: Infinity }, 9), vK = play(IN.vshake, { lift: 1 }, 3);
   var negY = function (r) { return r.oy.map(function (v) { return -v; }); };
-  var lL = beyond(vL.t, negY(vL), 1, 0, 99)[0], lU = beyond(vU.t, negY(vU), 1, 0, 99)[0], lF = beyond(vF.t, negY(vF), 1, 0, 99)[0];
-  log('  a vertical shake, 1.5 g at 5 Hz: lift beyond 1 g live ' + f3(lL) + ' g s, the film with no limit to its lag ' + f3(lU) + ', held 0.5 s behind ' + f3(lF));
-  check(Math.abs(lL / lU - 1) <= 0.15, 'lift: a vertical shake lifts a bed live as the film with no limit to its lag does (' + f2(100 * lL / lU) + ' %, within 15 %), the sideways knee not applied to it');
+  var net = function (r, key) { var n = 0; for (var q = 0; q < r.t.length; q++) n += r[key][q] * DT; return n; };
+  var lU = beyond(vU.t, negY(vU), 1, 0, 99)[0], lK = beyond(vK.t, negY(vK), 1, 0, 99)[0];
+  var nHand = net(vL, 'y1'), nL = net(vL, 'oy'), nK = net(vK, 'oy'), exact5 = true;
+  for (i = 0; i < vL.t.length; i++) if (vL.oy[i] !== vL.y1[i]) exact5 = false;
+  log('  a vertical shake, 1.5 g at 5 Hz for 2 s: net push (y, g s; < 0 lifts) the hand ' + f3(nHand) + ', live ' + f3(nL) + ', a knee for lift at 1 g (control) ' + f3(nK) +
+    '; lift beyond 1 g: that knee ' + f3(lK) + ' g s at the hand\'s 5 Hz, the film with no limit to its lag ' + f3(lU) + ' over ' + f2(lastAt(vU.t, vU.oy, 0.05) - 0.2) + ' s');
+  check(Math.abs(nL - nHand) <= 0.005 && exact5 && nK - nHand <= -0.2,
+    'a shake up and down is not turned into a lift: live gives the bed the hand\'s own net push (' + f3(nL) + ' against ' + f3(nHand) + ' g s, within 0.005), every substep the hand\'s own; control: a knee for lift at 1 g turns it into a net lift of ' + f3(nHand - nK) + ' g s (>= 0.2)');
 
   // ---- 6. lag under a sustained shake; slow motion ----
   // (a 5 Hz shake matches itself every 0.2 s, so the lag is read from the play head, and from how
@@ -276,6 +294,44 @@ async function main() {
   log('  through motion.js: ' + rows.join('; '));
   check(filmBehind && liveLag <= 0.04 && gentleExact,
     'through the real motion.js, the replay streams: the film (control) is 0.25 s behind or more for over 80 % of the moving time on each, live best matches its input at most ' + ms(liveLag) + ' late (<= 40: the smoothing, and a hard shake\'s peaks over the cap paid just after), and handling the phone (gentle) reaches the sand live exactly as felt');
+
+  // ---- 9. however the phone is held ----
+  // The sand's gravity lies on the page at psi (along (sin psi, cos psi)): 0 upright, about pi/2
+  // on its side, pi upside down after a turn-over. Inputs given in the bed's own frame (u along
+  // its floor, v into it) are put on the page, played with psi, and read back in the bed's frame.
+  var toPage = function (u, v, psi) { var c = Math.cos(psi), sn = Math.sin(psi); return [u * c + v * sn, v * c - u * sn]; };
+  var toBed = function (x, y, psi) { var c = Math.cos(psi), sn = Math.sin(psi); return [x * c - y * sn, x * sn + y * c]; };
+  /** An input (bed frame) played with the sand's gravity at psi (pagePsi: the angle GlassFelt is told); the record in the bed frame. */
+  function held(input, psi, pagePsi, dur) {
+    var f = new Felt.GlassFelt(), r = { t: [], u: [], v: [] };
+    f.reset(0);
+    for (var k = 0, t = 0; t < dur; k++, t = k * DT) {
+      var b = input(t), pg = toPage(b[0], b[1], psi), o = f.feel(pg[0], pg[1], DT, t, true, LAM, pagePsi), q = toBed(o[0], o[1], psi);
+      r.t.push(t); r.u.push(q[0]); r.v.push(q[1]);
+    }
+    return r;
+  }
+  var poses = [['upright', 0], ['leaning 30 degrees', Math.PI / 6], ['on its right side', Math.PI / 2], ['on its left side', -Math.PI / 2], ['upside down', Math.PI]];
+  var shakes = { 'a shake along the floor': IN.shake, 'a hard one': IN.vig, 'a shake up and down': IN.vshake, 'a flick': IN.flick };
+  var worst9 = 0, worstAt = '';
+  Object.keys(shakes).forEach(function (nm) {
+    var ref = held(shakes[nm], 0, 0, 3);
+    poses.forEach(function (p) {
+      var r = held(shakes[nm], p[1], p[1], 3);
+      for (var j = 0; j < r.t.length; j++) {
+        var d = Math.max(Math.abs(r.u[j] - ref.u[j]), Math.abs(r.v[j] - ref.v[j]));
+        if (d > worst9) { worst9 = d; worstAt = nm + ', ' + p[0] + ', at ' + f2(r.t[j]) + ' s'; }
+      }
+    });
+  });
+  var side = held(IN.shake, Math.PI / 2, Math.PI / 2, 3), sidePage = held(IN.shake, Math.PI / 2, 0, 3), up9 = held(IN.shake, 0, 0, 3);
+  var netU = 0, netHand = 0;
+  for (i = 0; i < side.t.length; i++) { netU += side.u[i] * DT; netHand += IN.shake(side.t[i])[0] * DT; }
+  var slideUp = sum(beyond(up9.t, up9.u, KNEE, 0, 99)), slidePage = sum(beyond(sidePage.t, sidePage.u, KNEE, 0, 99));
+  log('  held otherwise: the largest difference from upright, in the bed\'s frame, ' + worst9.toExponential(1) + ' g (' + (worstAt || 'none') + '); on its side, a shake along the floor: net push ' + f3(netU) +
+    ' g s (the hand ' + f3(netHand) + '), the slide beyond the knee ' + f3(slideUp) + ' g s as upright; with the knees in page axes (control) ' + f3(slidePage));
+  check(worst9 <= 1e-9 && Math.abs(netU - netHand) <= 0.005 && slidePage <= 0.5 * slideUp,
+    'however the phone is held (upright, leaning 30 degrees, on either side, upside down) live gives the bed the same push in its own frame (within ' + worst9.toExponential(1) + ' g), and on its side an even shake along the floor no net push (' + f3(netU) + ' g s); control: with the knees in page axes a bed on its side gets ' + f2(100 * slidePage / slideUp) + ' % of the slide along its floor it gets upright (<= 50)');
 }
 
 main().catch(function (e) { failures++; log('FAIL  ' + (e && e.stack || e)); }).then(function () {

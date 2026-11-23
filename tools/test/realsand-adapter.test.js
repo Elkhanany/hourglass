@@ -39,7 +39,8 @@
  *    one shader library a page (a rebuild fetches no shader) and the shaders' build checked
  *    ('stamp'); the heat guard's trip is logged;
  *  - the glass's motion (felt.mjs) as RealSand's jolts say: live by default (a 0.5 g jolt at once
- *    and as it is, 1.5 g capped at 2 g), 'film' slowed as before, plain under Reduce Motion; asleep,
+ *    and as it is, 1.5 g capped at 2 g; on its side the same along its floor, and into its floor
+ *    as it is), 'film' slowed as before, plain under Reduce Motion; asleep,
  *    a flick wakes the glass in the frame after it begins and its push reaches the first run.
  *
  *   node tools/test/realsand-adapter.test.js
@@ -788,19 +789,22 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   // feel(): a 50 ms jolt reaches the GPU's substeps (5.2), as RealSand's jolts say (felt.mjs):
   // live, the default, at once (0.5 g, under the bed's friction, as it is; 1.5 g, beyond it, at the
   // film's speed, capped at 2 g); 'film' (as before) slowed like a film; plain under Reduce Motion
-  async function joltRun(g, mode, reduced) {
-    var J = makeApp({ ms: 60000, seed: 171 });
+  // (tilt: the sand's gravity turned on the page, pi / 2 a phone on its side; along: the jolt along
+  // the page's y, else its x; the felt part of the field, the gravity at rest taken off, along it)
+  async function joltRun(g, mode, reduced, tilt, along) {
+    var J = makeApp({ ms: 60000, seed: 171, motion: !!tilt });
     var rJ = await J.attach(); J.calibrate(); J.T.rem = J.T.durationMs; J.start();
     if (mode) rJ.jolts = mode;
     rJ.reduced = !!reduced;
+    if (tilt) J.grav.target = tilt;
     await J.run(3000);
     J.env.recordFields = true; J.env.solver.fields = [];
     var joltUntil = J.V.wall + 50;
-    J.motionIn = function (a) { return a.V.wall <= joltUntil ? { fx: g, fy: 0, w: 0 } : null; };
+    J.motionIn = function (a) { return a.V.wall <= joltUntil ? (along ? { fx: 0, fy: g, w: 0 } : { fx: g, fy: 0, w: 0 }) : null; };
     await J.run(1000);
     J.motionIn = null; J.env.recordFields = false;
-    var gx = J.env.solver.fields.map(function (f) { return f.gravity[0] / rJ.Gg; });
-    return { over: gx.filter(function (x) { return x > 0.1; }).length, peak: Math.max.apply(null, gx), n: gx.length, jolts: rJ.stats().jolts };
+    var th = rJ.angle + rJ.tilt, gx = J.env.solver.fields.map(function (f) { return along ? -f.gravity[1] / rJ.Gg - Math.cos(th) : f.gravity[0] / rJ.Gg - Math.sin(th); });
+    return { over: gx.filter(function (x) { return x > 0.1; }).length, peak: Math.max.apply(null, gx), n: gx.length, jolts: rJ.stats().jolts, tilt: rJ.tilt };
   }
   var jF = await joltRun(0.5, 'film'), jL = await joltRun(0.5), jL15 = await joltRun(1.5), jP15 = await joltRun(1.5, null, true);
   check(jF.over > 2 * 24 && jF.peak > 0.35 && jF.peak <= 0.5 && jF.n > 400 && jF.jolts === 'film',
@@ -809,6 +813,12 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     'live, the default: the same jolt is felt by ' + jL.over + ' substeps (at once, not slowed), at up to ' + jL.peak.toFixed(2) + ' g (under the bed\'s friction: as it is); a 1.5 g jolt at up to ' + jL15.peak.toFixed(2) + ' g (beyond the friction at the film\'s speed, capped at 2 g)');
   check(jP15.jolts === 'plain' && jP15.peak > 1.3 && jP15.peak <= 1.5 && jP15.over <= 40,
     'under Reduce Motion the glass\'s motion is played plain: the 1.5 g jolt at up to ' + jP15.peak.toFixed(2) + ' g, by ' + jP15.over + ' substeps');
+  // live takes its knees in the frame of the sand's gravity (on the page at angle + tilt - rho):
+  // on its side, a jolt along its floor (the page's y) is played as one along the floor upright,
+  // and one into its floor (the page's x) as it is
+  var jSa = await joltRun(1.5, null, false, Math.PI / 2, true), jSi = await joltRun(1.5, null, false, Math.PI / 2, false);
+  check(jSa.jolts === 'live' && Math.abs(jSa.tilt - Math.PI / 2) < 1e-3 && jSa.peak > 1.5 && Math.abs(jSa.peak - jL15.peak) <= 1e-3 && jSi.peak > 1.3 && jSi.peak <= 1.5,
+    'live, the glass on its side (the sand\'s gravity along the page\'s x, tilt ' + jSa.tilt.toFixed(2) + '): a 1.5 g jolt along its floor is felt at up to ' + jSa.peak.toFixed(2) + ' g, as upright (' + jL15.peak.toFixed(2) + '), and one into its floor as it is (' + jSi.peak.toFixed(2) + ' g)');
 
   // the heat guard: full (a hand shaking the glass) and slower than 0.6 of real time for 20 s: calm
   var K = makeApp({ ms: 120000, seed: 161 });

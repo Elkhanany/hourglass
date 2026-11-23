@@ -708,14 +708,15 @@ export class RealSand {
   /**
    * The glass's linear acceleration the sand feels (g, page frame, y down, before the free fall
    * and the rotation: composeField's fx, fy), at the app's step time tS (ms). Played to the sand
-   * in the mode this.jolts (felt.mjs: live by default; plain under Reduce Motion), turned into the
-   * glass by rho, the free fall added unplayed, scaled by G: the field's felt part for the GPU's
-   * substeps near tS (design 5.2).
+   * in the mode this.jolts (felt.mjs: live by default; plain under Reduce Motion), its knees in
+   * the frame of the sand's gravity (on the page at angle + tilt - rho: upside down after a
+   * turn-over, on its side), turned into the glass by rho, the free fall added unplayed, scaled by
+   * G: the field's felt part for the GPU's substeps near tS (design 5.2).
    */
   feel(tS, fx, fy, air, rho) {
-    fx = fin(fx); fy = fin(fy);
+    fx = fin(fx); fy = fin(fy); rho = fin(rho);
     this.felt.opt.mode = this.reduced ? 'plain' : (JOLT_MODES.includes(this.jolts) ? this.jolts : JOLT_MODES[0]);
-    const j = this.felt.feel(fx, fy, DT, fin(tS) / 1000, true, this._lam > 0 ? this._lam : LAM0);
+    const j = this.felt.feel(fx, fy, DT, fin(tS) / 1000, true, this._lam > 0 ? this._lam : LAM0, this.angle + this.tilt - rho);
     const c = Math.cos(rho), s = Math.sin(rho), G = this.cpu.G;
     const px = j[0], py = j[1] - (air ? 0.9 : 0);
     const smp = this._pend || this._takeSample();

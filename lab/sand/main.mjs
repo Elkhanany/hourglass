@@ -426,18 +426,21 @@ function lamNow() { return Math.min(1, gCells() / gReal()); }
  * glass asleep (no substeps) still feels the phone move.
  */
 function feltSample() {
-  // what the sand feels on the screen (x right, y down), in g, and the glass's turning (+ clockwise)
+  // what the sand feels on the screen (x right, y down), in g, and the glass's turning (+ clockwise);
+  // bx, by: the pull before a scripted shake or push, which way is down for the bed (felt.mjs psi)
   let gx = 0, gy = 1, w = pose.omega, a = pose.alpha;
   // the glass's own acceleration, g, page axes: the finger's spring, the phone's, a scripted one
   let lax = KPX * pose.ax, lay = KPX * pose.ay;
   const mode = scriptInput ? 'manual' : (benchRun ? 'bench' : S.input);
+  let bx = 0, by = 1;
   if (mode === 'motion') {
-    if (motion.seen) { gx = motion.gx; gy = motion.gy; w += motion.w; a += motion.a; lax += motion.lx; lay += motion.ly; }
+    if (motion.seen) { gx = bx = motion.gx; gy = by = motion.gy; w += motion.w; a += motion.a; lax += motion.lx; lay += motion.ly; }
   } else if (mode === 'manual') {
     const m = scriptInput, t = simTime - m.t0;
     let g = m.gravity || [0, 1];
     if (m.gravitySpin) { const ph = m.gravitySpin * t, c = Math.cos(ph), s = Math.sin(ph); g = [c * g[0] - s * g[1], s * g[0] + c * g[1]]; }
     gx = g[0]; gy = g[1];
+    bx = gx; by = gy;
     if (m.accel) { gx -= m.accel[0]; gy -= m.accel[1]; }
     if (m.shake) {
       const ax = m.shake.axis || [1, 0], amp = m.shake.g * Math.sin(2 * Math.PI * m.shake.hz * t);
@@ -453,17 +456,18 @@ function feltSample() {
   // (what the power modes read: the glass's own acceleration, its turning, and the lean of the pull)
   feltNow = { a: Math.hypot(lax, lay), w, alpha: a, lean: Math.atan2(gx, gy) };
   if (feltNow.a > feltPeak) feltPeak = feltNow.a;
-  return { gx, gy, w, a, lax, lay };
+  return { gx, gy, w, a, lax, lay, bx, by };
 }
 /** The field for the next substep, in the glass's frame (advances the clock). */
 function fieldAt() {
   const dt = 1 / rate.hz;
   stepPose(dt);
-  let { gx, gy, w, a, lax, lay } = feltSample();
+  let { gx, gy, w, a, lax, lay, bx, by } = feltSample();
   // the glass's own acceleration as the sand feels it (felt.mjs): reversed (the glass accelerating
-  // one way pushes its sand the other; y < 0 lifts the bed), at app speed played as S.jolts says
+  // one way pushes its sand the other), at app speed played as S.jolts says, its knees taken in the
+  // frame of the pull (bx, by: down for the bed, however the phone is held)
   felt.opt.mode = S.jolts; felt.opt.knee = kneeOf(MATERIALS[S.material]);
-  const [fax, fay] = felt.feel(-lax, -lay, dt, simTime, S.speed === 'app', lamNow());
+  const [fax, fay] = felt.feel(-lax, -lay, dt, simTime, S.speed === 'app', lamNow(), Math.atan2(bx, by));
   gx += fax; gy += fay;
   const c = Math.cos(pose.theta), s = Math.sin(pose.theta);
   const lx = c * gx + s * gy, ly = -s * gx + c * gy;      // into the glass (still y down)
