@@ -346,88 +346,6 @@
   }
 
   /**
-   * The glass on the lattice: which cells are inside it. From o.geo it fills
-   * o.cell (EMPTY inside, WALL elsewhere), o.rowMin and o.rowMax (each row's
-   * span inside; rowMin > rowMax where there is none), o.gateX0 and o.gateX1
-   * (the neck's row, closed: the gate) and o.topY (the first open row), and
-   * returns the cells inside one bulb. `o` is a Sim, or the bare lattice
-   * checkShape looks at.
-   */
-  function rasterise(o) {
-    var g = o.geo, W = o.W, H = o.H, cell = o.cell;
-    var x, y, i, cap = 0;
-    o.topY = -1;
-    for (y = 0; y < H; y++) {
-      var u = Math.abs(y + 0.5 - g.cy) / g.HB;
-      var r = profile(u, g);
-      var mn = W, mx = -1;
-      for (x = 0; x < W; x++) {
-        i = y * W + x;
-        if (Math.abs(x + 0.5 - g.cx) < r) {
-          cell[i] = EMPTY;
-          if (x < mn) mn = x;
-          if (x > mx) mx = x;
-        } else {
-          cell[i] = WALL;
-        }
-      }
-      if (y === o.gateY) {
-        // The neck gate: a one-row valve the timer opens grain by grain.
-        o.gateX0 = mn; o.gateX1 = mx;
-        for (x = mn; x <= mx; x++) cell[y * W + x] = WALL;
-        mn = W; mx = -1;
-      }
-      o.rowMin[y] = mn; o.rowMax[y] = mx;
-      if (mx >= mn) {
-        if (o.topY < 0) o.topY = y;
-        if (y < o.gateY) cap += mx - mn + 1;
-      }
-    }
-    return cap;
-  }
-
-  /**
-   * What the sand needs of a glass that is not the classic one (SHAPES), read
-   * off the lattice itself (`o`: what rasterise filled), for sand of the pace
-   * `pace` (Sim.setPace): every rule the glass breaks, in the engine's order,
-   * each in its own words; [] when the sand can use it. A Sim refuses a shape
-   * by the first of them, before a grain is laid in it.
-   */
-  function latticeFaults(o, pace) {
-    var g = o.geo, W = o.W, H = o.H, N = W * H, cell = o.cell, gate = o.gateY;
-    var rowMin = o.rowMin, rowMax = o.rowMax, top = o.topY, y, i, out = [];
-    var span = o.gateX1 - o.gateX0 + 1;
-    function wd(r) { return rowMax[r] >= rowMin[r] ? rowMax[r] - rowMin[r] + 1 : 0; }
-    function no(rule) { out.push(rule); }
-    // the neck is the classic glass's own, and the rows beside it are open across it
-    // (the thread leaves anywhere across the gate, and a full lower bulb is told by the cell under it)
-    if (span <= 0 || span !== 2 * g.RN) no('its neck is ' + span + ' cells wide, not ' + (2 * g.RN) + ' (f(0) must be 0)');
-    if (top < 0 || top >= gate - 4) { no('it has no bulb'); return out; }      // (and nothing more can be asked of it)
-    if (rowMin[gate - 1] > o.gateX0 || rowMax[gate - 1] < o.gateX1 || rowMin[gate + 1] > o.gateX0 || rowMax[gate + 1] < o.gateX1) {
-      no('the rows beside the neck are narrower than the neck');
-    }
-    // one bulge: wider row by row from the neck to the widest, narrower from there to the end
-    // (so every column is one span: a bed in flight moves whole columns, and would write sand into a second waist)
-    var wy = gate - 1, wMax = 0;
-    for (y = gate - 1; y >= top; y--) if (wd(y) > wMax) { wMax = wd(y); wy = y; }
-    for (y = gate - 1; y > wy; y--) if (wd(y - 1) < wd(y)) { no('it narrows again between the neck and its widest row (row ' + (y - 1) + '): one bulge only'); break; }
-    for (y = wy; y > top; y--) if (wd(y - 1) > wd(y)) { no('it widens again beyond its widest row (row ' + (y - 1) + '): one bulge only'); break; }
-    if (wMax > 2 * g.R - 1) no('its widest row is ' + wMax + ' cells, wider than R = ' + g.R + ' allows (f must not pass 1)');
-    // the funnel: sand runs off glass, upright or leaned, only where it opens by no more than a cell a row
-    if (rowMin[gate - 1] < o.gateX0 - 1) no('its funnel opens by ' + (o.gateX0 - rowMin[gate - 1]) + ' cells in one row at the neck (at most 1)');
-    for (y = gate - 1; y > wy; y--) {
-      if (rowMin[y] - rowMin[y - 1] > 1) { no('its funnel opens by ' + (rowMin[y] - rowMin[y - 1]) + ' cells in one row (row ' + (y - 1) + '; at most 1)'); break; }
-    }
-    // the far end: sand is poured in from three rows under it, into three rows, 7 cells across at the classic size
-    for (y = top + 3; y <= top + 5; y++) {
-      if (wd(y) < 7 * pace + 2) { no('its end is ' + wd(y) + ' cells wide ' + (y - top) + ' rows in, too pointed to pour into (at least ' + Math.ceil(7 * pace + 2) + ')'); break; }
-    }
-    // a turn of the glass is the lattice read backwards
-    for (i = 0; i < N >> 1; i++) if (cell[i] !== cell[N - 1 - i]) { no('its two bulbs are not mirror images (cell ' + i + ')'); break; }
-    return out;
-  }
-
-  /**
    * What can be said of a shape's curve at any size, from a walk along it in
    * 2048 steps: f stays between 0 and 1, and it is one bulge (it never falls
    * on the way to its widest point, and never rises after it). [] or the
@@ -445,31 +363,6 @@
     for (k = a + 1; k < b; k++) if (v[k] < m - eps) { out.push('f has a waist between two widest points (at u = ' + k / N + '): one bulge only'); break; }
     for (k = b + 1; k <= N; k++) if (v[k] > v[k - 1] + eps) { out.push('f rises again beyond its widest point (at u = ' + k / N + '): one bulge only'); break; }
     return out;
-  }
-
-  /**
-   * Whether the sand can use the registered shape `id` in a glass of scale
-   * `q` (1 if left out) with sand of the pace `pace` (Sim.setPace's; the one
-   * in force if left out): [] if it can, or the reasons. First what its curve
-   * says at any size (curveFaults), then the lattice's rules at this size:
-   * the first of those is what a Sim of that size and pace would refuse the
-   * shape with. Nothing is built but the lattice and nothing is thrown: an
-   * id that is not registered is a reason too. The classic glass needs no
-   * check.
-   */
-  function checkShape(id, q, pace) {
-    if (id === undefined || id === null || id === 'classic') return [];
-    var s = Object.prototype.hasOwnProperty.call(SHAPES, id) ? SHAPES[id] : null;
-    if (!s) return ['there is no glass shape "' + id + '"'];
-    try {
-      var out = curveFaults(s), g = makeGeometry(q, id);
-      var o = { geo: g, W: g.W, H: g.H, cell: new Uint8Array(g.W * g.H), rowMin: new Int16Array(g.H), rowMax: new Int16Array(g.H),
-                gateY: g.gateY, gateX0: 0, gateX1: -1, topY: 0 };
-      rasterise(o);
-      return out.concat(latticeFaults(o, pace === undefined ? PACE : (pace > 1 ? +pace : 1)));
-    } catch (e) {
-      return ['its f(u) cannot be asked: ' + (e && e.message ? e.message : e)];
-    }
   }
 
   /* ======================================================================
@@ -798,6 +691,47 @@
   /* ---------------------------------------------------------------- *
    *  Vessel rasterisation
    * ---------------------------------------------------------------- */
+  /**
+   * The glass on the lattice: which cells are inside it. From o.geo it fills
+   * o.cell (EMPTY inside, WALL elsewhere), o.rowMin and o.rowMax (each row's
+   * span inside; rowMin > rowMax where there is none), o.gateX0 and o.gateX1
+   * (the neck's row, closed: the gate) and o.topY (the first open row), and
+   * returns the cells inside one bulb. `o` is a Sim, or the bare lattice
+   * checkShape looks at.
+   */
+  function rasterise(o) {
+    var g = o.geo, W = o.W, H = o.H, cell = o.cell;
+    var x, y, i, cap = 0;
+    o.topY = -1;
+    for (y = 0; y < H; y++) {
+      var u = Math.abs(y + 0.5 - g.cy) / g.HB;
+      var r = profile(u, g);
+      var mn = W, mx = -1;
+      for (x = 0; x < W; x++) {
+        i = y * W + x;
+        if (Math.abs(x + 0.5 - g.cx) < r) {
+          cell[i] = EMPTY;
+          if (x < mn) mn = x;
+          if (x > mx) mx = x;
+        } else {
+          cell[i] = WALL;
+        }
+      }
+      if (y === o.gateY) {
+        // The neck gate: a one-row valve the timer opens grain by grain.
+        o.gateX0 = mn; o.gateX1 = mx;
+        for (x = mn; x <= mx; x++) cell[y * W + x] = WALL;
+        mn = W; mx = -1;
+      }
+      o.rowMin[y] = mn; o.rowMax[y] = mx;
+      if (mx >= mn) {
+        if (o.topY < 0) o.topY = y;
+        if (y < o.gateY) cap += mx - mn + 1;
+      }
+    }
+    return cap;
+  }
+
   Sim.prototype._buildVessel = function () {
     var g = this.geo, W = this.W, H = this.H, cell = this.cell;
     var x, y, i, cap = rasterise(this);
@@ -873,13 +807,75 @@
 
   /**
    * What the sand needs of a glass that is not the classic one (SHAPES), read
-   * off the lattice itself (latticeFaults). A shape that fails is refused
-   * here, by name and by rule, before a grain is laid in it.
+   * off the lattice itself (`o`: what rasterise filled), for sand of the pace
+   * `pace` (Sim.setPace): every rule the glass breaks, in the engine's order,
+   * each in its own words; [] when the sand can use it. A Sim refuses a shape
+   * by the first of them, before a grain is laid in it.
    */
+  function latticeFaults(o, pace) {
+    var g = o.geo, W = o.W, H = o.H, N = W * H, cell = o.cell, gate = o.gateY;
+    var rowMin = o.rowMin, rowMax = o.rowMax, top = o.topY, y, i, out = [];
+    var span = o.gateX1 - o.gateX0 + 1;
+    function wd(r) { return rowMax[r] >= rowMin[r] ? rowMax[r] - rowMin[r] + 1 : 0; }
+    function no(rule) { out.push(rule); }
+    // the neck is the classic glass's own, and the rows beside it are open across it
+    // (the thread leaves anywhere across the gate, and a full lower bulb is told by the cell under it)
+    if (span <= 0 || span !== 2 * g.RN) no('its neck is ' + span + ' cells wide, not ' + (2 * g.RN) + ' (f(0) must be 0)');
+    if (top < 0 || top >= gate - 4) { no('it has no bulb'); return out; }      // (and nothing more can be asked of it)
+    if (rowMin[gate - 1] > o.gateX0 || rowMax[gate - 1] < o.gateX1 || rowMin[gate + 1] > o.gateX0 || rowMax[gate + 1] < o.gateX1) {
+      no('the rows beside the neck are narrower than the neck');
+    }
+    // one bulge: wider row by row from the neck to the widest, narrower from there to the end
+    // (so every column is one span: a bed in flight moves whole columns, and would write sand into a second waist)
+    var wy = gate - 1, wMax = 0;
+    for (y = gate - 1; y >= top; y--) if (wd(y) > wMax) { wMax = wd(y); wy = y; }
+    for (y = gate - 1; y > wy; y--) if (wd(y - 1) < wd(y)) { no('it narrows again between the neck and its widest row (row ' + (y - 1) + '): one bulge only'); break; }
+    for (y = wy; y > top; y--) if (wd(y - 1) > wd(y)) { no('it widens again beyond its widest row (row ' + (y - 1) + '): one bulge only'); break; }
+    if (wMax > 2 * g.R - 1) no('its widest row is ' + wMax + ' cells, wider than R = ' + g.R + ' allows (f must not pass 1)');
+    // the funnel: sand runs off glass, upright or leaned, only where it opens by no more than a cell a row
+    if (rowMin[gate - 1] < o.gateX0 - 1) no('its funnel opens by ' + (o.gateX0 - rowMin[gate - 1]) + ' cells in one row at the neck (at most 1)');
+    for (y = gate - 1; y > wy; y--) {
+      if (rowMin[y] - rowMin[y - 1] > 1) { no('its funnel opens by ' + (rowMin[y] - rowMin[y - 1]) + ' cells in one row (row ' + (y - 1) + '; at most 1)'); break; }
+    }
+    // the far end: sand is poured in from three rows under it, into three rows, 7 cells across at the classic size
+    for (y = top + 3; y <= top + 5; y++) {
+      if (wd(y) < 7 * pace + 2) { no('its end is ' + wd(y) + ' cells wide ' + (y - top) + ' rows in, too pointed to pour into (at least ' + Math.ceil(7 * pace + 2) + ')'); break; }
+    }
+    // a turn of the glass is the lattice read backwards
+    for (i = 0; i < N >> 1; i++) if (cell[i] !== cell[N - 1 - i]) { no('its two bulbs are not mirror images (cell ' + i + ')'); break; }
+    return out;
+  }
+
+  /** A Sim refuses a shape that fails (latticeFaults), by name and by its first broken rule, before a grain is laid in it. */
   Sim.prototype._checkShape = function () {
     var why = latticeFaults(this, PACE);
     if (why.length) throw new Error('Sim: the glass shape "' + this.geo.shape.id + '" cannot be used: ' + why[0]);
   };
+
+  /**
+   * Whether the sand can use the registered shape `id` in a glass of scale
+   * `q` (1 if left out) with sand of the pace `pace` (Sim.setPace's; the one
+   * in force if left out): [] if it can, or the reasons. First what its curve
+   * says at any size (curveFaults), then the lattice's rules at this size:
+   * the first of those is what a Sim of that size and pace would refuse the
+   * shape with. Nothing is built but the lattice and nothing is thrown: an
+   * id that is not registered is a reason too. The classic glass needs no
+   * check.
+   */
+  function checkShape(id, q, pace) {
+    if (id === undefined || id === null || id === 'classic') return [];
+    var s = Object.prototype.hasOwnProperty.call(SHAPES, id) ? SHAPES[id] : null;
+    if (!s) return ['there is no glass shape "' + id + '"'];
+    try {
+      var out = curveFaults(s), g = makeGeometry(q, id);
+      var o = { geo: g, W: g.W, H: g.H, cell: new Uint8Array(g.W * g.H), rowMin: new Int16Array(g.H), rowMax: new Int16Array(g.H),
+                gateY: g.gateY, gateX0: 0, gateX1: -1, topY: 0 };
+      rasterise(o);
+      return out.concat(latticeFaults(o, pace === undefined ? PACE : (pace > 1 ? +pace : 1)));
+    } catch (e) {
+      return ['its f(u) cannot be asked: ' + (e && e.message ? e.message : e)];
+    }
+  }
 
   /* ---------------------------------------------------------------- *
    *  Motion and damage state. Everything is allocated here, once, so a
