@@ -17,6 +17,15 @@
  *  BOOT    the switch on: the engine starts (pipelines, self-test), adopts the CPU sand and
  *          takes over: "On", the canvas drawn, the GPU's points the ledger's, the audit
  *          passes, the start-up times logged, the tone pass there;
+ *  SOUND   before the start, the glass asleep: nothing of the bed is fed. Flicked along the glass
+ *          (the classic Sim stepped in Node on the same motion beside it): it wakes, the bed
+ *          lifts and lands, and one thump is fed, of the energy of the bed's fastest fall,
+ *          u^2 / (2 G HB), within a factor of 2 of the classic sand's, as the bed comes to rest
+ *          (within 6 frames of its fastest fall), its agitation within a factor of 2 too; with
+ *          the readbacks unheard the same flick feeds nothing (control). Shaken sideways at
+ *          1.5 g and 5 Hz: no thump (as the classic), agitation and slides within a factor of 2
+ *          of the classic sand's. Leaned 30 degrees: sound only as far as the sand moved (this
+ *          small bed does not: silence). At rest again: nothing, and the glass sleeps;
  *  RUN     a 10 s glass to its end: the last point crosses within one frame after 00:00.0 (by
  *          the GPU's own record of its substep), no catch-up or residue transfer, the count 0
  *          within 3 frames of the end and never 0 while a point is above, every readback's
@@ -38,7 +47,7 @@
  *
  * With --shots <dir> it saves pictures of the app with Real sand on: at rest, the stream, the
  * layers after a Flip, the Reset's two halves, the glass turned over by real motion, the CPU
- * sand after the loss. It runs only when named (run-all.js realsand-gpu), 10 to 15 minutes;
+ * sand after the loss. It runs only when named (run-all.js realsand-gpu), 15 to 20 minutes;
  * never two SwiftShader browsers at once.
  *   node tools/test/realsand-gpu.test.js [--port 8908] [--shots dir]
  */
@@ -213,7 +222,7 @@ function installWatch() {
             for (var k = 3; k < d.length; k += 4 * 13) if (d[k] > 0) px++;
           } catch (e) { px = -2; }
         }
-        return { live: !!rs && H.sim === rs, note: document.getElementById('realsand-note').textContent, state: H.timer.state,
+        return { live: !!rs && H.sim === rs, note: document.getElementById('realsand-note').textContent, row: document.getElementById('realsand-row').getAttribute('data-state'), state: H.timer.state,
           rem: H.timer.rem, nTop: H.sim.nTop, total: H.sim.total, want: H.grainsFor(H.timer.durationMs),
           pts: rs ? rs.valve.Pts(H.sim.total) : 0, points: rs ? rs.points : 0, gpuCount: rs && rs.solver ? rs.solver.count : 0,
           tally: st && st.tally, audit: a, px: px, times: st && st.times, n: st && st.n, mode: st && st.mode,
@@ -242,7 +251,7 @@ function installWatch() {
     await page.evaluate(function () { window.__vt.freeze(); });
     await page.evaluate(installWatch);
     var b = await fresh();
-    check(b.live && b.note === 'On' && b.real, 'BOOT: the engine starts on WebGPU, adopts the CPU sand and takes over (Hourglass.sim is it, "On")', b.note);
+    check(b.live && b.row === 'on' && /^On/.test(b.note) && b.real, 'BOOT: the engine starts on WebGPU, adopts the CPU sand and takes over (Hourglass.sim is it, the row\'s state "on")', b.row + ': ' + b.note);
     check(b.px > 100, 'BOOT: its canvas holds the drawn sand', b.px + ' sampled pixels drawn');
     check(!!b.tally && b.tally.points === b.points && b.points === b.pts && b.gpuCount === b.pts && b.tally.nan === 0 && b.tally.outside === 0 && b.total === b.want,
           'BOOT: the GPU holds exactly the ledger\'s points for the glass, none lost or outside', JSON.stringify({ tally: b.tally, points: b.points, total: b.total }));
@@ -251,6 +260,175 @@ function installWatch() {
           'BOOT: the start-up times are logged (device, pipelines, self-test, first frame)', JSON.stringify(b.times));
     check(b.layers && b.layers.on && b.layers.toner, 'BOOT: layered sand runs on the GPU (the tone pass)', JSON.stringify(b.layers));
     await shot('1-rest');
+
+    /* ---- SOUND ----------------------------------------------------------- */
+    // the motions, as motion.sample gives them to the frame's steps (g, the page's frame: y down), by ms
+    var MOVES = {
+      // a flick of the wrist along the glass, as motion.js reports it step by step (2 g for 60 ms and the
+      // stop, 1.4 g for 90 ms: the phone's own acceleration, played through the real motion.js)
+      flick: { ms: 3000, at: function (u) {
+        var Y = [0.073, 0.194, 0.660, 1.358, 1.695, 1.794, 1.489, 0.915, 0.362, -0.176, -0.590, -0.922, -1.140, -1.283, -1.284, -1.190, -0.981, -0.696, -0.407, -0.116];
+        var k = Math.round(u * 0.12) - 1;
+        return [0, k >= 0 && k < Y.length ? Y[k] : 0];
+      } },
+      // shaken from side to side at 1.5 g, 5 Hz, for 1.5 s
+      shake: { ms: 4500, at: function (u) { return u < 0 || u > 1500 ? [0, 0] : [1.5 * Math.sin(2 * Math.PI * 5 * u / 1000), 0]; } },
+      // leaned to 30 degrees over a second, held a second, and back (no push: the heading alone)
+      lean: { ms: 5000, at: function () { return [0, 0]; }, heading: function (u) { var A = Math.PI / 6; return u < 0 ? 0 : u < 1000 ? A * u / 1000 : u < 2000 ? A : u < 3000 ? A * (3000 - u) / 1000 : 0; } }
+    };
+    /** The classic Sim on a motion, stepped as app.js's frame steps it: what it feeds the sound, frame by frame. */
+    function classicOn(move, grains) {
+      var P = require('./lib/load-physics.js').P, sim = new P.Sim({ scale: 1.08, seed: 11 }), G = sim.G, k;
+      sim.setMotion(0, 0, 0, 0, 0, 0); sim.reset(grains);
+      sim.gateOpen = false; sim.targetTop = sim.nTop; sim.quality = 2;
+      for (k = 0; k < 600; k++) { sim.beginFrame(); sim.step(); }
+      var out = { thumps: 0, thumpE: 0, slams: 0, agit: 0, slides: 0, rate: 0 }, S = 0, n = Math.round(move.ms * 60 / 1000);
+      for (var fr = 0; fr < n; fr++) {
+        var want = move.heading ? move.heading(fr * FRAME) : 0, aw = Math.abs(want);
+        if (aw < 0.03) want = 0; else if (aw < 0.09) want = (want < 0 ? -1.5 : 1.5) * (aw - 0.03);
+        var d = want - sim.tilt;
+        if (Math.abs(d) > 0.0008) { sim.tilt += d * (1 - Math.exp(-FRAME / 100)); sim.wakeAll(); } else if (d !== 0) { sim.tilt = want; sim.wakeAll(); }
+        sim.beginFrame();
+        for (k = 0; k < 2; k++) {
+          var a = move.at(fr * FRAME + (k + 1) * FRAME / 2);
+          sim.setMotion(G * a[0], G * a[1], 0, 0, 0.09, 0);
+          sim.step();
+        }
+        var f = sim.frame, th = f.thump[0] + f.thump[2];
+        if (th > 0.0015) { out.thumps++; out.thumpE += th; }
+        if (f.slam[0] > 0.0015) out.slams++;
+        out.agit = Math.max(out.agit, sim.agitation());
+        out.slides += f.slides;
+        S += (f.slides * 60 - S) * (10 / 60);                      // (app.js feedAudio's smoothing)
+        out.rate = Math.max(out.rate, S);
+      }
+      return out;
+    }
+    /** The app's own motion object made to answer from MOVES[name] (null: its own again); Real motion on while it does. */
+    function setMove(name) {
+      return page.evaluate(function (a) {
+        var H = window.Hourglass, mo = H.motion, V = window.__vt, W = window.__watch;
+        var keys = ['seenMotion', 'seenOrient', 'live', 'armed', 'heading', 'sample', 'takeSwings'];
+        // (its own members back as they were: motion.js keeps heading, live and the rest as plain fields)
+        if (W.moWas) keys.forEach(function (k) { if (W.moWas[k]) Object.defineProperty(mo, k, W.moWas[k]); else delete mo[k]; });
+        W.moWas = null;
+        H.grav.on = false; H.grav.target = 0;
+        W.snd = null;
+        if (!a.name) return;
+        W.moWas = {};
+        keys.forEach(function (k) { W.moWas[k] = Object.getOwnPropertyDescriptor(mo, k) || null; });
+        var at = new Function('u', 'return (' + a.at + ')(u);'), heading = a.heading ? new Function('u', 'return (' + a.heading + ')(u);') : null, t0 = V.now;
+        ['seenMotion', 'seenOrient', 'live'].forEach(function (k) { Object.defineProperty(mo, k, { configurable: true, get: function () { return true; } }); });
+        Object.defineProperty(mo, 'armed', { configurable: true, get: function () { return false; } });
+        Object.defineProperty(mo, 'heading', { configurable: true, get: function () { return heading ? heading(V.now - t0) : 0; } });
+        mo.takeSwings = function () { return 0; };
+        mo.sample = function (tMs, o) { o = o || {}; var q = at(tMs - t0); o.x = q[0]; o.y = q[1]; o.z = 0; o.w = 0; o.wf = 0; o.rms = 0; o.armed = false; o.live = true; return o; };
+        H.grav.on = true;
+        // the record: each frame's feeds as app.js reads them, and each readback's upper bed
+        W.snd = { f0: V.frames, frames: [], beds: [] };
+      }, { name: name, at: name ? String(MOVES[name].at) : null, heading: name && MOVES[name].heading ? String(MOVES[name].heading) : null });
+    }
+    /** Play a move for its length, then on until the glass sleeps; what was fed, as classicOn counts it. */
+    async function play(name) {
+      await frames(600, "rs.stats().mode === 'asleep' && rs.stats().inflight === 0");
+      await setMove(name);
+      await frames(Math.round(MOVES[name].ms * 60 / 1000));
+      await frames(400, "rs.stats().mode === 'asleep' && rs.stats().inflight === 0");
+      await frames(30);
+      var r = await page.evaluate(function () {
+        var W = window.__watch, R = W.snd, F = R.frames, o = { thumps: [], slams: 0, agit: 0, slides: 0, rate: 0, woke: null, first: null, last: null, tail: 0, asleep: F.length ? F[F.length - 1].mode === 'asleep' : false, n: F.length };
+        var S = 0;
+        F.forEach(function (x, k) {
+          if (x.th0 + x.th1 > 0.0015) o.thumps.push({ f: x.f, E: x.th0 + x.th1, upper: x.th0 > 0 });
+          if (x.slam > 0.0015) o.slams++;
+          if (x.agit > o.agit) o.agit = x.agit;
+          o.slides += x.slides;
+          S += (x.slides * 60 - S) * (10 / 60);
+          if (S > o.rate) o.rate = S;
+          if (o.woke === null && x.mode !== 'asleep') o.woke = x.f;
+          var any = x.th0 + x.th1 + x.slam + x.slides + x.agit > 0;
+          if (any) { if (o.first === null) o.first = x.f; o.last = x.f; }
+          if (k >= F.length - 30 && (any || x.active)) o.tail++;
+        });
+        // the upper bed's fastest fall (grid y up: the most negative vy), and the first readback in which it moves
+        var fall = null, seen = null;
+        R.beds.forEach(function (b) { if (seen === null && b.sliding > 0.01 * b.n) seen = b.f; if (!fall || b.vy < fall.vy) fall = b; });
+        o.fall = fall; o.seen = seen;
+        return o;
+      });
+      await setMove(null);
+      return r;
+    }
+    await page.evaluate(function () {
+      // (the watch keeps the SOUND case's record while W.snd is set)
+      var H = window.Hourglass, rs = H.realSand, V = window.__vt, W = window.__watch, after = V.after, onTally = rs._onTally;
+      V.after = function () {
+        after();
+        if (!W.snd) return;
+        var f = H.sim.frame;
+        W.snd.frames.push({ f: V.frames - W.snd.f0, th0: f.thump[0], th1: f.thump[2], slam: f.slam[0], slides: f.slides, agit: H.sim.agitation(), mode: rs.stats().mode, active: H.sim.isActive() });
+      };
+      rs._onTally = function (w, t, tSim, parity) {
+        onTally.call(this, w, t, tSim, parity);
+        if (W.snd && t.beds && w.snd) W.snd.beds.push({ f: V.frames - W.snd.f0, n: t.beds[0].n, vy: t.beds[0].vy, sliding: t.beds[0].sliding });
+      };
+    });
+    var sInfo = await page.evaluate(function () { var H = window.Hourglass, rs = H.realSand; return { GH: rs.Gg * rs.glass.HBc, total: H.sim.total }; });
+    // at rest, asleep, before the start: nothing
+    await frames(600, "rs.stats().mode === 'asleep' && rs.stats().inflight === 0");
+    await page.evaluate(function () { var W = window.__watch; W.snd = { f0: window.__vt.frames, frames: [], beds: [] }; });
+    await frames(30);
+    var rest = await page.evaluate(function () {
+      var W = window.__watch, F = W.snd.frames, any = 0;
+      F.forEach(function (x) { if (x.th0 + x.th1 + x.slam + x.slides + x.agit > 0 || x.active || x.mode !== 'asleep') any++; });
+      W.snd = null;
+      return { n: F.length, any: any, state: window.Hourglass.timer.state };
+    });
+    check(rest.state === 'idle' && rest.n === 30 && rest.any === 0, 'SOUND: before the start, the glass at rest and asleep: nothing of the bed is fed, and the sand is not active', JSON.stringify(rest));
+    // flicked along the glass
+    var cF = classicOn(MOVES.flick, sInfo.total), gF = await play('flick');
+    // (the landing: the largest thump; pressed down first, a bed may give a much smaller one before it)
+    var uF = gF.fall ? -gF.fall.vy : 0, Eu = uF * uF / (2 * sInfo.GH), tF = gF.thumps.slice().sort(function (a, b) { return b.E - a.E; })[0];
+    var lvl = tF ? Math.sqrt(tF.E / cF.thumpE) : 0;
+    check(gF.woke !== null && gF.woke <= 2 && gF.seen !== null && gF.first !== null && gF.first - gF.seen <= 3,
+          'SOUND: a flick wakes the sleeping glass at once, and the bed is heard within 3 frames of the first readback in which it moves',
+          JSON.stringify({ awakeInFrame: gF.woke, bedMovesInReadbackOfFrame: gF.seen, firstFedInFrame: gF.first }));
+    check(gF.thumps.length >= 1 && gF.thumps.length <= 2 && !!tF && tF.upper && gF.slams === 0 && cF.thumps === 1 && cF.slams === 0 && lvl >= 0.5 && lvl <= 2,
+          'SOUND: the bed lifts and lands: a thump in the upper bulb, no slam, as loud as the classic sand\'s for the same flick within a factor of 2 (the level audio.thump plays, 1.3 sqrt(E))',
+          JSON.stringify({ gpu: gF.thumps.map(function (t) { return +t.E.toFixed(4); }), classic: +cF.thumpE.toFixed(4), level: +lvl.toFixed(2) }));
+    check(!!tF && uF > 30 && Math.abs(tF.E / Eu - 1) <= 0.15 && tF.f - gF.fall.f >= 1 && tF.f - gF.fall.f <= 6,
+          'SOUND: the thump is the energy of the bed\'s fastest fall, u^2 / (2 G HB), fed as the bed comes to rest: within 6 frames of the readback of that fall',
+          JSON.stringify({ fastestFall: +uF.toFixed(1), E: tF ? +tF.E.toFixed(4) : null, fromFall: +Eu.toFixed(4), framesAfter: tF ? tF.f - gF.fall.f : null }));
+    check(gF.agit / cF.agit >= 0.5 && gF.agit / cF.agit <= 2 && gF.asleep && gF.tail === 0,
+          'SOUND: its agitation is within a factor of 2 of the classic sand\'s, and once the bed rests nothing is fed and the glass sleeps',
+          JSON.stringify({ gpu: +gF.agit.toFixed(2), classic: +cF.agit.toFixed(2), fedInTheLast30Frames: gF.tail, asleep: gF.asleep }));
+    // control: the same flick with the readbacks unheard feeds nothing
+    await page.evaluate(function () { var rs = window.Hourglass.realSand; rs.__hear = rs._hear; rs._hear = function () {}; });
+    var gC = await play('flick');
+    await page.evaluate(function () { var rs = window.Hourglass.realSand; rs._hear = rs.__hear; delete rs.__hear; });
+    check(gC.thumps.length === 0 && gC.agit === 0 && gC.slides === 0 && gC.fall && -gC.fall.vy > 30,
+          'SOUND: ... and with the readbacks unheard (control: the engine as it was) the same flick, the bed falling as fast, feeds nothing',
+          JSON.stringify({ thumps: gC.thumps.length, agit: gC.agit, slides: gC.slides, fastestFall: gC.fall ? +(-gC.fall.vy).toFixed(1) : null }));
+    // shaken from side to side
+    var cS = classicOn(MOVES.shake, sInfo.total), gS = await play('shake');
+    check(gS.thumps.length === 0 && cS.thumps === 0 && gS.slams === 0 && gS.agit / cS.agit >= 0.5 && gS.agit / cS.agit <= 2 && gS.asleep && gS.tail === 0,
+          'SOUND: shaken sideways at 1.5 g, 5 Hz: no thump (as the classic sand), the agitation within a factor of 2 of the classic\'s; nothing once at rest',
+          JSON.stringify({ gpu: +gS.agit.toFixed(2), classic: +cS.agit.toFixed(2), thumps: gS.thumps.length, slams: gS.slams }));
+    check(gS.slides / cS.slides >= 0.5 && gS.slides / cS.slides <= 2 && gS.rate / cS.rate >= 0.5 && gS.rate / cS.rate <= 2,
+          'SOUND: ... and its slides, in all and at their fastest, within a factor of 2 of the classic sand\'s',
+          JSON.stringify({ gpu: gS.slides, classic: cS.slides, gpuPerSecond: Math.round(gS.rate), classicPerSecond: Math.round(cS.rate) }));
+    // leaned: sound only if the sand moved. (This small bed, deep in the funnel, does not: silence, where the
+    // classic sand's heap gives a little, about 1,300 slides a second at its fastest.)
+    var cL = classicOn(MOVES.lean, sInfo.total), gL = await play('lean');
+    var movedL = gL.seen !== null;
+    check(gL.thumps.length === 0 && gL.slams === 0 && cL.thumps === 0 && (movedL ? gL.rate <= 2 * cL.rate && gL.agit < 0.3 : gL.slides === 0 && gL.agit === 0),
+          'SOUND: leaned 30 degrees: no landing, and sound only as far as the sand moved (a bed that does not move makes none; one that does, no more than twice the classic sand\'s slides)',
+          JSON.stringify({ bedMoved: movedL, slides: gL.slides, perSecond: Math.round(gL.rate), agit: +gL.agit.toFixed(3), classicPerSecond: Math.round(cL.rate) }));
+    var bs = await fresh();
+    var moBack = await page.evaluate(function () { var mo = window.Hourglass.motion; return typeof mo.heading === 'number' && mo.seenMotion === false && typeof mo.sample === 'function' && !Object.prototype.hasOwnProperty.call(mo, 'sample'); });
+    check(!!bs.audit && bs.audit.ok && bs.tally.points === bs.pts && bs.tally.nan === 0 && bs.tally.outside === 0 && bs.state === 'idle' && bs.nTop === bs.total && moBack,
+          'SOUND: afterwards the glass is as it was: idle, all its sand above, every point in the glass, the audit passes, and the app\'s motion object is its own again',
+          JSON.stringify({ audit: bs.audit, state: bs.state, nTop: bs.nTop, motionRestored: moBack }));
 
     /* ---- RUN ------------------------------------------------------------- */
     var r0 = await page.evaluate(function () {
@@ -426,7 +604,7 @@ function installWatch() {
       var r = JSON.parse(window.Hourglass.realSandReport()), rs = window.Hourglass.realSand;
       return JSON.stringify({ log: (r.log || []).slice(-6), lost: rs && rs._lostInfo, n: rs && rs.stats().n });
     });
-    check(lb.live && lb.real && lb.note === 'On', 'LOSS: Real sand is rebuilt and takes the sand back', lb.note + (why ? '; ' + why.slice(0, 900) : ''));
+    check(lb.live && lb.real && lb.row === 'on', 'LOSS: Real sand is rebuilt and takes the sand back', lb.row + ': ' + lb.note + (why ? '; ' + why.slice(0, 900) : ''));
 
     check(errors.length === 0, 'no page or console errors', errors.slice(0, 3).join(' | '));
   } catch (e) {
