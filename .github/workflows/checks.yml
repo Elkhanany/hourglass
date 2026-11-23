@@ -45,7 +45,7 @@ jobs:
             sim-identity sim-p0 sim-determinism sim-clock sim-flip sim-flight sim-knock
             sim-leak sim-persistence sim-sanity sim-spin sim-valve
             realsand-shell realsand-adapter realsand-valve realsand-fill
-            lab-pace lab-timer motion-sensors render-unit
+            lab-pace lab-timer motion-sensors render-unit settings-unit
         run: |
           failed=""
           for s in $SUITES; do

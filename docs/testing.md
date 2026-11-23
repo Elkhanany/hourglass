@@ -19,7 +19,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   name is in the service worker's `SHELL` (the launch screens and the
   install screenshots excepted), every `SHELL` path exists, once, and no
   classic script (the page's and `sw.js`) has module syntax, `import()` or
-  anything newer than ES5. `check-licences`: every file under `realsand/`
+  anything newer than ES5; and whichever of the page's scripts is missing
+  from the copy, `app.js` says the page is updating instead of throwing (the
+  scripts are run in the page's order, in a bare context, with each one left
+  out). `check-licences`: every file under `realsand/`
   and `lab/sand/` is in `realsand/LICENSES.md`, and every file the table
   names exists. `check-release`: a branch that changes a shipped file
   (`sw.js` or a path of its `SHELL`) raises `VERSION` above both the
@@ -36,6 +39,35 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   browser suites, the longer Node suites and `realsand-gpu` are run by hand,
   as above, and their results go in the pull request
   (`.github/pull_request_template.md`).
+- `settings-unit`, `app-boot-trace` and `app-tune-trace` hold the settings
+  store (`app/settings.js`), and whatever is built on it, to what the app did
+  before it, each against a file kept in `tools/test/base/` (see
+  [the architecture](architecture.md#appsettingsjs)). `settings-unit`, in
+  Node, in a moment: the records are well formed, and are the old settings'
+  keys and defaults in their order; the old Settings section of `app.js`,
+  kept byte for byte, and the store give the same on 500 saved states (keys
+  missing, wrong types, values out of range, saves that are not JSON, `?t=`
+  queries, with and without a version, storage that throws): the same
+  settings in the same order, the same saved JSON byte for byte, the same
+  calls on storage, and the same again on a second launch, and nine stores
+  that differ in one thing each are found out; the version step (Real sand
+  on, once, for a save from before version 2); a record's `from` and the
+  steps' order, on a made-up store; `bindSwitch`; and that the file reads
+  nothing when it loads. `app-boot-trace`, in the browser: what the app
+  reads, saves and calls on the Sim, the Renderer, the sound engine and the
+  sensors as it starts, in order, for five saved states (nothing saved; a
+  save from before version 2 with everything changed; Real motion left on; a
+  damaged save; `?t=45` over a saved sequence); a copy of `app.js` that gives
+  the sound engine `muted` before `volume` must fail. `app-tune-trace`: what
+  each of the 48 controls that change a setting saves, calls and buzzes in
+  its own tap, and what follows it (what the cross-fade sets, the answer to
+  the motion question, the boot after the reload a grain makes); a copy of
+  `app.js` whose completion bowl saves after it has told the sound engine,
+  and whose Haptics switch has lost its buzz, must fail at those. Run with
+  `--base <commit>` (or `HOURGLASS_BASE=<commit>`), each makes its file again
+  from that commit's tree and compares; with `--write` as well it writes it,
+  which is how a Tune that changes a control on purpose gets its new trace.
+  The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
   nothing moving, every grain lands exactly as before. `sim-tone` covers
