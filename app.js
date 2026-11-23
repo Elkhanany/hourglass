@@ -3023,7 +3023,8 @@
    *  engine's class and build stamp (attachRealSand). The CPU sand runs,
    *  and shows, while the engine starts (a cold start in a home-screen web
    *  app took 3.4 s on the owner's iPhone), and a slow start is never a
-   *  failure. Once the engine has drawn its first frame it
+   *  failure; the dark opening waits up to 1 s for the engine's first frame
+   *  (holdVeil, at Boot). Once the engine has drawn its first frame it
    *  takes over between two frames (handover): `sim` becomes the GPU sand,
    *  which has every member of the CPU Sim this script uses, and the two
    *  canvases cross-fade. Any failure gives the CPU sand back in the same
@@ -3424,6 +3425,11 @@
   /* ======================================================================
    *  Boot
    * ==================================================================== */
+  var VEIL_HOLD_MS = 1000;           // the dark opening waits this long at most for Real sand's first frame
+  var veilHold = true;
+  try {
+    if (sessionStorage.getItem('hourglass.openNow')) { sessionStorage.removeItem('hourglass.openNow'); veilHold = false; }
+  } catch (e) { /* (no session storage: held as ever) */ }
   sim.reset(grainsFor(T.durationMs));
   calibrate();
   T.rem = T.durationMs;
@@ -3455,13 +3461,25 @@
   requestAnimationFrame(function (t) {
     // (the clock keeps the time since setState above: a restored glass loses none of it)
     lastFrame = t; requestAnimationFrame(frame);
-    requestAnimationFrame(function () {               // the first frame is drawn: fade up from dark
-      veil.style.opacity = getComputedStyle(veil).opacity;   // (on a slow first visit the CSS failsafe
-      veil.classList.remove('boot'); void veil.offsetWidth;  //  may already be lifting it: go on from there)
-      veil.classList.add('lift'); veil.style.opacity = '';
-      setTimeout(function () { zoom.style.transition = ''; veil.classList.remove('lift'); }, 1500);
-    });
+    requestAnimationFrame(function () { holdVeil(performance.now()); });   // the first frame is drawn
   });
+  /*
+   * The dark opening (settings design 5.3, the owner's answer): while Real sand starts, the veil
+   * waits up to 1 s more for the engine's first frame, so that most launches open on Real sand;
+   * then, or at once if the engine is slower (the classic sand shows meanwhile), it fades up as
+   * ever. A reload that should open at once (a later "Use this shape") sets sessionStorage
+   * 'hourglass.openNow' before it reloads, and is not held.
+   */
+  function holdVeil(t0) {
+    if (veilHold && realState === 'starting' && performance.now() - t0 < VEIL_HOLD_MS) {
+      requestAnimationFrame(function () { holdVeil(t0); });
+      return;
+    }
+    veil.style.opacity = getComputedStyle(veil).opacity;   // (on a slow first visit the CSS failsafe
+    veil.classList.remove('boot'); void veil.offsetWidth;  //  may already be lifting it: go on from there)
+    veil.classList.add('lift'); veil.style.opacity = '';
+    setTimeout(function () { zoom.style.transition = ''; veil.classList.remove('lift'); }, 1500);
+  }
 
   // Synthesise the sound beds while idle so the first touch is instant.
   if (window.requestIdleCallback) window.requestIdleCallback(function () { audio.prepare(); }, { timeout: 2500 });

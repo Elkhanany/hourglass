@@ -43,7 +43,7 @@
  *        and taken over then, with no failure counted.
  *  SLOW  a cold start as slow as the owner's iPhone's in a home-screen web app (Gate A: 3.4 s to
  *        the engine's first frame; here 4 s): the CPU sand shows and runs meanwhile, the boot veil
- *        is not held for it, the canvases cross-fade only once the engine has drawn, the clock
+ *        is held 1 s for it and no longer, the canvases cross-fade only once the engine has drawn, the clock
  *        runs on through the handover untouched, no failure is counted, the glass ends on time;
  *        ?debug=sand shows, and its copied report holds, the start-up times and the first fall.
  *  WAKE  Gate A's 4-minute glass ended 7 minutes late: the lab held no screen wake lock and had no
@@ -83,7 +83,8 @@
  *        again. NA-HIDDEN: a capability failure while the page was hidden keeps nothing and is
  *        tried again in view; the same failure in view (the control) is kept.
  *  DEFAULT-MOCK nothing saved, the mock engine: Real sand takes over ("On: ..."), Grain and the
- *        crack sentence hidden, v 2 saved.
+ *        crack sentence hidden, v 2 saved; the dark opening held for the GPU sand's first frame;
+ *        sessionStorage 'hourglass.openNow' (the control): not held, and only once.
  *  MIGRATE a save without a version, or of version 1, with realSand false: on, saved with v 2,
  *        the rest kept; turned off afterwards it stays off; a version-2 save with realSand false
  *        (the control) stays off and loads nothing.
@@ -113,7 +114,22 @@ function pageInit(arg) {
   Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return window.__hidden; } });
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: function () { return window.__hidden ? 'hidden' : 'visible'; } });
   var raf = window.requestAnimationFrame.bind(window), held = [];
-  window.requestAnimationFrame = function (cb) { if (window.__hidden) { held.push(cb); return 0; } return raf(cb); };
+  // the opening: the first animation frame, when the veil began to lift, when the GPU sand took over (#app.real)
+  var O = window.__open = { raf0: null, lift: null, real: null };
+  window.requestAnimationFrame = function (cb) {
+    if (window.__hidden) { held.push(cb); return 0; }
+    return raf(O.raf0 === null ? function (t) { if (O.raf0 === null) O.raf0 = performance.now(); cb(t); } : cb);
+  };
+  new MutationObserver(function () {
+    var v = document.getElementById('veil'), a = document.getElementById('app');
+    if (O.lift === null && v && !v.classList.contains('boot')) O.lift = performance.now();
+    if (O.real === null && a && a.classList.contains('real')) O.real = performance.now();
+  }).observe(document, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  // a reload that should open at once (a later "Use this shape"): the key set once, before the first load
+  if (arg.openNow && !sessionStorage.getItem('__openNowSet')) {
+    sessionStorage.setItem('__openNowSet', '1');
+    sessionStorage.setItem('hourglass.openNow', '1');
+  }
   window.__hide = function (on) {
     window.__hidden = !!on;
     document.dispatchEvent(new Event('visibilitychange'));
@@ -641,7 +657,10 @@ async function testSlow(s, env) {
     s.check('SLOW: 2.5 s into a 4 s start: the CPU sand is the sim, shown, and running (grains through the neck); "Starting…"; the engine not ready',
             mid.cpu && mid.engine && mid.starts === 1 && !mid.ready && !mid.real && mid.sand === '1' && (mid.gpu === 'none' || mid.gpu === '0') &&
             mid.state === 'running' && mid.top < mid.total && mid.note === 'Starting…', JSON.stringify(mid));
-    s.check('SLOW: the boot veil is not held for the engine: it has lifted', mid.veil < 0.02, 'veil opacity ' + mid.veil);
+    var op = await t.eval(function () { return window.__open; });
+    s.check('SLOW: the dark opening waits 1 s for the engine\'s first frame and no longer: it began to lift 1 s after the first frame, before the handover; it has lifted',
+            op.raf0 !== null && op.lift !== null && op.lift - op.raf0 >= 950 && op.lift - op.raf0 <= 1400 && op.real === null && mid.veil < 0.02,
+            JSON.stringify({ liftAfterFirstFrame: op.lift - op.raf0, real: op.real, veil: mid.veil }));
     // the handover, seen from inside the page: the frame it happens in, and the canvases 150 ms and 700 ms on
     var ho = await t.eval(function () {
       var Hg = window.Hourglass, t0 = performance.now();
@@ -1248,7 +1267,7 @@ async function testCrash(s, env) {
 
 /* ------------------------------------------------------------------------------------------ *
  *  Real sand by default (settings design 5): a first launch, the migration, a new engine
- *  build
+ *  build, and the dark opening
  * ------------------------------------------------------------------------------------------ */
 async function testDefaultNa(s, env) {
   // a first launch on a phone whose browser has WebGPU but no adapter (this Chromium): nothing saved
@@ -1329,19 +1348,42 @@ async function testDefaultNa(s, env) {
   } finally { await t3.close(); }
 }
 
+/** The veil was held for the GPU sand: it began to lift once the GPU sand had taken over, or 1 s after the first frame (and not before). */
+function held(o) {
+  return !!o && o.raf0 !== null && o.real !== null && o.lift !== null &&
+    ((o.lift >= o.real && o.lift - o.raf0 <= 1100) || (o.lift - o.raf0 >= 950 && o.lift - o.raf0 <= 1100));
+}
 async function testDefaultMock(s, env) {
   // a first launch where Real sand can run (the mock engine): nothing saved
   var t = await env.open({ rawStorage: {}, init: pageInit, initArg: { plant: PLANT, mock: { seed: 13 } }, routes: [mockRoute()] });
   try {
     await waitLive(t);
     await sleep(600);
-    var st = await state(t);
+    var st = await state(t), o = await t.eval(function () { return window.__open; });
     s.check('DEFAULT-MOCK: nothing saved: Real sand takes over ("On: every grain simulated on the graphics chip", data-state on), Grain and the crack sentence hidden',
             st.live && st.dstate === 'on' && st.note === 'On: every grain simulated on the graphics chip' && st.checked && !st.grainShown && !st.crackShown, JSON.stringify(st));
     s.check('DEFAULT-MOCK: saved: the setting on, version 2, the engine build; nothing counted, nothing kept',
             st.setting === true && st.v === 2 && st.build === ENGINE_BUILD && !st.fails && !st.na && !st.why, JSON.stringify({ setting: st.setting, v: st.v, build: st.build, fails: st.fails, na: st.na }));
+    s.check('DEFAULT-MOCK: the dark opening waited for the engine\'s first frame: the veil began to lift as the GPU sand took over (or, on a slower start, after the full second)',
+            held(o), JSON.stringify({ real: o.real - o.raf0, lift: o.lift - o.raf0 }));
     await H.invariants(s, t, 'DEFAULT-MOCK');
   } finally { await t.close(); }
+  // control: a reload that should open at once ('hourglass.openNow'): not held, and the key used once
+  var t2 = await env.open({ rawStorage: {}, init: pageInit, initArg: { plant: PLANT, mock: { seed: 13 }, openNow: true }, routes: [mockRoute()] });
+  try {
+    await waitLive(t2);
+    await sleep(300);
+    var o2 = await t2.eval(function () { return { o: window.__open, key: sessionStorage.getItem('hourglass.openNow') }; });
+    s.check('DEFAULT-MOCK (control): opened with sessionStorage "hourglass.openNow": the veil lifts at the first frames, before the GPU sand takes over; the key is taken',
+            o2.o.lift !== null && o2.o.real !== null && o2.o.lift < o2.o.real && o2.o.lift - o2.o.raf0 < 300 && o2.key === null,
+            JSON.stringify({ real: o2.o.real - o2.o.raf0, lift: o2.o.lift - o2.o.raf0, key: o2.key }));
+    await t2.reload();
+    await waitLive(t2);
+    await sleep(300);
+    var o3 = await t2.eval(function () { return window.__open; });
+    s.check('DEFAULT-MOCK (control): ... used once: the next launch waits for the first frame again',
+            held(o3), JSON.stringify({ real: o3.real - o3.raf0, lift: o3.lift - o3.raf0 }));
+  } finally { await t2.close(); }
 }
 
 async function testMigrate(s, env) {
