@@ -90,7 +90,8 @@ be a pinch and every glass would run with the thin thread of the hour glass.)
   offline use is that same release. "Offline copy not installed yet" after it
   means the app does not yet work offline (open it once more with a
   connection); "update ... ready: close and reopen" means a newer release
-  has arrived, and the next launch runs it.
+  has arrived, and the next launch runs it; "offline copy" with another
+  number means the installed copy is another release than the page.
 
 The glass also remembers where it was: close or reload the page and a running
 timer carries on from the wall clock, a paused one comes back as it was left,
@@ -163,6 +164,10 @@ sand surges on, piles against the glass and runs back to its slope.
 
 ## Breaking it
 
+All of this is the classic sand's glass. While Real sand runs (the default
+where the phone has WebGPU) the glass does not crack: see *What it leaves out
+for now* under [Real sand](#real-sand-on-the-graphics-chip).
+
 Everything that strikes the glass strikes it at some speed, and the speed
 decides what happens (on an iPhone; px are CSS pixels on screen):
 
@@ -234,24 +239,24 @@ that brings a new engine, which also forgets three failed starts. A start
 that fails this way while the app is put away is not believed: it is tried
 again once the app is in view.
 
-Starting. The dark opening waits up to 1 s longer for the new sand's first
+Starting. The dark opening waits up to 1 s longer for Real sand's first
 picture, so that most launches open straight on Real sand. If the graphics
-chip takes longer, the opening fades up as before on the current sand,
+chip takes longer, the opening fades up as before on the classic sand,
 which shows and runs while the chip gets ready, and the two cross-fade once
-the new sand has drawn its first picture: on the owner's iPhone that took
+Real sand has drawn its first picture: on the owner's iPhone that took
 0.6 s in Chrome and 3.4 s in a home-screen web app opened cold. A slow start
 is never counted as a failure.
 
 A graphics chip that stops answering. If, while the glass runs on screen,
-the new sand sends nothing back for 4 seconds (its picture would freeze
-while the clock runs on), the current sand takes over at once, at the same
-time and with the same sand above, with a note; the new sand starts again
-2 s later. The third time within ten minutes, the current sand stays until
+Real sand sends nothing back for 4 seconds (its picture would freeze
+while the clock runs on), the classic sand takes over at once, at the same
+time and with the same sand above, with a note; Real sand starts again
+2 s later. The third time within ten minutes, the classic sand stays until
 the app is opened again. A glass that is idle, paused or finished and at
 rest sends nothing back and is never taken for one that stopped.
 
 Moving the glass. The sand answers the phone at once: a flick, a shake,
-the hand's jitter. The new sand lives in a slowed world (a fall takes about
+the hand's jitter. Real sand lives in a slowed world (a fall takes about
 3.5 times longer than real), and until build 5 it played your motion back
 as a slowed film of it, which under any shaking or handling ran half a
 second behind the phone, and softly. Now the part of a push along the
@@ -291,10 +296,10 @@ most of the work: the 60-minute glass kept the iPhone's graphics chip 85 %
 busy in the sand lab, and 79 % calm. So when the phone is hot the sand may
 simply run slower than real time for a while; the clock stays exact, and
 the report (below) logs each time the guard trips. There is no economy
-mode: it uses more battery than the current sand, most on long glasses.
+mode: it uses more battery than the classic sand, most on long glasses.
 
 Keep the screen awake. While the phone is locked or another app is in front,
-the new sand stands still and the clock does not; back on screen, the sand
+Real sand stands still and the clock does not; back on screen, the sand
 the clock says has run meanwhile is moved below at once. **Keep screen
 awake** (on by default) holds the screen on while the sand flows, with Real
 sand as without it. (The sand lab has neither, and its 4-minute glass ended
@@ -307,10 +312,10 @@ What it leaves out for now:
   stay, leak nothing and can be mended; Reset makes it whole.
 - The bed's landing thumps, the avalanche hiss and the bed's slams are
   silent, and so is the landing buzz (Android).
-- The current sand's glow, rim light and depth shading are not drawn; the
+- The classic sand's glow, rim light and depth shading are not drawn; the
   grains are lit as in the sand lab.
-- **Grain** sets the current sand only, so it is hidden while the new sand
-  runs; the new sand keeps its own grain.
+- **Grain** sets the classic sand only, so it is hidden while Real sand
+  runs; Real sand keeps its own grain.
 - The sand lab's known faults: a turned bed slides round the glass as a
   block before it breaks up, a bed at rest creeps, heaps stand steep.
 
@@ -318,17 +323,17 @@ The note under the switch says how it is doing:
 
 | Note | What it means |
 | --- | --- |
-| *Starting…* | the graphics chip is getting ready (the current sand meanwhile) |
-| *On: every grain simulated on the graphics chip* | the new sand runs |
-| *Off: the classic sand* | switched off: the current sand, nothing of the new one loaded |
+| *Starting…* | the graphics chip is getting ready (the classic sand meanwhile) |
+| *On: every grain simulated on the graphics chip* | Real sand runs |
+| *Off: the classic sand* | switched off: the classic sand, nothing of Real sand loaded |
 | *Needs WebGPU (iOS 26 or later). Tap to try again* | not in this browser: the switch shows off; a tap tries again, and so does the first launch after an iOS update |
-| *Could not start this time: (why). It will try again next launch* | the current sand until then |
+| *Could not start this time: (why). It will try again next launch* | the classic sand until then |
 | *Did not start 3 times: (why). Turn it off and on to try again* | it stops trying |
 | *Real sand is updating; it will be back at the next launch* | old and new files of an update met; the next launch has the new ones |
-| *Real sand paused: the graphics chip was reset* | the current sand took over at once, at the same time and with the same sand above; the new sand comes back by itself |
-| *Real sand paused: the graphics chip stopped answering* | the same, when the new sand sent nothing back for 4 s; it starts again 2 s later |
-| *Real sand paused: the graphics chip stopped answering three times; it will try again next launch* | the current sand until the app is opened again |
-| *Paused after the graphics chip was reset twice; it will try again next launch* | the current sand until the app is opened again |
+| *Real sand paused: the graphics chip was reset* | the classic sand took over at once, at the same time and with the same sand above; Real sand comes back by itself |
+| *Real sand paused: the graphics chip stopped answering* | the same, when Real sand sent nothing back for 4 s; it starts again 2 s later |
+| *Real sand paused: the graphics chip stopped answering three times; it will try again next launch* | the classic sand until the app is opened again |
+| *Paused after the graphics chip was reset twice; it will try again next launch* | the classic sand until the app is opened again |
 | *Real sand could not restart after the graphics chip was reset; it will try again next launch* | the same, when the chip could not be opened again |
 
 Around a lock or a switch to another app, a reset graphics chip is

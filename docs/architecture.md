@@ -27,6 +27,7 @@ docs/                       the guide, how it works, the architecture, the tests
 docs/images/                the pictures in the README and the install screenshots
 tools/icons.html            regenerates the icons from one SVG
 tools/test/                 development-only tests (not part of the app)
+.github/                    the quick checks on every pull request, and the pull request template
 ```
 
 The app is plain files with no build step: whatever is in the repository is
@@ -126,7 +127,9 @@ release in `<meta name="hourglass-version">`, equal to `VERSION`
 (`check-release`). The last line of Tune shows both, made by `app.js`:
 "Version 1.10.0" when they agree; "· offline copy not installed yet" with
 no worker or no answer within a second; "· update 1.11.0 ready: close and
-reopen" when a newer release was installed while the page ran.
+reopen" when a newer release was installed while the page ran; "· offline
+copy 1.9.1" when the installed copy is another release than the page and
+not a newer one.
 
 Every path is relative (`./`), including `start_url` and `scope`, so the
 app works from a sub-directory such as `/hourglass/`. The shell includes

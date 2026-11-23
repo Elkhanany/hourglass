@@ -26,8 +26,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   default and destructured parameters, shorthand methods). It scans line by
   line and is not a parser: shorthand properties, computed keys and a
   destructuring assignment are not seen. `check-licences`: every file under `realsand/`
-  and `lab/sand/` is in `realsand/LICENSES.md`, and every file the table
-  names exists. `check-release`: a branch that changes a shipped file
+  and `lab/sand/` is in `realsand/LICENSES.md`, every file the table
+  names exists, and a file of the page or the lab that states the project's
+  licence says GPL-3.0-or-later. `check-release`: a branch that changes a shipped file
   (`sw.js` or a path of its `SHELL`) raises `VERSION` above both the
   merge-base's and `origin/main`'s, as a version number, and `index.html`
   has its `hourglass-version` meta, equal to it; it needs `origin/main`
