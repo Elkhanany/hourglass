@@ -39,6 +39,8 @@ var files = fs.readdirSync(__dirname).filter(function (f) {
     (f !== 'lab-sand.test.js' || filter.indexOf('lab') >= 0) &&
     (f !== 'realsand-gpu.test.js' || filter.indexOf('gpu') >= 0);
 }).sort();
+// a filter that matches no suite (a mistyped one, or a renamed file) is a failure, not a green run of nothing
+if (!files.length) { console.log('no suite matches "' + filter + '"'); process.exit(1); }
 files.forEach(function (f) {
   var t = Date.now();
   port = fixedPort || port + 1;
