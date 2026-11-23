@@ -160,12 +160,8 @@ async function cracked(s, env) {
   var s = new H.Suite('app-retime');
   var env = await H.start(), only = env.args.only;
   try {
-    if (!env.caps.p1) {
-      s.check('RETIME needs the motion path (physics-core P1) in physics.js', false, 'the served sim is P0: shaking moves no sand');
-    } else {
-      if (!only || only === 'retime') await retime(s, env);
-      if (!only || only === 'cracked') await cracked(s, env);
-    }
+    if (!only || only === 'retime') await retime(s, env);
+    if (!only || only === 'cracked') await cracked(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

@@ -12,6 +12,9 @@
  *     engine at once: the engine's requests from a lab page go to the network
  *     and are never stored, while the app is answered from its cache
  *   - no page errors
+ *   - the harness serves the tree as it is: every script index.html loads,
+ *     byte for byte, but the motion stub when a test asks for it, which is
+ *     served at motion.js's own path (nothing is added to app.js)
  *
  *   node tools/test/app-regression.test.js [--root <dir>] [--port <n>]
  */
@@ -135,11 +138,42 @@ async function testFlow(s, env) {
   await t.close();
 }
 
+/** What the page is served: each script index.html loads, as the tree has it, but a stand-in asked for. */
+async function testServed(s, env) {
+  var fs = require('fs'), path = require('path'), paths = require('./lib/paths.js');
+  var scripts = paths.classicScripts(env.root), standIns = env.standIns;
+  for (var k = 0; k < 2; k++) {
+    var stub = k === 0;
+    var t = await env.open({ motionStub: stub });
+    var got = await t.eval(function (list) {
+      return Promise.all(list.map(function (f) { return fetch(f, { cache: 'no-store' }).then(function (r) { return r.text(); }); }))
+        .then(function (txt) { return { txt: txt, stub: !!window.__motionStub }; });
+    }, scripts);
+    var asIs = [], stoodIn = [], changed = [];
+    scripts.forEach(function (f, i) {
+      var file = fs.readFileSync(path.join(env.root, f), 'utf8'), standIn = stub && standIns['/' + f];
+      if (!standIn) (got.txt[i] === file ? asIs : changed).push(f);
+      // (the control: the stand-in's text is not the file's, so a file served otherwise is seen)
+      else if (got.txt[i] === fs.readFileSync(standIn, 'utf8') && got.txt[i] !== file) stoodIn.push(f);
+      else changed.push(f);
+    });
+    if (stub) {
+      s.check('SERVED: with the motion stub asked for, ' + asIs.join(', ') + ' are served as the tree has them, and motion.js\'s own path answers with the stub (the page runs it)',
+              changed.length === 0 && stoodIn.length === 1 && path.posix.basename(stoodIn[0]) === 'motion.js' && asIs.length === scripts.length - 1 && got.stub,
+              JSON.stringify({ changed: changed, stoodIn: stoodIn, stub: got.stub }));
+    } else {
+      s.check('SERVED: without it, every script index.html loads (' + scripts.join(', ') + ') is served as the tree has it',
+              changed.length === 0 && asIs.length === scripts.length && !got.stub, JSON.stringify({ changed: changed, stub: got.stub }));
+    }
+    await t.close();
+  }
+}
+
 async function testServiceWorker(s, root) {
   // a copy of the tree, so that the server can serve a new release of the engine midway
   var fs = require('fs'), os = require('os'), path = require('path'), vm = require('vm');
   var copy = fs.mkdtempSync(path.join(os.tmpdir(), 'hourglass-sw-'));
-  fs.cpSync(H.rootWithMotion(root), copy, { recursive: true, filter: function (src) { var b = path.basename(src); return b !== '.git' && b !== 'node_modules'; } });
+  fs.cpSync(root, copy, { recursive: true, filter: function (src) { var b = path.basename(src); return b !== '.git' && b !== 'node_modules'; } });
   var swSrc = fs.readFileSync(path.join(copy, 'sw.js'), 'utf8'), ctx = { self: { addEventListener: function () {} }, URL: URL };
   vm.runInNewContext(swSrc, ctx);
   var engine = ctx.SHELL.filter(function (u) { return u.indexOf('./realsand/') === 0; }).map(function (u) { return u.slice(1); });
@@ -249,6 +283,7 @@ async function main() {
   var root = env.root;
   try {
     await testFlow(s, env);
+    await testServed(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

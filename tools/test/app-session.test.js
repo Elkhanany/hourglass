@@ -62,7 +62,7 @@ async function run(s, env, opts) {
     var after = await t.eval(function () {
       var H = window.Hourglass, c = H.sim.cracks[0];
       return { n: H.sim.cracks.length, seg: c && c.seg, w: c && c.w, seed: c && c.seed, rem: H.timer.rem, state: H.timer.state,
-               now: Date.now(), lost: H.sim.lost, sync: window.__renderShim ? window.__renderShim.syncDamage : -1 };
+               now: Date.now(), lost: H.sim.lost };
     });
     s.check('SESSION: one crack restored, same segment, breach and seed', after.n === 1 && after.seg === cr.seg && after.w === cr.w && after.seed === cr.seed,
             JSON.stringify({ was: [cr.seg, cr.w, cr.seed], now: [after.seg, after.w, after.seed], n: after.n }));
@@ -71,14 +71,10 @@ async function run(s, env, opts) {
     s.check('SESSION: timer state and time restored within 100 ms', after.state === before.state && Math.abs(after.rem - expect) <= 100,
             after.state + ', rem ' + after.rem.toFixed(0) + ' vs ' + expect.toFixed(0) + ' ms');
     var drawnAfter = await frontPatch(t, 0, 6);
-    if (env.caps.render) {
-      var same = drawnBefore && drawnAfter ? drawnBefore.px.length === drawnAfter.px.length && diffCount(drawnBefore.px, drawnAfter.px) < 30 : false;
-      t.__drawn = drawnAfter;
-      s.check('SESSION: the restored crack is drawn on c-front as before', same,
-              drawnAfter ? diffCount(drawnBefore.px, drawnAfter.px) + ' px differ from before the reload' : 'no patch');
-    } else {
-      s.check('SESSION: the app asks the renderer to draw it (renderer shim: syncDamage calls)', after.sync > 0, after.sync + ' calls');
-    }
+    var same = drawnBefore && drawnAfter ? drawnBefore.px.length === drawnAfter.px.length && diffCount(drawnBefore.px, drawnAfter.px) < 30 : false;
+    t.__drawn = drawnAfter;
+    s.check('SESSION: the restored crack is drawn on c-front as before', same,
+            drawnAfter ? diffCount(drawnBefore.px, drawnAfter.px) + ' px differ from before the reload' : 'no patch');
 
     if (opts.leak) {
       // E10 starts from a glass that has leaked, with sand on the desk
@@ -102,18 +98,16 @@ async function run(s, env, opts) {
     });
     s.check('RESET: no cracks and no spilled sand after 0.8 s', rs.n === 0 && rs.spill === 0, JSON.stringify({ cracks: rs.n, spill: rs.spill }));
     s.check('RESET: a full new glass, nothing lost', rs.total === rs.want && rs.lost === 0, 'total ' + rs.total + ' / ' + rs.want + ', lost ' + rs.lost);
-    if (env.caps.render) {
-      await sleep(200);
-      var gone = await t.eval(function (a) {
-        var H = window.Hourglass, sim = H.sim, r = H.renderer, c = document.getElementById('c-front');
-        var S = r.scale * r.dpr, x = c.width / 2 + (a.x - sim.geo.cx) * S, y = c.height / 2 + (a.y - sim.geo.cy) * S;
-        var R = Math.ceil(6 * S), x0 = Math.max(0, Math.round(x - R)), y0 = Math.max(0, Math.round(y - R));
-        var w = Math.min(c.width - x0, 2 * R), h = Math.min(c.height - y0, 2 * R);
-        return Array.prototype.slice.call(c.getContext('2d').getImageData(x0, y0, w, h).data);
-      }, pre.at);
-      s.check('RESET: the crack\'s pixels are gone from c-front', diffCount(pre.px, gone) > 40,
-              diffCount(pre.px, gone) + ' px changed where the crack was');
-    }
+    await sleep(200);
+    var gone = await t.eval(function (a) {
+      var H = window.Hourglass, sim = H.sim, r = H.renderer, c = document.getElementById('c-front');
+      var S = r.scale * r.dpr, x = c.width / 2 + (a.x - sim.geo.cx) * S, y = c.height / 2 + (a.y - sim.geo.cy) * S;
+      var R = Math.ceil(6 * S), x0 = Math.max(0, Math.round(x - R)), y0 = Math.max(0, Math.round(y - R));
+      var w = Math.min(c.width - x0, 2 * R), h = Math.min(c.height - y0, 2 * R);
+      return Array.prototype.slice.call(c.getContext('2d').getImageData(x0, y0, w, h).data);
+    }, pre.at);
+    s.check('RESET: the crack\'s pixels are gone from c-front', diffCount(pre.px, gone) > 40,
+            diffCount(pre.px, gone) + ' px changed where the crack was');
     await H.invariants(s, t, 'SESSION/RESET');
   } finally {
     await t.close();

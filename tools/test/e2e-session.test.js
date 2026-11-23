@@ -23,8 +23,7 @@ var S = require('./app-session.test.js');
   var s = new H.Suite('e2e-session (E9, E10)');
   var env = await H.start({ webgl: true });
   try {
-    if (!env.caps.render) s.check('E9/E10 need the renderer (crack drawing and the spill)', false, 'not in ' + env.root);
-    else await S.run(s, env, { seg: 6, leak: true });
+    await S.run(s, env, { seg: 6, leak: true });
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

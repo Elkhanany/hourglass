@@ -191,12 +191,6 @@ async function caseE(s, env) {
 (async function main() {
   var s = new H.Suite(REAL ? 'e2e-permission (E12, real motion.js)' : 'app-permission');
   var env = await H.start();
-  if (REAL && !env.caps.motion) {
-    s.skip('E12 needs the real motion.js', 'motion.js has not landed in ' + env.root);
-    await env.close();
-    s.done();
-    return;
-  }
   try {
     await caseA(s, env);
     await caseB(s, env);

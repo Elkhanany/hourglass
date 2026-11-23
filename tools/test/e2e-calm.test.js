@@ -98,8 +98,7 @@ async function tiltSwap(s, env) {
     if (!only || only === 'e1') await e1(s, env);
     if (!only || only === 'e11') {
       await R.testFlow(s, env);
-      if (env.caps.motion) await tiltSwap(s, env);
-      else s.check('E11 tiltSwap needs the real motion.js', false, 'motion.js has not landed in ' + root);
+      await tiltSwap(s, env);
     }
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));

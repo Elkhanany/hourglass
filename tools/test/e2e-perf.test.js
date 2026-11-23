@@ -302,12 +302,9 @@ async function cpu4(s, env) {
   var env = await H.start();
   var only = env.args.only;
   try {
-    if (!env.caps.p1) s.check('E13 needs the motion path (physics-core P1)', false, 'the served sim is P0');
-    else {
-      if (!only || only === 'shake') await shake1x(s, env);
-      if (!only || only === 'spin') await spin1x(s, env);
-      if (!only || only === 'cpu4') await cpu4(s, env);
-    }
+    if (!only || only === 'shake') await shake1x(s, env);
+    if (!only || only === 'spin') await spin1x(s, env);
+    if (!only || only === 'cpu4') await cpu4(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {
