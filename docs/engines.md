@@ -232,9 +232,12 @@ bit-identical with f446085.
 - **Where it stands back.** Spun faster than 6 rad/s, or below full quality
   (the governor's lighter levels), a moved glass is stepped as before; a slide
   in progress ends there.
-- **Sound.** Nothing was added to `audio.js`: the rush of sliding sand follows
-  the slide counts, so an avalanche after a lean or a carry is now heard
-  softly, and the rush after the Flip ends sooner (2.7 s instead of 4.1 s).
+- **Sound.** The rush of sliding sand follows the slide counts, so the rush
+  after the Flip ends sooner (2.7 s instead of 4.1 s). An avalanche after a
+  lean or a carry is thousands of slides a second, under the 24,000 the rush
+  begins at: under a running stream it is a slump now and then, and in a
+  glass with no stream it is heard softly, from 1,000 slides a second (see
+  [*`audio.js`*](#audiojs--procedural-sound), 5).
 - **Cost** (Node, phone-size glass with the most sand, ms per frame, mean /
   p95, before → after): a held lean of 30° 0.67 / 0.70 → 0.34 / 1.84 and then
   nothing once at rest; the Flip and 3 s after 0.78 / 1.84 → 0.67 / 2.20; all
@@ -506,8 +509,20 @@ is what the grains land on.
    random flutters, never a clock), the slide of sand as the glass turns, the
    air it cuts as it spins, a small avalanche down the pile every
    few seconds (a soft swell to one side), and a singing-bowl bloom at the end
-   (optional).
-6. **The glass in the hand**: shaking is heard as it happens in the physics.
+   (optional). The slide, the rush, follows the sand's slide count: silent up
+   to 24,000 slides a second, full at 184,000, so that under a running stream
+   the heap's own avalanches stay beneath it and only a turned or shaken bed
+   rushes. A glass with no stream (idle before the start, paused, finished:
+   no stream, pour or run for half a second, and not being turned) has
+   nothing to hide a slide under, and there the rush begins at 1,000 slides a
+   second and rises to 0.3 of its full level by 24,000 (the old curve passes
+   that at 42,000, and is unchanged above): a lean past the slope, 13,000
+   slides a second on a five-minute glass, sounds near -45 dBFS, 15 dB under
+   the stream, on the side the sand runs to.
+6. **The glass in the hand**: shaking is heard as it happens in the physics,
+   in every state of the clock: the bed's sounds do not ask whether the glass
+   runs, only whether the sand moved (the stream and the ambience are the
+   running glass's alone).
    Each time a bed lifts and lands there is a soft low thump with a little
    grain in it, and the vessel answers; sand slamming the far end clacks,
    glassier; while the sand is agitated the grain textures rise into a soft
@@ -846,6 +861,36 @@ are what `app.js` and `audio.js` read and call on `sim`:
 `frame`, `geo`, the event arrays and `cracks` are the CPU Sim's own objects,
 shared with RealSand, not copies: the sound, the cracks and the glass read
 one record whichever engine runs.
+
+The bed's part of that record is on the classic sand's scale, because
+`audio.js` and the haptics are tuned to it. `app.js` reads it in one place
+(`feedAudio`), once a frame, after the frame's steps and the picture, in
+every state of the clock (idle, running, paused, done), and never while the
+page is hidden (no frames; `audio.hold` keeps the stream alone):
+
+- `frame.thump` `[E0, x0, E1, x1]`: a bed landed on its seat in this frame,
+  for the bulb above and the bulb below: `E` the kinetic energy it lost, per
+  grain of that bulb, over `G` times the bulb's height (a bed dropped a
+  tenth of the bulb's height: 0.1), `x` where, -1 to 1 across the bulb.
+  `audio.thump` plays `1.3 * sqrt(E)` (nothing under 0.0015), at most one a
+  bulb every 60 ms, so a landing's whole energy belongs in one frame; over
+  0.3 the phone buzzes (Android), at most every 250 ms.
+- `frame.slam` `[E, x]`: a bed struck the far end; the same scale, a clack,
+  at most 12 a second.
+- `frame.slides`: surface moves in this frame, in the engine's own grains
+  and cells; `app.js` divides by the frame's time and by the cube of the
+  grain's fineness and smooths over a tenth of a second. An engine that
+  hears of its sand only now and then gives the rate times the frame's
+  time in every frame, not a burst.
+- `agitation()`: 0 to 3, the hotter bed's granular temperature (1 for sand
+  shaken at 1.5 g, 5 Hz), read in every frame, so it is 0 whenever the sand
+  is at rest; the shimmer's floor is `0.28 * agit^1.5`, flat out from 1.4.
+- `bf`: the field each bed feels, for the rush's place between the ears.
+
+Only frames the app counts active pass the record on (`isActive()` is one
+of the reasons a frame is active), and an engine at rest leaves all of it
+at 0: sound follows what the sand did, never the phone's motion alone, and
+never keeps an engine awake.
 
 **The GPU engine's own members**, which the app calls only on `real`,
 `realEng`, `eng` and the class, each under its guard: `create` (static),

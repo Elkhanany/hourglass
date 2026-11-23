@@ -87,9 +87,29 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the sound engine's calls and levels, and the water ambiences: that each
   starts, switches and stops leaving nothing behind, their levels, that
   nothing clips behind the sand, their synthesis slices, and the fallback for
-  browsers that refuse low sample rates.
+  browsers that refuse low sample rates. `audio-levels` also holds the bed
+  of a glass that is moved while no stream runs (before the start, paused,
+  finished), fed what the classic sand gives the app for that motion:
+  silence at rest; a 1.5 g 5 Hz shake, 2 g up and down and a lean past the
+  slope each within 3 dB of the level it was built at, the lean louder on
+  its low side (a sand reporting a quarter of the shake's feeds fails that
+  check, its control); and the lean heard only where no stream runs (the
+  same slides under a running stream leave the rush at nothing). `audio-api`
+  also checks that one touch is enough, in a Chromium launched with its own
+  autoplay policy (sound only after a gesture, as on an iPhone; the page is
+  driven by an init script and reports on its console, since a script
+  evaluated from outside counts as a gesture): on a fresh page with the
+  glass idle the bed's feeds play nothing; after one touch that starts
+  nothing (the glass taken, moved and let go) the context runs and the same
+  feeds thump, rush and shimmer, with sound at the output; the same events
+  made by a script leave the context suspended (the control).
 - `app-*`: the app's own acceptance tests (permission, gestures, motion,
-  re-timing, session, the existing flow), on the app as it ships: every
+  re-timing, session, the existing flow), on the app as it ships
+  (`app-motion` also has the classic sand heard before the start: nothing at
+  rest; leaned past the slope, thousands of slides a second and the rush,
+  softly, on the low side; shaken, the rush and the shimmer; no stream and
+  no ambience in either; and the same lean under a running stream leaving
+  the rush at nothing, its control): every
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
   then served at `motion.js`'s path. Real sand is the app's default, and
@@ -136,8 +156,25 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   chip lost mid-run (the CPU sand at the same counts in the same frame, the
   clock untouched, the toast, then back), and what audio.js is given (the
   stream's flow from the grains released, landings after their fall, events
-  in range, poured sand landing in the top bulb, nothing for the thumps,
-  slams and slides, no landing buzz); a start that fails keeps the setting
+  in range, poured sand landing in the top bulb, and of the bed, in a glass
+  that is not moved, nothing: no thumps, slams or slides, no landing buzz);
+  the bed heard when the glass is moved (`sounds`), with the mock engine
+  saying what its sand does (`__mockEnv.feeds`: the frame record as an
+  engine fills it, written only in frames in which the engine ran;
+  `__mockEnv.tally`: fields merged into the mock chip's readbacks), the
+  phone shaken through the motion stub: before the start, running, paused
+  and finished, every thump and slam the engine reported is given to
+  `audio.update` in that frame and played, the slides at their rate, the
+  agitation and the landing buzz, with the stream and the ambience on only
+  while the glass runs, and each time the same shake with the engine saying
+  nothing gives nothing (the control); its sand still, the engine sleeps
+  within 1.5 s although it was reporting sound until then, and nothing more
+  is given (sand that moves keeps it awake and heard, the control), and a
+  jolt brings the sound back within 3 frames; hidden, no update at all, the
+  rush and the shimmer let go (back in view it is heard again); muted, or
+  with the volume at 0, the feeds come and the output is silence, read by an
+  analyser on the sound engine's last node (unmuted, it is not); a start
+  that fails keeps the setting
   and stops after three launches; a stale build stamp says it is updating;
   a start held 4 s, as slow as an iPhone's home-screen web app opened cold
   (the CPU sand shown and running meanwhile, the boot veil held 1 s and no longer, the

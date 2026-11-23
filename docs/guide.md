@@ -86,7 +86,7 @@ be a pinch and every glass would run with the thin thread of the hour glass.)
   reset. It works in Zen and Full Zen; with *Reduce Motion* the glow only
   brightens and dims.
 - **Full Zen**, **Haptics**.
-- At the foot, the version: "Version 1.10.0" when the copy installed for
+- At the foot, the version: "Version 1.11.0" when the copy installed for
   offline use is that same release. "Offline copy not installed yet" after it
   means the app does not yet work offline (open it once more with a
   connection); "update ... ready: close and reopen" means a newer release
@@ -160,6 +160,21 @@ drag barely stirs it and a hard spin pins it to both ends. Its own motion it
 keeps: carry the glass off quickly and the sand is left behind for a moment,
 the falling thread with it; stop it dead, or let it strike an edge, and the
 sand surges on, piles against the glass and runs back to its slope.
+
+What you hear. Sand that moves is heard, whether the glass is running or
+not: before it is started, while it is paused and after it has run out, as
+much as while it runs. Shake it and the bed lifts and lands with a soft
+thump (a hard landing also buzzes, on Android), sand thrown against the far
+end of the glass clacks, and the stirred grains shimmer. Lean it past the
+sand's slope, or carry it about, and the sand slides with a soft hiss on the
+side it runs to. In a glass that only stands there (not running) that hiss
+is heard from a small slide on, well under the stream's own level; under a
+running stream small slides stay beneath the stream, as they always did,
+and only a turned or shaken bed rushes. Nothing sounds while no sand moves.
+The stream and the ambience still begin only when the glass runs, and the
+mute button and the volume apply to all of it. On an iPhone the sound of
+each launch begins with the first touch that ends: any touch will do (a
+tap, the tilt icon, the glass taken and let go), and one is enough.
 
 ## Breaking it
 
@@ -359,7 +374,10 @@ and after each.
 
 - iOS Safari only starts audio from a user gesture. The app creates and resumes
   the audio context on the first touch, and resumes it again after an
-  interruption (call, lock screen, tab switch).
+  interruption (call, lock screen, tab switch). One touch is enough, also
+  one that starts nothing (the glass taken and let go); the sound begins as
+  that touch ends, so a glass dragged about in the very first touch of a
+  launch is silent until the finger lifts.
 - Real motion needs motion permission on iOS 13+; the switch asks for it, once
   for both sensors. An iPhone keeps that permission only until the app is
   closed, and a web app cannot change that, so with Real motion left on it

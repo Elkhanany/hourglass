@@ -803,6 +803,9 @@ kept; on with the real adapter on a mock graphics
 chip (`stubs/realsand-mock-boot.mjs`, served as `realsand/boot.mjs`): the
 handover, a 10 s glass to its end, Reset, pours, gaps, Flips, the swap frame,
 losses in view and hidden, a slow start, the wake lock, the sound's numbers,
+the bed heard when the glass is moved (before the start, running, paused and
+finished, with the mock engine saying what its sand does; nothing asleep or
+hidden, silence when muted),
 the glass that does not crack, themes and layers, and the report. The
 monitor every suite runs (`stubs/page-init.js`) follows `Hourglass.sim` when
 the GPU sand takes over and checks its readbacks (`audit()`).
