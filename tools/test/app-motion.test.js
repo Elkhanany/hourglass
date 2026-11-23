@@ -7,6 +7,17 @@
  * 10. Turned over and held 300 ms, the glass swaps once; a 120 ms glitch
  *     never swaps it.
  *
+ * SLOSH: the classic sand heard when the glass is moved before it is started.
+ *     Idle, at rest: nothing is given to the sound for the bed. Leaned past
+ *     the slope (the heading to 43 degrees): the sand slides at thousands of
+ *     slides a second, far under the 24,000 the rush begins at under a
+ *     stream, and is heard all the same, softly, in the ear of the side the
+ *     sand runs to (leaned one way and then the other, against where the
+ *     sand's centre went); shaken
+ *     (1.5 g at 5 Hz): the rush and the shimmer; no stream and no ambience
+ *     in either. The control: the same lean while the glass runs leaves the
+ *     rush at nothing, as it always did.
+ *
  *   node tools/test/app-motion.test.js [--root <dir>] [--port <n>]
  */
 'use strict';
@@ -103,6 +114,111 @@ async function testTiltSwap(s, env) {
   await t.close();
 }
 
+/** From now on: the bed as audio.update is given it, and the levels the sound engine asks for (window.__sl). */
+function sloshWatch(t) {
+  return t.eval(function () {
+    var A = window.Hourglass.audio;
+    if (!A.__sloshHook) {
+      A.__sloshHook = true;
+      var up = A.update;
+      A.update = function (st) {
+        var W = window.__sl;
+        W.updates++;
+        if (st.sim) W.active++;
+        if (st.slides > W.slides) W.slides = st.slides;
+        if (st.agit > W.agit) W.agit = st.agit;
+        if (st.flow > W.flow) W.flow = st.flow;
+        if (st.ambient) W.ambient++;
+        var r = up.apply(this, arguments);
+        if (this.ready && this.ctx.state === 'running') {
+          var rush = this._last.rush || 0;
+          W.live++;
+          if (rush > W.rush) { W.rush = rush; W.pan = this._last.rpan || 0; W.panAsked = st.rushPan; }
+          W.shimmer = Math.max(W.shimmer, (this._last.cS || 0) + (this._last.cG || 0));
+          W.stream = Math.max(W.stream, (this._last.hS || 0) + (this._last.hG || 0));
+        }
+        return r;
+      };
+    }
+    window.__sl = { updates: 0, active: 0, live: 0, slides: 0, agit: 0, flow: 0, ambient: 0, rush: 0, pan: 0, panAsked: 0, shimmer: 0, stream: 0 };
+  });
+}
+function sloshRead(t) {
+  return t.eval(function () {
+    var o = {}, W = window.__sl; for (var k in W) o[k] = W[k]; o.state = window.Hourglass.timer.state;
+    // where the upper bulb's sand lies across the glass: its grains' mean place from the axis, cells (+: to the right)
+    var sim = window.Hourglass.sim, g = sim.geo, n = 0, sx = 0;
+    for (var y = 0; y < g.cy; y++) for (var x = 0; x < sim.W; x++) if (sim.cell[y * sim.W + x] > 0) { n++; sx += x + 0.5 - g.cx; }
+    o.sandX = n ? sx / n : 0;
+    return o;
+  });
+}
+function sloshShow(w) {
+  return JSON.stringify({ state: w.state, updates: w.updates, active: w.active, slides: Math.round(w.slides), agit: +w.agit.toFixed(2), rush: +w.rush.toFixed(3),
+    pan: +w.pan.toFixed(2), shimmer: +w.shimmer.toFixed(3), flow: +w.flow.toFixed(1), ambient: w.ambient, stream: +w.stream.toFixed(4) });
+}
+
+async function testSlosh(s, env) {
+  var t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: 300000 } } });
+  try {
+    await sleep(800);
+    await t.page.tap('#btn-mute');       // one touch for the sound, twice: the glass stays idle
+    await sleep(250);
+    await t.page.tap('#btn-mute');
+    await t.page.waitForFunction(function () { var a = window.Hourglass.audio; return a.ready && a.ctx.state === 'running' && !a.muted; }, null, { timeout: 5000 });
+    var on = await t.eval(function () { return { grav: window.Hourglass.grav.on, state: window.Hourglass.timer.state, cpu: window.Hourglass.sim instanceof window.HourglassPhysics.Sim }; });
+    s.check('SLOSH: the classic sand, Real motion on (the motion stub), a 5 minute glass idle, the sound unlocked', on.grav && on.state === 'idle' && on.cpu, JSON.stringify(on));
+    await sleep(700);
+    await sloshWatch(t);
+    await sleep(1200);
+    var rest = await sloshRead(t);
+    s.check('SLOSH: at rest before the start nothing is given to the sound for the bed, and nothing sounds',
+            rest.updates >= 10 && rest.active === 0 && rest.slides === 0 && rest.agit === 0 && rest.rush === 0 && rest.shimmer === 0 && rest.stream === 0 && rest.ambient === 0, sloshShow(rest));
+    // leaned past the slope: the heading to 43 degrees, held 2.5 s
+    await sloshWatch(t);
+    await t.eval(function () { window.__motion.heading = 0.75; });
+    await sleep(2500);
+    var lean = await sloshRead(t);
+    await t.eval(function () { window.__motion.heading = 0; });
+    s.check('SLOSH: leaned past the slope before the start, the sand slides (thousands of slides a second, under the 24,000 of a running glass\'s rush) and is heard: the rush, softly',
+            lean.state === 'idle' && lean.slides > 3000 && lean.slides < 24000 && lean.rush > 0.04 && lean.rush <= 0.15, sloshShow(lean));
+    await sleep(3500);                   // the sand back at rest, upright
+    // ... and leaned the other way: the sand runs back across the glass, and the rush goes with it
+    await sloshWatch(t);
+    await t.eval(function () { window.__motion.heading = -0.75; });
+    await sleep(2500);
+    var leanL = await sloshRead(t);
+    await t.eval(function () { window.__motion.heading = 0; });
+    s.check('SLOSH: ... in the ear of the side the sand runs to: leaned one way the sand lies to the right and the rush was in the right ear, leaned the other way it runs to the left and the rush is in the left; no stream and no ambience',
+            lean.sandX - rest.sandX > 1 && lean.panAsked > 0.2 && lean.pan > 0.2 && leanL.sandX - lean.sandX < -1 && leanL.panAsked < -0.2 && leanL.pan < -0.2 && leanL.rush > 0.04 &&
+            lean.flow === 0 && lean.stream === 0 && lean.ambient === 0 && leanL.stream === 0 && leanL.ambient === 0,
+            'leaned to 0.75 rad: the sand\'s centre from ' + rest.sandX.toFixed(1) + ' to ' + lean.sandX.toFixed(1) + ' cells, the rush asked at ' + lean.panAsked.toFixed(2) + ' and panned ' + lean.pan.toFixed(2) +
+            '; to -0.75: to ' + leanL.sandX.toFixed(1) + ' cells, asked ' + leanL.panAsked.toFixed(2) + ', panned ' + leanL.pan.toFixed(2) + ', the rush ' + leanL.rush.toFixed(3));
+    await sleep(3500);                   // at rest again, upright
+    // shaken: 1.5 g at 5 Hz, side to side
+    await sloshWatch(t);
+    await t.eval(function () { window.__drive({ whole: true, fn: function (tt, f) { f.x = 1.5 * Math.sin(2 * Math.PI * 5 * tt); } }); });
+    await sleep(2500);
+    var shake = await sloshRead(t);
+    await t.eval(function () { window.__driveStop(); });
+    s.check('SLOSH: shaken before the start (1.5 g at 5 Hz): the rush and the shimmer, still no stream and no ambience',
+            shake.state === 'idle' && shake.slides > 24000 && shake.agit > 0.5 && shake.rush > 0.1 && shake.shimmer > 0.1 && shake.flow === 0 && shake.stream === 0 && shake.ambient === 0, sloshShow(shake));
+    await sleep(3000);
+    // the control: the same lean while the glass runs
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(2500);
+    await sloshWatch(t);
+    await t.eval(function () { window.__motion.heading = 0.75; });
+    await sleep(2500);
+    var run = await sloshRead(t);
+    await t.eval(function () { window.__motion.heading = 0; });
+    s.check('SLOSH (control): the same lean while the glass runs: the slides come, under 24,000, and the rush stays at nothing as it always did (the stream and the ambience on)',
+            run.state === 'running' && run.slides > 3000 && run.slides < 24000 && run.rush === 0 && run.flow > 5 && run.ambient === run.updates, sloshShow(run));
+    await sleep(1500);
+    await H.invariants(s, t, 'SLOSH');
+  } finally { await t.close(); }
+}
+
 (async function main() {
   var s = new H.Suite('app-motion');
   var env = await H.start();
@@ -110,6 +226,7 @@ async function testTiltSwap(s, env) {
   try {
     if (!only || only === 'mapping') await testMapping(s, env);
     if (!only || only === 'tiltswap') await testTiltSwap(s, env);
+    if (!only || only === 'slosh') await testSlosh(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

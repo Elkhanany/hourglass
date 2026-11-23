@@ -2013,6 +2013,7 @@
     // ---- the sand ----------------------------------------------------------
     this._flowSlow = 0;       // the flow, slowly: its breathing is heard against this
     this._flowOn = false;
+    this._still = 0;          // how long no stream has flowed: a glass that stands idle, paused or finished (s)
     this._evRate = 0;         // impact events / s, smoothed
     this._grain = 1;          // how strongly the stream's grains land (by character)
     this._wander = 0;         // where in front they land, drifting
@@ -2710,7 +2711,8 @@
    *    tail      1 … 0 across the final handful of grains
    *    fill      0 … 1 how full the lower bulb is
    *    bottom    grains resting in the lower bulb
-   *    slides    surface-slide moves / s (avalanche & tumble activity)
+   *    slides    surface-slide moves / s (avalanche & tumble activity): the rush, from 24,000;
+   *              from 1,000 in a glass with no stream (not a running one, nor pouring)
    *    pouring   true while fresh sand is being added
    *    flipping  true while the vessel is turning
    *    spin      how fast it is turning (rad/s)
@@ -2720,8 +2722,9 @@
    *
    *    — optional, the glass in hand —
    *    agit      0 … 3 how agitated the sand is (sim.agitation())
-   *    rushPan   −1 … 1 where the sliding sand is, as heard (−0.6·f_x/G of
-   *              the fuller bulb, page frame); followed while not flipping
+   *    rushPan   −1 … 1 where the sliding sand runs to, as heard (0.6·f_x/G of
+   *              the fuller bulb, page frame: + is the right ear); followed
+   *              while not flipping
    *    thump     Float32Array(4) [E0, x0, E1, x1]: this frame's bed landings
    *              per bulb, energy and pan (sim.frame.thump), or null
    *    slam      Float32Array(2) [E, x]: sand slamming the far end, or null
@@ -2735,13 +2738,17 @@
     var ctx = this.ctx, t = ctx.currentTime;
     var dt = st.dt > 0 ? Math.min(st.dt, 0.1) : 0.016;
     // ---- ambience: on while the glass runs, even while it is being turned ---
-    this._ambience(st.ambient != null ? st.ambient : st.running);
+    var amb = st.ambient != null ? st.ambient : st.running;
+    this._ambience(amb);
 
     // ---- the stream, and its breathing -----------------------------------
     // Heard against its own slow mean, the flow's swell lifts the whole sand.
     var flow = st.flow || 0, tail = st.tail >= 0 ? (st.tail < 1 ? st.tail : 1) : 1, on = flow > 0.4;
     if (on && !this._flowOn) this._flowSlow = flow;      // a stream that starts: no surge
     this._flowOn = on;
+    // (no stream and no pour for a while, in a glass that is not a running one being turned:
+    // whatever sand moves now, a hand set it moving)
+    this._still = on || st.running || amb || st.pouring ? 0 : this._still + dt;
     this._flowSlow += (flow - this._flowSlow) * Math.min(1, dt / 2.5);
     // A long, slow timer still breathes softly; a short one is fuller.
     var lvl = on ? 0.34 + 0.66 * Math.pow(Math.min(1, flow / 320), 0.45) : 0, pulse = 1;
@@ -2869,6 +2876,17 @@
     // ---- Layer 4: rush of sliding sand (flip / avalanches) --------------
     var sl = st.slides || 0;
     var rush = sl <= 24000 ? 0 : Math.min(1, Math.pow((sl - 24000) / 160000, 0.55));
+    // Under a stream the heap's own small avalanches stay beneath it, as ever. In a glass that
+    // only stands there (idle, paused, finished: no stream for half a second) sliding sand was
+    // set sliding by a hand, and is heard from 1,000 slides a second: softly, rising to STILL_TOP
+    // by 24,000 (a lean past the slope, a glass carried about), and above that as ever. It holds
+    // through a turn of such a glass too (the turn's own rule, just below, is the louder while
+    // the hand is fast): the sand set sliding by the turn is heard until it rests, with no gap
+    // at the turn's end. A running glass that is turned keeps the turn's rule alone, as ever.
+    if (this._still >= STILL_AFTER && sl > STILL_KNEE) {
+      var low = STILL_TOP * Math.sqrt(Math.min(1, (sl - STILL_KNEE) / (24000 - STILL_KNEE)));
+      if (low > rush) rush = low;
+    }
     var panTo = 0;
     if (st.flipping) {
       // the turn itself: the faster the hand, the louder the slide; it
@@ -2900,6 +2918,9 @@
   };
 
   var BED_KEYS = ['S', 'G'], POUR_KEYS = ['P'], RUSH_KEYS = ['R'];
+  // The slide of sand in a glass with no stream (update(), the rush): from STILL_KNEE slides a
+  // second, up to STILL_TOP of the rush, once no stream has flowed for STILL_AFTER seconds.
+  var STILL_KNEE = 1000, STILL_TOP = 0.3, STILL_AFTER = 0.5;
 
   /**
    * The beds' levels: the hush and the crackle, on sand and on glass, gliding

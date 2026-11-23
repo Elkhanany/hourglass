@@ -31,8 +31,8 @@
  *          the sand back; the glass ends on time;
  *        - SOUND: what audio.js is given (design 8): the stream's flow follows the grains the
  *          ledger releases, landings come after the fall from the neck to the heap, events
- *          within their ranges, poured sand lands in the top bulb, nothing for the bed's
- *          thumps and slams, no landing buzz;
+ *          within their ranges, poured sand lands in the top bulb, and of the bed, in a glass
+ *          that is not moved, nothing: no thumps, slams or slides, no landing buzz;
  *        - census every 15 frames through the engine's audit(), no errors.
  *  FAIL  a start failure of the second kind: the CPU sand, the setting kept, the note says why;
  *        after three launches in a row it stops trying (nothing requested); off and on again
@@ -82,6 +82,25 @@
  *  QUIET the engine ready in the middle of a Flip takes over only once the turn is over; without
  *        ?debug=sand the row still has "Copy a report".
  *
+ *  SOUNDS the bed heard when the glass is moved, in every state (design 8). The mock engine says
+ *        what its sand does (stubs/realsand-mock-boot.mjs: __mockEnv.feeds, the frame record as the
+ *        engine would fill it, only in frames in which the engine ran; __mockEnv.tally, the chip's
+ *        own report). Idle before the start, running, paused and finished, the phone shaken
+ *        (1.5 g at 5 Hz, the motion stub): every thump and slam the engine reported is given to
+ *        audio.update in that frame and played, the slides at their rate, the agitation, the
+ *        landing buzz; the stream and the ambience keep their rules (none unless it runs). The
+ *        control, each time: the same shake with the engine saying nothing (the sand did not
+ *        move): nothing. ASLEEP: its sand still, the engine sleeps within 1.5 s although it was
+ *        reporting sound until then, and nothing more is given (the control: sand that moves keeps
+ *        it awake and heard); a jolt wakes it and the sound comes within 3 frames. HIDDEN: no
+ *        update at all, the rush and the shimmer let go (the control: back in view, heard again).
+ *        MUTED: the feeds come, the output is silent, and so with the volume at 0 (the
+ *        control: unmuted, it is not). BEDS: the engine's own ears, with nothing said for it:
+ *        the mock chip's readbacks carry each bulb's bed (solver.mjs bedOf), the upper one
+ *        sliding within itself, then falling and stopped by the glass; the real adapter makes
+ *        slides, agitation and one landing of it, and audio.update is given them and plays them
+ *        (the control: the same bed at rest in its records: nothing).
+ *
  *  DEFAULT-NA nothing saved, the real engine: loaded once, "na" with "Tap to try again", the
  *        setting on and saved with v 2, the user agent kept; the next launch says so and loads
  *        nothing; another user agent kept (an iOS update, the control) or a tap on the row: tried
@@ -116,7 +135,7 @@
  *
  *   node tools/test/app-realsand.test.js [--port 8905] [--only slow]
  *   (cases: off nogpu mock fail stamp again slow wake life norebuild crash residue asleep quiet
- *    defaultna defaultmock migrate build hang restart)
+ *    sounds defaultna defaultmock migrate build hang restart)
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -220,7 +239,8 @@ function mockRoute() {
 function openMock(env, mock, settings, o) {
   return env.open({ storage: { 'hourglass.settings.v1': Object.assign({ realSand: true, durationMs: 10000 }, settings || {}) },
     init: pageInit, initArg: { plant: PLANT, mock: mock || {}, wake: !!(o && o.wake), adopt: o && o.adopt },
-    routes: [mockRoute()].concat((o && o.routes) || []), query: o && o.query });
+    routes: [mockRoute()].concat((o && o.routes) || []), query: o && o.query,
+    motionStub: !!(o && o.motionStub) });
 }
 /**
  * app.js with one thing undone, for a control: the check that thing answers must fail on it.
@@ -518,7 +538,7 @@ async function testMock(s, env) {
             snd.ev > 100 && snd.evBad === 0 && snd.tailMin < 0.2 && Math.abs(snd.fillMax - snd.full) < 0.002,
             JSON.stringify({ ev: snd.ev, bad: snd.evBad, tailMin: snd.tailMin, fillMax: snd.fillMax, allBelow: snd.full }));
     s.check('SOUND: poured sand lands in the top bulb (its events marked so)', snd.evTop > 0, snd.evTop + ' events');
-    s.check('SOUND: knowingly silent in Real sand: the bed\'s thumps, slams and slides, and so the landing buzz',
+    s.check('SOUND: a glass that is not moved: nothing for the bed\'s thumps, slams and slides, no landing buzz (SOUNDS has the glass that is)',
             snd.thump === 0 && snd.slam === 0 && snd.slides === 0 && snd.buzz10 === 0, JSON.stringify({ thump: snd.thump, slam: snd.slam, slides: snd.slides, buzz: snd.buzz10 }));
     s.check('POUR: the GPU sand takes the pour: the time is remAt(topAt(rem) + made) to 1e-6, the ledger rises by made, the GPU by the appended points',
             p.made > 30 && Math.abs(p.got - p.want) < 1e-6 && p.top === p.made && p.total === p.made && p.appended === p.ptsWant, JSON.stringify(p));
@@ -1911,6 +1931,294 @@ async function testHang(s, env) {
   } finally { await t3.close(); }
 }
 
+/* ---- SOUNDS: the bed heard when the glass is moved, in every state ------------------------- */
+
+/** From now on: what audio.update is given of the bed, and what the sound engine plays for it (window.__bed). */
+function bedWatch(t) {
+  return t.eval(function () {
+    var Hg = window.Hourglass, A = Hg.audio, e = window.__mockEnv;
+    if (!A.__bedHooks) {
+      A.__bedHooks = true;
+      var up = A.update, th = A._thumpAt, cl = A._clackAt, ho = A.hold;
+      A.update = function (st) {
+        var B = window.__bed;
+        var tm = st.thump ? Math.max(st.thump[0], st.thump[2]) : 0, sm = st.slam ? st.slam[0] : 0;
+        B.updates++;
+        if (tm > 0) { B.thumps++; if (tm > B.thumpE) B.thumpE = tm; }
+        if (sm > 0) { B.slams++; if (sm > B.slamE) B.slamE = sm; }
+        if (st.slides > B.slides) B.slides = st.slides;
+        if (st.agit > B.agit) B.agit = st.agit;
+        if (st.agit > 0 && B.firstAt < 0) B.firstAt = e.V.frame;
+        if (st.flow > B.flow) B.flow = st.flow;
+        if (st.ambient) B.ambient++;
+        var r = up.apply(this, arguments);
+        if (this.ready && this.ctx.state === 'running') {
+          var L = this._last;                      // the levels it last asked for
+          B.live++;
+          B.rush = Math.max(B.rush, L.rush || 0);
+          B.shimmer = Math.max(B.shimmer, (L.cS || 0) + (L.cG || 0));
+          B.stream = Math.max(B.stream, (L.hS || 0) + (L.hG || 0));
+        }
+        return r;
+      };
+      A._thumpAt = function () { window.__bed.played++; return th.apply(this, arguments); };
+      A._clackAt = function () { window.__bed.clacks++; return cl.apply(this, arguments); };
+      A.hold = function () { window.__bed.holds++; return ho.apply(this, arguments); };
+      if (navigator.vibrate) { var v = navigator.vibrate.bind(navigator); navigator.vibrate = function (p) { if (p === 10) window.__bed.buzz10++; return v(p); }; }
+    }
+    window.__bed = { updates: 0, live: 0, thumps: 0, slams: 0, thumpE: 0, slamE: 0, slides: 0, agit: 0, flow: 0, ambient: 0,
+      played: 0, clacks: 0, holds: 0, buzz10: 0, rush: 0, shimmer: 0, stream: 0, firstAt: -1, joltAt: -1,
+      fed0: e.fed, frame0: e.V.frame, t0: performance.now(), said: { frames: 0, thumps: 0, slams: 0, moves: 0 } };
+  });
+}
+/**
+ * The mock engine says what its sand does, in every frame in which it ran: slides at 48,000 a
+ * second (for the time since it last said so, as an engine gives a rate), agitation 1.2, a
+ * landing of E 0.4 in every 10th such frame and a slam of 0.3 in every 15th (on false: nothing).
+ */
+function bedSay(t, on) {
+  return t.eval(function (on) {
+    var k = 0, last = 0;
+    window.__mockEnv.feeds = !on ? null : function () {
+      var S = window.__bed.said, th = k % 10 === 3, sm = k % 15 === 11, now = performance.now();
+      var n = Math.round(48000 * (last ? Math.min(0.1, (now - last) / 1000) : 1 / 60));
+      last = now; k++;
+      S.frames++; S.moves += n;
+      if (th) S.thumps++;
+      if (sm) S.slams++;
+      return { thump: th ? [0.4, 0.2, 0, 0] : [0, 0, 0, 0], slam: sm ? [0.3, -0.5] : [0, 0], slides: n, agit: 1.2 };
+    };
+  }, on);
+}
+function bedRead(t) {
+  return t.eval(function () {
+    var B = window.__bed, Hg = window.Hourglass, e = window.__mockEnv, A = Hg.audio, o = {}, k;
+    for (k in B) o[k] = B[k];
+    o.fed = e.fed - B.fed0; o.frames = e.V.frame - B.frame0; o.secs = (performance.now() - B.t0) / 1000;
+    o.state = Hg.timer.state; o.mode = Hg.realSand.modes.mode; o.live = Hg.sim === Hg.realSand; o.active = Hg.sim.isActive();
+    o.audio = A.ready && A.ctx.state === 'running'; o.master = A._masterTarget(); o.muted = A.muted;
+    o.rushNow = A._last.rush || 0; o.agitNow = A._agit; o.peak = window.__out ? window.__out.peak : -1;
+    return o;
+  });
+}
+/** The phone shaken side to side, 1.5 g at 5 Hz (the motion stub), or held still. */
+function bedShake(t, on) {
+  return t.eval(function (on) {
+    if (on) window.__drive({ whole: true, fn: function (tt, f) { f.x = 1.5 * Math.sin(2 * Math.PI * 5 * tt); } });
+    else window.__driveStop();
+  }, on);
+}
+function bedBrief(b) {
+  return JSON.stringify({ state: b.state, mode: b.mode, updates: b.updates, fed: b.fed, thumps: b.thumps + '/' + b.said.thumps + ' E ' + +b.thumpE.toFixed(3),
+    played: b.played, slams: b.slams + '/' + b.said.slams + ' E ' + +b.slamE.toFixed(3), clacks: b.clacks, slides: Math.round(b.slides),
+    said: Math.round(b.said.moves / b.secs), agit: b.agit, rush: +b.rush.toFixed(3), shimmer: +b.shimmer.toFixed(3), buzz: b.buzz10,
+    flow: +b.flow.toFixed(2), ambient: b.ambient, stream: +b.stream.toFixed(4) });
+}
+
+async function testSounds(s, env) {
+  var E4 = Math.fround(0.4), E3 = Math.fround(0.3);
+  var t = await openMock(env, { seed: 31 }, { durationMs: 15000, tilt: true }, { motionStub: true });
+  try {
+    await waitLive(t);
+    await sleep(600);
+    // one touch for the sound (the mute button, twice: the glass stays idle)
+    await t.page.tap('#btn-mute');
+    await sleep(250);
+    await t.page.tap('#btn-mute');
+    await waitFor(t, function () { var a = window.Hourglass.audio; return a.ready && a.ctx.state === 'running' && !a.muted; }, 5000);
+    var on = await t.eval(function () { return { grav: window.Hourglass.grav.on, stub: !!window.__motionStub, state: window.Hourglass.timer.state }; });
+    s.check('SOUNDS: Real sand on the mock chip, Real motion on (the motion stub), the glass idle, the sound unlocked by a touch that started nothing',
+            on.grav && on.stub && on.state === 'idle', JSON.stringify(on));
+
+    /** In the state the glass is in: the control (shaken, the engine silent), then the same shake with the engine reporting. */
+    async function inState(name, streams) {
+      await bedSay(t, false);
+      await bedWatch(t);
+      await bedShake(t, true);
+      await sleep(1500);
+      var c = await bedRead(t);
+      await bedWatch(t);
+      await bedSay(t, true);
+      await sleep(2500);
+      var b = await bedRead(t);
+      await bedSay(t, false);
+      await bedShake(t, false);
+      var rate = b.said.moves / b.secs;
+      s.check('SOUNDS ' + name + ': every landing and slam the engine reported reached audio.update in its frame, at its energy (0.4, 0.3), and was played',
+              b.state === name && b.live && b.audio && b.fed >= 25 && b.said.frames === b.fed && b.thumps === b.said.thumps && b.thumps >= 2 && b.thumpE === E4 &&
+              b.played === b.thumps && b.slams === b.said.slams && b.slams >= 1 && b.slamE === E3 && b.clacks === b.slams, bedBrief(b));
+      s.check('SOUNDS ' + name + ': the slides at the rate reported (' + Math.round(rate) + ' a second), the agitation (1.2): the rush and the shimmer sound, a hard landing buzzes',
+              b.slides >= 0.6 * rate && b.slides <= 2.5 * rate && b.agit === 1.2 && b.rush > 0.05 && b.shimmer > 0.1 && b.buzz10 >= 1, bedBrief(b));
+      s.check('SOUNDS ' + name + ': the stream and the ambience keep their rules (' + (streams ? 'running: both on' : 'no stream, no ambience') + ')',
+              streams ? b.flow > 5 && b.ambient === b.updates && b.stream > 0.05 : b.flow < 0.4 && b.ambient === 0 && b.stream < 0.001, bedBrief(b));
+      s.check('SOUNDS ' + name + ' (control): the same shake, the engine saying nothing of its sand (it did not move): nothing for the bed, no buzz',
+              c.state === name && c.updates >= 10 && c.thumps === 0 && c.slams === 0 && c.slides < 1 && c.agit === 0 && c.played === 0 && c.clacks === 0 &&
+              c.buzz10 === 0 && c.rush === 0 && (streams || c.shimmer < 0.02) && c.mode !== 'asleep', bedBrief(c));
+      // (the shimmer of agitation 1.2 is 0.39 and more; just after a pause the stream's last landings leave 0.005 of crackle)
+      await sleep(1500);                 // (the smoothed slide rate back to nothing before the next control)
+    }
+    await inState('idle', false);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1200);
+    await inState('running', true);
+    await t.eval(function () { window.Hourglass.pause(); });
+    await sleep(1500);
+    await inState('paused', false);
+    await t.eval(function () { window.Hourglass.start(); });
+    await waitFor(t, function () { return window.Hourglass.timer.state === 'done' && window.Hourglass.sim.nTop === 0; }, 25000);
+    await sleep(3000);                   // the bowl
+    await inState('done', false);
+
+    /* ---- ASLEEP: sand that moves keeps the glass awake and heard; still, it sleeps, silent ---- */
+    await t.eval(function () { window.__mockEnv.tally = { moving: 400 }; });
+    await bedSay(t, true);
+    await sleep(3200);                   // past the 2 s the engine stays full after the shake
+    await bedWatch(t);
+    await sleep(2000);
+    var aw = await bedRead(t);
+    s.check('ASLEEP (control): the phone at rest, the chip\'s sand still moving: the engine stays awake and its feeds reach audio.update',
+            aw.mode !== 'asleep' && aw.active && aw.fed >= 8 && aw.agit === 1.2 && aw.thumps === aw.said.thumps && aw.slides > 1000, bedBrief(aw));
+    var slept = await t.eval(function () {
+      var Hg = window.Hourglass, t0 = performance.now();
+      window.__mockEnv.tally = null;     // the sand comes to rest (the engine still has its feeds to give)
+      return new Promise(function (res) {
+        (function w() {
+          if (Hg.realSand.modes.mode === 'asleep') return res({ ms: performance.now() - t0, feeds: !!window.__mockEnv.feeds });
+          if (performance.now() - t0 > 8000) return res({ ms: -1 });
+          requestAnimationFrame(w);
+        })();
+      });
+    });
+    await sleep(1600);
+    await bedWatch(t);
+    await sleep(1200);
+    var z = await bedRead(t);
+    s.check('ASLEEP: its sand still, the engine sleeps within 1.5 s although it was reporting sound until then: sound does not keep the glass awake',
+            slept.ms >= 0 && slept.ms <= 1500 && slept.feeds && z.mode === 'asleep' && !z.active, JSON.stringify(slept) + ' ' + bedBrief(z));
+    s.check('ASLEEP: asleep, nothing is given to audio.update for the bed (frames go on), nothing is played, the rush and the shimmer are at nothing',
+            z.updates >= 10 && z.fed === 0 && z.thumps === 0 && z.slams === 0 && z.slides < 1 && z.agit === 0 && z.played === 0 && z.clacks === 0 &&
+            z.rush === 0 && z.shimmer < 0.001 && z.buzz10 === 0, bedBrief(z));
+    var jolt = await t.eval(function () {
+      var e = window.__mockEnv, B = window.__bed;
+      B.firstAt = -1; B.joltAt = e.V.frame;
+      e.tally = { moving: 400 };         // the jolt sets the sand moving
+      window.__motion.x = 1;             // 1 g for a quarter of a second
+      setTimeout(function () { window.__motion.x = 0; }, 250);
+      return new Promise(function (res) {
+        setTimeout(function () { res({ joltAt: B.joltAt, firstAt: B.firstAt, mode: window.Hourglass.realSand.modes.mode, why: window.Hourglass.realSand.modes.why }); }, 700);
+      });
+    });
+    s.check('ASLEEP: a jolt wakes it, and the sound comes with the motion: the first feed within 3 frames of the jolt',
+            jolt.firstAt >= 0 && jolt.firstAt - jolt.joltAt <= 3 && jolt.mode !== 'asleep', JSON.stringify(jolt));
+    await t.eval(function () { window.__mockEnv.tally = null; });
+
+    /* ---- HIDDEN ---------------------------------------------------------------------------- */
+    await bedShake(t, true);
+    await sleep(700);
+    await t.eval(function () { window.__hide(true); });
+    await sleep(150);                    // (the frame that was already on its way when the page was hidden)
+    await bedWatch(t);
+    await sleep(1500);
+    var hd = await bedRead(t);
+    s.check('HIDDEN: the page hidden while the phone is shaken and the engine has feeds to give: no audio.update at all, nothing reported or played; hold() lets the rush and the shimmer go',
+            hd.updates === 0 && hd.fed === 0 && hd.played === 0 && hd.clacks === 0 && hd.holds >= 2 && hd.rushNow === 0 && hd.agitNow === 0, bedBrief(hd) + ' holds ' + hd.holds);
+    await t.eval(function () { window.__hide(false); });
+    await sleep(300);
+    await bedWatch(t);
+    await sleep(1500);
+    var vs = await bedRead(t);
+    s.check('HIDDEN (control): back in view, the same shake is heard again', vs.updates >= 10 && vs.fed >= 8 && vs.agit === 1.2 && vs.rush > 0.05 && vs.played === vs.thumps, bedBrief(vs));
+
+    /* ---- MUTED: what comes out (an analyser on the engine's last node) ----------------------- */
+    await t.eval(function () {
+      var A = window.Hourglass.audio, an = A.ctx.createAnalyser(), buf = new Float32Array(2048), O = window.__out = { peak: 0 };
+      an.fftSize = 2048;
+      A.out.connect(an);
+      (function poll() {
+        an.getFloatTimeDomainData(buf);
+        for (var i = 0; i < buf.length; i++) { var v = buf[i] < 0 ? -buf[i] : buf[i]; if (v > O.peak) O.peak = v; }
+        requestAnimationFrame(poll);
+      })();
+    });
+    await t.page.tap('#btn-mute');
+    await sleep(800);                    // the master's glide to nothing
+    await t.eval(function () { window.__out.peak = 0; });
+    await bedWatch(t);
+    await sleep(1500);
+    var mu = await bedRead(t);
+    s.check('MUTED: the mute button: the feeds still come and are played into a closed master (target 0); what comes out is silence (peak under 0.001)',
+            mu.muted && mu.master === 0 && mu.thumps >= 1 && mu.played >= 1 && mu.peak >= 0 && mu.peak < 0.001, 'peak ' + mu.peak.toExponential(2) + ' ' + bedBrief(mu));
+    await t.page.tap('#btn-mute');
+    await sleep(500);
+    await t.eval(function () { window.__out.peak = 0; });
+    await bedWatch(t);
+    await sleep(1500);
+    var un = await bedRead(t);
+    s.check('MUTED (control): unmuted, the same feeds are heard (peak over 0.01)', !un.muted && un.master > 0 && un.thumps >= 1 && un.peak > 0.01, 'peak ' + un.peak.toFixed(4) + ' ' + bedBrief(un));
+    // the volume slider at nothing (Tune's own control, moved as a finger moves it)
+    var setVolume = function (v) {
+      return t.eval(function (v) { var el = document.getElementById('volume'); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+    };
+    await setVolume(0);
+    await sleep(800);
+    await t.eval(function () { window.__out.peak = 0; });
+    await bedWatch(t);
+    await sleep(1500);
+    var v0 = await bedRead(t);
+    await setVolume(80);
+    s.check('MUTED: the volume at 0: the same feeds, silence at the output (the unmuted peak above is its control)',
+            !v0.muted && v0.master === 0 && v0.thumps >= 1 && v0.peak >= 0 && v0.peak < 0.001, 'peak ' + v0.peak.toExponential(2) + ' ' + bedBrief(v0));
+    await bedSay(t, false);
+    await bedShake(t, false);
+
+    /* ---- BEDS: nothing said for the engine: its own ears on the chip's records --------------- */
+    await t.eval(function () { window.Hourglass.reset(); });
+    await waitFor(t, function () { return !document.getElementById('app').classList.contains('sweep') && window.Hourglass.timer.state === 'idle'; }, 8000);
+    await sleep(2500);                   // (a new bed settles unheard)
+    /** The chip's readbacks from now on: the upper bed (20,000 points) as fn(k) says, k the readback's number; the lower bulb empty. */
+    var bedsSay = function (how) {
+      return t.eval(function (how) {
+        var k = 0, e = window.__mockEnv;
+        e.feeds = null;
+        e.tally = !how ? null : function () {
+          k++;
+          var fall = how === 'moved' && k > 20 && k <= 23, stop = how === 'moved' && k > 23 && k <= 27;
+          // moved: a quarter of its points sliding at 60 cells a second, its own velocity swinging; then 3 readbacks falling at 160, and stopped
+          var vx = how === 'moved' ? 6 * Math.sin(k / 3) : 0, vy = fall ? -160 : (stop ? -8 : 0), sl = how === 'moved' ? 5000 : 0;
+          return { moving: 5000, beds: [
+            { n: 20000, vx: vx, vy: vy, x: 3, sliding: sl, slide: sl * (60 + Math.sqrt(vx * vx + vy * vy)) },
+            { n: 0, vx: 0, vy: 0, x: 0, sliding: 0, slide: 0 }] };
+        };
+      }, how);
+    };
+    await bedsSay('rest');
+    // (asleep, the chip reports nothing: a jolt of the phone wakes it, and its sand, reported moving, keeps it awake)
+    await t.eval(function () { window.__motion.x = 1; setTimeout(function () { window.__motion.x = 0; }, 250); });
+    await sleep(900);
+    await bedWatch(t);
+    await sleep(2000);
+    var br = await bedRead(t);
+    s.check('BEDS (control): the chip reports its sand awake but the beds at rest (no point sliding): the engine gives the sound nothing',
+            br.state === 'idle' && br.mode !== 'asleep' && br.updates >= 10 && br.thumps === 0 && br.slams === 0 && br.slides < 1 && br.agit === 0 && br.played === 0 && br.rush === 0,
+            bedBrief(br));
+    await bedWatch(t);
+    await bedsSay('moved');
+    // (27 readbacks hold the slide, the fall and the stop: a second at a calm glass's 30 a second, longer on a busy machine)
+    await t.page.waitForFunction(function () { return window.__bed.thumps >= 1; }, null, { timeout: 12000, polling: 100 }).catch(function () {});
+    await sleep(1500);
+    var bm = await bedRead(t);
+    await bedsSay(null);
+    var eng = await t.eval(function () { var rs = window.Hourglass.realSand, st = rs.stats(); return { G: rs.Gg, HB: rs.glass.HBc, sound: st.sound || null }; });
+    var landing = 160 * 160 / (2 * eng.G * eng.HB);
+    s.check('BEDS: the upper bed sliding within itself in the chip\'s records, idle: the real adapter gives slides and agitation, audio.update gets them, the rush sounds',
+            bm.state === 'idle' && bm.fed === 0 && bm.slides > 3000 && bm.agit > 0 && bm.rush > 0.05, bedBrief(bm) + ' engine ' + JSON.stringify(eng.sound));
+    s.check('BEDS: ... and the bed that fell at 160 cells a second and was stopped by the glass lands once, at the energy of that fall (' + landing.toFixed(4) + ' within a fifth), and is played',
+            bm.thumps === 1 && bm.played === 1 && bm.slams === 0 && Math.abs(bm.thumpE / landing - 1) < 0.2, bedBrief(bm));
+    await sleep(300);
+    await H.invariants(s, t, 'SOUNDS');
+  } finally { await t.close(); }
+}
+
 async function main() {
   var s = new H.Suite('app-realsand');
   var env = await H.start();
@@ -1918,7 +2226,7 @@ async function main() {
     var only = env.args.only;
     var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp, again: testAgain,
       slow: testSlow, wake: testWake, life: testLife, norebuild: testNoRebuild, crash: testCrash, residue: testResidue, asleep: testAsleep,
-      quiet: testQuiet, defaultna: testDefaultNa, defaultmock: testDefaultMock, migrate: testMigrate, build: testBuild, hang: testHang,
+      quiet: testQuiet, sounds: testSounds, defaultna: testDefaultNa, defaultmock: testDefaultMock, migrate: testMigrate, build: testBuild, hang: testHang,
       restart: testRestart };
     for (var k in cases) {
       if (only && only !== k) continue;
