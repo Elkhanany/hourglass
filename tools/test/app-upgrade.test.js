@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /*
- * The upgrade suite (release R1): what an installed copy of the app does when a release comes,
+ * The upgrade suite (the snapshot worker, release 1.10.0): what an installed copy of the app
+ * does when a release comes,
  * in Chromium with the service worker on, the app served from a scratch copy that is swapped
  * under the same address, and "offline" meaning the server stopped and the page offline.
  *
@@ -22,7 +23,7 @@
  *     the app then starts offline.
  * The controls, each a check above that must fail: a page with no worker (the version line says
  * more than the number); the offline launch with the hole (a 504, no Hourglass.sim); the failed
- * install under 13a9772's worker, v1.9.0, the last release before R1 (an empty cache of the
+ * install under 13a9772's worker, v1.9.0, a release before the snapshot worker (an empty cache of the
  * failed release left behind, and the next release's files on the page, fetched into the
  * installed copy in the background); 13a9772's lab page (it dropped the engine from the app's
  * caches).
