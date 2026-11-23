@@ -220,8 +220,9 @@ async function launch(ctx, wait) {
     }).catch(function (e) { return { ok: false, error: String(e && e.message) }; });
   };
   var r = await until(look, wait || 20000);
-  await sleep(300);                         // (a moment for late requests and errors)
-  L.app = r;
+  await sleep(300);                         // (a moment for late requests and errors, and for the page's load event)
+  var late = await look();
+  L.app = late.error ? r : late;
   return L;
 }
 /** The words over the page (#updating), waited for up to `ms`; null without them. */
@@ -240,6 +241,7 @@ function problems(L) {
   if (L.errors.length) out.push(L.errors.slice(0, 2).join(' | '));
   if (L.bad.length) out.push('responses: ' + L.bad.slice(0, 4).join(', '));
   if (!L.app || !L.app.sim) out.push('no Hourglass.sim' + (L.app && L.app.updating ? ' (the page says: ' + L.app.updating + ')' : ''));
+  else if (L.app.updating) out.push('the app runs, and the page says over it: ' + L.app.updating);
   return out;
 }
 /** The worker's registration and the caches, as the page sees them. */
