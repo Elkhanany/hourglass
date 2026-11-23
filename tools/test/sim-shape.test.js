@@ -8,8 +8,24 @@
  *                          they always gave (a few pinned, the rest compared
  *                          with f446085), and its lattice, capacity, pour cap
  *                          and fill limit are untouched, at every pace
- *   the registry           every record is whole, its f pure, 0 at the neck
- *                          and 1 at its widest; an unknown id is refused
+ *   the registry           every record is whole (the classic first, the
+ *                          one record that says classic and has no f; each
+ *                          says whether Tune offers it, and the half-turn
+ *                          symmetry both sand engines need), its f pure, 0
+ *                          at the neck and 1 at its widest, its equator the
+ *                          geometry's; an unknown id is refused
+ *   addShape               a whole record is added after the others, completed
+ *                          (not offered, 'point') and can be built at once;
+ *                          a record that is not whole is refused as the page
+ *                          loads, by name and by rule, and adds nothing
+ *   checkShape             [] for every registered shape at the six sizes the
+ *                          app builds; for each glass of 'refused' below, the
+ *                          rule a Sim refuses it with, without building one,
+ *                          and what its curve says at any size (out of 0 to
+ *                          1, two bulges); the pace it is asked for decides
+ *                          (an end the classic sand can be poured into and
+ *                          Finest sand cannot, at one size), and the pace in
+ *                          force when none is given
  *
  * and for every shape:
  *
@@ -316,6 +332,8 @@ var FLAT = { id: 'x-flat', name: 'a flat end', kR: 1, kH: 0.8, f: function (u) {
 var BEAD = { id: 'x-bead', name: 'a bead', kR: 0.76, kH: 0.6, f: function (u) { return u <= 0.5 ? u / 0.5 : 1 - 0.75 * (u - 0.5) / 0.5; } };
 // widest at a corner, u = 0.6, which no even run of samples of f lands on
 var KITE = { id: 'x-kite', name: 'a kite', kR: 1, kH: 1, f: function (u) { return u <= 0.6 ? u / 0.6 : (1 - u) / 0.4; } };
+// a kite with a finer point: at the phone's size its end is 13 cells wide three rows in, enough for the classic sand's pour (9), not for Finest sand's (16)
+var POINT = { id: 'x-point', name: 'a fine point', kR: 1, kH: 1, f: function (u) { return u <= 0.6 ? u / 0.6 : Math.max(0, (0.995 - u) / 0.395); } };
 
 /* ---- the classic glass, and the registry ----------------------------------- */
 
@@ -381,8 +399,19 @@ test('the classic glass: its lattice, capacity, pour cap and fill limit are unto
 });
 
 test('the registry: every record is whole, its f pure, 0 at the neck and 1 at its widest; an unknown id is refused', function () {
-  ok(P.SHAPES && IDS.length > 1 && IDS[0] === 'classic' && P.SHAPES.classic === null, 'SHAPES / SHAPE_ORDER: classic must come first, as null');
-  ok(Object.keys(P.SHAPES).sort().join() === IDS.slice().sort().join(), 'SHAPE_ORDER [' + IDS + '] and SHAPES {' + Object.keys(P.SHAPES) + '} differ');
+  var c0 = P.SHAPES && P.SHAPES.classic;
+  ok(IDS.length > 1 && IDS[0] === 'classic' && c0 && c0.id === 'classic' && c0.name === 'Classic' && c0.classic === true && c0.f === undefined &&
+     c0.kR === 1 && c0.kH === 1 && c0.equator === 0.66,
+    'SHAPES / SHAPE_ORDER: the classic glass must come first, the one record that says classic and has no f (kR 1, kH 1, equator 0.66)');
+  ok(Object.keys(P.SHAPES).join() === IDS.join(), 'SHAPE_ORDER [' + IDS + '] and SHAPES {' + Object.keys(P.SHAPES) + '} differ');
+  IDS.forEach(function (id) {
+    var s = P.SHAPES[id];
+    ok(s && typeof s.offered === 'boolean' && s.symmetry === 'point', id + ': offered is ' + (s && s.offered) + ', symmetry ' + (s && s.symmetry) + ' (true or false, and \'point\')');
+    ok(!!s.classic === (id === 'classic'), id + ': says classic: ' + s.classic);
+  });
+  // what Tune may show: the trumpet and the Florence flask wait for their flow test on a phone
+  var offered = IDS.filter(function (id) { return P.SHAPES[id].offered; });
+  ok(offered.join() === 'classic,lozenge,delta,ampoule,onion,bell,gourd', 'offered: ' + offered.join(', '));
   IDS.slice(1).forEach(function (id) {
     var s = P.SHAPES[id], k, m = 0, at = 0, v;
     ok(s && s.id === id && typeof s.name === 'string' && s.name && typeof s.f === 'function', id + ': not { id, name, kR, kH, f }');
@@ -399,6 +428,7 @@ test('the registry: every record is whole, its f pure, 0 at the neck and 1 at it
     ok(g.shape === s && g.R === Math.round(88 * Q * s.kR) && g.HB === Math.round(206 * Q * s.kH), id + ': R ' + g.R + ', HB ' + g.HB);
     ok(g.W === 2 * (g.R + 8) + 1 && g.H === 2 * (g.HB + 4) + 1 && g.RN === 3.5 && g.gateY === (g.H - 1) / 2, id + ': grid ' + g.W + 'x' + g.H);
     ok(s.f(g.equator) > 1 - 1e-6, id + ': equator ' + g.equator + ' is not where f is largest (' + at + ')');
+    ok(s.equator === g.equator, id + ': the record says equator ' + s.equator + ', its geometry ' + g.equator);
     // ... and the middle of it, where the widest part is a plateau
     var lo = -1, hi = -1;
     for (k = 0; k <= 5000; k++) if (s.f(k / 5000) >= m - 1e-9) { if (lo < 0) lo = k; hi = k; }
@@ -416,7 +446,114 @@ test('the registry: every record is whole, its f pure, 0 at the neck and 1 at it
     try { new Sim({ scale: 1.08, shape: id }); } catch (e2) { if (/no glass shape/.test(e2.message)) threw++; }
   });
   ok(threw === 10, 'unknown ids were refused ' + threw + ' times of 10');
-  return IDS.length + ' shapes: ' + IDS.join(', ');
+  return IDS.length + ' shapes: ' + IDS.join(', ') + '; offered: all but ' + IDS.filter(function (id) { return !P.SHAPES[id].offered; }).join(' and ');
+});
+
+test('addShape: a whole record is added after the others and can be built; one that is not whole is refused by name and by rule, and adds nothing', function () {
+  var PP = L.loadIsolated(SRC, 'physics.js'), n0 = PP.SHAPE_ORDER.length, out = [];
+  function rec(over) {
+    var r = { id: 'x-new', name: 'a new glass', kR: 0.9, kH: 1, f: function (u) { return cone(u, 0.6) * dome(u, 0.8, 2.2); } }, k;
+    for (k in over) { if (over[k] === undefined) delete r[k]; else r[k] = over[k]; }
+    return r;
+  }
+  // refused, each by its own rule (the pattern is that rule's wording), and nothing is added
+  var NO = [
+    ['nothing at all', null, /a record is needed/],
+    ['no id', rec({ id: undefined }), /the record has no id/],
+    ['an id that is taken', rec({ id: 'lozenge' }), /"lozenge": that id is taken/],
+    ['the classic glass\'s id', rec({ id: 'classic' }), /"classic": that id is taken/],
+    ['a name every object has', rec({ id: 'toString' }), /"toString": that id is taken/],
+    ['no name', rec({ name: '' }), /"x-new": it has no name/],
+    ['no kR', rec({ kR: undefined }), /"x-new": kR is undefined and kH is 1/],
+    ['a kH of 0', rec({ kH: 0 }), /"x-new": kR is 0\.9 and kH is 0/],
+    ['no f', rec({ f: undefined }), /"x-new": it has no f\(u\)/],
+    ['an open neck', rec({ f: bad('x-open').f }), /"x-new": f\(0\) is 0\.1/],
+    ['another symmetry', rec({ symmetry: 'mirror' }), /"x-new": symmetry "mirror"/],
+    ['offered: "yes"', rec({ offered: 'yes' }), /"x-new": offered is yes/],
+    ['a second classic glass', rec({ classic: true }), /"x-new": only the teardrop/]
+  ];
+  NO.forEach(function (c) {
+    var msg = '';
+    try { PP.addShape(c[1]); } catch (e) { msg = e.message; }
+    ok(/^addShape/.test(msg) && c[2].test(msg), c[0] + ': ' + (msg ? 'refused with "' + msg + '"' : 'accepted'));
+    ok(PP.SHAPE_ORDER.length === n0 && Object.keys(PP.SHAPES).length === n0 && !PP.SHAPES['x-new'], c[0] + ': the registry changed');
+    out.push(c[0]);
+  });
+  // and a whole one is taken (so "refused" above is not all this can say)
+  var r = rec({}), got = PP.addShape(r);
+  ok(got === r && PP.SHAPES['x-new'] === r && PP.SHAPE_ORDER.length === n0 + 1 && PP.SHAPE_ORDER[n0] === 'x-new', 'a whole record was not added after the others: ' + PP.SHAPE_ORDER);
+  ok(r.offered === false && r.symmetry === 'point', 'a record that says neither is completed with offered ' + r.offered + ', symmetry ' + r.symmetry);
+  var sim = new PP.Sim({ scale: Q, seed: 1, shape: 'x-new' });
+  ok(latticeFault(sim, 1) === '' && sim.geo.shape === r && r.equator === sim.geo.equator && r.f(r.equator) === 1, 'the new glass: ' + latticeFault(sim, 1) + ', equator ' + r.equator);
+  ok(PP.checkShape('x-new', Q, 1).length === 0, 'checkShape of the new glass: ' + PP.checkShape('x-new', Q, 1).join('; '));
+  var again = '';
+  try { PP.addShape(rec({})); } catch (e2) { again = e2.message; }
+  ok(/"x-new": that id is taken/.test(again), 'added twice: ' + (again || 'accepted'));
+  ok(!P.SHAPES['x-new'] && P.SHAPE_ORDER.length === IDS.length, 'the other copy of physics.js got the shape too');
+  return 'refused: ' + out.join(', ') + '; a whole record is added as shape ' + (n0 + 1) + ', not offered, and holds sand';
+});
+
+test('checkShape: [] for every shape at the six sizes the app builds; the rule a Sim refuses a glass with, without building one; the pace asked for decides', function () {
+  var n = 0, out = [];
+  // every registered shape, at the phone's and the tablet's size, with the classic, Fine and Finest sand
+  [1, Math.SQRT2, 2].forEach(function (p) {
+    [1.08, 1.3].forEach(function (q) {
+      IDS.forEach(function (id) {
+        var why = P.checkShape(id, q * p, p);
+        ok(why instanceof Array && why.length === 0, id + ' at scale ' + f3(q * p) + ', pace ' + f3(p) + ': ' + why.join('; '));
+        n++;
+      });
+    });
+  });
+  ok(P.checkShape().length === 0 && P.checkShape('classic', 0.2, 2).length === 0 && P.checkShape(null).length === 0, 'the classic glass was given a reason');
+  ['nope', 'Classic', '', 'toString', 7].forEach(function (id) {
+    var why = P.checkShape(id, Q, 1);
+    ok(why.length === 1 && /there is no glass shape/.test(why[0]), 'the unknown id ' + JSON.stringify(id) + ': ' + JSON.stringify(why));
+  });
+  // each glass the engine refuses: the same rule, in the same words, and no Sim is built for it
+  var built = 0, Sim0 = Sim.prototype._buildVessel;
+  BAD.forEach(function (b) {
+    var rec = b[0], msg = '', why;
+    withShape(rec, function () {
+      Sim.prototype._buildVessel = function () { built++; return Sim0.apply(this, arguments); };
+      try { why = P.checkShape(rec.id, Q, 1); } finally { Sim.prototype._buildVessel = Sim0; }
+      try { new Sim({ scale: Q, seed: 1, shape: rec.id }); } catch (e) { msg = e.message; }
+    });
+    var rule = msg.split('cannot be used: ')[1] || '';
+    ok(why.some(function (r) { return b[1].test(r); }), rec.name + ': checkShape says ' + JSON.stringify(why));
+    // (x-twist's f is not a function of u alone: which cell differs depends on what was asked before)
+    ok(rec.id === 'x-twist' || why.indexOf(rule) >= 0, rec.name + ': the Sim says "' + rule + '", checkShape ' + JSON.stringify(why));
+  });
+  ok(built === 0, 'checkShape built ' + built + ' Sims');
+  // what the curve itself says, at any size
+  var CURVE = { 'x-tube': /^f\(0\.01\d*\) is -1 \(f must stay between 0 and 1\)/, 'x-collar': /^f\(0\.00\d+\) is -0\.02 /, 'x-fat': /^f\(0\.\d+\) is 1\.0\d* /,
+                'x-waist': /^f falls before its widest point \(at u = 0\.\d+\): one bulge only/, 'x-beads': /^f has a waist between two widest points \(at u = 0\.\d+\): one bulge only/ };
+  Object.keys(CURVE).forEach(function (id) {
+    var why = withShape(bad(id), function () { return P.checkShape(id, 2.6, 2); });
+    ok(CURVE[id].test(why[0]), bad(id).name + ': its curve says ' + JSON.stringify(why[0]));
+    out.push(bad(id).name);
+  });
+  var rises = withShape({ id: 'x-rise', name: 'a lip', kR: 1, kH: 1, f: function (u) { return u <= 0.5 ? u / 0.5 : u < 0.9 ? 1 - (u - 0.5) : 0.6 + (u - 0.9); } },
+    function () { return P.checkShape('x-rise', Q, 1); });
+  ok(/^f rises again beyond its widest point/.test(rises[0]), 'a lip that opens again: ' + JSON.stringify(rises[0]));
+  // the pace: the same glass at the same size, asked for the classic sand and for Finest sand
+  withShape(POINT, function () {
+    var a = P.checkShape(POINT.id, Q, 1), b = P.checkShape(POINT.id, Q, 2), c = P.checkShape(POINT.id, 2 * Q, 2), d = P.checkShape(POINT.id, Q);
+    ok(a.length === 0, 'the fine point with the classic sand: ' + a.join('; '));
+    ok(b.length === 1 && /its end is 13 cells wide 3 rows in, too pointed to pour into \(at least 16\)/.test(b[0]), 'the fine point with Finest sand at the same size: ' + JSON.stringify(b));
+    ok(c.length === 0, 'the fine point as Finest sand builds it (twice the size): ' + c.join('; '));
+    ok(d.length === 0 && new Sim({ scale: Q, seed: 1, shape: POINT.id }).total > 0, 'asked for pace 2, checkShape changed the pace in force: ' + d.join('; '));
+  });
+  // ... and with no pace given, the one in force (another copy of physics.js, at pace 2)
+  var PP = L.loadIsolated(SRC, 'physics.js');
+  PP.Sim.setPace(2);
+  withShape(POINT, function () {
+    var why = PP.checkShape(POINT.id, Q), msg = '';
+    try { new PP.Sim({ scale: Q, seed: 1, shape: POINT.id }); } catch (e) { msg = e.message; }
+    ok(why.length === 1 && msg === 'Sim: the glass shape "x-point" cannot be used: ' + why[0], 'at pace 2: checkShape ' + JSON.stringify(why) + ', the Sim "' + msg + '"');
+    ok(PP.checkShape(POINT.id, Q, 1).length === 0, 'at pace 2, asked for pace 1: ' + PP.checkShape(POINT.id, Q, 1).join('; '));
+  }, PP);
+  return n + ' checks of ' + IDS.length + ' shapes at 6 sizes: none refused; the ' + BAD.length + ' refused glasses by the Sim\'s own rule; the curve of ' + out.join(', ') + '; a fine point by its pace';
 });
 
 /* ---- every shape, the classic first ----------------------------------------- */
