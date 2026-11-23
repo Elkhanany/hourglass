@@ -1095,7 +1095,7 @@ and the rest stays by hand in the controller. In order:
    those on purpose.
 
 `settings-unit` needs no change for a record after the old ones: it holds
-the store's first 30 records to the app before the store, and leaves newer
+the store's first 31 records to the app before the store, and leaves newer
 keys out of that comparison. It does fail for a `settings.…` name in
 `app.js` that is no record (a name misspelt), for a key bound with
 `bindSwitch` that is no switch of the store, for a record `app.js` neither

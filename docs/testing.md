@@ -31,7 +31,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   throwing (the scripts are run in the page's order, in a bare context, with
   each one left out). `check-licences`: every file under `realsand/`
   and `lab/sand/` is in `realsand/LICENSES.md`, every file the table
-  names exists, and a file of the page or the lab that states the project's
+  names exists, and a file of the page (the root's, and the scripts
+  `index.html` loads wherever they live) or the lab that states the project's
   licence says GPL-3.0-or-later. `check-release`: a branch that changes a shipped file
   (`sw.js` or a path of its `SHELL`) raises `VERSION` above both the
   merge-base's and `origin/main`'s, as a version number, and `index.html`
@@ -63,7 +64,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   store (`app/settings.js`), and whatever is built on it, to what the app did
   before it, each against a file kept in `tools/test/base/` (see
   [the architecture](architecture.md#appsettingsjs)). `settings-unit`, in
-  Node, in a moment: the records are well formed, and the first 30 are the
+  Node, in a moment: the records are well formed, and the first 31 are the
   old settings' keys and defaults in their order; the old Settings section
   of `app.js`, kept byte for byte, and the store give the same on 500 saved
   states (keys missing, wrong types, values out of range, saves that are not
@@ -75,7 +76,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   run as `app.js` runs them) gives the same on the 500 too, and five copies
   of it with one thing changed are found out (the Storage handed over itself,
   which a blocked storage then throws from; the preset asked without the
-  query); a record added after the old 30 is left out of the comparison, so
+  query); a record added after the old 31 is left out of the comparison, so
   a new setting changes nothing here, and one put among them is found out;
   the version step (Real sand on, once, for a save from before version 2); a
   record's `from` and the steps' order, on a made-up store, and an example
@@ -105,8 +106,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   just run: that is how a setting or a control added on purpose gets its new
   trace, in a commit of its own whose diff is read (the new key in the
   saves, the new control's lines, and nothing else). The kept Settings
-  section is the app before the store and is never made again. The two
-  traces use three ports: the suite's own and the next two.
+  section is the app before the store (release 1.10.0's, with its 31 keys): a
+  setting added to the store is not added to it, and it is not made again.
+  The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
   nothing moving, every grain lands exactly as before. `sim-tone` covers
@@ -285,7 +287,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   same checks: an empty cache left by the failed install, the next release's
   files on the page, the engine dropped from the cache; and a copy of
   `app.js` that does not ask for the settings store before it starts, which
-  throws in the mixed copy. It needs `origin/main` and 13a9772 from git
+  throws in the mixed copy (the words then come from the page's own last
+  lines; with those taken out as well, it says nothing). It needs
+  `origin/main` and 13a9772 from git
   (`HOURGLASS_MAIN=<ref>` names another first release).
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-ambience` covers the six

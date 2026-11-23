@@ -105,7 +105,7 @@ keeps its place above the controls.
 
 What the app keeps from one launch to the next is one JSON object in
 `localStorage`, under `hourglass.settings.v1`. The settings store holds it as
-a table of records, one for every saved key (30 today), in the order the
+a table of records, one for every saved key (31 today), in the order the
 keys are saved:
 
 - `id`, the key;
@@ -155,8 +155,9 @@ Tune trace's driver, and the two kept traces made again. The steps are in
 
 Three checks hold the store, and whatever is built on it, to what the app
 did before it. Each compares with a file in `tools/test/base/`, made from
-the commit before the store (`tools/test/lib/base.js` names it; a suite run
-with `--base <commit>` makes its file again from that commit and compares):
+the last release before the store (1.10.0; `tools/test/lib/base.js` names
+its commit; a suite run with `--base <commit>` makes its file again from
+that commit and compares):
 
 - the loader (`settings-unit`, in Node): the old Settings section of
   `app.js`, kept byte for byte, and the store are run on the same 500 saved
@@ -168,7 +169,7 @@ with `--base <commit>` makes its file again from that commit and compares):
   them: the storage handed over as a function (a blocked storage throws when
   it is reached, and the store reaches it inside its own try), and the query
   given to the preset (a shortcut starts a new glass over a saved session).
-  The old section knows the 30 keys the app had then: they are the store's
+  The old section knows the 31 keys the app had then: they are the store's
   first records, in their order, and a record added since is left out of
   this comparison. The suite also holds the names: every `settings.…` in
   `app.js` is a record, and every record is named there;
