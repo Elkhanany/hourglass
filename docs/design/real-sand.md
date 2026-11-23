@@ -972,7 +972,8 @@ it. Eight cases on 10 s glasses: the start and the handover; the bed's
 sounds before the start (asleep nothing; flicked, shaken and leaned, beside
 the classic Sim on the same motion); a glass to its
 end, its last grain within one frame after `00:00.0` by the chip's own
-record; Reset; a Flip; a pour with real motion turning the glass; 30 s
+record, and no sound of a bed from it while it is left alone; Reset; a
+Flip; a pour with real motion turning the glass; 30 s
 hidden and caught up by one transfer; the chip lost mid-run. `lab-sand` runs
 the lab, Timer included, the same way.
 

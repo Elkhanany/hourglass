@@ -21,15 +21,21 @@
  *          (the classic Sim stepped in Node on the same motion beside it): it wakes, the bed
  *          lifts and lands, and one thump is fed, of the energy of the bed's fastest fall,
  *          u^2 / (2 G HB), within a factor of 2 of the classic sand's, as the bed comes to rest
- *          (within 6 frames of its fastest fall), its agitation within a factor of 2 too; with
- *          the readbacks unheard the same flick feeds nothing (control). Shaken sideways at
+ *          (within 6 frames of its fastest fall), its agitation within a factor of 2 too; thrown,
+ *          the bed flies and is not heard as sliding (the slides fed are well under its motion
+ *          within itself, which was fed in full before); with the readbacks unheard the same
+ *          flick feeds nothing (control). Shaken sideways at
  *          1.5 g and 5 Hz: no thump (as the classic), agitation and slides within a factor of 2
  *          of the classic sand's. Leaned 30 degrees: sound only as far as the sand moved (this
  *          small bed does not: silence). At rest again: nothing, and the glass sleeps;
  *  RUN     a 10 s glass to its end: the last point crosses within one frame after 00:00.0 (by
  *          the GPU's own record of its substep), no catch-up or residue transfer, the count 0
  *          within 3 frames of the end and never 0 while a point is above, every readback's
- *          audit passes (never fewer points above than the clock's target);
+ *          audit passes (never fewer points above than the clock's target); left alone from
+ *          Start to the end, the bed feeds no thump or slam and next to no agitation, and the
+ *          few crowded points under the neck (the plug of the stream) are never heard as a bed
+ *          (taken for one, each bed's points counted a hundredfold, the same readbacks' plug is
+ *          heard as a bed: the control);
  *  RESET   the sweep lasts about a second; the new glass's count exact, all its points above;
  *  FLIP    at 4 s: the time after the swap is remAt(total - nTop) of the count at the swap, the
  *          count never goes back while the readback after the turn comes, which agrees with the
@@ -148,6 +154,26 @@ function installWatch() {
     var a = this.audit();
     W.audits++;
     if (a && !a.ok && W.audit.length < 5) W.audit.push({ a: a, t: { above: t.above, below: t.below, crossings: t.crossings } });
+    // RUN's control: the same readbacks heard with each bed's points counted a hundredfold, so that the few
+    // crowded points under the neck are taken for a bed (W.plug.m: the engine's own rules on a record of its own).
+    // few: the readbacks in which the lower bulb's crowded points were fewer than 40; early, ctl: those of them
+    // in which the engine, and the control, heard them as a bed (_snd.prev: the bed heard at the last readback)
+    var P = W.plug;
+    if (P && t.beds && w.snd) {
+      P.m._snd.muteUntil = this._snd.muteUntil;
+      P.m._hear(w, { above: t.above, below: t.below, beds: t.beds.map(function (b) { return { n: b.n * 100, vx: b.vx, vy: b.vy, x: b.x, sliding: b.sliding * 100, slide: b.slide * 100 }; }) },
+        parity === undefined ? this.valve.parity : parity);
+      var lo = t.beds[1];
+      if (lo.n > 0 && lo.n < 40) {
+        P.few++;
+        if (this._snd.prev[1]) P.early++;
+        if (P.m._snd.prev[1]) P.ctl++;
+        P.fast = Math.max(P.fast, Math.hypot(lo.vx, lo.vy));
+      }
+      if (P.m._snd.fall[1]) P.armed++;
+      P.thumps = P.m._snd.n.thumps + P.m._snd.n.slams;
+      P.agit = Math.max(P.agit, P.m.agit[0], P.m.agit[1]);
+    }
   };
   // the pour site: the time after the app's own update, at the next of its sim calls (a swap, a step) or the frame's end
   var pend = null;
@@ -179,7 +205,9 @@ function installWatch() {
     var s = W.swaps[W.swaps.length - 1];
     if (s && s.rem === undefined && s.at === V.frames) { s.rem = T.rem; s.want = H.remAt(s.total - s.top); }
     var t = rs._tally;
-    if (W.keep) W.frames.push({ f: V.frames, now: Date.now(), rem: T.rem, state: T.state, nTop: H.sim.nTop, above: t ? t.above : -1 });
+    var fr = H.sim.frame;
+    if (W.keep) W.frames.push({ f: V.frames, now: Date.now(), rem: T.rem, state: T.state, nTop: H.sim.nTop, above: t ? t.above : -1,
+      th: fr.thump[0] + fr.thump[2] + fr.slam[0], agit: H.sim.agitation() });
   };
 }
 
@@ -354,6 +382,17 @@ function installWatch() {
         var fall = null, seen = null;
         R.beds.forEach(function (b) { if (seen === null && b.sliding > 0.01 * b.n) seen = b.f; if (!fall || b.vy < fall.vy) fall = b; });
         o.fall = fall; o.seen = seen;
+        // the bed's motion within itself, counted in full whether it flies or not, as slides a second at
+        // their fastest (app-sand.mjs _hear's measure without its "a thrown bed flies": 16 over the square
+        // root of the bed's grains, 1.69 points a grain, of its moving points' speed beyond its own)
+        var rs = window.Hourglass.realSand, S2 = 0;
+        o.within = 0;
+        R.beds.forEach(function (b) {
+          var sp = Math.hypot(b.vx, b.vy), still = 0.02 * Math.sqrt(2 * Math.max(b.am, 1) * rs.glass.H);
+          var x = b.sliding > 3 ? 16 * Math.max(0, b.slide - b.sliding * Math.max(sp, still)) / Math.sqrt(Math.max(256, b.n / 1.69)) / (rs.s * rs.ppg) : 0;
+          S2 += (x - S2) * (10 / 60);
+          if (S2 > o.within) o.within = S2;
+        });
         return o;
       });
       await setMove(null);
@@ -370,7 +409,8 @@ function installWatch() {
       };
       rs._onTally = function (w, t, tSim, parity) {
         onTally.call(this, w, t, tSim, parity);
-        if (W.snd && t.beds && w.snd) W.snd.beds.push({ f: V.frames - W.snd.f0, n: t.beds[0].n, vy: t.beds[0].vy, sliding: t.beds[0].sliding });
+        if (W.snd && t.beds && w.snd) W.snd.beds.push({ f: V.frames - W.snd.f0, n: t.beds[0].n, vx: t.beds[0].vx, vy: t.beds[0].vy, sliding: t.beds[0].sliding, slide: t.beds[0].slide,
+          am: Math.hypot(w.snd.ax, w.snd.ay) });
       };
     });
     var sInfo = await page.evaluate(function () { var H = window.Hourglass, rs = H.realSand; return { GH: rs.Gg * rs.glass.HBc, total: H.sim.total }; });
@@ -402,6 +442,9 @@ function installWatch() {
     check(gF.agit / cF.agit >= 0.5 && gF.agit / cF.agit <= 2 && gF.asleep && gF.tail === 0,
           'SOUND: its agitation is within a factor of 2 of the classic sand\'s, and once the bed rests nothing is fed and the glass sleeps',
           JSON.stringify({ gpu: +gF.agit.toFixed(2), classic: +cF.agit.toFixed(2), fedInTheLast30Frames: gF.tail, asleep: gF.asleep }));
+    check(gF.within > 1000 && gF.rate <= 0.6 * gF.within,
+          'SOUND: thrown, the bed flies and is not heard as sliding (the classic sand\'s bed in the air slides nothing): the slides fed through the flick, at their fastest, are well under the bed\'s motion within itself, which was fed in full before (control)',
+          JSON.stringify({ fedPerSecond: Math.round(gF.rate), motionWithinPerSecond: Math.round(gF.within), classicPerSecond: Math.round(cF.rate) }));
     // control: the same flick with the readbacks unheard feeds nothing
     await page.evaluate(function () { var rs = window.Hourglass.realSand; rs.__hear = rs._hear; rs._hear = function () {}; });
     var gC = await play('flick');
@@ -434,6 +477,11 @@ function installWatch() {
     var r0 = await page.evaluate(function () {
       var H = window.Hourglass, W = window.__watch, w = H.realSand.stats().layers.words;
       W.keep = true; W.frames = []; W.audit = []; W.cross = null;
+      // (the control's record of the beds: the engine's own, on an object that reads everything else from the engine)
+      var rs = H.realSand, m = Object.create(rs);
+      m._snd = Object.assign({}, rs._snd, { thump: new Float32Array(4), slam: new Float32Array(2), prev: [null, null], fall: [null, null], pack: [0, 0], loose: [false, false], n: { thumps: 0, slams: 0 } });
+      m.agit = new Float32Array(2);
+      W.plug = { m: m, few: 0, early: 0, ctl: 0, fast: 0, armed: 0, thumps: 0, agit: 0 };
       H.start();
       return { n: H.realSand.stats().n, tone1: w ? w.above1 + w.below1 : -1 };
     });
@@ -451,7 +499,11 @@ function installWatch() {
         if (F[i].nTop === 0 && F[i].above > 0) zeroUp++;
       }
       W.keep = false;
-      return { zeroAt: zeroAt, cross: W.cross, doneF: doneF, emptyF: emptyF, zeroUp: zeroUp, audits: W.audits, audit: W.audit.slice(),
+      // what the bed fed from Start to the end, the glass left alone; and the control's
+      var snd = { landings: 0, agit: 0, plug: { few: W.plug.few, early: W.plug.early, ctl: W.plug.ctl, fast: W.plug.fast, armed: W.plug.armed, landings: W.plug.thumps, agit: W.plug.agit } };
+      F.forEach(function (x) { if (x.th > 0) snd.landings++; if (x.agit > snd.agit) snd.agit = x.agit; });
+      W.plug = null;
+      return { snd: snd, zeroAt: zeroAt, cross: W.cross, doneF: doneF, emptyF: emptyF, zeroUp: zeroUp, audits: W.audits, audit: W.audit.slice(),
         n: window.Hourglass.realSand.stats().n, state: window.Hourglass.timer.state, nTop: window.Hourglass.sim.nTop };
     });
     var late = run.cross !== null && run.zeroAt !== null ? run.cross - run.zeroAt : NaN;
@@ -463,6 +515,15 @@ function installWatch() {
           JSON.stringify({ frames: run.emptyF - run.doneF, zeroWithAPointAbove: run.zeroUp }));
     check(run.audit.length === 0 && run.audits > 100, 'RUN: every readback agreed with the ledger: never fewer points above than the clock\'s target',
           run.audits + ' readbacks; ' + JSON.stringify(run.audit).slice(0, 400));
+    var plug = run.snd.plug;
+    check(run.snd.landings === 0 && run.snd.agit < 0.1 && plug.few > 20 && plug.early === 0,
+          'RUN: started and left alone, the glass feeds no thump or slam and next to no agitation from Start to its end, and the few crowded points under the neck (the plug of the stream, the first grains on the floor) are never heard as a bed',
+          JSON.stringify({ landings: run.snd.landings, agitation: +run.snd.agit.toFixed(3), readbacksWithFewerThan40PointsBelow: plug.few, heardAsABed: plug.early, theirFastest: +plug.fast.toFixed(1) }));
+    // (heard as a bed, those points land a thump when they happen to slow from over 30 cells/s to half within
+    // the landing's window: 0.0056 with the phone at rest in the take that found it; not in every take)
+    check(plug.ctl > 20 && plug.ctl >= 0.9 * plug.few,
+          'RUN: ... and with those points taken for a bed (control: the same readbacks, each bed\'s points counted a hundredfold) they are heard as one in nearly every such readback',
+          JSON.stringify({ heardAsABed: plug.ctl, of: plug.few, fallsUnderWay: plug.armed, landings: plug.landings, agitation: +plug.agit.toFixed(2) }));
     // the owner's report says the same (stats().ends, what "Copy a report" carries for Gate B)
     var ends = await page.evaluate(function () { return window.Hourglass.realSand.stats().ends; });
     var le = ends && ends.lastPointMs.length ? ends.lastPointMs[ends.lastPointMs.length - 1] : null;

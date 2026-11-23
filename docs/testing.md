@@ -92,9 +92,14 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   finished), fed what the classic sand gives the app for that motion:
   silence at rest; a 1.5 g 5 Hz shake, 2 g up and down and a lean past the
   slope each within 3 dB of the level it was built at, the lean louder on
-  its low side (a sand reporting a quarter of the shake's feeds fails that
-  check, its control); and the lean heard only where no stream runs (the
-  same slides under a running stream leave the rush at nothing). `audio-api`
+  its low side (leaned with the right edge low, in the right ear; a sand
+  reporting a quarter of the shake's feeds fails the level's
+  check, its control); the lean heard only where no stream runs (the
+  same slides under a running stream leave the rush at nothing); and a glass
+  that stands, turned over: through the turn and the sand's slide after it
+  the rush only falls after its peak, with no gap at the turn's end and no
+  second onset, while a running glass turned over keeps the turn's own rush
+  alone (its control). `audio-api`
   also checks that one touch is enough, in a Chromium launched with its own
   autoplay policy (sound only after a gesture, as on an iPhone; the page is
   driven by an init script and reports on its console, since a script
@@ -107,7 +112,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   re-timing, session, the existing flow), on the app as it ships
   (`app-motion` also has the classic sand heard before the start: nothing at
   rest; leaned past the slope, thousands of slides a second and the rush,
-  softly, on the low side; shaken, the rush and the shimmer; no stream and
+  softly, in the ear of the side the sand runs to (leaned one way and then
+  the other, each against where the sand's centre went); shaken, the rush
+  and the shimmer; no stream and
   no ambience in either; and the same lean under a running stream leaving
   the rush at nothing, its control): every
   script `index.html` loads is served as it is, except that a suite may ask
@@ -316,7 +323,17 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   none; a shaken bed's agitation, 0 again at rest; nothing at rest, hidden
   or asleep, and a glass that sleeps as soon with sound in its readbacks as
   without; each with its control (the same scene on an engine that hears
-  nothing, or the motion that must not sound).
+  nothing, or the motion that must not sound). And the rules that keep the
+  sound to what a bed did: the plug of the stream under the neck of a glass
+  just started (5 points slowing from 59 to 27 cells/s, as the real engine
+  gave them) feeds nothing, where the same speeds of a bed land a thump;
+  sand sliding within a bed is heard while the bed is packed, not while it
+  is thrown loose or packs again, nor while it moves along the glass as a
+  body (across the glass it is: the control); a landing is the same thump
+  at 60, 120 and 180 runs a second; after a second without readbacks the
+  agitation that had faded stays faded; and the same motion of the same GPU
+  bed is the same sound at the phone's, a tablet's, the Fine and the Finest
+  lattice.
   `realsand-shell` checks the service worker's shell for Real sand: every
   path in it exists (one missing would fail the whole install), every module
   `realsand/boot.mjs` loads and every shader of the engine is in it, and
@@ -334,11 +351,17 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   fastest fall, fed within 6 frames of that fall and as loud as the classic
   Sim's for the same flick, stepped in Node beside it, within a factor of 2
   of the level `audio.js` plays, the agitation within a factor of 2;
-  nothing with the readbacks unheard, its control; shaken sideways, no thump
+  nothing with the readbacks unheard, its control; thrown, the bed is not
+  heard as sliding: the slides fed are well under its motion within itself,
+  which was fed in full before; shaken sideways, no thump
   and the agitation and slides within a factor of 2 of the classic's;
   leaned, sound only as far as the sand moved);
   a glass to its end, its last grain crossing within one frame after
-  00:00.0 by the chip's own record, with no catch-up and no residue; Reset;
+  00:00.0 by the chip's own record, with no catch-up and no residue, and,
+  left alone from Start to the end, no thump or slam and next to no
+  agitation, the few crowded points under the neck never heard as a bed
+  (taken for one, the same readbacks' plug is heard as a bed: the
+  control); Reset;
   a Flip at 4 s; a pour, then real motion turning the glass over while sand
   is poured; 30 s hidden and caught up by one transfer; and the chip lost
   mid-run (the CPU sand at the same counts in the same frame, the clock
