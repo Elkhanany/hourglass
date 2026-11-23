@@ -56,11 +56,13 @@ be a pinch and every glass would run with the thin thread of the hour glass.)
   choosing one builds the glass afresh behind a short fade; the running time
   is kept, a crack is not. Finer sand is more work for the phone: if the
   glass ever stutters on Finest, Fine has half as many grains for about a
-  third of the work. **Real sand** (off by default) runs the sand on the
+  third of the work. **Real sand** (on by default) runs the sand on the
   phone's graphics chip instead (see "Real sand" below; "[Real sand: the
   switch in Tune](engines.md#real-sand-the-switch-in-tune)" says how it
   works); turning it on or off builds the glass
   afresh, keeping the running time, and its note says how it is doing.
+  While Real sand runs, Grain is hidden (it sets the classic sand only), and
+  so is Real motion's line about cracking the glass.
 - **Acoustic character** (six voicings) and volume; **Ambience** (None,
   Brook, Rain, Ocean, Waterfall or Drips behind the sand, with its own level;
   the one you tap plays long enough to be heard); **Completion bowl**.
@@ -204,9 +206,12 @@ back, as any tap does).
 
 **Real sand**, in **Tune** under Material, after Grain, runs the sand on the
 phone's graphics chip: the sand of the sand lab, every grain a point of a
-simulated continuum, in the same glass. It is off unless you turn it on, and
-the sand you know stays the default and the fallback. Turning it on or off
-loads the page again, as another grain does, and the running time is kept.
+simulated continuum, in the same glass. It is on by default from version
+1.10.0, and the classic sand (the sand as it has always been) is the
+fallback. An install from before then finds it on once, whatever it had,
+since those versions saved it off at every launch; turned off after that,
+it stays off. Turning it on or off loads the page again, as another grain
+does, and the running time is kept. The app never turns it off by itself.
 
 What stays as it was: the clock (the last grain leaves the neck at
 `00:00.0`; in the sand lab on an iPhone it left within 5 ms of it in every
@@ -218,15 +223,32 @@ landings, the tail and the fill, the bowl, and every haptic but the landing
 buzz.
 
 What it needs: WebGPU, which Safari has from iOS 26, also in a web app on
-the home screen. Without it the switch is greyed and says *Needs WebGPU (iOS
-26 or later)*; where the only graphics adapter is a software one, it says
-the device's graphics are too slow.
+the home screen. Without it the switch shows off and says *Needs WebGPU (iOS
+26 or later). Tap to try again*, and the classic sand runs; where the only
+graphics adapter is a software one, it says the device's graphics are too
+slow. The switch is never greyed: a tap on it tries again. A browser with
+WebGPU but no usable adapter is remembered by its user agent, so later
+launches say so without loading the engine; an iOS update changes the user
+agent, and the first launch after it tries again. So does an app update
+that brings a new engine, which also forgets three failed starts. A start
+that fails this way while the app is put away is not believed: it is tried
+again once the app is in view.
 
-Starting. The current sand shows and runs while the graphics chip gets
-ready, and the two cross-fade once the new sand has drawn its first
-picture: on the owner's iPhone that took 0.6 s in Chrome and 3.4 s in a
-home-screen web app opened cold. A slow start is never counted as a
-failure.
+Starting. The dark opening waits up to 1 s longer for the new sand's first
+picture, so that most launches open straight on Real sand. If the graphics
+chip takes longer, the opening fades up as before on the current sand,
+which shows and runs while the chip gets ready, and the two cross-fade once
+the new sand has drawn its first picture: on the owner's iPhone that took
+0.6 s in Chrome and 3.4 s in a home-screen web app opened cold. A slow start
+is never counted as a failure.
+
+A graphics chip that stops answering. If, while the glass runs on screen,
+the new sand sends nothing back for 4 seconds (its picture would freeze
+while the clock runs on), the current sand takes over at once, at the same
+time and with the same sand above, with a note; the new sand starts again
+2 s later. The third time within ten minutes, the current sand stays until
+the app is opened again. A glass that is idle, paused or finished and at
+rest sends nothing back and is never taken for one that stopped.
 
 Battery and heat. Nothing runs on the graphics chip while nothing moves (a
 glass paused or finished and at rest, or the page hidden). While the glass
@@ -259,7 +281,8 @@ What it leaves out for now:
   silent, and so is the landing buzz (Android).
 - The current sand's glow, rim light and depth shading are not drawn; the
   grains are lit as in the sand lab.
-- **Grain** sets the current sand only; the new sand keeps its own grain.
+- **Grain** sets the current sand only, so it is hidden while the new sand
+  runs; the new sand keeps its own grain.
 - The sand lab's known faults: a turned bed slides round the glass as a
   block before it breaks up, a bed at rest creeps, heaps stand steep.
 
@@ -268,12 +291,15 @@ The note under the switch says how it is doing:
 | Note | What it means |
 | --- | --- |
 | *Starting…* | the graphics chip is getting ready (the current sand meanwhile) |
-| *On* | the new sand runs |
-| *Needs WebGPU (iOS 26 or later)* | not on this device: the switch is greyed and off |
+| *On: every grain simulated on the graphics chip* | the new sand runs |
+| *Off: the classic sand* | switched off: the current sand, nothing of the new one loaded |
+| *Needs WebGPU (iOS 26 or later). Tap to try again* | not in this browser: the switch shows off; a tap tries again, and so does the first launch after an iOS update |
 | *Could not start this time: (why). It will try again next launch* | the current sand until then |
 | *Did not start 3 times: (why). Turn it off and on to try again* | it stops trying |
 | *Real sand is updating; it will be back at the next launch* | old and new files of an update met; the next launch has the new ones |
 | *Real sand paused: the graphics chip was reset* | the current sand took over at once, at the same time and with the same sand above; the new sand comes back by itself |
+| *Real sand paused: the graphics chip stopped answering* | the same, when the new sand sent nothing back for 4 s; it starts again 2 s later |
+| *Real sand paused: the graphics chip stopped answering three times; it will try again next launch* | the current sand until the app is opened again |
 | *Paused after the graphics chip was reset twice; it will try again next launch* | the current sand until the app is opened again |
 | *Real sand could not restart after the graphics chip was reset; it will try again next launch* | the same, when the chip could not be opened again |
 

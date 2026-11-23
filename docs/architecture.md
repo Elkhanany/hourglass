@@ -253,6 +253,12 @@ These hold until a change says otherwise, with its reason.
   leaves nothing behind, and a hole is filled only from the same release.
   The cost: a change shipped without a new `VERSION` never reaches a phone,
   which is why `check-release` runs on every pull request.
+- **Real sand is the default, and its switch is the owner's alone** (1.10.0,
+  [settings design 5](design/settings.md)): the app never writes it off. A
+  browser that cannot have it is remembered by its user agent and tried
+  again after an iOS update, a new engine build or a tap; the classic sand
+  is always there to run instead. The test harness seeds every page with
+  Real sand off (`tools/test/lib/seed.js`) unless the test asks for it.
 - **What an iPhone allows a web app** decides a good deal: motion
   permission is forgotten when the app is closed, so it is asked for by a
   tap at each launch; there is no vibration API, so a tap is felt through a
@@ -266,6 +272,7 @@ These hold until a change says otherwise, with its reason.
 
 `docs/design/` holds the designs the code was built from. A code comment
 that cites "(design N)" or "(design N.M)" means that section of
-[Real sand: the design](design/real-sand.md). If the settings design is
-committed, it will be `docs/design/settings.md`, cited as "(settings design
-N)".
+[Real sand: the design](design/real-sand.md). "(settings design N)" means
+that section of [Settings: the design](design/settings.md), which holds the
+settings design's sections as they are built (so far section 5, Real sand
+as the default).

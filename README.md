@@ -59,11 +59,12 @@ deep-water teal.
   phone). The finer sand flows, slumps, sounds and keeps time as the classic
   sand does; there is simply more of it, each grain smaller, and more work
   for the phone.
-- **Real sand on the graphics chip** (Tune, off unless you turn it on). The
+- **Real sand on the graphics chip** (Tune, on by default from 1.10.0). The
   sand of the sand lab: every grain a point of a continuum simulated on the
   phone's graphics chip, in the same glass, keeping the same exact time. It
-  needs WebGPU (iOS 26 or later); where that is missing the switch is greyed
-  and says so, and the sand stays as it was.
+  needs WebGPU (iOS 26 or later); where that is missing its note says so and
+  the classic sand runs, as it always has, and it tries again after an iOS
+  update or a tap on the switch. Turned off, the classic sand stays.
 - **Real sound.** The soft hush of sand landing, made of thousands of tiny
   grains, the first grains ticking on bare glass, a singing bowl at the end,
   and optional water behind it (a brook, rain, the ocean, a waterfall, or
@@ -130,6 +131,8 @@ deep-water teal.
 - [Tests](docs/testing.md): every suite, how to run them, and the sand lab.
 - [Real sand: the design](docs/design/real-sand.md): the GPU sand in the app,
   section by section.
+- [Settings: the design](docs/design/settings.md): the settings' steps as
+  they are built, starting with Real sand as the default.
 
 ## License
 

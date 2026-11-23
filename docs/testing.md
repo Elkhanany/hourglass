@@ -92,7 +92,15 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   re-timing, session, the existing flow), on the app as it ships: every
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
-  then served at `motion.js`'s path. `app-breath` covers breathing pace: the Tune row and what is
+  then served at `motion.js`'s path. Real sand is the app's default, and
+  this Chromium has `navigator.gpu` but no adapter, so every page a suite
+  opens starts from a saved `{ v: 2, realSand: false }` merged under what
+  the suite seeds itself (`lib/seed.js`, in the harness and in the suites
+  that open the app on their own: `render-app`, `audio-api` and
+  `lib/replay-iphone.js`): the suites measure the classic sand, as before. A
+  page seeds `realSand: true` to have Real sand, or `rawStorage` for exactly
+  what it gives (`{}`: a first launch). `app-upgrade` seeds nothing: it runs
+  the app as an iPhone would after the update, Real sand on. `app-breath` covers breathing pace: the Tune row and what is
   saved, the toast's place in the sheet's head, the three patterns against
   the wall clock, a blocked main thread, a hidden page and a long sleep,
   easing back to rest, Reduce Motion, Full Zen, the landscape halo, a damaged
@@ -102,9 +110,24 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   bowls, the turns, Zen), pause, Flip and Reset inside a phase, the clock
   moved on through phase ends (asleep, hidden), reloads, and Reduce Motion.
   `app-realsand` covers the Real sand switch in this harness, which has no
-  WebGPU adapter: off, nothing under `realsand/` is requested; on with the
-  real engine, it finds no adapter, and the switch greys with "Needs WebGPU"
-  and is cleared; on with the real adapter on a mock graphics chip whose neck
+  WebGPU adapter, reading the row's state from its `data-state`: off,
+  nothing under `realsand/` is requested, and Grain and Real motion's crack
+  sentence are shown; on with the real engine, it finds no adapter, the
+  switch shows off but is not disabled ("Needs WebGPU (iOS 26 or later). Tap
+  to try again"), the setting stays on and the browser's user agent is kept;
+  with nothing saved (a first launch), the engine is loaded once, the next
+  launch loads nothing, and another user agent (an iOS update) or a tap
+  tries again, while a failure in a page that was hidden meanwhile keeps
+  nothing; a save without a version or of version 1 comes up on, once, and a
+  version-2 save that is off stays off; a new engine build forgets three
+  failed starts and a kept user agent; the dark opening waits for the GPU
+  sand's first frame (not on a reload marked `hourglass.openNow`); the
+  watchdog: the GPU stopping while the glass runs in view gives the CPU sand
+  after 4 s at the engine's counts, the clock untouched, a new engine after
+  2 s, and the CPU sand for the session the third time in ten minutes, with
+  a glass that still ends on time, and it never fires on an idle, paused or
+  finished glass with its readbacks held, a calm running one, or one hidden
+  10 s; on with the real adapter on a mock graphics chip whose neck
   is the valve test's model (`stubs/realsand-mock-boot.mjs`, served as
   `realsand/boot.mjs`): the handover, a 10 s glass whose last grain leaves
   within 30 ms of 00:00.0 and whose count reads 0 within 3 frames after and
@@ -117,7 +140,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   slams and slides, no landing buzz); a start that fails keeps the setting
   and stops after three launches; a stale build stamp says it is updating;
   a start held 4 s, as slow as an iPhone's home-screen web app opened cold
-  (the CPU sand shown and running meanwhile, the boot veil not held, the
+  (the CPU sand shown and running meanwhile, the boot veil held 1 s and no longer, the
   canvases cross-faded only once the engine has drawn, the clock's end not
   moved by the handover, nothing counted, the glass on time); the screen
   wake lock held while the GPU sand runs (a stand-in for the browser's,

@@ -600,10 +600,15 @@ sets, `WATER`, `SURF`, `FALLS`, `DRIPS`, `AMBIENCES`, `LEVEL`) as a starting poi
 
 ## Real sand: the switch in Tune
 
-**Real sand**, in Tune's Material group after Grain, is off by default. With
-it off nothing of the GPU engine is requested and the app is as it was. On
-or off, the page saves the session and loads again, as for another grain, so
-the running time is kept.
+**Real sand**, in Tune's Material group after Grain, is on by default from
+1.10.0 (settings design 5). With it off nothing of the GPU engine is
+requested and the app runs the classic sand, as it was. On or off, the page
+saves the session and loads again, as for another grain, so the running
+time is kept. The setting is the owner's alone: the app never writes it off.
+The settings carry a version, `v: 2`, read once from the saved object: a
+save without it, or of version 1, comes up with Real sand on (every launch
+before 1.10.0 saved `realSand: false`, so such a save cannot say "turned
+off"); from version 2 on a saved `false` is kept.
 
 `app.js` is a classic script and stays one, so it never imports the engine
 itself: with the switch on, and where `navigator.gpu` exists, it appends
@@ -634,15 +639,47 @@ and after any gap (a lock, another app) the app's catch-up moves what is
 owed through the engine's transfer.
 
 Where it cannot run, the CPU sand stays, with the clock untouched, and the
-note under the switch says why. Without WebGPU, or with a graphics adapter
-too slow for it, the switch is greyed and cleared. Any other failure at the
-start keeps the setting and tries again at the next launch, and after three
-launches in a row it stops trying until the switch is turned off and on; a
-start cut short by the app being put away tries again once it is in view. If
-the graphics chip is reset while the sand runs, the CPU sand takes over in
-the same frame at the GPU sand's counts, with a toast (none around a lock or
-an app switch), and the GPU sand comes back when it can; a second reset
-within ten minutes leaves the current sand for the rest of the session.
+note under the switch says why; the row's `data-state` holds the bare state
+(`on`, `starting`, `off`, `na`, `failed`, `gaveup`, `updating`, `lost`,
+`paused`). Without `navigator.gpu` the row says *Needs WebGPU*, found at
+every launch for nothing, and nothing is stored. With it, but no adapter or
+only a software one (found by loading the engine), the same, and the
+browser's user agent is kept (`realSandNa`): while it is the same, a launch
+says so without loading anything; an iOS update changes it, and the launch
+after tries again. Such a failure in a page that was put away since the
+start began is not believed (iOS may refuse an adapter to a page in the
+background): it is retried once in view. The switch is never disabled: in
+that state it shows off, and a tap clears what was kept and reloads. Any
+other failure at the start keeps the setting and tries again at the next
+launch, and after three launches in a row it stops trying until the switch
+is turned off and on; a start cut short by the app being put away tries
+again once it is in view. All of this was found with one engine build:
+`realSandBuild` keeps it, and another build forgets `realSandFails`,
+`realSandWhy` and `realSandNa`. If the graphics chip is reset while the sand
+runs, the CPU sand takes over in the same frame at the GPU sand's counts,
+with a toast (none around a lock or an app switch), and the GPU sand comes
+back when it can; a second reset within ten minutes leaves the current sand
+for the rest of the session.
+
+The watchdog (`watchReal` in `app.js`, settings design 5.4). A chip that
+stops answering without losing its device leaves every readback slot
+waiting: every frame is then skipped and the picture freezes while the clock
+runs on, and the engine's own stall rule, which counts runs, never fires,
+since no run is made. So while the GPU sand is the sim, the page in view
+and drawing, and the engine awake (asleep, an idle, paused or finished glass
+reads nothing back), the app reads the engine's count of readbacks
+(`stats().ledger.readbacks`) every 250 ms, and when it has not moved for 4 s
+of wall-clock time it takes the loss path itself: the engine's ledger to the
+CPU Sim (`syncCpu`), the CPU sand in this frame, the toast, the stopped
+engine destroyed once the canvases have cross-faded, and a new engine after
+2 s. The third such time within ten minutes is final for the session. A page
+put away, or frames not drawn for a second, start its clock again.
+
+The dark opening (`holdVeil`, settings design 5.3). While Real sand starts,
+the boot veil waits up to 1 s more for the engine's first frame (the
+handover), then fades up as before. A reload that should open at once (a
+later "Use this shape") sets sessionStorage `hourglass.openNow` first; the
+boot takes the key and does not wait.
 
 What the GPU sand looks like. Each simulated point is drawn as one grain in
 the colour of the CPU sand's grain at its place (its seed, carried into every
@@ -813,8 +850,9 @@ one record whichever engine runs.
 **The GPU engine's own members**, which the app calls only on `real`,
 `realEng`, `eng` and the class, each under its guard: `create` (static),
 `start`, `adopt`, `ready`, `takeOver`, `destroy`, `destroyed`, `stats`,
-`points`, `feel`, `submit`, `setSweep`, `layout`, `setHidden` and
-`setPalette`. The engine reaches the app through one door:
+`points`, `feel`, `submit`, `setSweep`, `layout`, `setHidden`,
+`setPalette` and `syncCpu` (the watchdog's: the engine's ledger to the CPU
+Sim). The engine reaches the app through one door:
 `realsand/boot.mjs` calls `Hourglass.attachRealSand(Cls, build)`, which
 refuses a build stamp other than the one `app.js` was written for
 (`REALSAND_BUILD`).

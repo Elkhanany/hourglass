@@ -46,9 +46,11 @@ prose, is in [How it works](../engines.md#real-sand-the-switch-in-tune).
    end; calm (30 frames a second at the same substep rate) otherwise; a heat
    guard. There is no economy mode.
 6. **Fallback.** A failure gives the CPU sand back in the same frame with the
-   clock untouched. Only a missing capability clears the setting; any other
-   failure tries again at the next launch, three times. A graphics chip lost
-   around a lock or an app switch is rebuilt without a word.
+   clock untouched. The setting is never cleared by the app (from 1.10.0,
+   settings design 5.2): a missing capability is remembered by the browser's
+   user agent, and any other failure tries again at the next launch, three
+   times. A graphics chip lost around a lock or an app switch is rebuilt
+   without a word.
 
 ---
 
@@ -87,7 +89,10 @@ otherwise starts the engine (`startReal`): `RealSand.create(...)`, `start()`
 (section 10.1), `adopt()` (section 7.8). Once the engine is ready the next
 quiet frame hands the sand over (`handover`).
 
-- Without `navigator.gpu` the setting is cleared and the switch greyed.
+- Without `navigator.gpu` the row says *Needs WebGPU*, nothing is loaded and
+  nothing stored; the switch is never greyed or cleared (settings design
+  5.2). A user agent kept from a launch that found no adapter
+  (`realSandNa`) is treated the same while it is this browser's.
 - After three launches in a row that failed (`realSandFails`), nothing is
   loaded until the switch is turned off and on.
 - A module that fails to load fires the script's `error`; one that loads but
@@ -132,7 +137,7 @@ the settings, the Tune row and the loader:
 
 | where | what |
 |---|---|
-| Settings | `realSand`, and `realSandFails`, `realSandWhy` (launches in a row that failed, and why the last did) |
+| Settings | `realSand` (on by default from 1.10.0), `realSandFails`, `realSandWhy` (launches in a row that failed, and why the last did), `realSandNa` (the user agent that found no adapter), `realSandBuild` (the engine build those were found with), and `v`, the settings' version (settings design 5.1) |
 | `composeField` | `real.feel(tS, fx, fy, air, rho)` before the field is turned into the glass (5.2) |
 | `frame` | `real.submit(now)` in place of `renderer.drawSand()`; the handover at the start of a quiet frame |
 | the Reset's sweep | `real.setSweep(kind, p)` beside `renderer.setSweep` (6.5) |
@@ -315,6 +320,7 @@ takeOver()     the app now uses it as its sim (between two frames); throws if th
 submit(now)    once an active frame, in place of renderer.drawSand(): the frame's substeps and picture (5.1)
 feel(tS, fx, fy, air, rho)    the glass's felt acceleration at the app's step time (5.2)
 setHidden, layout, setPalette, setSweep, points, stats(), audit(), destroy(), destroyed
+syncCpu()      the CPU Sim to the ledger's counts (the loss path's first step; app.js's watchdog calls it too)
 onLost({ reason, lifecycle, final, message }), onBack()       (7.9)
 ```
 
@@ -705,8 +711,12 @@ The times of each part and of the first frame drawn are logged for the
 report. A slow start is never a failure: the CPU sand runs and shows
 meanwhile.
 
-- **A missing capability** (`nogpu`, `noadapter`, `fallback`): the setting
-  is cleared and the switch greyed with the reason.
+- **A missing capability** (`nogpu`, `noadapter`, `fallback`): the row says
+  why, with "Tap to try again"; the setting stays on. `nogpu` is found again
+  at every launch for nothing; `noadapter` and `fallback` keep the browser's
+  user agent, and while it is the same a launch loads nothing (settings
+  design 5.2). One found while the page was put away since the start began
+  is treated as hidden, below.
 - **Hidden or lost while starting:** started again once the page is in view
   (at most three times a session), since a home-screen app can stay alive
   for days and "the next launch" can be far off.
@@ -727,18 +737,22 @@ and new files.
 ## 11. Tune
 
 The row: **Real sand**, in the Material group after Grain, with a note under
-it. Off, the note says what it is ("Each grain simulated on the graphics
-chip. Uses more battery."); otherwise it says how it is doing: *Starting…*,
-*On*, *Needs WebGPU (iOS 26 or later)* (greyed), *Could not start this time:
-(why). It will try again next launch*, *Did not start 3 times: (why). Turn it
-off and on to try again*, *Real sand is updating; it will be back at the
-next launch*, *Real sand paused: the graphics chip was reset*, and the final
-pauses (7.9). The [guide](../guide.md#real-sand) has them all with what each
-means. With the switch on, Grain's note reads "Real sand keeps its own grain;
-this sets the classic sand" (the GPU's grid is the same at every grain,
-3.3), and the row has **Copy a report**, which copies the engine's figures
-and its log, also from a home-screen app, where `?debug=sand` cannot reach.
-The switch is off by default.
+it that says how it is doing, and the bare state in its `data-state`: *On:
+every grain simulated on the graphics chip*, *Starting…*, *Off: the classic
+sand*, *Needs WebGPU (iOS 26 or later). Tap to try again* (the switch shown
+off, never disabled), *Could not start this time: (why). It will try again
+next launch*, *Did not start 3 times: (why). Turn it off and on to try
+again*, *Real sand is updating; it will be back at the next launch*, *Real
+sand paused: the graphics chip was reset* (or *stopped answering*, the
+watchdog of settings design 5.4), and the final pauses (7.9). The
+[guide](../guide.md#real-sand) has them all with what each means. Grain,
+and the crack sentence of Real motion, are the classic sand's: they are
+hidden while the GPU sand runs or is about to (on, starting, lost), since
+the GPU's grid is the same at every grain (3.3) and its glass does not
+crack (12). With the switch on, the row has **Copy a report**, which copies
+the engine's figures and its log, also from a home-screen app, where
+`?debug=sand` cannot reach. The switch is on by default from 1.10.0
+(settings design 5); it was off until then.
 
 ---
 
@@ -784,7 +798,8 @@ Every suite is described in [Tests](../testing.md); these are Real sand's.
 
 The app harness has no WebGPU adapter. `app-realsand` covers the switch
 there: off, nothing under `realsand/` is requested; on with the real engine,
-the switch greys and is cleared; on with the real adapter on a mock graphics
+the row says it needs WebGPU, the setting stays on and the user agent is
+kept; on with the real adapter on a mock graphics
 chip (`stubs/realsand-mock-boot.mjs`, served as `realsand/boot.mjs`): the
 handover, a 10 s glass to its end, Reset, pours, gaps, Flips, the swap frame,
 losses in view and hidden, a slow start, the wake lock, the sound's numbers,
