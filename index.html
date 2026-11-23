@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Hourglass</title>
   <!-- this page's release: sw.js's VERSION names the same (check-release); Tune's last line shows it -->
-  <meta name="hourglass-version" content="1.12.0">
+  <meta name="hourglass-version" content="1.13.0">
   <meta name="description" content="A hyper-realistic sand hourglass timer. Every grain is simulated; every sound is synthesised live.">
   <meta name="theme-color" content="#0b0c0e">
   <meta name="color-scheme" content="dark">
@@ -119,7 +119,7 @@
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/></svg>
           <span>Flip</span>
         </button>
-        <button id="btn-settings" class="act" type="button" aria-label="Sound, material and motion settings" aria-haspopup="dialog">
+        <button id="btn-settings" class="act" type="button" aria-label="Tune: sand, glass, sound and time" aria-haspopup="dialog">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7.5h8.4M17.4 7.5H19M5 16.5h1.6M10.6 16.5H19"/><circle cx="15.4" cy="7.5" r="2"/><circle cx="8.6" cy="16.5" r="2"/></svg>
           <span>Tune</span>
         </button>
@@ -129,136 +129,179 @@
 
   <div id="scrim" hidden></div>
 
-  <!-- settings sheet -->
-  <section id="sheet-settings" class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+  <!-- settings sheet: Tune, in four tabs. All four panels are in the page; one shows (app.js, "Tune's tabs").
+       Its top edge is set by app.js (--tune-top): 44 px under the glass's neck, the same on every tab. -->
+  <section id="sheet-settings" class="sheet tune" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
     <div class="grab" aria-hidden="true"></div>
     <div class="sheet-head">
-      <h2 id="settings-title">Tune</h2>
+      <h2 id="settings-title" class="vh">Tune</h2>
+      <div id="tune-tabs" class="tabs" role="tablist" aria-labelledby="settings-title">
+        <button id="tab-sand" type="button" role="tab" data-tab="sand" aria-controls="panel-sand" aria-selected="true">Sand</button>
+        <button id="tab-glass" type="button" role="tab" data-tab="glass" aria-controls="panel-glass" aria-selected="false" tabindex="-1">Glass</button>
+        <button id="tab-sound" type="button" role="tab" data-tab="sound" aria-controls="panel-sound" aria-selected="false" tabindex="-1">Sound</button>
+        <button id="tab-time" type="button" role="tab" data-tab="time" aria-controls="panel-time" aria-selected="false" tabindex="-1">Time</button>
+      </div>
       <button class="icon-btn sheet-close" type="button" aria-label="Close">
         <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
       </button>
     </div>
 
     <div class="sheet-body">
-      <h3>Material</h3>
-      <div id="themes" class="cards" role="radiogroup" aria-label="Material">
-        <button class="card" type="button" role="radio" aria-checked="true" data-theme-id="sahara">
-          <span class="orb orb-sahara" aria-hidden="true"></span>
-          <b>Sahara Quartz</b><small>Walnut</small>
-        </button>
-        <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="volcanic">
-          <span class="orb orb-volcanic" aria-hidden="true"></span>
-          <b>Volcanic Black</b><small>Brushed brass</small>
-        </button>
-        <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="moonstone">
-          <span class="orb orb-moonstone" aria-hidden="true"></span>
-          <b>Moonstone</b><small>Frosted silver</small>
-        </button>
-        <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="lapis">
-          <span class="orb orb-lapis" aria-hidden="true"></span>
-          <b>Lapis Lazuli</b><small>Gold</small>
-        </button>
-        <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="rosequartz">
-          <span class="orb orb-rosequartz" aria-hidden="true"></span>
-          <b>Rose Quartz</b><small>Copper</small>
-        </button>
-        <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="seaglass">
-          <span class="orb orb-seaglass" aria-hidden="true"></span>
-          <b>Sea Glass</b><small>Driftwood</small>
-        </button>
-      </div>
-
-      <div class="rows rows-single">
-        <label class="row" for="opt-frame">
-          <span><b>Frame</b><small>Caps and posts around the glass</small></span>
-          <input id="opt-frame" class="switch" type="checkbox" role="switch" checked>
-        </label>
-        <label class="row" for="opt-layers">
-          <span><b>Layered sand</b><small>Two tones that settle into strata as they fall</small></span>
-          <input id="opt-layers" class="switch" type="checkbox" role="switch">
-        </label>
-        <div class="row" id="grain-row">
-          <span><b>Grain</b><small id="grain-note">Finer sand is more grains, and more work for the phone</small></span>
+      <!-- Sand: the sand itself, and how it feels in the hand -->
+      <div id="panel-sand" class="tab-panel" role="tabpanel" aria-labelledby="tab-sand" data-tab="sand">
+        <h3>Material</h3>
+        <div id="themes" class="cards" role="radiogroup" aria-label="Material">
+          <button class="card" type="button" role="radio" aria-checked="true" data-theme-id="sahara">
+            <span class="orb orb-sahara" aria-hidden="true"></span>
+            <b>Sahara Quartz</b><small>Walnut</small>
+          </button>
+          <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="volcanic">
+            <span class="orb orb-volcanic" aria-hidden="true"></span>
+            <b>Volcanic Black</b><small>Brushed brass</small>
+          </button>
+          <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="moonstone">
+            <span class="orb orb-moonstone" aria-hidden="true"></span>
+            <b>Moonstone</b><small>Frosted silver</small>
+          </button>
+          <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="lapis">
+            <span class="orb orb-lapis" aria-hidden="true"></span>
+            <b>Lapis Lazuli</b><small>Gold</small>
+          </button>
+          <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="rosequartz">
+            <span class="orb orb-rosequartz" aria-hidden="true"></span>
+            <b>Rose Quartz</b><small>Copper</small>
+          </button>
+          <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="seaglass">
+            <span class="orb orb-seaglass" aria-hidden="true"></span>
+            <b>Sea Glass</b><small>Driftwood</small>
+          </button>
         </div>
-        <div class="sub">
-          <div id="grains" class="segmented" role="radiogroup" aria-label="Sand grain">
-            <button type="button" role="radio" aria-checked="true" data-grain="0" aria-label="Classic: the sand as it has been">Classic</button>
-            <button type="button" role="radio" aria-checked="false" data-grain="1" aria-label="Fine: twice the grains">Fine <i>×2</i></button>
-            <button type="button" role="radio" aria-checked="false" data-grain="2" aria-label="Finest: four times the grains">Finest <i>×4</i></button>
+
+        <div class="rows rows-single" id="rows-sand">
+          <label class="row" for="opt-layers">
+            <span><b>Layered sand</b><small>Two tones that settle into strata as they fall</small></span>
+            <input id="opt-layers" class="switch" type="checkbox" role="switch">
+          </label>
+          <label class="row" for="opt-realsand" id="realsand-row">
+            <span><b>Real sand</b><small id="realsand-note">On: every grain simulated on the graphics chip</small></span>
+            <input id="opt-realsand" class="switch" type="checkbox" role="switch">
+          </label>
+          <div class="row" id="grain-row">
+            <span><b>Grain</b><small id="grain-note">Finer sand is more grains, and more work for the phone</small></span>
+          </div>
+          <div class="sub">
+            <div id="grains" class="segmented" role="radiogroup" aria-label="Sand grain">
+              <button type="button" role="radio" aria-checked="true" data-grain="0" aria-label="Classic: the sand as it has been">Classic</button>
+              <button type="button" role="radio" aria-checked="false" data-grain="1" aria-label="Fine: twice the grains">Fine <i>×2</i></button>
+              <button type="button" role="radio" aria-checked="false" data-grain="2" aria-label="Finest: four times the grains">Finest <i>×4</i></button>
+            </div>
           </div>
         </div>
-        <label class="row" for="opt-realsand" id="realsand-row">
-          <span><b>Real sand</b><small id="realsand-note">On: every grain simulated on the graphics chip</small></span>
-          <input id="opt-realsand" class="switch" type="checkbox" role="switch">
-        </label>
-      </div>
 
-      <h3>Acoustic character</h3>
-      <div id="characters" class="segmented chars" role="radiogroup" aria-label="Acoustic character">
-        <button type="button" role="radio" aria-checked="true" data-character="asmr"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M18.9 9.4a3.6 3.6 0 0 1 0 5.2M20.6 8.3a5.6 5.6 0 0 1 0 7.4"/></svg><span>Close-Miked ASMR</span></button>
-        <button type="button" role="radio" aria-checked="false" data-character="warm"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M18.7 8.4l1.6-.85M19.6 12h1.8M18.7 15.6l1.6.85M5.3 8.4l-1.6-.85M4.4 12H2.6M5.3 15.6l-1.6.85"/></svg><span>Warm Glass</span></button>
-        <button type="button" role="radio" aria-checked="false" data-character="pure"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path stroke-width="1.45" d="M19.2 9.7h.01M20 12h.01M19.2 14.3h.01M4.8 9.7h.01M4 12h.01M4.8 14.3h.01"/></svg><span>Pure Sand Whisper</span></button>
-        <button type="button" role="radio" aria-checked="false" data-character="chime"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M18.9 9.4a3.6 3.6 0 0 1 0 5.2M5.1 9.4a3.6 3.6 0 0 0 0 5.2"/></svg><span>Singing Glass</span></button>
-        <button type="button" role="radio" aria-checked="false" data-character="bamboo"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M3.8 4.6v14.8M20.2 4.6v14.8M3 9.5h1.6M3 14.5h1.6M19.4 9.5h1.6M19.4 14.5h1.6"/></svg><span>Bamboo Rainstick</span></button>
-        <button type="button" role="radio" aria-checked="false" data-character="dune"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><circle cx="20.3" cy="6.7" r="1.6"/><path d="M1.6 19.4C2.7 18.1 3.9 17.5 5.4 17.8M18.6 17.8C20.1 17.5 21.3 18.1 22.4 19.4"/></svg><span>Desert Dune</span></button>
-      </div>
-
-      <label class="slider-row" for="volume">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z"/><path d="M15.2 9.2a4 4 0 0 1 0 5.6"/></svg>
-        <input id="volume" type="range" min="0" max="100" step="1" value="80" aria-label="Volume">
-        <output id="volume-out" for="volume">80</output>
-      </label>
-
-      <h3>Ambience</h3>
-      <div id="ambiences" class="segmented chars" role="radiogroup" aria-label="Ambience behind the sand">
-        <button type="button" role="radio" aria-checked="true" data-ambience="none"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/></svg><span>None</span></button>
-        <button type="button" role="radio" aria-checked="false" data-ambience="brook"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M1.6 18.75c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0M19 18.75c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0M1.6 16.25c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0M19 16.25c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0"/></svg><span>Brook</span></button>
-        <button type="button" role="radio" aria-checked="false" data-ambience="rain"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M4.2 6.2l-1.1 2.8M4.2 12.2l-1.1 2.8M21 9l-1.1 2.8M21 15l-1.1 2.8"/></svg><span>Rain</span></button>
-        <button type="button" role="radio" aria-checked="false" data-ambience="ocean"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M1.6 19.4c.2-2.9 1.4-4.9 3-4.9 1.2 0 1.7 1.2.9 2.1M2.3 12.6h.01M4.7 11.6h.01M22.4 19.4c-.2-2.9-1.4-4.9-3-4.9-1.2 0-1.7 1.2-.9 2.1M21.7 12.6h.01M19.3 11.6h.01"/></svg><span>Ocean</span></button>
-        <button type="button" role="radio" aria-checked="false" data-ambience="waterfall"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M3.4 4.6c-1.3 1.3-1.3 2.3 0 3.6s1.3 2.3 0 3.6-1.3 2.3 0 3.6M1.8 19.4c.5-1.1 1-1.6 1.6-1.6s1.1.5 1.6 1.6M20.6 4.6c-1.3 1.3-1.3 2.3 0 3.6s1.3 2.3 0 3.6-1.3 2.3 0 3.6M19 19.4c.5-1.1 1-1.6 1.6-1.6s1.1.5 1.6 1.6"/></svg><span>Waterfall</span></button>
-        <button type="button" role="radio" aria-checked="false" data-ambience="drips"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M3.5 6c.875 1.16 1.25 1.875 1.25 2.5a1.25 1.25 0 0 1-2.5 0c0-.625.375-1.34 1.25-2.5zM1.8 18.6a1.6 .7 0 1 0 3.2 0a1.6 .7 0 1 0-3.2 0M20.5 9.6c.875 1.16 1.25 1.875 1.25 2.5a1.25 1.25 0 0 1-2.5 0c0-.625.375-1.34 1.25-2.5zM19 18.6a1.6 .7 0 1 0 3.2 0a1.6 .7 0 1 0-3.2 0"/></svg><span>Drips</span></button>
-      </div>
-      <label class="slider-row" id="amb-row" for="amb-level" hidden>
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2c3 3.9 5.2 6.7 5.2 9.6a5.2 5.2 0 0 1-10.4 0c0-2.9 2.2-5.700 5.2-9.6z"/></svg>
-        <input id="amb-level" type="range" min="0" max="100" step="1" value="50" aria-label="Ambience level">
-        <output id="amb-out" for="amb-level">50</output>
-      </label>
-
-      <div class="rows">
-        <label class="row" for="opt-chime">
-          <span><b>Completion bowl</b><small>A soft singing-bowl bloom when the last grain falls</small></span>
-          <input id="opt-chime" class="switch" type="checkbox" role="switch" checked>
-        </label>
-        <label class="row" for="opt-awake">
-          <span><b>Keep screen awake</b><small id="awake-note">While the sand is flowing</small></span>
-          <input id="opt-awake" class="switch" type="checkbox" role="switch" checked>
-        </label>
-        <label class="row" for="opt-tilt">
-          <span><b>Real motion</b><small>Sand feels every lean, turn and shake.<span id="tilt-crack"> Shaking it hard can crack the glass.</span></small></span>
-          <input id="opt-tilt" class="switch" type="checkbox" role="switch">
-        </label>
-        <label class="row" for="opt-zen">
-          <span><b>Full Zen</b><small>Hide the controls completely in Zen</small></span>
-          <input id="opt-zen" class="switch" type="checkbox" role="switch">
-        </label>
-        <label class="row" for="opt-breath">
-          <span><b>Breathing pace</b><small>The glow swells as you breathe in and fades as you breathe out</small></span>
-          <input id="opt-breath" class="switch" type="checkbox" role="switch">
-        </label>
-        <div id="breath-row" class="sub" hidden>
-          <div id="breaths" class="segmented" role="radiogroup" aria-label="Breathing pattern">
-            <button type="button" role="radio" aria-checked="true" data-breath="calm" aria-label="Calm: in 4 seconds, out 6">Calm <i>4·6</i></button>
-            <button type="button" role="radio" aria-checked="false" data-breath="box" aria-label="Box: in 4 seconds, hold 4, out 4, hold 4">Box <i>4·4·4·4</i></button>
-            <button type="button" role="radio" aria-checked="false" data-breath="deep" aria-label="Deep: in 4 seconds, hold 7, out 8">Deep <i>4·7·8</i></button>
-          </div>
+        <h3>In the hand</h3>
+        <div class="rows">
+          <label class="row" for="opt-tilt">
+            <span><b>Real motion</b><small>Sand feels every lean, turn and shake.<span id="tilt-crack"> Shaking it hard can crack the glass.</span></small></span>
+            <input id="opt-tilt" class="switch" type="checkbox" role="switch">
+          </label>
         </div>
-        <label class="row" for="opt-haptics">
-          <span><b>Haptics</b><small>Subtle taps where the device supports them</small></span>
-          <input id="opt-haptics" class="switch" type="checkbox" role="switch" checked>
-        </label>
+
+        <p class="colophon"><span id="grain-count">—</span> grains<span id="spilled"></span>, each one simulated<span id="sim-where"></span>. Every sound is synthesised live.</p>
       </div>
 
-      <p class="colophon"><span id="grain-count">—</span> grains<span id="spilled"></span>, each one simulated<span id="sim-where"></span>. Every sound is synthesised live.</p>
+      <!-- Glass: the frame for now (the shapes and the finish come with later releases) -->
+      <div id="panel-glass" class="tab-panel" role="tabpanel" aria-labelledby="tab-glass" data-tab="glass" hidden>
+        <h3>Frame</h3>
+        <div class="rows rows-single">
+          <label class="row" for="opt-frame">
+            <span><b>Show the frame</b><small>Turned posts and caps around the glass</small></span>
+            <input id="opt-frame" class="switch" type="checkbox" role="switch" checked>
+          </label>
+        </div>
+      </div>
+
+      <!-- Sound: the volume, the ambience (changed most often), the sand's own sound, the end -->
+      <div id="panel-sound" class="tab-panel" role="tabpanel" aria-labelledby="tab-sound" data-tab="sound" hidden>
+        <label class="slider-row worded" for="volume">
+          <span class="lab"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z"/><path d="M15.2 9.2a4 4 0 0 1 0 5.6"/></svg>Sound</span>
+          <input id="volume" type="range" min="0" max="100" step="1" value="80" aria-label="Sound volume">
+          <output id="volume-out" for="volume">80</output>
+        </label>
+
+        <h3>Ambience</h3>
+        <div id="ambiences" class="segmented chars" role="radiogroup" aria-label="Ambience behind the sand">
+          <button type="button" role="radio" aria-checked="true" data-ambience="none"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/></svg><span>None</span></button>
+          <button type="button" role="radio" aria-checked="false" data-ambience="brook"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M1.6 18.75c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0M19 18.75c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0M1.6 16.25c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0M19 16.25c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0"/></svg><span>Brook</span></button>
+          <button type="button" role="radio" aria-checked="false" data-ambience="rain"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M4.2 6.2l-1.1 2.8M4.2 12.2l-1.1 2.8M21 9l-1.1 2.8M21 15l-1.1 2.8"/></svg><span>Rain</span></button>
+          <button type="button" role="radio" aria-checked="false" data-ambience="ocean"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M1.6 19.4c.2-2.9 1.4-4.9 3-4.9 1.2 0 1.7 1.2.9 2.1M2.3 12.6h.01M4.7 11.6h.01M22.4 19.4c-.2-2.9-1.4-4.9-3-4.9-1.2 0-1.7 1.2-.9 2.1M21.7 12.6h.01M19.3 11.6h.01"/></svg><span>Ocean</span></button>
+          <button type="button" role="radio" aria-checked="false" data-ambience="waterfall"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M3.4 4.6c-1.3 1.3-1.3 2.3 0 3.6s1.3 2.3 0 3.6-1.3 2.3 0 3.6M1.8 19.4c.5-1.1 1-1.6 1.6-1.6s1.1.5 1.6 1.6M20.6 4.6c-1.3 1.3-1.3 2.3 0 3.6s1.3 2.3 0 3.6-1.3 2.3 0 3.6M19 19.4c.5-1.1 1-1.6 1.6-1.6s1.1.5 1.6 1.6"/></svg><span>Waterfall</span></button>
+          <button type="button" role="radio" aria-checked="false" data-ambience="drips"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M3.5 6c.875 1.16 1.25 1.875 1.25 2.5a1.25 1.25 0 0 1-2.5 0c0-.625.375-1.34 1.25-2.5zM1.8 18.6a1.6 .7 0 1 0 3.2 0a1.6 .7 0 1 0-3.2 0M20.5 9.6c.875 1.16 1.25 1.875 1.25 2.5a1.25 1.25 0 0 1-2.5 0c0-.625.375-1.34 1.25-2.5zM19 18.6a1.6 .7 0 1 0 3.2 0a1.6 .7 0 1 0-3.2 0"/></svg><span>Drips</span></button>
+        </div>
+        <label class="slider-row worded" id="amb-row" for="amb-level" hidden>
+          <span class="lab"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2c3 3.9 5.2 6.7 5.2 9.6a5.2 5.2 0 0 1-10.4 0c0-2.9 2.2-5.7 5.2-9.6z"/></svg>Ambience</span>
+          <input id="amb-level" type="range" min="0" max="100" step="1" value="50" aria-label="Ambience level">
+          <output id="amb-out" for="amb-level">50</output>
+        </label>
+
+        <h3>Sand sound</h3>
+        <div id="characters" class="segmented chars" role="radiogroup" aria-label="Sand sound">
+          <button type="button" role="radio" aria-checked="true" data-character="asmr"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M18.9 9.4a3.6 3.6 0 0 1 0 5.2M20.6 8.3a5.6 5.6 0 0 1 0 7.4"/></svg><span>Close-Miked ASMR</span></button>
+          <button type="button" role="radio" aria-checked="false" data-character="warm"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M18.7 8.4l1.6-.85M19.6 12h1.8M18.7 15.6l1.6.85M5.3 8.4l-1.6-.85M4.4 12H2.6M5.3 15.6l-1.6.85"/></svg><span>Warm Glass</span></button>
+          <button type="button" role="radio" aria-checked="false" data-character="pure"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path stroke-width="1.45" d="M19.2 9.7h.01M20 12h.01M19.2 14.3h.01M4.8 9.7h.01M4 12h.01M4.8 14.3h.01"/></svg><span>Pure Sand Whisper</span></button>
+          <button type="button" role="radio" aria-checked="false" data-character="chime"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M18.9 9.4a3.6 3.6 0 0 1 0 5.2M5.1 9.4a3.6 3.6 0 0 0 0 5.2"/></svg><span>Singing Glass</span></button>
+          <button type="button" role="radio" aria-checked="false" data-character="bamboo"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M3.8 4.6v14.8M20.2 4.6v14.8M3 9.5h1.6M3 14.5h1.6M19.4 9.5h1.6M19.4 14.5h1.6"/></svg><span>Bamboo Rainstick</span></button>
+          <button type="button" role="radio" aria-checked="false" data-character="dune"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><circle cx="20.3" cy="6.7" r="1.6"/><path d="M1.6 19.4C2.7 18.1 3.9 17.5 5.4 17.8M18.6 17.8C20.1 17.5 21.3 18.1 22.4 19.4"/></svg><span>Desert Dune</span></button>
+        </div>
+
+        <h3>End of the glass</h3>
+        <div class="rows">
+          <label class="row" for="opt-chime">
+            <span><b>Completion bowl</b><small>A soft singing-bowl bloom when the last grain falls</small></span>
+            <input id="opt-chime" class="switch" type="checkbox" role="switch" checked>
+          </label>
+        </div>
+      </div>
+
+      <!-- Time: the screen, the breath, Zen, the buttons' tick, and the way back -->
+      <div id="panel-time" class="tab-panel" role="tabpanel" aria-labelledby="tab-time" data-tab="time" hidden>
+        <h3>The clock</h3>
+        <div class="rows">
+          <label class="row" for="opt-awake">
+            <span><b>Keep screen awake</b><small id="awake-note">While the sand is flowing</small></span>
+            <input id="opt-awake" class="switch" type="checkbox" role="switch" checked>
+          </label>
+        </div>
+
+        <h3>While it runs</h3>
+        <div class="rows">
+          <label class="row" for="opt-breath">
+            <span><b>Breathing pace</b><small>The glow swells as you breathe in and fades as you breathe out</small></span>
+            <input id="opt-breath" class="switch" type="checkbox" role="switch">
+          </label>
+          <div id="breath-row" class="sub" hidden>
+            <div id="breaths" class="segmented" role="radiogroup" aria-label="Breathing pattern">
+              <button type="button" role="radio" aria-checked="true" data-breath="calm" aria-label="Calm: in 4 seconds, out 6">Calm <i>4·6</i></button>
+              <button type="button" role="radio" aria-checked="false" data-breath="box" aria-label="Box: in 4 seconds, hold 4, out 4, hold 4">Box <i>4·4·4·4</i></button>
+              <button type="button" role="radio" aria-checked="false" data-breath="deep" aria-label="Deep: in 4 seconds, hold 7, out 8">Deep <i>4·7·8</i></button>
+            </div>
+          </div>
+          <label class="row" for="opt-zen">
+            <span><b>Full Zen</b><small>Hide the controls completely in Zen</small></span>
+            <input id="opt-zen" class="switch" type="checkbox" role="switch">
+          </label>
+        </div>
+
+        <h3>Buttons</h3>
+        <div class="rows rows-single">
+          <label class="row" for="opt-haptics">
+            <span><b>Haptics</b><small>A light tick from buttons and switches, where the phone supports it</small></span>
+            <input id="opt-haptics" class="switch" type="checkbox" role="switch" checked>
+          </label>
+        </div>
+
+        <!-- the look and the sound as they came: a second tap within three seconds does it (app.js) -->
+        <button id="tune-reset" class="quiet-link" type="button" data-state="idle"><span id="tune-reset-text">Put the look and sound back as they came</span></button>
+      </div>
     </div>
   </section>
 

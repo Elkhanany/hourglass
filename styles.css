@@ -422,6 +422,8 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   opacity: 0; transition: opacity 0.5s var(--ease);
 }
 #scrim.open { opacity: 1; }
+/* behind Tune it is lighter: the glass above the sheet shows what is being chosen, in its true colours */
+#scrim.light { background: rgba(4, 5, 6, 0.2); }
 .sheet {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 9;
   margin: 0 auto; max-width: 520px;
@@ -447,6 +449,36 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 }
 .sheet-body { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
 .sheet-body::-webkit-scrollbar { display: none; }
+
+/* Tune: four tabs at one height. Its top edge sits 44 px under the glass's neck as it is drawn
+   (app.js sets --tune-top: layout, placeTune), so the upper bulb, the neck and the stream stay in
+   view while anything is chosen. What a tab holds changes only how far it scrolls: the tab row
+   never moves. (A phone on its side keeps the old limit, below.) */
+.sheet.tune { top: var(--tune-top, 46%); max-height: none; }
+.sheet.tune .sheet-body { flex: 1 1 auto; min-height: 0; }
+.sheet.tune .grab, .sheet.tune .sheet-head { flex: none; }   /* (a long tab squeezes neither: the tab row stays where it is) */
+.sheet.tune .sheet-head { gap: 8px; margin: 0 0 6px; }
+/* in the page for a screen reader, not on screen (Tune's title: the tabs take its place in the head) */
+.sheet .vh { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tabs {
+  flex: 1 1 auto; min-width: 0;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px;
+  padding: 3px; border-radius: 15px;
+  background: var(--raise);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.tabs button {
+  min-width: 0; min-height: 36px; border-radius: 12px;
+  font-size: 14.5px; font-weight: 500; letter-spacing: 0.01em;
+  color: var(--ink-2);
+  transition: background 0.22s var(--ease), color 0.22s;
+}
+.tabs button[aria-selected="true"] {
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.tab-panel > h3:first-child { margin-top: 6px; }
 
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .card {
@@ -536,6 +568,11 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   margin: 14px 4px 4px; color: var(--ink-2);
 }
 .slider-row output { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-3); }
+/* a slider that carries its word: "Sound 80", "Ambience 50" (the icon and the word share the first column) */
+.slider-row.worded { grid-template-columns: 98px 1fr 30px; gap: 10px; }
+.slider-row .lab { white-space: nowrap; font-size: 13.5px; color: var(--ink-2); }
+.slider-row .lab .ic { width: 17px; height: 17px; vertical-align: -3px; margin-right: 6px; color: var(--ink-3); }
+#amb-row { margin-top: 10px; }        /* the ambience's level, close under its cards */
 input[type="range"] {
   -webkit-appearance: none; appearance: none;
   width: 100%; height: 30px; margin: 0; background: transparent; touch-action: pan-y;
@@ -596,6 +633,14 @@ input[type="range"]::-moz-range-thumb {
 .colophon { margin: 16px 6px 2px; font-size: 12.5px; font-style: italic; line-height: 1.45; color: var(--ink-3); text-align: center; }
 /* the version line (app.js makes it): the release, and that of the offline copy when it differs */
 .colophon.version { margin-top: 4px; font-size: 11.5px; font-style: normal; font-variant-numeric: tabular-nums; }
+/* the way back, at the very end of the Time tab: a quiet link that asks for a second tap (app.js, resetLook) */
+.quiet-link {
+  display: block; margin: 6px auto 0; padding: 12px 12px 10px;
+  font-size: 13px; color: var(--ink-3); text-align: center;
+  text-decoration: underline; text-underline-offset: 2px;
+  transition: color 0.2s;
+}
+.quiet-link[data-state="armed"] { color: var(--accent); }
 
 /* ---- custom duration dial ---------------------------------------- */
 .dial {
@@ -686,8 +731,9 @@ input[type="range"]::-moz-range-thumb {
   transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
-/* said while Tune is open: in the sheet's head, between its title and its close
-   button (app.js says how high; this keeps it over the sheet in landscape too) */
+/* said while Tune is open: just above the sheet, in the gap under the glass's neck, so that it
+   covers no tab and no row (app.js says how high; this keeps it over the sheet in landscape too,
+   where app.js puts it at the top of the screen: the sheet leaves no room above it there) */
 #toast.high { left: 50%; }
 /* a note about the glass, shown up under the readout: clear of the lower bulb it is about */
 #toast.up { bottom: auto; top: calc(var(--sat) + 150px); }
@@ -716,7 +762,8 @@ input[type="range"]::-moz-range-thumb {
   #hud-bottom { left: auto; width: 44%; max-width: 400px; padding-bottom: calc(var(--sab) + 8px); }
   #readout { font-size: clamp(34px, 7vw, 54px); }
   #toast { bottom: calc(var(--sab) + 20px); left: 25%; }
-  #toast.high { bottom: calc(var(--sab) + 20px); top: auto; }
+  /* the glass is beside the controls here, not above the sheet: Tune keeps the height it always had */
+  .sheet.tune { top: calc(var(--sat) + 28px); }
   /* beside the glass there is room for a sequence's phase line */
   #app.seq #status { position: static; width: auto; height: auto; margin-top: 6px; overflow: visible; clip-path: none; }
 }
@@ -727,7 +774,7 @@ input[type="range"]::-moz-range-thumb {
 }
 @media (hover: hover) {
   .pill:hover:not([aria-checked="true"]), .chip:hover, .card:hover:not([aria-checked="true"]) { background: var(--raise-2); color: var(--ink); }
-  .act:hover:not(.primary), .icon-btn:hover, .step:hover, .stepper button:hover { color: var(--ink); }
+  .act:hover:not(.primary), .icon-btn:hover, .step:hover, .stepper button:hover, .tabs button:hover, .quiet-link:hover:not([data-state="armed"]) { color: var(--ink); }
   .act.primary:hover, .cta:hover { filter: brightness(1.05); }
 }
 @media (prefers-reduced-motion: reduce) {
