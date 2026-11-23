@@ -15,7 +15,7 @@
  * phone. 10 s glasses (1,952 points), layered sand on.
  *
  *  BOOT    the switch on: the engine starts (pipelines, self-test), adopts the CPU sand and
- *          takes over: "On", the canvas drawn, the GPU's points the ledger's, the audit
+ *          takes over: the row on (data-state), the canvas drawn, the GPU's points the ledger's, the audit
  *          passes, the start-up times logged, the tone pass there;
  *  RUN     a 10 s glass to its end: the last point crosses within one frame after 00:00.0 (by
  *          the GPU's own record of its substep), no catch-up or residue transfer, the count 0
@@ -47,7 +47,7 @@ var playwright = require('playwright');
 var staticServer = require('./lib/static-server.js');
 var path = require('path');
 var fs = require('fs');
-var ROOT = path.join(__dirname, '..', '..');
+var ROOT = require('./lib/paths.js').ROOT;
 var port = +process.env.PORT || 8908, shots = null;
 for (var i = 2; i < process.argv.length; i++) {
   if (process.argv[i] === '--port') port = +process.argv[++i];
@@ -213,7 +213,8 @@ function installWatch() {
             for (var k = 3; k < d.length; k += 4 * 13) if (d[k] > 0) px++;
           } catch (e) { px = -2; }
         }
-        return { live: !!rs && H.sim === rs, note: document.getElementById('realsand-note').textContent, state: H.timer.state,
+        return { live: !!rs && H.sim === rs, note: document.getElementById('realsand-note').textContent,
+          rstate: document.getElementById('realsand-row').getAttribute('data-state'), state: H.timer.state,
           rem: H.timer.rem, nTop: H.sim.nTop, total: H.sim.total, want: H.grainsFor(H.timer.durationMs),
           pts: rs ? rs.valve.Pts(H.sim.total) : 0, points: rs ? rs.points : 0, gpuCount: rs && rs.solver ? rs.solver.count : 0,
           tally: st && st.tally, audit: a, px: px, times: st && st.times, n: st && st.n, mode: st && st.mode,
@@ -242,7 +243,7 @@ function installWatch() {
     await page.evaluate(function () { window.__vt.freeze(); });
     await page.evaluate(installWatch);
     var b = await fresh();
-    check(b.live && b.note === 'On' && b.real, 'BOOT: the engine starts on WebGPU, adopts the CPU sand and takes over (Hourglass.sim is it, "On")', b.note);
+    check(b.live && b.rstate === 'on' && b.real, 'BOOT: the engine starts on WebGPU, adopts the CPU sand and takes over (Hourglass.sim is it, the row on)', b.rstate + ': ' + b.note);
     check(b.px > 100, 'BOOT: its canvas holds the drawn sand', b.px + ' sampled pixels drawn');
     check(!!b.tally && b.tally.points === b.points && b.points === b.pts && b.gpuCount === b.pts && b.tally.nan === 0 && b.tally.outside === 0 && b.total === b.want,
           'BOOT: the GPU holds exactly the ledger\'s points for the glass, none lost or outside', JSON.stringify({ tally: b.tally, points: b.points, total: b.total }));
@@ -426,7 +427,7 @@ function installWatch() {
       var r = JSON.parse(window.Hourglass.realSandReport()), rs = window.Hourglass.realSand;
       return JSON.stringify({ log: (r.log || []).slice(-6), lost: rs && rs._lostInfo, n: rs && rs.stats().n });
     });
-    check(lb.live && lb.real && lb.note === 'On', 'LOSS: Real sand is rebuilt and takes the sand back', lb.note + (why ? '; ' + why.slice(0, 900) : ''));
+    check(lb.live && lb.real && lb.rstate === 'on', 'LOSS: Real sand is rebuilt and takes the sand back', lb.rstate + ': ' + lb.note + (why ? '; ' + why.slice(0, 900) : ''));
 
     check(errors.length === 0, 'no page or console errors', errors.slice(0, 3).join(' | '));
   } catch (e) {

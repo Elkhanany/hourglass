@@ -1,0 +1,59 @@
+# Quick checks on every pull request and every push to main: the check group and the
+# Node suites that run in seconds. Nothing here needs a browser or an npm install (the
+# app has no dependencies; Playwright is only for the browser suites, which run by hand:
+# see docs/testing.md).
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Check group and Node suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the whole history: check-release compares with origin/main and the merge-base,
+          # and sim-identity, sim-p0 and sim-flip read their baseline (f446085) from git
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: The check group (shell, licences, release, test guards)
+        run: node tools/test/run-all.js check-
+
+      # The Node suites that run in seconds (about 2.5 minutes together). Left to a run by hand
+      # with the browser suites: replay-phone, sim-conservation, sim-fracture, sim-shape
+      # (each 1.5 to 2 minutes), sim-grain, sim-repose, sim-tone (25 to 40 s), and sim-perf
+      # (timings, which a shared machine cannot judge). check-harness holds this list whole: a
+      # Node suite that is neither here nor in its left-out list fails the check group.
+      - name: Node suites
+        env:
+          SUITES: >-
+            sim-identity sim-p0 sim-determinism sim-clock sim-flip sim-flight sim-knock
+            sim-leak sim-persistence sim-sanity sim-spin sim-valve
+            realsand-shell realsand-adapter realsand-valve realsand-fill realsand-felt
+            lab-pace lab-timer motion-sensors render-unit
+        run: |
+          failed=""
+          for s in $SUITES; do
+            echo "::group::$s"
+            start=$(date +%s)
+            if node "tools/test/$s.test.js"; then r=ok; else r=FAIL; failed="$failed $s"; fi
+            echo "::endgroup::"
+            echo "$r  $s  $(( $(date +%s) - start )) s"
+          done
+          if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi

@@ -1,6 +1,6 @@
 /*!
  * Hourglass — styles.css
- * Calm, tactile, distraction-free. One-handed, mobile-first. GPL-3.0.
+ * Calm, tactile, distraction-free. One-handed, mobile-first. GPL-3.0-or-later.
  */
 
 /* ------------------------------------------------------------------ *
@@ -568,12 +568,12 @@ input[type="range"]::-moz-range-thumb {
 .row span { display: grid; gap: 2px; }
 .row b { font-size: 15.5px; font-weight: 500; }
 .row small { font-size: 12.5px; color: var(--ink-3); line-height: 1.3; }
+#tilt-crack { display: inline; }      /* Real motion's crack sentence: the classic sand's alone (app.js showReal) */
 /* a choice that belongs to the switch above it (the breathing pattern) */
 .rows .sub { padding: 0 12px 12px; }
 .rows .sub + .row { box-shadow: inset 0 1px 0 var(--hair); }
-/* a switch this device cannot have (Real sand without WebGPU): greyed, its note says why */
-.row.na b, .row.na .switch { opacity: 0.4; }
-.row.na .switch { cursor: default; }
+/* (Real sand that this browser cannot have shows off, and its note says why: the switch is never
+   greyed or disabled, a tap tries again; settings design 5.2) */
 /* Real sand on: the row's link that copies the report (the home-screen app cannot open ?debug=sand) */
 #realsand-report { justify-self: start; padding: 4px 0 2px; font-size: 12.5px; color: var(--ink-2); text-decoration: underline; }
 #realsand-report[hidden] { display: none; }
@@ -594,6 +594,8 @@ input[type="range"]::-moz-range-thumb {
 .switch:checked { background: var(--accent); }
 .switch:checked::after { transform: translateX(20px); }
 .colophon { margin: 16px 6px 2px; font-size: 12.5px; font-style: italic; line-height: 1.45; color: var(--ink-3); text-align: center; }
+/* the version line (app.js makes it): the release, and that of the offline copy when it differs */
+.colophon.version { margin-top: 4px; font-size: 11.5px; font-style: normal; font-variant-numeric: tabular-nums; }
 
 /* ---- custom duration dial ---------------------------------------- */
 .dial {

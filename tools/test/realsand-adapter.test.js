@@ -8,9 +8,14 @@
  * beginFrame, the catch-up, the 120 Hz steps (feel, setMotion, step), submit.
  *
  * Checks:
- *  - every member app.js and audio.js use of the Sim exists on RealSand with the CPU Sim's type
- *    (by a grep of app.js), and the shared ones are the CPU Sim's own objects (frame, geo, the
- *    event arrays, cracks);
+ *  - the engine contract: every name app.js and audio.js bind to a sand engine (sim, cpuSim,
+ *    real, realEng, eng, realCls; audio's sim), read from their code, equals the lists here
+ *    (a member used and not listed, or listed and no longer used, fails; a copy of app.js
+ *    with sim.foo and realEng.bar is the control). It reads `name.member` on those six names
+ *    only: an engine held under another name (var e = realEng; e.foo()) or a member in
+ *    brackets (sim['foo']) is not seen. The CPU Sim has the Sim's members and RealSand
+ *    has them with the CPU Sim's types, and its own; the shared ones are the CPU Sim's own
+ *    objects (frame, geo, the event arrays, cracks);
  *  - the glass built from the app's geometry and the fills from the CPU lattice: exact point
  *    counts above and below, every point inside the glass and on its side of the line, each
  *    point's seed the CPU grain's under it;
@@ -49,7 +54,8 @@
 var path = require('path'), fs = require('fs');
 var L = require('./lib/realsand-plant.js');
 var P = require('./lib/load-physics.js').P;
-var ROOT = path.join(__dirname, '..', '..');
+var paths = require('./lib/paths.js');
+var ROOT = paths.ROOT;
 var t0 = Date.now(), count = 0, failures = 0;
 function log(s) { console.log(s); }
 function check(ok, what) { count++; if (!ok) failures++; log((ok ? 'ok    ' : 'FAIL  ') + what); }
@@ -463,22 +469,78 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   }
 
   /* ------------------------------------------------------------------------------------ *
-   *  1. The contract: every member app.js and audio.js use, with the CPU Sim's type
+   *  1. The contract (the plan's 4.2): every name app.js and audio.js bind to a sand engine,
+   *     against the lists here: (a) the Sim's members, on both engines with the CPU Sim's types;
+   *     (b) the GPU engine's own, called on real, realEng, eng and realCls under their guards
    * ------------------------------------------------------------------------------------ */
-  var appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'), audioSrc = fs.readFileSync(path.join(ROOT, 'audio.js'), 'utf8');
-  var members = {};
-  (appSrc.match(/\bsim\.[A-Za-z_]\w*/g) || []).forEach(function (m) { members[m.slice(4)] = 1; });
-  (audioSrc.match(/\bsim\.(nev|evX|evV|evK)\b/g) || []).forEach(function (m) { members[m.slice(4)] = 1; });
-  ['census', 'tones'].forEach(function (m) { members[m] = 1; });    // tests (page-init.js, app-layers)
+  var CONTRACT = {
+    // (a) the CPU Sim's members, which RealSand has too, with the same types
+    sim: ['nTop', 'nBottom', 'total', 'capacity', 'fillMax', 'maxTotal', 'reset', 'pour', 'fastForward', 'completeFlip', 'step', 'beginFrame', 'isActive', 'motionActive',
+          'gateOpen', 'deepRelease', 'targetTop', 'relCap',
+          'angle', 'tilt', 'flipping', 'gy', 'G', 'setMotion', 'setCarry', 'wakeAll', 'inertiaZ',
+          'quality', 'reduced', 'quiet', 'spinArmed', 'damageArmed', 'topSweeps',
+          'impact', 'knock', 'flick', 'shake',
+          'frame', 'nev', 'evX', 'evV', 'evK', 'agit', 'agitation', 'bf',
+          'geo', 'W', 'H', 'cracks', 'warnSeg', 'segInfo', 'sealCracks', 'serializeDamage', 'restoreDamage', 'forceCrack', 'dMax', 'lost', 'escN', 'escX', 'escY', 'escVX', 'escVY', 'escS',
+          'setLayers'],
+    cpuSim: [],                                                    // the CPU Sim kept beside RealSand: nothing of its own yet
+    audioSim: ['nev', 'evX', 'evV', 'evK'],                        // audio.js: its sim, taken from st.sim
+    tests: ['census', 'tones'],                                    // page-init.js's census, app-layers' tones
+    // (b) RealSand's own
+    real: ['feel', 'points', 'setSweep', 'submit'],
+    realEng: ['ready', 'takeOver', 'destroy', 'destroyed', 'stats', 'layout', 'setHidden', 'setPalette', 'syncCpu'],   // (syncCpu: the watchdog)
+    eng: ['start', 'adopt'],
+    realCls: ['create']
+  };
+  var scan = require('./lib/scan.js');
+  /** The names bound to an engine in the controller (app.js, and app/ once it has files) and audio.js. */
+  function engineNames(appSrcs, audioSrc) {
+    var used = {};
+    ['sim', 'cpuSim', 'real', 'realEng', 'eng', 'realCls'].forEach(function (v) {
+      var seen = {};
+      appSrcs.forEach(function (src) { scan.members(src, v).forEach(function (m) { seen[m] = true; }); });
+      used[v] = Object.keys(seen).sort();
+    });
+    used.audioSim = scan.members(audioSrc, 'sim');
+    return used;
+  }
+  /** What differs from the contract: ['realEng.bar used, not in the contract', 'sim.inertiaZ in the contract, no longer used'] */
+  function contractDiff(used) {
+    var out = [];
+    Object.keys(used).forEach(function (v) {
+      var list = CONTRACT[v];
+      used[v].forEach(function (m) { if (list.indexOf(m) < 0) out.push(v + '.' + m + ' used, not in the contract'); });
+      list.forEach(function (m) { if (used[v].indexOf(m) < 0) out.push(v + '.' + m + ' in the contract, no longer used'); });
+    });
+    return out;
+  }
+  var controller = [paths.APP].concat(paths.classicScripts().filter(function (f) { return /^app\//.test(f); }).map(function (f) { return path.join(ROOT, f); }));
+  var appSrcs = controller.map(function (f) { return fs.readFileSync(f, 'utf8'); }), audioSrc = paths.piece(paths.script('audio.js'));
+  var used = engineNames(appSrcs, audioSrc), diff = contractDiff(used);
+  check(diff.length === 0 && used.sim.length === CONTRACT.sim.length,
+    'the contract: app.js binds ' + used.sim.length + ' members to sim, ' + used.cpuSim.length + ' to cpuSim, ' + used.real.length + ' to real, ' + used.realEng.length + ' to realEng, ' +
+    used.eng.length + ' to eng and ' + used.realCls.length + ' to realCls, and audio.js ' + used.audioSim.length + ' to its sim: each the list in this test' + (diff.length ? ': ' + diff.join('; ') : ''));
+  // controls: a copy of app.js that uses sim.foo and realEng.bar (and names sim.baz only in a
+  // comment and a string), and one that no longer uses sim.inertiaZ
+  var more = appSrcs[0].replace('var REAL_TEST = ', 'var CONTRACT_PROBE = function () { return sim.foo + realEng.bar(); /* sim.baz */ }, CONTRACT_PROBE2 = "sim.baz";\n  var REAL_TEST = ');
+  var less = appSrcs[0].replace(/\bsim\.inertiaZ\b/g, 'sim.angle');
+  var dMore = contractDiff(engineNames([more].concat(appSrcs.slice(1)), audioSrc)), dLess = contractDiff(engineNames([less].concat(appSrcs.slice(1)), audioSrc));
+  check(dMore.join() === 'sim.foo used, not in the contract,realEng.bar used, not in the contract' && dLess.join() === 'sim.inertiaZ in the contract, no longer used',
+    '... and a copy of app.js that uses sim.foo and realEng.bar (sim.baz only in a comment and a string), or no longer uses sim.inertiaZ, breaks it (control): ' + dMore.concat(dLess).join('; '));
   var A = makeApp({ ms: 10000 });
   var real = await A.attach();
-  var cpu = A.cpu, bad = [];
+  var cpu = A.cpu, bad = [], noCpu = [];
   function kind(x) { return x === null ? 'null' : typeof x === 'object' ? 'object ' + (x.constructor && x.constructor.name) : typeof x; }
-  Object.keys(members).sort().forEach(function (m) {
+  CONTRACT.sim.concat(CONTRACT.tests).forEach(function (m) {
     var a = cpu[m], b = real[m];
+    if (a === undefined) noCpu.push(m);
     if (kind(a) !== kind(b)) bad.push(m + ' (' + kind(a) + ' / ' + kind(b) + ')');
   });
-  check(Object.keys(members).length >= 60 && bad.length === 0, 'RealSand has every one of the ' + Object.keys(members).length + ' Sim members app.js, audio.js and the tests use, with the CPU Sim\'s type' + (bad.length ? ': differ ' + bad.join(', ') : ''));
+  check(noCpu.length === 0 && bad.length === 0, 'the CPU Sim has every one of the ' + CONTRACT.sim.length + ' Sim members and the tests\' ' + CONTRACT.tests.length +
+    ', and RealSand has each with the CPU Sim\'s type' + (noCpu.length ? ': the CPU Sim lacks ' + noCpu.join(', ') : '') + (bad.length ? ': differ ' + bad.join(', ') : ''));
+  var own = CONTRACT.real.concat(CONTRACT.realEng, CONTRACT.eng).filter(function (m) { return real[m] === undefined; });
+  if (typeof RS.RealSand.create !== 'function') own.push('RealSand.create (static)');
+  check(own.length === 0, 'RealSand has its own ' + (CONTRACT.real.length + CONTRACT.realEng.length + CONTRACT.eng.length) + ' members the app calls on real, realEng and eng, and the static create', own.join(', '));
   check(real.frame === cpu.frame && real.geo === cpu.geo && real.evX === cpu.evX && real.evK === cpu.evK && real.evV === cpu.evV && real.cracks === cpu.cracks &&
     real.G === cpu.G && real.capacity === cpu.capacity && real.maxTotal === cpu.maxTotal && real.W === cpu.W && real.H === cpu.H,
     'the per-frame record, the glass, the event arrays and the cracks are the CPU Sim\'s own (shared with the app and the audio)');

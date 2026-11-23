@@ -23,7 +23,7 @@
  * Nothing on the per-event path allocates: GC pauses mid-shake would show
  * up as stutters in the sand.
  *
- * License: GPL-3.0.
+ * License: GPL-3.0-or-later.
  * ---------------------------------------------------------------------------
  */
 (function (root) {

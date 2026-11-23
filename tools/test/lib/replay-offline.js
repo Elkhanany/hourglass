@@ -17,14 +17,13 @@
  *   var r = O.run('vigorousZ', { seed: 11, startMs: 60000 });
  */
 'use strict';
-var fs = require('fs');
-var path = require('path');
 var vm = require('vm');
 var Streams = require('./replay-streams.js');
 var H = require('./harness.js');
 
-var ROOT = path.resolve(__dirname, '..', '..', '..');
-var MOTION_SRC = fs.readFileSync(path.join(ROOT, 'motion.js'), 'utf8');
+var paths = require('./paths.js');
+var ROOT = paths.ROOT;
+var MOTION_SRC = paths.piece(paths.script('motion.js'));
 var IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 
 var P = H.P, MOT = P.Sim.MOTION, DMG = P.Sim.DMG;

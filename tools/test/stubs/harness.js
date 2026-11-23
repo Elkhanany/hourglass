@@ -10,32 +10,36 @@
  *   ... t.page, t.touch, t.errors ...
  *   await env.close();
  *
+ * Every page starts from a version-2 save with Real sand off, merged under what
+ * the test seeds (lib/seed.js): Real sand is the app's default, and a page
+ * seeds realSand: true to have it. opts.rawStorage seeds exactly what it is
+ * given ({}: nothing saved, a first launch on a new phone).
+ *
  * Each page is an iPhone 12 (390×844, DPR 3, mobile, touch) in Chromium.
  * Before any page script it gets tools/test/lib/profiles.js and page-init.js
- * (permission stubs, the motion driver, the invariant monitor). Modules
- * that have not landed in the served tree are stood in for:
- *   - motion.js missing (or opts.motionStub): stubs/motion-stub.js, which
- *     the test drives through window.__motion;
- *   - no Renderer.prototype.syncDamage in physics.js: stubs/render-shim.js;
- *   - no catchThud in audio.js: stubs/audio-shim.js.
- * The shims are prepended to app.js (page.route), so shipped code always
- * calls the real API names. env.caps says what the tree has.
+ * (permission stubs, the motion driver, the invariant monitor).
+ *
+ * The served tree is the app as it ships: every script index.html loads is
+ * served as it is, and a tree that lacks one fails start() by name. The one
+ * stand-in: with opts.motionStub, stubs/motion-stub.js (driven through
+ * window.__motion) is served at motion.js's path (lib/paths.js), in place of
+ * motion.js. The rule: a stand-in replaces the file it stands for; nothing is
+ * added to app.js or to any other file, and app parts get engine objects only
+ * from app.js, never by reading a global at load.
  */
 'use strict';
 var fs = require('fs');
-var os = require('os');
 var path = require('path');
-var playwright = require('playwright');
+var playwright = null;              // loaded by start(), so the Node checks can read this file without it
 var staticServer = require('../lib/static-server.js');
+var paths = require('../lib/paths.js');
+var seed = require('../lib/seed.js');
 
-var REPO = path.resolve(__dirname, '..', '..', '..');
+var REPO = paths.ROOT;
 var PROFILES = path.join(REPO, 'tools', 'test', 'lib', 'profiles.js');
 var PAGE_INIT = path.join(__dirname, 'page-init.js');
-var STUB = {
-  motion: fs.readFileSync(path.join(__dirname, 'motion-stub.js'), 'utf8'),
-  render: fs.readFileSync(path.join(__dirname, 'render-shim.js'), 'utf8'),
-  audio: fs.readFileSync(path.join(__dirname, 'audio-shim.js'), 'utf8')
-};
+// the stand-ins, by the file they stand for (its path in the served tree comes from index.html)
+var STAND_INS = { 'motion.js': path.join(__dirname, 'motion-stub.js') };
 
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
@@ -53,32 +57,28 @@ function parseArgs() {
   return o;
 }
 
-/** What the served tree has (so the tests know which stand-ins they run against). */
-function capabilities(root) {
-  function read(f) { try { return fs.readFileSync(path.join(root, f), 'utf8'); } catch (e) { return ''; } }
-  var phys = read('physics.js'), audio = read('audio.js'), motion = read('motion.js');
-  return {
-    motion: /HourglassMotion/.test(motion),
-    render: /prototype\.syncDamage\s*=/.test(phys) && /function Spill\b/.test(phys),
-    audio: /prototype\.catchThud\s*=/.test(audio),
-    p1: /prototype\._stepMotion\s*=/.test(phys)
-  };
+/**
+ * What is wrong with a tree to be served: every script index.html loads must
+ * be in it, and every stand-in must have a file to stand for. [] when whole.
+ */
+function treeProblems(root) {
+  var out = [], scripts;
+  try { scripts = paths.classicScripts(root); } catch (e) { return ['no index.html in ' + root]; }
+  scripts.forEach(function (f) {
+    var p = path.join(root, f);
+    if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) out.push('index.html loads ' + f + ', which is not in ' + root);
+  });
+  Object.keys(STAND_INS).forEach(function (name) {
+    try { paths.script(name, root); } catch (e) { out.push('the stand-in for ' + name + ' has nothing to stand for: ' + e.message); }
+  });
+  return out;
 }
 
-/**
- * A copy of `root` that also has a motion.js (the stub) where the real one
- * has not landed yet: the service worker caches every file of the shell, so
- * its test needs one to exist.
- */
-function rootWithMotion(root) {
-  if (fs.existsSync(path.join(root, 'motion.js'))) return root;
-  var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hourglass-root-'));
-  fs.cpSync(root, dir, {
-    recursive: true,
-    filter: function (src) { var b = path.basename(src); return b !== '.git' && b !== 'node_modules'; }
-  });
-  fs.writeFileSync(path.join(dir, 'motion.js'), STUB.motion);
-  return dir;
+/** The URL path of each stand-in's file in the served tree: { '/motion.js': stub file }. */
+function standInPaths(root) {
+  var out = {};
+  Object.keys(STAND_INS).forEach(function (name) { out['/' + paths.script(name, root)] = STAND_INS[name]; });
+  return out;
 }
 
 function Suite(name) {
@@ -181,7 +181,9 @@ async function start(opts) {
   opts = opts || {};
   var a = parseArgs();
   var root = opts.root || a.root;
-  if (opts.needMotionFile) root = rootWithMotion(root);
+  var problems = treeProblems(root);
+  if (problems.length) throw new Error('harness: the tree to be served is not whole: ' + problems.join('; '));
+  playwright = playwright || require('playwright');
   var port = opts.port || a.port;
   var server = await new Promise(function (resolve, reject) {
     var s = staticServer.start(port, root, function () { resolve(s); });
@@ -196,9 +198,8 @@ async function start(opts) {
     headless: !a.headed,
     args: ['--autoplay-policy=no-user-gesture-required'].concat(webgl ? ['--enable-unsafe-swiftshader'] : ['--disable-webgl'])
   });
-  var caps = capabilities(root);
   var env = {
-    root: root, port: port, url: 'http://127.0.0.1:' + port + '/', caps: caps, args: a,
+    root: root, port: port, url: 'http://127.0.0.1:' + port + '/', args: a, standIns: standInPaths(root),
     browser: browser, server: server, pages: [],
     open: function (o) { return open(env, o || {}); },
     close: async function () {
@@ -207,9 +208,9 @@ async function start(opts) {
     }
   };
   env.webgl = webgl;
-  console.log('serving ' + root + ' at ' + env.url + '  (motion.js ' + (caps.motion ? 'real' : 'stub') +
-              ', renderer ' + (caps.render ? 'real' : 'shim') + ', audio ' + (caps.audio ? 'real' : 'shim') +
-              ', sim ' + (caps.p1 ? 'P1' : 'P0') + ', glass ' + (webgl ? 'WebGL' : '2-D') + ')');
+  console.log('serving ' + root + ' at ' + env.url + '  (' + paths.classicScripts(root).join(', ') +
+              ' as they are: renderer real, audio real, motion.js real unless a test asks for its stub; glass ' +
+              (webgl ? 'WebGL' : '2-D') + ')');
   return env;
 }
 
@@ -225,30 +226,19 @@ async function open(env, o) {
   });
   await context.addInitScript({ path: PROFILES });
   await context.addInitScript({ path: PAGE_INIT });
-  if (o.storage) {
-    // seeded once per test page, so a reload sees what the app saved itself
-    await context.addInitScript(function (st) {
-      if (sessionStorage.getItem('__seeded')) return;
-      sessionStorage.setItem('__seeded', '1');
-      for (var k in st) localStorage.setItem(k, typeof st[k] === 'string' ? st[k] : JSON.stringify(st[k]));
-    }, o.storage);
-  }
+  // every page: { v: 2, realSand: false } under what the test seeds (Real sand only when it asks
+  // for it), or o.rawStorage as it is; once per test page, so a reload sees what the app saved
+  await context.addInitScript(seed.seedOnce, seed.storageFor(o));
   if (o.init) await context.addInitScript(o.init, o.initArg);
   // routes of the test's own, set before the page first loads: [{ url, handler }] (page.route's)
   for (var ri = 0; ri < (o.routes || []).length; ri++) await context.route(o.routes[ri].url, o.routes[ri].handler);
-  var caps = env.caps, useMotionStub = !!o.motionStub || !caps.motion;
-  var prefix = (useMotionStub ? STUB.motion + '\n' : '') + (caps.render ? '' : STUB.render + '\n') +
-               (caps.audio ? '' : STUB.audio + '\n');
-  if (prefix) {
-    await context.route('**/app.js', async function (route) {
-      var resp = await route.fetch();
-      var body = await resp.text();
-      await route.fulfill({ response: resp, body: prefix + body, headers: Object.assign({}, resp.headers(), { 'content-type': 'text/javascript; charset=utf-8' }) });
-    });
-  }
-  if (!caps.motion) {
-    await context.route('**/motion.js', function (route) {
-      route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: STUB.motion });
+  // a stand-in is served at the path of the file it stands for, and nothing else is touched
+  var useMotionStub = !!o.motionStub;
+  if (useMotionStub) {
+    var origin = env.url.replace(/\/$/, ''), served = env.standIns;
+    await context.route(function (u) { return u.origin === origin && served.hasOwnProperty(u.pathname); }, function (route) {
+      var u = new URL(route.request().url());
+      route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: fs.readFileSync(served[u.pathname], 'utf8') });
     });
   }
   var page = await context.newPage();
@@ -342,5 +332,5 @@ async function perfWatch(t) {
 
 module.exports = {
   REPO: REPO, sleep: sleep, start: start, Suite: Suite, invariants: invariants, pct: pct,
-  perfSince: perfSince, perfWatch: perfWatch, capabilities: capabilities, rootWithMotion: rootWithMotion
+  perfSince: perfSince, perfWatch: perfWatch, treeProblems: treeProblems, standInPaths: standInPaths
 };

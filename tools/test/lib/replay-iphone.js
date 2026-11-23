@@ -29,7 +29,8 @@ var path = require('path');
 var playwright = require('playwright');
 var staticServer = require('./static-server.js');
 
-var REPO = path.resolve(__dirname, '..', '..', '..');
+var REPO = require('./paths.js').ROOT;
+var seed = require('./seed.js');
 var PROBE = path.join(__dirname, 'replay-probe.js');
 var STREAMS = path.join(__dirname, 'replay-streams.js');
 
@@ -154,7 +155,7 @@ async function launch() {
  *   reducedMotion   emulate prefers-reduced-motion: reduce
  *   permission      what DeviceMotionEvent.requestPermission resolves to
  *                   ('granted' | 'denied'); null: no such API (Android, desktop)
- *   storage         localStorage to seed, {key: value}
+ *   storage         localStorage to seed, {key: value} (Real sand off unless it says realSand: true)
  */
 async function open(env, o) {
   var dev = playwright.devices['iPhone 12'];
@@ -170,13 +171,8 @@ async function open(env, o) {
     { permission: o.permission === undefined ? 'granted' : o.permission, webgl: false });
   await context.addInitScript({ path: STREAMS });
   await context.addInitScript({ path: PROBE });
-  if (o.storage) {
-    await context.addInitScript(function (st) {
-      if (sessionStorage.getItem('__seeded')) return;
-      sessionStorage.setItem('__seeded', '1');
-      for (var k in st) localStorage.setItem(k, typeof st[k] === 'string' ? st[k] : JSON.stringify(st[k]));
-    }, o.storage);
-  }
+  // { v: 2, realSand: false } under what the caller seeds (lib/seed.js: Real sand is the app's default)
+  await context.addInitScript(seed.seedOnce, seed.storageFor(o));
   var page = await context.newPage();
   var errors = [];
   page.on('pageerror', function (e) { errors.push('pageerror: ' + (e && e.message)); });

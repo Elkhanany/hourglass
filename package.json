@@ -2,11 +2,12 @@
   "name": "hourglass",
   "private": true,
   "description": "A sand hourglass timer for the browser: every grain simulated, every sound synthesised. A zero-dependency, offline PWA.",
-  "license": "GPL-3.0",
+  "license": "GPL-3.0-or-later",
   "scripts": {
     "start": "node tools/test/lib/static-server.js 8000",
     "test": "node tools/test/run-all.js",
-    "test:physics": "node tools/test/run-all.js sim-"
+    "test:physics": "node tools/test/run-all.js sim-",
+    "check": "node tools/test/run-all.js check-"
   },
   "devDependencies": {
     "playwright": "1.63.0"

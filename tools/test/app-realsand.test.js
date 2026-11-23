@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 /*
  * Real sand in the app (design 13.2), in the browser harness, which has no WebGPU adapter.
+ * Real sand is the app's default (settings design 5); the harness seeds { v: 2, realSand: false }
+ * under every page's own storage (lib/seed.js), so a case seeds realSand: true to have it, or
+ * rawStorage for exactly what it gives ({}: a first launch). The row's data-state is its state.
  *
- *  OFF   the switch off (the default): nothing under realsand/ is requested (by the page's own
- *        record, and at the network through a route, also after a run, Tune, a theme, layered
- *        sand and a Reset; NOGPU's same route is the control), no engine, the CPU Sim is the
- *        sim; the row "Real sand" sits in the Material group after Grain, off, with its note
- *        and no "Copy a report"; Tune has 10 rows.
+ *  OFF   the switch off: nothing under realsand/ is requested (by the page's own record, and at
+ *        the network through a route, also after a run, Tune, a theme, layered sand and a Reset;
+ *        NOGPU's same route is the control), no engine, the CPU Sim is the sim; the row "Real
+ *        sand" sits in the Material group after Grain, "Off: the classic sand", with no "Copy a
+ *        report"; Grain and Real motion's crack sentence shown; Tune has 10 rows.
  *  NOGPU the switch on, the real engine, in this Chromium (navigator.gpu, but no adapter): the
- *        engine is loaded, does not start, the switch greys with "Needs WebGPU", the setting
- *        is cleared, the CPU sand runs, no errors.
+ *        engine is loaded, does not start; the switch shows off, not disabled, "Needs WebGPU (iOS
+ *        26 or later). Tap to try again"; the setting stays on and the user agent is kept; the
+ *        CPU sand runs, no errors.
  *  MOCK  the switch on, the real adapter (realsand/app-sand.mjs) with a mock GPU whose neck is
  *        the valve test's plant (stubs/realsand-mock-boot.mjs, served as realsand/boot.mjs):
  *        - HANDOVER: the CPU sand first, then the GPU sand as Hourglass.sim, #c-gpu in
@@ -32,16 +36,21 @@
  *        - census every 15 frames through the engine's audit(), no errors.
  *  FAIL  a start failure of the second kind: the CPU sand, the setting kept, the note says why;
  *        after three launches in a row it stops trying (nothing requested); off and on again
- *        clears the count.
+ *        clears the count. An engine file that cannot be had with no connection (a hole in the
+ *        offline copy) is not counted, and the fourth launch still asks for it; with a
+ *        connection (the control) the third launch is the last.
  *  STAMP a build stamp other than app.js's: the note says Real sand is updating, the setting
  *        kept, no engine.
  *  AGAIN a start cut short because the page was hidden: tried again once the page is in view,
  *        and taken over then, with no failure counted.
  *  SLOW  a cold start as slow as the owner's iPhone's in a home-screen web app (Gate A: 3.4 s to
  *        the engine's first frame; here 4 s): the CPU sand shows and runs meanwhile, the boot veil
- *        is not held for it, the canvases cross-fade only once the engine has drawn, the clock
+ *        is held 1 s for it and no longer, the canvases cross-fade only once the engine has drawn, the clock
  *        runs on through the handover untouched, no failure is counted, the glass ends on time;
  *        ?debug=sand shows, and its copied report holds, the start-up times and the first fall.
+ *        The latest the veil may lift is worked out from the opening's own frames (liftBy), so
+ *        a long frame on a busy machine moves the bound by its own length and no more; the
+ *        control is an app whose hold is 3 s.
  *  WAKE  Gate A's 4-minute glass ended 7 minutes late: the lab held no screen wake lock and had no
  *        catch-up. With the GPU sand running the app holds its wake lock (a stand-in for the
  *        browser's, which a headless Chromium refuses), lets it go while hidden and takes it back
@@ -73,8 +82,41 @@
  *  QUIET the engine ready in the middle of a Flip takes over only once the turn is over; without
  *        ?debug=sand the row still has "Copy a report".
  *
+ *  DEFAULT-NA nothing saved, the real engine: loaded once, "na" with "Tap to try again", the
+ *        setting on and saved with v 2, the user agent kept; the next launch says so and loads
+ *        nothing; another user agent kept (an iOS update, the control) or a tap on the row: tried
+ *        again. NA-HIDDEN: a capability failure while the page was hidden keeps nothing and is
+ *        tried again in view; the same failure in view (the control) is kept.
+ *  DEFAULT-MOCK nothing saved, the mock engine: Real sand takes over ("On: ..."), Grain and the
+ *        crack sentence hidden, v 2 saved; the dark opening held for the GPU sand's first frame;
+ *        sessionStorage 'hourglass.openNow' (the control): not held, and only once.
+ *  MIGRATE a save without a version, or of version 1, with realSand false: on, saved with v 2,
+ *        the rest kept; turned off afterwards it stays off; a version-2 save with realSand false
+ *        (the control) stays off and loads nothing.
+ *  BUILD 3 failed launches, or "Needs WebGPU" for this user agent, found with an older engine
+ *        build: forgotten and tried again; with this build (the controls): not tried.
+ *        NA-EXPIRE: "Needs WebGPU" kept eight days ago is tried again; six days ago (the
+ *        control): not tried.
+ *  HANG  the watchdog (settings design 5.4, in app.js): the GPU stops answering while the glass
+ *        runs in view: the CPU sand after 4 s, at the stopped engine's counts, the clock
+ *        untouched, the toast; a new engine after 2 s; a second time the same; a third within
+ *        ten minutes final; a glass with a swap still ends on time. Controls: readbacks held 8 s
+ *        on an idle, a paused and a finished glass (asleep), a running glass whose readbacks come
+ *        (calm), and a glass hidden 10 s with its readbacks held then let go: never fires.
+ *        The stopped engine, kept 600 ms for the cross-fade, loses its device 200 ms after the
+ *        swap: not heard (the note stays the watchdog's, also after the third, final time).
+ *  RESTART a start made again in the same session: after the watchdog, or after a start that a
+ *        reset of the chip cut short, "no adapter" keeps nothing and counts nothing ("Real sand
+ *        could not restart; it will try again next launch"), and the next launch asks for the
+ *        engine again. A start that took over gives the session its three retries back: a start
+ *        cut short after three earlier ones and a watchdog swap is still tried again.
+ *
+ *  Some controls are app.js with one thing undone (appWithout), served in its place: the check
+ *  that thing answers must fail on it.
+ *
  *   node tools/test/app-realsand.test.js [--port 8905] [--only slow]
- *   (cases: off nogpu mock fail stamp again slow wake life norebuild crash residue asleep quiet)
+ *   (cases: off nogpu mock fail stamp again slow wake life norebuild crash residue asleep quiet
+ *    defaultna defaultmock migrate build hang restart)
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -95,7 +137,36 @@ function pageInit(arg) {
   Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return window.__hidden; } });
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: function () { return window.__hidden ? 'hidden' : 'visible'; } });
   var raf = window.requestAnimationFrame.bind(window), held = [];
-  window.requestAnimationFrame = function (cb) { if (window.__hidden) { held.push(cb); return 0; } return raf(cb); };
+  // the opening: the first animation frame, when the veil began to lift, when the GPU sand took over
+  // (#app.real), and when each animation frame's callbacks ran until the lift (the app tests its
+  // 1 s only in a frame, so one long frame moves the lift by its length)
+  // .frames: when each frame's first callback ran; .last: when the last callback before the lift did
+  var O = window.__open = { raf0: null, lift: null, real: null, frames: [], last: null }, frameT = null;
+  window.requestAnimationFrame = function (cb) {
+    if (window.__hidden) { held.push(cb); return 0; }
+    if (O.lift !== null || O.frames.length >= 4000) return raf(cb);
+    return raf(function (t) {
+      var now = performance.now();
+      if (O.raf0 === null) O.raf0 = now;
+      if (O.lift === null) {
+        if (t !== frameT) { frameT = t; O.frames.push(now); }
+        O.last = now;
+      }
+      cb(t);
+    });
+  };
+  // a phone with no connection (navigator.onLine false)
+  if (arg.offline) Object.defineProperty(navigator, 'onLine', { configurable: true, get: function () { return false; } });
+  new MutationObserver(function () {
+    var v = document.getElementById('veil'), a = document.getElementById('app');
+    if (O.lift === null && v && !v.classList.contains('boot')) O.lift = performance.now();
+    if (O.real === null && a && a.classList.contains('real')) O.real = performance.now();
+  }).observe(document, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  // a reload that should open at once (a later "Use this shape"): the key set once, before the first load
+  if (arg.openNow && !sessionStorage.getItem('__openNowSet')) {
+    sessionStorage.setItem('__openNowSet', '1');
+    sessionStorage.setItem('hourglass.openNow', '1');
+  }
   window.__hide = function (on) {
     window.__hidden = !!on;
     document.dispatchEvent(new Event('visibilitychange'));
@@ -148,7 +219,23 @@ function mockRoute() {
 }
 function openMock(env, mock, settings, o) {
   return env.open({ storage: { 'hourglass.settings.v1': Object.assign({ realSand: true, durationMs: 10000 }, settings || {}) },
-    init: pageInit, initArg: { plant: PLANT, mock: mock || {}, wake: !!(o && o.wake), adopt: o && o.adopt }, routes: [mockRoute()], query: o && o.query });
+    init: pageInit, initArg: { plant: PLANT, mock: mock || {}, wake: !!(o && o.wake), adopt: o && o.adopt },
+    routes: [mockRoute()].concat((o && o.routes) || []), query: o && o.query });
+}
+/**
+ * app.js with one thing undone, for a control: the check that thing answers must fail on it.
+ * `swaps`: [[from, to], ...], each `from` a text of app.js as it is. .found: whether every one was
+ * there (a control whose text is gone proves nothing, and says so); .route serves it as app.js.
+ */
+function appWithout(env, swaps) {
+  var file = require('./lib/paths.js').script('app.js', env.root), src = fs.readFileSync(path.join(env.root, file), 'utf8'), found = true;
+  swaps.forEach(function (sw) {
+    if (src.indexOf(sw[0]) < 0) found = false;
+    src = src.split(sw[0]).join(sw[1]);
+  });
+  return { found: found, route: { url: '**/' + file, handler: function (route) {
+    route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: src });
+  } } };
 }
 /** Wait until the GPU sand is the app's sim and the monitor follows it. */
 function waitLive(t, ms) {
@@ -182,7 +269,7 @@ function loseNow(t, why) {
       var sim = Hg.sim;
       return { before: before, cpu: sim instanceof window.HourglassPhysics.Sim, top: sim.nTop, total: sim.total, rem: Hg.timer.rem,
         tick: Hg.timer.lastTick, real: document.getElementById('app').classList.contains('real'),
-        note: document.getElementById('realsand-note').textContent, toasts: window.__toasts.slice() };
+        note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state'), toasts: window.__toasts.slice() };
     });
   }, why);
 }
@@ -194,9 +281,11 @@ function state(t) {
   return t.eval(function () {
     var Hg = window.Hourglass, s = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
     var el = document.getElementById('opt-realsand'), gpu = document.getElementById('c-gpu');
-    return { note: document.getElementById('realsand-note').textContent, checked: el.checked, disabled: el.disabled,
-      greyed: document.getElementById('realsand-row').classList.contains('na'),
-      setting: s.realSand, fails: s.realSandFails, why: s.realSandWhy, engine: !!Hg.realSand,
+    return { note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state'), checked: el.checked, disabled: el.disabled,
+      dstate: document.getElementById('realsand-row').getAttribute('data-state'),
+      setting: s.realSand, fails: s.realSandFails, why: s.realSandWhy, na: s.realSandNa, naAt: s.realSandNaAt, build: s.realSandBuild, v: s.v, ua: navigator.userAgent,
+      grainShown: !document.getElementById('grain-row').hidden && !document.getElementById('grains').parentNode.hidden,
+      crackShown: !document.getElementById('tilt-crack').hidden, engine: !!Hg.realSand,
       cpu: Hg.sim instanceof window.HourglassPhysics.Sim, live: !!Hg.realSand && Hg.sim === Hg.realSand,
       real: document.getElementById('app').classList.contains('real'), gpu: !!gpu,
       grainNote: document.getElementById('grain-note').textContent,
@@ -267,9 +356,10 @@ async function testOff(s, env) {
     s.check('OFF: the row "Real sand", a labelled switch, sits in the Material group right after Grain\'s choices; Tune has 10 rows',
             ui.tag === 'LABEL' && ui.for === 'opt-realsand' && ui.title === 'Real sand' && ui.role === 'switch' && ui.type === 'checkbox' &&
             ui.cls === 'switch' && ui.afterGrain && ui.material && ui.last && ui.rows === 10, JSON.stringify(ui));
-    s.check('OFF: off, with its note; Grain\'s note as before; no "Copy a report" link',
-            !st.checked && !st.disabled && !st.greyed && st.note === 'Each grain simulated on the graphics chip. Uses more battery.' &&
-            st.grainNote === 'Finer sand is more grains, and more work for the phone' && st.report === null, JSON.stringify([st.note, st.grainNote, st.report]));
+    s.check('OFF: off ("Off: the classic sand", data-state off); Grain shown with its note, and Real motion\'s crack sentence; no "Copy a report" link',
+            !st.checked && !st.disabled && st.dstate === 'off' && st.note === 'Off: the classic sand' && st.grainShown && st.crackShown &&
+            st.grainNote === 'Finer sand is more grains, and more work for the phone' && st.report === null,
+            JSON.stringify([st.dstate, st.note, st.grainShown, st.crackShown, st.grainNote, st.report]));
     // the glass run, Tune opened, a theme and layered sand chosen, a Reset: still nothing of the engine
     await t.eval(function () { window.Hourglass.start(); });
     await sleep(1500);
@@ -291,13 +381,16 @@ async function testNoGpu(s, env) {
   var net = realsandRequests();
   var t = await env.open({ storage: { 'hourglass.settings.v1': { realSand: true } }, routes: [net.route] });
   try {
-    await waitFor(t, function () { return document.getElementById('realsand-row').classList.contains('na'); }, 15000);
+    await waitFor(t, function () { return document.getElementById('realsand-row').getAttribute('data-state') === 'na'; }, 15000);
     var st = await state(t);
     s.check('NOGPU: the engine is loaded (boot.mjs and its modules, seen by the page and at the network) and does not start: this Chromium has no adapter',
             st.requested.indexOf('/realsand/boot.mjs') >= 0 && st.requested.indexOf('/realsand/app-sand.mjs') >= 0 && !st.engine &&
             net.hits.indexOf('/realsand/boot.mjs') >= 0 && net.hits.indexOf('/realsand/app-sand.mjs') >= 0, st.requested.length + ' requested, ' + net.hits.length + ' at the network');
-    s.check('NOGPU: the switch greys, off, and says "Needs WebGPU (iOS 26 or later)"; the setting is cleared; no report link shown',
-            st.greyed && st.disabled && !st.checked && st.note === 'Needs WebGPU (iOS 26 or later)' && st.setting === false && st.report !== 'Copy a report', JSON.stringify(st));
+    s.check('NOGPU: the switch shows off and is NOT disabled (data-state na), the note says "Needs WebGPU (iOS 26 or later). Tap to try again"; no report link shown',
+            st.dstate === 'na' && !st.disabled && !st.checked && st.note === 'Needs WebGPU (iOS 26 or later). Tap to try again' && st.report !== 'Copy a report', JSON.stringify(st));
+    s.check('NOGPU: the setting is never written off: it stays on, this browser\'s user agent is kept (realSandNa), no failure counted; Grain and the crack sentence shown',
+            st.setting === true && st.na === st.ua && !!st.ua && !st.fails && st.why === 'Needs WebGPU (iOS 26 or later)' && st.grainShown && st.crackShown,
+            JSON.stringify({ setting: st.setting, na: st.na, fails: st.fails, why: st.why, grain: st.grainShown, crack: st.crackShown }));
     await t.eval(function () { window.Hourglass.start(); });
     await sleep(600);
     var run = await t.eval(function () { return { st: window.Hourglass.timer.state, cpu: window.Hourglass.sim instanceof window.HourglassPhysics.Sim, real: document.getElementById('app').classList.contains('real') }; });
@@ -322,12 +415,13 @@ async function testMock(s, env) {
         want: Hg.grainsFor(10000), creates: window.__mockEnv.creates };
     });
     s.check('HANDOVER: the GPU sand is the sim (Hourglass.sim is Hourglass.realSand), "On", the setting kept, no failures counted',
-            st.live && st.note === 'On' && st.checked && st.setting === true && !st.fails && h.creates === 1, JSON.stringify(st));
+            st.live && st.dstate === 'on' && st.checked && st.setting === true && !st.fails && h.creates === 1, JSON.stringify(st));
     s.check('HANDOVER: #c-gpu sits in #rotor right after #c-sand, in its CSS box; #c-sand and #c-bloom faded out, #c-gpu in',
             h.parent === 'rotor' && h.prev === 'c-sand' && h.box && h.gpuOpacity === '1' && h.sandOpacity === '0' && h.bloomOpacity === '0', JSON.stringify(h));
     s.check('HANDOVER: the CPU Sim was the sim first; the monitor hooked the GPU sand when it took over; the counts carried over',
             h.hooks === 2 && h.total === h.want && h.top === h.total, JSON.stringify({ hooks: h.hooks, total: h.total, top: h.top, want: h.want }));
-    s.check('HANDOVER: Grain\'s note says Real sand keeps its own grain', st.grainNote === 'Real sand keeps its own grain; this sets the classic sand', st.grainNote);
+    s.check('HANDOVER: "On: every grain simulated on the graphics chip"; Grain\'s row and choices, and Real motion\'s crack sentence, are hidden (the classic sand\'s alone)',
+            st.note === 'On: every grain simulated on the graphics chip' && !st.grainShown && !st.crackShown, JSON.stringify([st.note, st.grainShown, st.crackShown]));
 
     /* ---- END: a 10 s glass ---------------------------------------------- */
     await record(t);
@@ -506,7 +600,7 @@ async function testMock(s, env) {
         cpu = Hg.sim;
         return { before: before, cpu: cpu instanceof window.HourglassPhysics.Sim, top: cpu.nTop, total: cpu.total, rem: Hg.timer.rem, tick: Hg.timer.lastTick,
           real: document.getElementById('app').classList.contains('real'), toast: document.getElementById('toast').textContent,
-          note: document.getElementById('realsand-note').textContent, hooks0: __mon.hooks };
+          note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state'), hooks0: __mon.hooks };
       });
     });
     s.check('LOSS: the CPU Sim is the sim in the same frame, at the ledger\'s counts; the clock untouched; #c-sand back',
@@ -517,11 +611,11 @@ async function testMock(s, env) {
     await waitFor(t, function () { var Hg = window.Hourglass; return Hg.sim === Hg.realSand && __mon.sim === Hg.sim; }, 8000);
     var back = await t.eval(function () {
       var Hg = window.Hourglass, st = Hg.realSand.stats();
-      return { note: document.getElementById('realsand-note').textContent, real: document.getElementById('app').classList.contains('real'),
+      return { note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state'), real: document.getElementById('app').classList.contains('real'),
         rebuilds: st.n.rebuilds, losses: st.n.losses, hooks: __mon.hooks, creates: window.__mockEnv.creates, state: Hg.timer.state };
     });
     s.check('LOSS: the engine rebuilds (a new device) and takes the sand back; "On"; the monitor followed the sim each way',
-            back.note === 'On' && back.real && back.rebuilds === 1 && back.losses === 1 && back.hooks >= 4 && back.creates === 1 && back.state === 'running', JSON.stringify(back));
+            back.rstate === 'on' && back.real && back.rebuilds === 1 && back.losses === 1 && back.hooks >= 4 && back.creates === 1 && back.state === 'running', JSON.stringify(back));
     var rows = await t.eval(function () { return __rec.out.slice(); });
     var cpuFrames = rows.filter(function (q) { return q[7] === 0; }).length;
     await waitFor(t, function () { return window.Hourglass.timer.state === 'done' && window.Hourglass.sim.nTop === 0; }, 20000);
@@ -541,19 +635,19 @@ async function testFail(s, env) {
     await waitFor(t, function () { return /Could not start|Did not start/.test(document.getElementById('realsand-note').textContent); }, 15000);
     var st = await state(t);
     s.check('FAIL: a start failure of the second kind: the CPU sand, no engine or canvas left, the setting kept, the note says why',
-            st.cpu && !st.engine && !st.gpu && !st.real && st.setting === true && st.fails === 1 && st.checked && !st.disabled &&
-            st.note === 'Could not start this time: its self-test failed. It will try again next launch', JSON.stringify(st));
+            st.cpu && !st.engine && !st.gpu && !st.real && st.setting === true && st.fails === 1 && st.checked && !st.disabled && st.dstate === 'failed' &&
+            st.note === 'Could not start this time: its self-test failed. It will try again next launch' && st.grainShown, JSON.stringify(st));
     for (var i = 0; i < 2; i++) {
       await t.reload();
       await waitFor(t, function () { return /Could not start|Did not start/.test(document.getElementById('realsand-note').textContent); }, 15000);
     }
     st = await state(t);
     s.check('FAIL: three launches in a row: "Did not start 3 times", the setting still kept',
-            st.fails === 3 && st.setting === true && st.note === 'Did not start 3 times: its self-test failed. Turn it off and on to try again', JSON.stringify(st));
+            st.fails === 3 && st.setting === true && st.dstate === 'gaveup' && st.note === 'Did not start 3 times: its self-test failed. Turn it off and on to try again', JSON.stringify(st));
     await t.reload();
     await sleep(1500);
     st = await state(t);
-    s.check('FAIL: ... and the next launch does not try: nothing under realsand/ is requested', st.requested.length === 0 && st.fails === 3 &&
+    s.check('FAIL: ... and the next launch does not try: nothing under realsand/ is requested', st.requested.length === 0 && st.fails === 3 && st.dstate === 'gaveup' && st.grainShown &&
             st.note === 'Did not start 3 times: its self-test failed. Turn it off and on to try again', JSON.stringify(st));
     var loads = 0;
     t.page.on('load', function () { loads++; });
@@ -562,9 +656,41 @@ async function testFail(s, env) {
     await sleep(1500);
     st = await state(t);
     s.check('FAIL: off again: the page reloads, the count is cleared, nothing is loaded', loads >= 1 && st.setting === false && st.fails === 0 && st.requested.length === 0 &&
-            st.note === 'Each grain simulated on the graphics chip. Uses more battery.', JSON.stringify({ loads: loads, st: st }));
+            st.dstate === 'off' && st.note === 'Off: the classic sand', JSON.stringify({ loads: loads, st: st }));
     await H.invariants(s, t, 'FAIL');
   } finally { await t.close(); }
+
+  // A file of the engine that cannot be had (a hole in the offline copy; here boot.mjs fails at
+  // the network), four launches in a row: with no connection it is not counted, and the fourth
+  // launch still asks for the engine (so that the worker sees the hole and can fill it); with a
+  // connection (the control) the third is the last.
+  var cannotLoad = async function (offline) {
+    var hits = 0, seen = [];
+    var t2 = await env.open({ storage: { 'hourglass.settings.v1': { realSand: true, durationMs: 10000 } }, init: pageInit,
+      initArg: { plant: PLANT, mock: {}, offline: offline },
+      routes: [{ url: '**/realsand/boot.mjs', handler: function (route) { hits++; route.abort('internetdisconnected'); } }] });
+    try {
+      for (var i = 0; i < 4; i++) {
+        if (i) await t2.reload();
+        await waitFor(t2, function () { return /Could not start|Did not start/.test(document.getElementById('realsand-note').textContent); }, 15000).catch(function () {});
+        await sleep(300);
+        var st2 = await state(t2);
+        seen.push({ dstate: st2.dstate, fails: st2.fails | 0, asked: hits, note: st2.note, cpu: st2.cpu, setting: st2.setting, onLine: await t2.eval(function () { return navigator.onLine; }) });
+      }
+    } finally { await t2.close(); }
+    return seen;
+  };
+  var LOAD_NOTE = 'Could not start this time: the sand engine could not be loaded. It will try again next launch';
+  var off = await cannotLoad(true);
+  s.check('FAIL (no connection): the engine cannot be loaded, four launches in a row with navigator.onLine false: "Could not start this time" each time, nothing counted, ' +
+          'and the fourth launch still asks for the engine; the CPU sand, the setting kept',
+          off.length === 4 && off.every(function (x, i) { return x.dstate === 'failed' && x.fails === 0 && x.asked === i + 1 && x.note === LOAD_NOTE && x.cpu && x.setting === true && x.onLine === false; }),
+          JSON.stringify(off.map(function (x) { return [x.dstate, x.fails, x.asked]; })));
+  var on = await cannotLoad(false);
+  s.check('FAIL (control, with a connection): the same failure is counted: "Did not start 3 times" at the third launch, and the fourth asks for nothing',
+          on.length === 4 && on[0].fails === 1 && on[0].dstate === 'failed' && on[0].note === LOAD_NOTE && on[2].fails === 3 && on[2].dstate === 'gaveup' &&
+          on[3].dstate === 'gaveup' && on[3].asked === 3 && on[0].onLine === true,
+          JSON.stringify(on.map(function (x) { return [x.dstate, x.fails, x.asked]; })));
 }
 
 async function testStamp(s, env) {
@@ -585,7 +711,7 @@ async function testAgain(s, env) {
     await waitFor(t, function () { var Hg = window.Hourglass; return !!Hg.realSand && Hg.sim === Hg.realSand; }, 20000);
     var st = await state(t), n = await t.eval(function () { return { creates: window.__mockEnv.creates, starts: window.__mockEnv.starts }; });
     s.check('AGAIN: a start cut short by the page being hidden is tried again once it is in view, and takes over; no failure counted',
-            st.live && st.note === 'On' && st.setting === true && !st.fails && n.creates === 2 && n.starts === 2, JSON.stringify({ st: st.note, fails: st.fails, n: n }));
+            st.live && st.dstate === 'on' && st.setting === true && !st.fails && n.creates === 2 && n.starts === 2, JSON.stringify({ st: st.note, fails: st.fails, n: n }));
     await H.invariants(s, t, 'AGAIN');
   } finally { await t.close(); }
 }
@@ -607,7 +733,7 @@ async function testSlow(s, env) {
     var mid = await t.eval(function () {
       var Hg = window.Hourglass, cg = document.getElementById('c-gpu'), rs = Hg.realSand;
       var st = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
-      return { note: document.getElementById('realsand-note').textContent, cpu: Hg.sim instanceof window.HourglassPhysics.Sim,
+      return { note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state'), cpu: Hg.sim instanceof window.HourglassPhysics.Sim,
         engine: !!rs, starts: window.__mockEnv.starts, ready: !!(rs && rs.ready), real: document.getElementById('app').classList.contains('real'),
         sand: getComputedStyle(document.getElementById('c-sand')).opacity, gpu: cg ? getComputedStyle(cg).opacity : 'none',
         veil: +getComputedStyle(document.getElementById('veil')).opacity, state: Hg.timer.state, top: Hg.sim.nTop, total: Hg.sim.total,
@@ -616,7 +742,10 @@ async function testSlow(s, env) {
     s.check('SLOW: 2.5 s into a 4 s start: the CPU sand is the sim, shown, and running (grains through the neck); "Starting…"; the engine not ready',
             mid.cpu && mid.engine && mid.starts === 1 && !mid.ready && !mid.real && mid.sand === '1' && (mid.gpu === 'none' || mid.gpu === '0') &&
             mid.state === 'running' && mid.top < mid.total && mid.note === 'Starting…', JSON.stringify(mid));
-    s.check('SLOW: the boot veil is not held for the engine: it has lifted', mid.veil < 0.02, 'veil opacity ' + mid.veil);
+    var op = await t.eval(function () { return window.__open; });
+    s.check('SLOW: the dark opening waits 1 s for the engine\'s first frame and no longer: it began to lift 1 s after the first frame, before the handover; it has lifted',
+            op.raf0 !== null && op.lift !== null && op.lift - op.raf0 >= 950 && op.lift - op.raf0 <= liftBy(op) && op.real === null && mid.veil < 0.02,
+            openingSays(op) + ', veil ' + mid.veil);
     // the handover, seen from inside the page: the frame it happens in, and the canvases 150 ms and 700 ms on
     var ho = await t.eval(function () {
       var Hg = window.Hourglass, t0 = performance.now();
@@ -666,7 +795,7 @@ async function testSlow(s, env) {
     s.check('SLOW: the glass begun on the CPU sand ends on the GPU sand on time: last point within 30 ms of 00:00.0, nTop 0 within 3 frames after, never before',
             end.done && end.liveAll && end.d >= -5 && end.d <= 30 && end.frames >= 0 && end.frames <= 3 && end.early === 0, fmtEnd(end));
     var st = await state(t);
-    s.check('SLOW: a slow start is not a failure: "On", the setting kept, nothing counted', st.note === 'On' && st.setting === true && !st.fails && !st.why,
+    s.check('SLOW: a slow start is not a failure: "On", the setting kept, nothing counted', st.dstate === 'on' && st.setting === true && !st.fails && !st.why,
             JSON.stringify({ note: st.note, setting: st.setting, fails: st.fails, why: st.why }));
     // what the owner sends back from the phone (?debug=sand): the start-up times, in the overlay
     // and in the copied report, with the engine's log
@@ -676,6 +805,15 @@ async function testSlow(s, env) {
             rep.times.firstFrame > 4000 && rep.started >= 1 && rep.live === true && rep.build === ENGINE_BUILD, JSON.stringify(rep.times) + ', ' + rep.started + ' log lines of the start');
     await H.invariants(s, t, 'SLOW');
   } finally { await t.close(); }
+  // control: an app whose hold is 3 s: the veil lifts too late for the check above
+  var long = appWithout(env, [['var VEIL_HOLD_MS = 1000;', 'var VEIL_HOLD_MS = 3000;']]);
+  var t2 = await openMock(env, { seed: 9, startDelay: 4000 }, {}, { routes: [long.route] });
+  try {
+    await waitFor(t2, function () { return window.__open.lift !== null; }, 15000);
+    var op2 = await t2.eval(function () { return window.__open; });
+    s.check('SLOW (control): app.js with a hold of 3 s: the veil begins to lift 3 s after the first frame, later than the check above allows',
+            long.found && op2.lift - op2.raf0 >= 2900 && op2.lift - op2.raf0 > liftBy(op2), openingSays(op2));
+  } finally { await t2.close(); }
 }
 
 async function testWake(s, env) {
@@ -772,23 +910,23 @@ async function testLife(s, env) {
     await waitLive(t, 8000);
     var A2 = await t.eval(function () {
       var Hg = window.Hourglass, st = Hg.realSand.stats();
-      return { note: document.getElementById('realsand-note').textContent, toasts: window.__toasts.slice(), rebuilds: st.n.rebuilds, losses: st.n.losses,
+      return { note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state'), toasts: window.__toasts.slice(), rebuilds: st.n.rebuilds, losses: st.n.losses,
         devices: window.__mockEnv.devices, creates: window.__mockEnv.creates, run: Hg.timer.state };
     });
     s.check('LIFE: ... silently (no toast, "Starting…"); rebuilt only once the page is back, and the GPU sand takes over again: "On"',
             A.note === 'Starting…' && A.toasts.length === 0 && A2.toasts.length === 0 && !hiddenNow.live && hiddenNow.rebuilds === 0 &&
-            A2.note === 'On' && A2.rebuilds === 1 && A2.losses === 1 && A2.devices === 2 && A2.creates === 1 && A2.run === 'running',
+            A2.rstate === 'on' && A2.rebuilds === 1 && A2.losses === 1 && A2.devices === 2 && A2.creates === 1 && A2.run === 'running',
             JSON.stringify({ lost: A.note, hidden: hiddenNow, back: A2 }));
     // a loss in view (not around a lock or an app switch): the toast, then rebuilt after 2 s
     await sleep(1500);
     var B = await loseNow(t, 'mock: the graphics chip was reset');
     var tB = Date.now();
     await waitLive(t, 8000);
-    var B2 = await t.eval(function () { var st = window.Hourglass.realSand.stats(); return { note: document.getElementById('realsand-note').textContent, rebuilds: st.n.rebuilds, losses: st.n.losses }; });
+    var B2 = await t.eval(function () { var st = window.Hourglass.realSand.stats(); return { note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state'), rebuilds: st.n.rebuilds, losses: st.n.losses }; });
     var backMs = Date.now() - tB;
     s.check('LIFE: lost in view: the CPU sand in the same frame, the clock untouched, the toast and the note say Real sand paused',
             untouched(B) && B.toasts.indexOf('Real sand paused: the graphics chip was reset') >= 0 && B.note === 'Real sand paused: the graphics chip was reset', JSON.stringify(B));
-    s.check('LIFE: ... and it comes back after 2 s: "On"', B2.note === 'On' && B2.rebuilds === 2 && B2.losses === 2 && backMs >= 1900,
+    s.check('LIFE: ... and it comes back after 2 s: "On"', B2.rstate === 'on' && B2.rebuilds === 2 && B2.losses === 2 && backMs >= 1900,
             JSON.stringify(B2) + ', back after ' + backMs + ' ms');
     // a second loss in view within 10 minutes: final for this session
     await sleep(1500);
@@ -796,7 +934,7 @@ async function testLife(s, env) {
     await sleep(4000);
     var C2 = await t.eval(function () {
       var Hg = window.Hourglass, st = Hg.realSand.stats(), S = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
-      return { note: document.getElementById('realsand-note').textContent, cpu: Hg.sim instanceof window.HourglassPhysics.Sim, rebuilds: st.n.rebuilds,
+      return { note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state'), cpu: Hg.sim instanceof window.HourglassPhysics.Sim, rebuilds: st.n.rebuilds,
         devices: window.__mockEnv.devices, setting: S.realSand, fails: S.realSandFails | 0, run: Hg.timer.state, top: Hg.sim.nTop };
     });
     var FINAL = 'Paused after the graphics chip was reset twice; it will try again next launch';
@@ -850,7 +988,7 @@ async function lifeLossBefore(s, env) {
     var a = await t.eval(function () {
       var Hg = window.Hourglass, rs = Hg.realSand;
       return { cpu: Hg.sim instanceof window.HourglassPhysics.Sim, lost: !!(rs && rs._lostInfo), ready: !!(rs && rs.ready),
-        real: document.getElementById('app').classList.contains('real'), note: document.getElementById('realsand-note').textContent };
+        real: document.getElementById('app').classList.contains('real'), note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state') };
     });
     s.check('LIFE (LOST BEFORE THE HANDOVER): the device lost after adopt(), before the handover\'s frame: the CPU sand stays the sim, the engine not ready, the note says it paused',
             a.cpu && a.lost && !a.ready && !a.real && a.note === 'Real sand paused: the graphics chip was reset', JSON.stringify(a));
@@ -858,12 +996,12 @@ async function lifeLossBefore(s, env) {
     await waitFor(t, function () { var Hg = window.Hourglass; return Hg.timer.state === 'done' && Hg.sim.nTop === 0; }, 20000);
     await sleep(300);
     var rows = await t.eval(function () { return __rec.stop(); });
-    var b = await t.eval(function () { var rs = window.Hourglass.realSand, T = window.Hourglass.timer; return { n: rs.stats().n, rate: T.rate, note: document.getElementById('realsand-note').textContent }; });
+    var b = await t.eval(function () { var rs = window.Hourglass.realSand, T = window.Hourglass.timer; return { n: rs.stats().n, rate: T.rate, note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state') }; });
     var lostLive = rows.filter(function (r) { return r[7] === 1 && r[8] === 1; }).length, rise = maxRise(rows), k = -1;
     for (var i = 0; i < rows.length; i++) if (rows[i][7] === 1) { k = i; break; }
     var end = endOf(rows.slice(k));
     s.check('LIFE (LOST BEFORE THE HANDOVER): no frame runs on the lost engine; rebuilt after 2 s, it takes over ("On"); nTop rises by no more than the settle\'s flow (0.4 s of the clock\'s) at the handover',
-            lostLive === 0 && k > 0 && b.n.losses === 1 && b.n.rebuilds === 1 && b.note === 'On' && rise <= Math.max(12, Math.ceil(0.4 * b.rate)) + 1,
+            lostLive === 0 && k > 0 && b.n.losses === 1 && b.n.rebuilds === 1 && b.rstate === 'on' && rise <= Math.max(12, Math.ceil(0.4 * b.rate)) + 1,
             JSON.stringify({ lostLive: lostLive, handoverFrame: k, rise: rise, rate: b.rate, losses: b.n.losses, rebuilds: b.n.rebuilds, note: b.note }));
     s.check('LIFE (LOST BEFORE THE HANDOVER): the glass ends on time on the rebuilt engine', end.done && end.liveAll && end.d >= -5 && end.d <= 30 && end.early === 0, fmtEnd(end));
     await H.invariants(s, t, 'LIFE (LOST BEFORE THE HANDOVER)');
@@ -892,7 +1030,7 @@ async function lifeFinalBack(s, env) {
     var a = await t.eval(function () {
       var Hg = window.Hourglass, rs = Hg.realSand, st = rs.stats();
       return { cpu: Hg.sim instanceof window.HourglassPhysics.Sim, live: Hg.sim === rs, ready: rs.ready, real: document.getElementById('app').classList.contains('real'),
-        note: document.getElementById('realsand-note').textContent, losses: st.n.losses, rebuilds: st.n.rebuilds, toasts: window.__toasts.slice(), run: Hg.timer.state, top: Hg.sim.nTop };
+        note: document.getElementById('realsand-note').textContent, rstate: document.getElementById('realsand-row').getAttribute('data-state'), losses: st.n.losses, rebuilds: st.n.rebuilds, toasts: window.__toasts.slice(), run: Hg.timer.state, top: Hg.sim.nTop };
     });
     await sleep(1000);
     var top2 = await t.eval(function () { return window.Hourglass.sim.nTop; });
@@ -1064,7 +1202,7 @@ async function testNoRebuild(s, env) {
     await t.reload();
     await waitLive(t);
     st = await state(t);
-    s.check('NOREBUILD: the next launch takes over again: "On"', st.live && st.note === 'On' && st.setting === true && !st.fails, JSON.stringify({ note: st.note, fails: st.fails }));
+    s.check('NOREBUILD: the next launch takes over again: "On"', st.live && st.dstate === 'on' && st.setting === true && !st.fails, JSON.stringify({ note: st.note, fails: st.fails }));
     await H.invariants(s, t, 'NOREBUILD');
   } finally { await t.close(); }
 }
@@ -1221,6 +1359,558 @@ async function testCrash(s, env) {
   } finally { await t.close(); }
 }
 
+/* ------------------------------------------------------------------------------------------ *
+ *  Real sand by default (settings design 5): a first launch, the migration, a new engine
+ *  build, the dark opening, and the watchdog
+ * ------------------------------------------------------------------------------------------ */
+/** The row's state from inside the page, and whether a toast or the watchdog's log said anything. */
+function rowState(t) {
+  return t.eval(function () {
+    var Hg = window.Hourglass, rep = JSON.parse(Hg.realSandReport()), e = window.__mockEnv;
+    return { dstate: document.getElementById('realsand-row').getAttribute('data-state'), note: document.getElementById('realsand-note').textContent,
+      live: !!Hg.realSand && Hg.sim === Hg.realSand, cpu: Hg.sim instanceof window.HourglassPhysics.Sim, engine: !!Hg.realSand,
+      watchdog: rep.watchdog, hangLog: (rep.log || []).filter(function (l) { return /watchdog/.test(l); }).length,
+      creates: e ? e.creates : 0, gpus: document.querySelectorAll('#c-gpu').length, run: Hg.timer.state, mode: Hg.realSand ? Hg.realSand.stats().mode : null,
+      grainShown: !document.getElementById('grain-row').hidden, toasts: (window.__toasts || []).slice() };
+  });
+}
+
+async function testDefaultNa(s, env) {
+  // a first launch on a phone whose browser has WebGPU but no adapter (this Chromium): nothing saved
+  var net = realsandRequests();
+  var t = await env.open({ rawStorage: {}, routes: [net.route] });
+  try {
+    await waitFor(t, function () { return document.getElementById('realsand-row').getAttribute('data-state') === 'na'; }, 15000);
+    await sleep(300);
+    var st = await state(t);
+    var boots = net.hits.filter(function (p) { return p === '/realsand/boot.mjs'; }).length;
+    s.check('DEFAULT-NA: nothing saved: Real sand is on, so the engine is loaded once (boot.mjs and its modules) and finds no adapter',
+            boots === 1 && net.hits.indexOf('/realsand/app-sand.mjs') >= 0 && !st.engine && st.cpu && !st.real, JSON.stringify({ hits: net.hits.length, boots: boots }));
+    s.check('DEFAULT-NA: "Needs WebGPU (iOS 26 or later). Tap to try again", the switch shown off and not disabled; the classic sand with Grain and the crack sentence',
+            st.dstate === 'na' && st.note === 'Needs WebGPU (iOS 26 or later). Tap to try again' && !st.checked && !st.disabled && st.grainShown && st.crackShown,
+            JSON.stringify(st));
+    s.check('DEFAULT-NA: saved: the setting on (never written off), version 2, the engine build, and this browser\'s user agent with the time it was found; no failure counted',
+            st.setting === true && st.v === 2 && st.build === ENGINE_BUILD && st.na === st.ua && !st.fails && st.naAt > Date.now() - 600000 && st.naAt <= Date.now() + 1000,
+            JSON.stringify({ setting: st.setting, v: st.v, build: st.build, na: st.na, naAt: st.naAt, fails: st.fails }));
+    // the next launch in the same browser: says so at once, loads nothing
+    var n0 = net.hits.length;
+    await t.reload();
+    await sleep(1200);
+    st = await state(t);
+    s.check('DEFAULT-NA: the next launch, same user agent: "Needs WebGPU" at once, nothing under realsand/ requested (at the network either)',
+            net.hits.length === n0 && st.requested.length === 0 && st.dstate === 'na' && st.setting === true && st.na === st.ua && !st.disabled,
+            JSON.stringify({ hits: net.hits.slice(n0), requested: st.requested, dstate: st.dstate }));
+    // control: another user agent kept (as after an iOS update): tried again
+    await t.eval(function () {
+      var k = 'hourglass.settings.v1', o = JSON.parse(localStorage.getItem(k));
+      o.realSandNa = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+      localStorage.setItem(k, JSON.stringify(o));
+    });
+    var n1 = net.hits.length;
+    await t.reload();
+    await waitFor(t, function () { return document.getElementById('realsand-row').getAttribute('data-state') === 'na'; }, 15000);
+    st = await state(t);
+    s.check('DEFAULT-NA (control): a user agent other than the one kept (an iOS update): the engine is loaded and tried again; this one is kept',
+            net.hits.slice(n1).indexOf('/realsand/boot.mjs') >= 0 && st.na === st.ua && st.setting === true, JSON.stringify({ hits: net.hits.slice(n1).length, na: st.na === st.ua }));
+    // a tap on the row: tried again (the page reloads, what was kept is forgotten first)
+    var n2 = net.hits.length, loads = 0;
+    t.page.on('load', function () { loads++; });
+    await t.page.$eval('#opt-realsand', function (el) { el.click(); });
+    await sleep(900);
+    await waitFor(t, function () { return !!window.Hourglass && !!window.__mon && __mon.hooked && document.getElementById('realsand-row').getAttribute('data-state') === 'na'; }, 15000);
+    st = await state(t);
+    s.check('DEFAULT-NA: a tap on the row in "na" tries again: the page reloads and loads the engine, the setting still on',
+            loads >= 1 && net.hits.slice(n2).indexOf('/realsand/boot.mjs') >= 0 && st.setting === true && st.na === st.ua && st.dstate === 'na',
+            JSON.stringify({ loads: loads, hits: net.hits.slice(n2).length, setting: st.setting }));
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1500);
+    var run = await t.eval(function () { return { st: window.Hourglass.timer.state, cpu: window.Hourglass.sim instanceof window.HourglassPhysics.Sim }; });
+    s.check('DEFAULT-NA: the classic sand runs', run.st === 'running' && run.cpu, JSON.stringify(run));
+    await H.invariants(s, t, 'DEFAULT-NA');
+  } finally { await t.close(); }
+
+  // NA-HIDDEN: a capability failure while the page was put away is not believed (iOS may refuse
+  // an adapter to a page in the background): nothing kept, tried again once in view
+  var t2 = await openMock(env, { failStart: 'noadapter', failCapability: true, failTimes: 1, startDelay: 1500 });
+  try {
+    await waitFor(t2, function () { return window.__mockEnv && window.__mockEnv.starts === 1; }, 15000);
+    await t2.eval(function () { window.__hide(true); });
+    await sleep(2500);
+    var away = await state(t2);
+    await t2.eval(function () { window.__hide(false); });
+    await waitLive(t2);
+    var st2 = await state(t2), n = await t2.eval(function () { return { starts: window.__mockEnv.starts }; });
+    s.check('NA-HIDDEN: "no adapter" while the page was hidden: nothing kept ("Starting…"), tried again once in view, and taken over',
+            away.dstate === 'starting' && !away.na && st2.live && st2.dstate === 'on' && !st2.na && n.starts === 2 && !st2.fails,
+            JSON.stringify({ away: { dstate: away.dstate, na: away.na }, after: { dstate: st2.dstate, na: st2.na }, n: n }));
+    await H.invariants(s, t2, 'NA-HIDDEN');
+  } finally { await t2.close(); }
+  // control: the same failure in view is believed: "na", the user agent kept
+  var t3 = await openMock(env, { failStart: 'noadapter', failCapability: true, failTimes: 1, startDelay: 1500 });
+  try {
+    await waitFor(t3, function () { return document.getElementById('realsand-row').getAttribute('data-state') === 'na'; }, 15000);
+    var st3 = await state(t3);
+    s.check('NA-HIDDEN (control): the same failure with the page in view: "na", this user agent kept, no second start',
+            st3.dstate === 'na' && st3.na === st3.ua && st3.setting === true && !st3.engine, JSON.stringify({ dstate: st3.dstate, na: st3.na === st3.ua }));
+  } finally { await t3.close(); }
+}
+
+/**
+ * The latest the veil may begin to lift, in ms after the first frame: the app's 1 s, as it can
+ * keep it. It starts that clock in its second frame, after that frame's drawing (so: by the
+ * fourth frame at the latest), and tests it once a frame, after that frame's work (so: the time
+ * from the frame before the one that lifted to the lift); 50 ms for the rest. On a quiet machine
+ * that is some 1.1 to 1.2 s; a long frame at either end moves it by its own length, no more.
+ */
+function liftBy(o) {
+  var f = (o && o.frames) || [], n = f.length;
+  if (n < 2 || o.last === null) return 1000;
+  return 1000 + (f[Math.min(3, n - 1)] - f[0]) + (o.last - f[n - 2]) + 50;
+}
+/** The veil was held for the GPU sand: it began to lift once the GPU sand had taken over, or 1 s after the first frame (and not before), and no later than liftBy. */
+function held(o) {
+  return !!o && o.raf0 !== null && o.real !== null && o.lift !== null && o.lift - o.raf0 <= liftBy(o) &&
+    (o.lift >= o.real || o.lift - o.raf0 >= 950);
+}
+function openingSays(o) {
+  return JSON.stringify({ real: o.real === null ? null : Math.round(o.real - o.raf0), lift: o.lift === null ? null : Math.round(o.lift - o.raf0), by: Math.round(liftBy(o)), frames: o.frames.length });
+}
+async function testDefaultMock(s, env) {
+  // a first launch where Real sand can run (the mock engine): nothing saved
+  var t = await env.open({ rawStorage: {}, init: pageInit, initArg: { plant: PLANT, mock: { seed: 13 } }, routes: [mockRoute()] });
+  try {
+    await waitLive(t);
+    await sleep(600);
+    var st = await state(t), o = await t.eval(function () { return window.__open; });
+    s.check('DEFAULT-MOCK: nothing saved: Real sand takes over ("On: every grain simulated on the graphics chip", data-state on), Grain and the crack sentence hidden',
+            st.live && st.dstate === 'on' && st.note === 'On: every grain simulated on the graphics chip' && st.checked && !st.grainShown && !st.crackShown, JSON.stringify(st));
+    s.check('DEFAULT-MOCK: saved: the setting on, version 2, the engine build; nothing counted, nothing kept',
+            st.setting === true && st.v === 2 && st.build === ENGINE_BUILD && !st.fails && !st.na && !st.why, JSON.stringify({ setting: st.setting, v: st.v, build: st.build, fails: st.fails, na: st.na }));
+    s.check('DEFAULT-MOCK: the dark opening waited for the engine\'s first frame: the veil began to lift as the GPU sand took over (or, on a slower start, after the full second)',
+            held(o), openingSays(o));
+    await H.invariants(s, t, 'DEFAULT-MOCK');
+  } finally { await t.close(); }
+  // control: a reload that should open at once ('hourglass.openNow'): not held, and the key used once
+  var t2 = await env.open({ rawStorage: {}, init: pageInit, initArg: { plant: PLANT, mock: { seed: 13 }, openNow: true }, routes: [mockRoute()] });
+  try {
+    await waitLive(t2);
+    await sleep(300);
+    var o2 = await t2.eval(function () { return { o: window.__open, key: sessionStorage.getItem('hourglass.openNow') }; });
+    s.check('DEFAULT-MOCK (control): opened with sessionStorage "hourglass.openNow": the veil lifts at the first frames, before the GPU sand takes over; the key is taken',
+            o2.o.lift !== null && o2.o.real !== null && o2.o.lift < o2.o.real && o2.o.lift - o2.o.raf0 < 300 && o2.key === null,
+            JSON.stringify({ real: o2.o.real - o2.o.raf0, lift: o2.o.lift - o2.o.raf0, key: o2.key }));
+    await t2.reload();
+    await waitLive(t2);
+    await sleep(300);
+    var o3 = await t2.eval(function () { return window.__open; });
+    s.check('DEFAULT-MOCK (control): ... used once: the next launch waits for the first frame again',
+            held(o3), openingSays(o3));
+  } finally { await t2.close(); }
+}
+
+async function testMigrate(s, env) {
+  var KEY1 = 'hourglass.settings.v1';
+  var open1 = function (saved) {
+    var raw = {}; raw[KEY1] = saved;
+    return env.open({ rawStorage: raw, init: pageInit, initArg: { plant: PLANT, mock: { seed: 17 } }, routes: [mockRoute()] });
+  };
+  // a save of version 1 (no v: every launch before 1.10.0 wrote realSand: false)
+  var t = await open1({ theme: 'lapis', durationMs: 10000, realSand: false, realSandFails: 0, realSandWhy: '', grain: 1 });
+  try {
+    await waitLive(t).catch(function () {});
+    await sleep(400);
+    var st = await state(t), keep = await t.eval(function () { var o = JSON.parse(localStorage.getItem('hourglass.settings.v1')); return { theme: o.theme, durationMs: o.durationMs, grain: o.grain }; });
+    s.check('MIGRATE: a save without a version, with realSand false: Real sand comes up on and takes over; saved with v 2 and realSand true; the rest kept',
+            st.live && st.dstate === 'on' && st.setting === true && st.v === 2 && keep.theme === 'lapis' && keep.durationMs === 10000 && keep.grain === 1,
+            JSON.stringify({ dstate: st.dstate, setting: st.setting, v: st.v, keep: keep }));
+    // turned off by the owner now: a version-2 save, kept off from then on
+    await t.page.$eval('#opt-realsand', function (el) { el.click(); });
+    await sleep(900);
+    await waitFor(t, function () { return !!window.Hourglass && !!window.__mon && __mon.hooked; }, 15000);
+    await t.reload();
+    await sleep(1000);
+    st = await state(t);
+    s.check('MIGRATE: once: turned off afterwards, it stays off at the next launches (v 2, realSand false, nothing requested)',
+            st.dstate === 'off' && st.setting === false && st.v === 2 && st.requested.length === 0 && !st.engine, JSON.stringify({ dstate: st.dstate, setting: st.setting, v: st.v, req: st.requested.length }));
+  } finally { await t.close(); }
+  // a save of version 1 that says so
+  var t2 = await open1({ v: 1, realSand: false, durationMs: 10000 });
+  try {
+    await waitLive(t2).catch(function () {});
+    var st2 = await state(t2);
+    s.check('MIGRATE: a save of version 1 with realSand false: on, saved with v 2', st2.live && st2.setting === true && st2.v === 2, JSON.stringify({ dstate: st2.dstate, setting: st2.setting, v: st2.v }));
+  } finally { await t2.close(); }
+  // control: a save of version 2 with realSand false (the owner's own choice): off, nothing loaded
+  var t3 = await open1({ v: 2, realSand: false, durationMs: 10000 });
+  try {
+    await sleep(1500);
+    var st3 = await state(t3);
+    s.check('MIGRATE (control): a save of version 2 with realSand false stays off: nothing under realsand/ requested, the CPU sand',
+            st3.dstate === 'off' && st3.setting === false && st3.v === 2 && st3.requested.length === 0 && !st3.engine && st3.cpu,
+            JSON.stringify({ dstate: st3.dstate, setting: st3.setting, v: st3.v, req: st3.requested.length }));
+    await H.invariants(s, t3, 'MIGRATE');
+  } finally { await t3.close(); }
+}
+
+async function testBuild(s, env) {
+  var KEY1 = 'hourglass.settings.v1';
+  var open1 = function (saved) {
+    var raw = {}; raw[KEY1] = Object.assign({ v: 2, realSand: true, durationMs: 10000 }, saved);
+    return env.open({ rawStorage: raw, init: pageInit, initArg: { plant: PLANT, mock: { seed: 19 } }, routes: [mockRoute()] });
+  };
+  var older = String(+ENGINE_BUILD - 1), ua = '';
+  // gave up (3 failed launches) with an older engine build: tried again
+  var t = await open1({ realSandFails: 3, realSandWhy: 'its self-test failed', realSandBuild: older });
+  try {
+    await waitLive(t).catch(function () {});
+    await sleep(300);
+    var st = await state(t);
+    ua = st.ua;
+    s.check('BUILD: 3 failed launches found with an older engine build (' + older + '): forgotten, tried again, taken over; the build saved',
+            st.live && st.dstate === 'on' && !st.fails && !st.why && st.build === ENGINE_BUILD, JSON.stringify({ dstate: st.dstate, fails: st.fails, why: st.why, build: st.build }));
+  } finally { await t.close(); }
+  // "Needs WebGPU" kept for this user agent with an older engine build: tried again too
+  var t2 = await open1({ realSandNa: ua, realSandNaAt: Date.now(), realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: older });
+  try {
+    await waitLive(t2).catch(function () {});
+    var st2 = await state(t2);
+    s.check('BUILD: "Needs WebGPU" kept for this user agent with an older engine build: forgotten, tried again, taken over',
+            st2.live && st2.dstate === 'on' && !st2.na && st2.build === ENGINE_BUILD, JSON.stringify({ dstate: st2.dstate, na: st2.na, build: st2.build }));
+  } finally { await t2.close(); }
+  // controls: the same with this engine build: it does not try (nothing under realsand/ requested)
+  var t3 = await open1({ realSandFails: 3, realSandWhy: 'its self-test failed', realSandBuild: ENGINE_BUILD });
+  try {
+    await sleep(1500);
+    var st3 = await state(t3);
+    s.check('BUILD (control): 3 failed launches with this engine build: "Did not start 3 times", nothing requested, Grain shown',
+            st3.dstate === 'gaveup' && st3.fails === 3 && st3.requested.length === 0 && !st3.engine && st3.grainShown, JSON.stringify({ dstate: st3.dstate, fails: st3.fails, req: st3.requested.length }));
+  } finally { await t3.close(); }
+  var t4 = await open1({ realSandNa: ua, realSandNaAt: Date.now(), realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: ENGINE_BUILD });
+  try {
+    await sleep(1500);
+    var st4 = await state(t4);
+    s.check('BUILD (control): "Needs WebGPU" kept for this user agent with this engine build: "na" at once, nothing requested',
+            st4.dstate === 'na' && st4.na === ua && st4.requested.length === 0 && !st4.engine, JSON.stringify({ dstate: st4.dstate, req: st4.requested.length }));
+    await H.invariants(s, t4, 'BUILD');
+  } finally { await t4.close(); }
+
+  // NA-EXPIRE: "Needs WebGPU" is believed for seven days; then it is tried again all the same
+  // (nothing here may rely on an iOS update changing the user agent)
+  var DAY = 86400000;
+  var t5 = await open1({ realSandNa: ua, realSandNaAt: Date.now() - 8 * DAY, realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: ENGINE_BUILD });
+  try {
+    await waitLive(t5).catch(function () {});
+    var st5 = await state(t5);
+    s.check('NA-EXPIRE: "Needs WebGPU" kept for this user agent eight days ago: tried again, and taken over; what was kept is gone',
+            st5.live && st5.dstate === 'on' && !st5.na && !st5.naAt && st5.requested.indexOf('/realsand/boot.mjs') >= 0, JSON.stringify({ dstate: st5.dstate, na: st5.na, naAt: st5.naAt, req: st5.requested.length }));
+  } finally { await t5.close(); }
+  var t6 = await open1({ realSandNa: ua, realSandNaAt: Date.now() - 6 * DAY, realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: ENGINE_BUILD });
+  try {
+    await sleep(1500);
+    var st6 = await state(t6);
+    s.check('NA-EXPIRE (control): kept six days ago: "na" at once, nothing requested, the user agent and its time still kept',
+            st6.dstate === 'na' && st6.na === ua && st6.naAt > 0 && st6.requested.length === 0 && !st6.engine, JSON.stringify({ dstate: st6.dstate, req: st6.requested.length }));
+  } finally { await t6.close(); }
+}
+
+/*
+ * RESTART: an engine started again in the same session (settings design 5.2). "No adapter" from a
+ * start that follows a chip that stopped answering, or one that was reset as the engine started,
+ * may only be the chip on its way back: nothing is kept, and the next launch tries again. And a
+ * start that took over gives the session its three retries back.
+ */
+var RESTART_NOTE = 'Real sand could not restart; it will try again next launch';
+async function testRestart(s, env) {
+  var NOADAPTER = { code: 'noadapter', capability: true };
+  /** plan: the mock's failPlan. hang: the first start takes over, and the watchdog fires. */
+  var run = async function (plan, hang, routes) {
+    var t = await openMock(env, { seed: 71, failPlan: plan }, { durationMs: 60000 }, { routes: routes }), out = {};
+    var settled = function () {
+      return waitFor(t, function () { var d = document.getElementById('realsand-row').getAttribute('data-state'); return d === 'paused' || d === 'na' || d === 'failed'; }, 20000).catch(function () {});
+    };
+    try {
+      if (hang) {
+        await waitLive(t);
+        await watchToasts(t);
+        await t.eval(function () { window.Hourglass.start(); });
+        await sleep(1500);
+        out.hang = await hangNow(t);
+        await t.eval(function () { window.__mockEnv.hold = false; });
+      }
+      await settled();
+      await sleep(300);
+      out.after = await state(t);
+      out.starts = await t.eval(function () { return window.__mockEnv.starts; });
+      // the next launch
+      await t.reload();
+      await waitFor(t, function () {
+        var Hg = window.Hourglass, d = document.getElementById('realsand-row').getAttribute('data-state');
+        return (!!Hg.realSand && Hg.sim === Hg.realSand) || d === 'paused' || d === 'na' || d === 'failed';
+      }, 20000).catch(function () {});
+      await sleep(300);
+      out.next = await state(t);
+      out.errors = t.errors.slice(0, 2);
+    } finally { await t.close(); }
+    return out;
+  };
+  var kept = function (st) { return { dstate: st.dstate, note: st.note, na: st.na ? (st.na === st.ua ? 'this user agent' : st.na) : '', fails: st.fails | 0, setting: st.setting, req: st.requested.length }; };
+  var nothingKept = function (st) {
+    return st.dstate === 'paused' && st.note === RESTART_NOTE && !st.na && !st.naAt && !st.fails && st.setting === true && st.checked && st.cpu && !st.engine && st.grainShown;
+  };
+  var asked = function (st) { return st.requested.indexOf('/realsand/boot.mjs') >= 0; };
+
+  // (a) the chip stops answering; the engine the watchdog starts 2 s later finds no adapter
+  var a = await run([null, NOADAPTER], true, []);
+  s.check('RESTART: the watchdog fires, and the engine started 2 s later finds no adapter: "' + RESTART_NOTE + '" (data-state paused), the classic sand with Grain shown, ' +
+          'nothing kept or counted, the setting on',
+          hangOk(a.hang) && a.starts === 2 && nothingKept(a.after) && a.errors.length === 0, JSON.stringify({ starts: a.starts, after: kept(a.after), errors: a.errors }));
+  s.check('RESTART: ... and the next launch tries again, and takes over ("On")', asked(a.next) && a.next.live && a.next.dstate === 'on' && !a.next.na, JSON.stringify(kept(a.next)));
+  // (b) the chip is reset as the engine starts ('lost'); the retry a second later finds no adapter
+  var b = await run([{ code: 'lost' }, NOADAPTER], false, []);
+  s.check('RESTART: a start cut short by a reset of the chip, and the retry a second later finds no adapter: the same, nothing kept or counted',
+          b.starts === 2 && nothingKept(b.after), JSON.stringify({ starts: b.starts, after: kept(b.after) }));
+  s.check('RESTART: ... and the next launch asks for the engine again', asked(b.next) && !b.next.na && b.next.dstate !== 'na', JSON.stringify(kept(b.next)));
+  // control: app.js that does not mark the session (as before): "Needs WebGPU" is kept for this
+  // user agent, and the next launches ask for nothing
+  var blind = appWithout(env, [["if (code === 'lost') realShaky = true;", ''], ['    realShaky = true;\n', '']]);
+  var ca = await run([null, NOADAPTER], true, [blind.route]);
+  s.check('RESTART (control): app.js that does not mark a session that saw the chip go fails the first two checks: after the watchdog, "Needs WebGPU" is kept for this user agent, ' +
+          'and the next launch asks for nothing under realsand/',
+          blind.found && hangOk(ca.hang) && ca.after.dstate === 'na' && ca.after.na === ca.after.ua && ca.next.dstate === 'na' && ca.next.requested.length === 0 && !ca.next.live,
+          JSON.stringify({ found: blind.found, after: kept(ca.after), next: kept(ca.next) }));
+  var cb = await run([{ code: 'lost' }, NOADAPTER], false, [blind.route]);
+  s.check('RESTART (control): ... and the other two: after the start cut short, the same',
+          blind.found && cb.after.dstate === 'na' && cb.after.na === cb.after.ua && cb.next.dstate === 'na' && cb.next.requested.length === 0,
+          JSON.stringify({ after: kept(cb.after), next: kept(cb.next) }));
+
+  // The retries are a start's own. Three starts cut short (the page put away as each began), the
+  // fourth takes over; the watchdog fires, and the start after it is cut short again: it is
+  // tried again, as the first three were, and nothing is counted.
+  var CUT = { code: 'hidden' };
+  var retries = async function (routes) {
+    var t = await openMock(env, { seed: 73, failPlan: [CUT, CUT, CUT, null, CUT, null] }, { durationMs: 60000 }, { routes: routes }), out = {};
+    try {
+      await waitLive(t, 30000);
+      await watchToasts(t);
+      out.first = { starts: await t.eval(function () { return window.__mockEnv.starts; }), st: await state(t) };
+      await t.eval(function () { window.Hourglass.start(); });
+      await sleep(1500);
+      out.hang = await hangNow(t);
+      await t.eval(function () { window.__mockEnv.hold = false; });
+      await waitFor(t, function () {
+        var Hg = window.Hourglass, d = document.getElementById('realsand-row').getAttribute('data-state');
+        return (!!Hg.realSand && Hg.sim === Hg.realSand) || d === 'failed' || d === 'gaveup';
+      }, 20000).catch(function () {});
+      await sleep(300);
+      out.st = await state(t);
+      out.starts = await t.eval(function () { return window.__mockEnv.starts; });
+    } finally { await t.close(); }
+    return out;
+  };
+  var r = await retries([]);
+  s.check('RESTART (retries): three starts cut short, the fourth takes over; after the watchdog the fifth is cut short too: tried again (the sixth takes over, "On"), nothing counted',
+          r.first.starts === 4 && r.first.st.live && hangOk(r.hang) && r.starts === 6 && r.st.live && r.st.dstate === 'on' && !r.st.fails,
+          JSON.stringify({ first: r.first.starts, starts: r.starts, dstate: r.st.dstate, fails: r.st.fails | 0 }));
+  var spent = appWithout(env, [['      realRetries = 0;', '      ']]);
+  var rc = await retries([spent.route]);
+  s.check('RESTART (control): app.js that never gives the retries back fails the check: the fifth start, cut short, is counted as a failed launch and not tried again',
+          spent.found && rc.first.starts === 4 && rc.starts === 5 && !rc.st.live && rc.st.dstate === 'failed' && rc.st.fails === 1,
+          JSON.stringify({ found: spent.found, starts: rc.starts, dstate: rc.st.dstate, fails: rc.st.fails | 0, note: rc.st.note }));
+}
+
+/**
+ * The GPU stops answering (the mock's hold: no work completes, no readback comes) while the glass
+ * runs in view; resolves at the first frame on the CPU sand, with what the swap looked like.
+ */
+function hangNow(t, loseAfter) {
+  return t.eval(function (loseAfter) {
+    var Hg = window.Hourglass, e = window.__mockEnv, t0 = performance.now(), prev = null;
+    e.hold = true;
+    return new Promise(function (res) {
+      (function w() {
+        var now = performance.now();
+        if (now - t0 > 15000) { res(null); return; }
+        if (!(Hg.sim instanceof window.HourglassPhysics.Sim)) {
+          prev = { end: Hg.timer.lastTick + Hg.timer.rem, run: Hg.timer.state };
+          requestAnimationFrame(w);
+          return;
+        }
+        var rs = Hg.realSand;           // (the stopped engine, kept until the CPU sand's canvas has faded in)
+        // (the browser gives the stuck chip up: the stopped engine's device is lost while it is still kept)
+        if (loseAfter > 0) setTimeout(function () { e.device.loseIt('unknown', 'mock: the stuck chip is given up'); }, loseAfter);
+        res({ ms: now - t0, prev: prev, end: Hg.timer.lastTick + Hg.timer.rem, run: Hg.timer.state,
+          top: Hg.sim.nTop, total: Hg.sim.total, ledger: rs ? { top: rs.nTop, total: rs.total } : null,
+          real: document.getElementById('app').classList.contains('real'), dstate: document.getElementById('realsand-row').getAttribute('data-state'),
+          note: document.getElementById('realsand-note').textContent, toasts: window.__toasts.slice(), grainShown: !document.getElementById('grain-row').hidden });
+      })();
+    });
+  }, loseAfter || 0);
+}
+/** The swap looked right: in [3.9, 5] s, the clock's end untouched, the CPU Sim at the stopped engine's counts. */
+function hangOk(h) {
+  return !!h && h.ms >= 3900 && h.ms <= 5000 && !!h.prev && h.prev.run === 'running' && Math.abs(h.end - h.prev.end) < 1 && !h.real &&
+    !!h.ledger && h.top === h.ledger.top && h.total === h.ledger.total;
+}
+var HANG_MSG = 'Real sand paused: the graphics chip stopped answering';
+var HANG_FINAL = 'Real sand paused: the graphics chip stopped answering three times; it will try again next launch';
+
+async function testHang(s, env) {
+  var t = await openMock(env, { seed: 61 }, { durationMs: 60000 });
+  try {
+    await waitLive(t);
+    await watchToasts(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(2500);
+    // 1: the CPU sand within 4-5 s, the toast; a new engine after 2 s
+    var h1 = await hangNow(t);
+    s.check('HANG: the GPU stops answering while the glass runs in view: after 4 s (here ' + (h1 ? (h1.ms / 1000).toFixed(2) : '-') + ' s) the CPU sand takes over, at the stopped engine\'s counts, the clock untouched',
+            hangOk(h1), JSON.stringify(h1));
+    s.check('HANG: the toast and the note say "Real sand paused: the graphics chip stopped answering" (data-state lost)',
+            !!h1 && h1.toasts.indexOf(HANG_MSG) >= 0 && h1.note === HANG_MSG && h1.dstate === 'lost' && !h1.grainShown, JSON.stringify(h1 && { toasts: h1.toasts, note: h1.note, dstate: h1.dstate }));
+    var c0 = await t.eval(function () { var e = window.__mockEnv; e.hold = false; return { creates: e.creates, at: performance.now() }; });
+    await waitLive(t, 15000);
+    var b1 = await rowState(t), back1 = await t.eval(function (at) { return performance.now() - at; }, c0.at);
+    s.check('HANG: a new engine after 2 s takes the sand back ("On"), one canvas, the stopped engine gone; the glass runs on',
+            b1.live && b1.dstate === 'on' && b1.creates === c0.creates + 1 && b1.gpus === 1 && back1 >= 1700 && b1.run === 'running' && b1.watchdog === 1 && b1.hangLog === 1,
+            JSON.stringify({ b: b1, backMs: back1 }));
+    // 2: again, not final
+    await sleep(1500);
+    var h2 = await hangNow(t);
+    await t.eval(function () { window.__mockEnv.hold = false; });
+    await waitLive(t, 15000);
+    var b2 = await rowState(t);
+    s.check('HANG: a second time: the CPU sand again, not final, and a new engine again',
+            hangOk(h2) && h2.dstate === 'lost' && b2.live && b2.creates === c0.creates + 2 && b2.watchdog === 2, JSON.stringify({ h: h2 && { ms: h2.ms, dstate: h2.dstate }, b: b2 }));
+    // 3: within ten minutes: final; and 200 ms later the browser gives the stuck chip up (the
+    // stopped engine, kept 600 ms for the cross-fade, loses its device): nothing changes
+    await sleep(1500);
+    var h3 = await hangNow(t, 200);
+    await t.eval(function () { window.__mockEnv.hold = false; });
+    await sleep(3500);
+    var b3 = await rowState(t), st3 = await state(t);
+    s.check('HANG: a third time within ten minutes is final: the CPU sand for the session, the note and toast say so, no new engine; the stopped engine\'s device lost 200 ms later changes nothing',
+            hangOk(h3) && h3.dstate === 'paused' && h3.note === HANG_FINAL && h3.toasts.indexOf(HANG_FINAL) >= 0 &&
+            b3.cpu && !b3.engine && b3.gpus === 0 && b3.creates === c0.creates + 2 && b3.dstate === 'paused' && b3.run === 'running' && b3.grainShown,
+            JSON.stringify({ h: h3 && { ms: h3.ms, dstate: h3.dstate, note: h3.note }, b: b3 }));
+    s.check('HANG: ... the setting kept, nothing counted; the report says the watchdog fired 3 times',
+            st3.setting === true && !st3.fails && !st3.na && b3.watchdog === 3 && b3.hangLog === 3, JSON.stringify({ setting: st3.setting, fails: st3.fails, watchdog: b3.watchdog, log: b3.hangLog }));
+    await H.invariants(s, t, 'HANG');
+  } finally { await t.close(); }
+
+  // the engine the watchdog stopped loses its device 200 ms later, while it is still kept: what
+  // it says then is not heard (the note stays the watchdog's), and the new engine takes over
+  var stoppedLoss = async function (routes) {
+    var tl = await openMock(env, { seed: 65 }, { durationMs: 60000 }, { routes: routes });
+    try {
+      await waitLive(tl);
+      await watchToasts(tl);
+      await tl.eval(function () { window.Hourglass.start(); });
+      await sleep(1500);
+      var h = await hangNow(tl, 200);
+      await sleep(1000);                    // (the loss at 200 ms, the stopped engine destroyed at 600 ms)
+      var a = await rowState(tl);
+      await tl.eval(function () { window.__mockEnv.hold = false; });
+      await waitLive(tl, 15000).catch(function () {});
+      var b = await rowState(tl);
+      return { h: h, a: a, b: b, errors: tl.errors.slice(0, 2) };
+    } finally { await tl.close(); }
+  };
+  var sl = await stoppedLoss([]);
+  s.check('HANG (the stopped engine\'s device lost 200 ms after the swap): not heard: the note stays "' + HANG_MSG + '", one toast, and the new engine takes over as ever',
+          hangOk(sl.h) && sl.a.note === HANG_MSG && sl.a.dstate === 'lost' && sl.a.toasts.length === 1 && sl.b.live && sl.b.dstate === 'on' && sl.b.gpus === 1 && sl.errors.length === 0,
+          JSON.stringify({ a: { note: sl.a.note, dstate: sl.a.dstate, toasts: sl.a.toasts }, b: { live: sl.b.live, dstate: sl.b.dstate, gpus: sl.b.gpus }, errors: sl.errors }));
+  var deaf = appWithout(env, [['if (eng && eng === realEng && eng !== realStopped) onRealLost(info);', 'onRealLost(info);']]);
+  var slc = await stoppedLoss([deaf.route]);
+  s.check('HANG (control): app.js that hears every engine\'s loss fails the check: the stopped engine\'s loss rewrites the note ("the graphics chip was reset")',
+          deaf.found && hangOk(slc.h) && slc.a.note !== HANG_MSG && /was reset/.test(slc.a.note), JSON.stringify({ found: deaf.found, note: slc.a.note, dstate: slc.a.dstate }));
+
+  // the glass still ends on time after a watchdog swap and the new engine's takeover
+  var t2 = await openMock(env, { seed: 63 }, { durationMs: 14000 });
+  try {
+    await waitLive(t2);
+    await watchToasts(t2);
+    await record(t2);
+    await t2.eval(function () { window.Hourglass.start(); });
+    await sleep(2000);
+    var h = await hangNow(t2);
+    await t2.eval(function () { window.__mockEnv.hold = false; });
+    var e = await runToEnd(t2, 30000);
+    var back = await rowState(t2);
+    s.check('HANG (END): a 14 s glass with a watchdog swap at 6 s: the new engine took over and the glass ends on time on the GPU sand: last point within 30 ms of 00:00.0, nTop 0 within 3 frames after, never before',
+            hangOk(h) && back.live && e.done && e.d >= -5 && e.d <= 30 && e.frames >= 0 && e.frames <= 3 && e.early === 0, fmtEnd(e) + '; swap after ' + (h ? h.ms.toFixed(0) : '-') + ' ms');
+    await H.invariants(s, t2, 'HANG (END)');
+  } finally { await t2.close(); }
+
+  // controls: the watchdog never fires on a glass that sleeps (idle, paused, finished) with its
+  // readbacks held 8 s, on a running glass in view whose readbacks come (calm, every other frame),
+  // or on one hidden 10 s with its readbacks held, then shown and let go within a second
+  var t3 = await openMock(env, { seed: 67 }, { durationMs: 60000 });
+  try {
+    await waitLive(t3);
+    await watchToasts(t3);
+    var quiet = async function (label, ms) {
+      var a = await rowState(t3);
+      await t3.eval(function () { window.__mockEnv.hold = true; });
+      await sleep(ms);
+      var b = await rowState(t3);
+      await t3.eval(function () { window.__mockEnv.hold = false; });
+      await sleep(400);
+      var c = await rowState(t3);
+      s.check('HANG (control, ' + label + '): readbacks held ' + ms / 1000 + ' s: the watchdog does not fire (the GPU sand stays the sim, no new engine, no toast)',
+              a.live && b.live && c.live && c.watchdog === 0 && c.creates === a.creates && c.toasts.length === 0 && c.dstate === 'on',
+              JSON.stringify({ mode: a.mode, before: { live: a.live, creates: a.creates }, held: { live: b.live, mode: b.mode }, after: { live: c.live, watchdog: c.watchdog, creates: c.creates, toasts: c.toasts } }));
+    };
+    var asleep = function () { return waitFor(t3, function () { var rs = window.Hourglass.realSand; return !!rs && rs.stats().mode === 'asleep'; }, 15000); };
+    // an idle glass
+    await asleep();
+    await quiet('an idle glass, asleep', 8000);
+    // a running glass, its readbacks coming
+    await t3.eval(function () { window.Hourglass.start(); });
+    await sleep(3000);
+    var modes = await t3.eval(function () {
+      var rs = window.Hourglass.realSand, out = [], t0 = performance.now(), r0 = rs.stats().ledger.readbacks;
+      return new Promise(function (res) {
+        (function w() {
+          out.push(rs.stats().mode);
+          if (performance.now() - t0 > 8000) { res({ modes: out, reads: rs.stats().ledger.readbacks - r0 }); return; }
+          setTimeout(w, 250);
+        })();
+      });
+    });
+    var r = await rowState(t3), calm = modes.modes.filter(function (m) { return m === 'calm'; }).length;
+    s.check('HANG (control, a running glass in view, ' + calm + ' of ' + modes.modes.length + ' samples calm): 8 s, its readbacks coming: the watchdog does not fire',
+            r.live && r.watchdog === 0 && r.toasts.length === 0 && modes.reads > 100 && calm > 0, JSON.stringify({ reads: modes.reads, calm: calm, live: r.live, watchdog: r.watchdog }));
+    // its readbacks held from 1 s before the page is hidden for 10 s, then shown, and let go within
+    // a second: no readback came in view for 1.6 s, but for 11.6 s of wall-clock time
+    var h0 = await rowState(t3);
+    await t3.eval(function () { window.__mockEnv.hold = true; });
+    await sleep(1000);
+    await t3.eval(function () { window.__hide(true); });
+    await sleep(10000);
+    await t3.eval(function () { window.__hide(false); });
+    await sleep(600);
+    await t3.eval(function () { window.__mockEnv.hold = false; });
+    await sleep(5000);
+    var h1c = await rowState(t3);
+    s.check('HANG (control, hidden): readbacks held from 1 s before the page was hidden 10 s, shown, and let go within a second: the watchdog does not fire (it counts time in view only)',
+            h1c.live && h1c.watchdog === 0 && h1c.creates === h0.creates && h1c.toasts.length === 0 && h1c.run === 'running', JSON.stringify(h1c));
+    // a paused glass
+    await t3.eval(function () { window.Hourglass.pause(); });
+    await asleep();
+    await quiet('a paused glass, asleep', 8000);
+    // a finished glass
+    await t3.eval(function () { window.Hourglass.reset(); });
+    await waitFor(t3, function () { return !document.getElementById('app').classList.contains('sweep'); }, 5000);
+    await t3.eval(function () { window.Hourglass.setDuration(10000); });
+    await sleep(1500);
+    await t3.eval(function () { window.Hourglass.start(); });
+    await waitFor(t3, function () { return window.Hourglass.timer.state === 'done' && window.Hourglass.sim.nTop === 0; }, 25000);
+    await asleep();
+    await quiet('a finished glass, asleep', 8000);
+    await H.invariants(s, t3, 'HANG (controls)');
+  } finally { await t3.close(); }
+}
+
 async function main() {
   var s = new H.Suite('app-realsand');
   var env = await H.start();
@@ -1228,7 +1918,8 @@ async function main() {
     var only = env.args.only;
     var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp, again: testAgain,
       slow: testSlow, wake: testWake, life: testLife, norebuild: testNoRebuild, crash: testCrash, residue: testResidue, asleep: testAsleep,
-      quiet: testQuiet };
+      quiet: testQuiet, defaultna: testDefaultNa, defaultmock: testDefaultMock, migrate: testMigrate, build: testBuild, hang: testHang,
+      restart: testRestart };
     for (var k in cases) {
       if (only && only !== k) continue;
       try { await cases[k](s, env); } catch (e) {

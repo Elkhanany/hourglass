@@ -21,7 +21,8 @@
  */
 'use strict';
 var fs = require('fs'), path = require('path'), vm = require('vm');
-var ROOT = path.join(__dirname, '..', '..');
+var paths = require('./lib/paths.js');
+var ROOT = paths.ROOT;
 var count = 0, failures = 0;
 function check(ok, what, detail) {
   count++; if (!ok) failures++;
@@ -95,7 +96,8 @@ check(!!inShell['realsand/LICENSES.md'], 'the engine\'s licences (realsand/LICEN
 
 // 4. one build stamp
 var BUILD = (/export const BUILD = '([^']+)'/.exec(read('realsand/build.mjs')) || [])[1];
-var APP = (/var REALSAND_BUILD = '([^']+)'/.exec(read('app.js')) || [])[1];
+var app = fs.readFileSync(paths.APP, 'utf8');
+var APP = (/var REALSAND_BUILD = '([^']+)'/.exec(app) || [])[1];
 var LAB = (/const BUILD_EXPECTED = '([^']+)'/.exec(read('lab/sand/main.mjs')) || [])[1];
 check(!!BUILD && APP === BUILD, 'app.js was written for the engine\'s build (REALSAND_BUILD ' + APP + ', realsand/build.mjs ' + BUILD + ')');
 check(LAB === BUILD, 'the lab page expects the engine\'s build too (BUILD_EXPECTED ' + LAB + ')');
@@ -103,7 +105,6 @@ var WGSL = (/^\/\/ Engine build: (\S+)/m.exec(read('realsand/shaders/common.inc.
 check(WGSL === BUILD, 'the shaders carry the engine\'s build (common.inc.wgsl\'s "Engine build" ' + WGSL + ')');
 
 // 5. app.js: a classic script that loads the engine as a module script, never by import()
-var app = read('app.js');
 check(app.indexOf("'./realsand/boot.mjs'") >= 0, 'app.js loads the engine through ./realsand/boot.mjs');
 check(!/\bimport\s*\(/.test(app) && !/^\s*(import|export)\s/m.test(app), 'app.js has no import() and no module syntax');
 check(/H\.attachRealSand\(RealSand, BUILD\)/.test(read('realsand/boot.mjs')), 'boot.mjs hands app.js the class and the stamp (attachRealSand)');

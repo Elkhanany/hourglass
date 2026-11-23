@@ -19,7 +19,8 @@ var path = require('path');
 var chromium = require('playwright').chromium;
 var Server = require('./lib/static-server.js');
 
-var ROOT = path.resolve(__dirname, '..', '..');
+var paths = require('./lib/paths.js');
+var ROOT = paths.ROOT;
 var PORT = +(process.argv[2] || process.env.PORT || 8803);
 var BASE = 'http://127.0.0.1:' + PORT;
 
@@ -32,7 +33,7 @@ function report(ok, name, detail) {
 
 var PAGE = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">' +
   '<body style="margin:0"><button id="ask" style="width:300px;height:200px">ask</button>' +
-  '<script src="/motion.js"></script>' +
+  '<script src="/' + paths.script('motion.js') + '"></script>' +
   '<script>' +
   'window.m = new HourglassMotion({ sign: 0 });' +
   'document.getElementById("ask").addEventListener("click", function () {' +

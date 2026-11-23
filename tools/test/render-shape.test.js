@@ -63,7 +63,7 @@ for (var ai = 0; ai < argv.length; ai++) {
   else if (/^\d+$/.test(argv[ai])) PORT = +argv[ai];
 }
 var ORIGIN = 'http://localhost:' + PORT + '/';
-var SRC = fs.readFileSync(process.env.HOURGLASS_PHYSICS || L.PHYSICS, 'utf8');
+var SRC = process.env.HOURGLASS_PHYSICS ? fs.readFileSync(process.env.HOURGLASS_PHYSICS, 'utf8') : L.physicsSource();
 var SNAP = process.env.SNAP || '';
 var IDS = L.P.SHAPE_ORDER;
 

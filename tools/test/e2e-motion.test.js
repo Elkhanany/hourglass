@@ -294,8 +294,7 @@ async function e3(s, env) {
   var env = await H.start();
   var only = env.args.only;
   try {
-    if (!env.caps.p1) s.check('E2/E3 need the motion path (physics-core P1)', false, 'the served sim is P0');
-    else if (!only || only === 'e2') await e2(s, env);
+    if (!only || only === 'e2') await e2(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {
@@ -303,7 +302,7 @@ async function e3(s, env) {
   }
   // E3 shakes without turning the glass, so it can afford the real WebGL glass:
   // then c-front holds nothing but the caps and the cracks
-  if (env.caps.p1 && (!only || only === 'e3')) {
+  if (!only || only === 'e3') {
     var envGL = await H.start({ webgl: true });
     try {
       await e3(s, envGL);

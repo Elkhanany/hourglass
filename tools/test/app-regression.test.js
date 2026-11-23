@@ -10,8 +10,13 @@
  *     and the sand engine (realsand/, for Real sand offline); it leaves the lab
  *     (lab/) to the network and never caches it, and a lab page gets a new
  *     engine at once: the engine's requests from a lab page go to the network
- *     and are never stored, while the app is answered from its cache
+ *     and are never stored, while the app is answered from its cache; a lab
+ *     page that meets an engine of another build says so and leaves the app's
+ *     cache whole, and the app then starts offline
  *   - no page errors
+ *   - the harness serves the tree as it is: every script index.html loads,
+ *     byte for byte, but the motion stub when a test asks for it, which is
+ *     served at motion.js's own path (nothing is added to app.js)
  *
  *   node tools/test/app-regression.test.js [--root <dir>] [--port <n>]
  */
@@ -135,11 +140,42 @@ async function testFlow(s, env) {
   await t.close();
 }
 
+/** What the page is served: each script index.html loads, as the tree has it, but a stand-in asked for. */
+async function testServed(s, env) {
+  var fs = require('fs'), path = require('path'), paths = require('./lib/paths.js');
+  var scripts = paths.classicScripts(env.root), standIns = env.standIns;
+  for (var k = 0; k < 2; k++) {
+    var stub = k === 0;
+    var t = await env.open({ motionStub: stub });
+    var got = await t.eval(function (list) {
+      return Promise.all(list.map(function (f) { return fetch(f, { cache: 'no-store' }).then(function (r) { return r.text(); }); }))
+        .then(function (txt) { return { txt: txt, stub: !!window.__motionStub }; });
+    }, scripts);
+    var asIs = [], stoodIn = [], changed = [];
+    scripts.forEach(function (f, i) {
+      var file = fs.readFileSync(path.join(env.root, f), 'utf8'), standIn = stub && standIns['/' + f];
+      if (!standIn) (got.txt[i] === file ? asIs : changed).push(f);
+      // (the control: the stand-in's text is not the file's, so a file served otherwise is seen)
+      else if (got.txt[i] === fs.readFileSync(standIn, 'utf8') && got.txt[i] !== file) stoodIn.push(f);
+      else changed.push(f);
+    });
+    if (stub) {
+      s.check('SERVED: with the motion stub asked for, ' + asIs.join(', ') + ' are served as the tree has them, and motion.js\'s own path answers with the stub (the page runs it)',
+              changed.length === 0 && stoodIn.length === 1 && path.posix.basename(stoodIn[0]) === 'motion.js' && asIs.length === scripts.length - 1 && got.stub,
+              JSON.stringify({ changed: changed, stoodIn: stoodIn, stub: got.stub }));
+    } else {
+      s.check('SERVED: without it, every script index.html loads (' + scripts.join(', ') + ') is served as the tree has it',
+              changed.length === 0 && asIs.length === scripts.length && !got.stub, JSON.stringify({ changed: changed, stub: got.stub }));
+    }
+    await t.close();
+  }
+}
+
 async function testServiceWorker(s, root) {
   // a copy of the tree, so that the server can serve a new release of the engine midway
   var fs = require('fs'), os = require('os'), path = require('path'), vm = require('vm');
   var copy = fs.mkdtempSync(path.join(os.tmpdir(), 'hourglass-sw-'));
-  fs.cpSync(H.rootWithMotion(root), copy, { recursive: true, filter: function (src) { var b = path.basename(src); return b !== '.git' && b !== 'node_modules'; } });
+  fs.cpSync(root, copy, { recursive: true, filter: function (src) { var b = path.basename(src); return b !== '.git' && b !== 'node_modules'; } });
   var swSrc = fs.readFileSync(path.join(copy, 'sw.js'), 'utf8'), ctx = { self: { addEventListener: function () {} }, URL: URL };
   vm.runInNewContext(swSrc, ctx);
   var engine = ctx.SHELL.filter(function (u) { return u.indexOf('./realsand/') === 0; }).map(function (u) { return u.slice(1); });
@@ -211,8 +247,10 @@ async function testServiceWorker(s, root) {
     s.check('SW: lab/ pages are never cached, and what a lab page fetched of the engine was not stored (the cached shader is the installed one)',
             after.lab.length === 0 && after.grains.length === 1 && after.grains[0].fresh === false, JSON.stringify(after));
     // Should a lab page meet an engine of another build all the same (here: the lab written for
-    // build C, the engine at B), it drops the engine from the app's caches and loads once more,
-    // only once (sessionStorage stops a loop)
+    // build C, the engine at B), it says so, with both stamps, and leaves the app's cache alone:
+    // the app's installed copy is a snapshot only an install writes (sw.js), and a file taken out
+    // of it would come back only online. (Before the snapshot worker the lab dropped the engine from the app's
+    // caches and loaded once more; app-upgrade runs that lab, 13a9772's, as its control.)
     fs.writeFileSync(path.join(copy, 'lab', 'sand', 'main.mjs'), fs.readFileSync(path.join(copy, 'lab', 'sand', 'main.mjs'), 'utf8').replace(/const BUILD_EXPECTED = '[^']+'/, "const BUILD_EXPECTED = 'sw-test-C'"));
     var engineCached = function () {
       return caches.keys().then(function (keys) {
@@ -229,13 +267,38 @@ async function testServiceWorker(s, root) {
     await lp.reload();
     await lp.waitForFunction(function () { return !!window.__lab && window.__lab.build().expected === 'sw-test-C'; }, null, { timeout: 15000 });
     await sleep(2500);
-    var purge = await lp.evaluate(function () { return { build: window.__lab.build(), mark: sessionStorage.getItem('hourglass.lab.purged') }; });
+    var mixed = await lp.evaluate(function () {
+      return { build: window.__lab.build(), status: document.getElementById('status').textContent, mark: sessionStorage.getItem('hourglass.lab.purged') };
+    });
     var cached1 = await t.eval(engineCached);
-    s.check('SW: a lab page that meets an engine of another build drops the engine from the app\'s caches and loads once more, once only',
-            cached0 >= 30 && cached1 === 0 && loads === 2 && purge.build.build === B && purge.mark === B + '/sw-test-C',
-            JSON.stringify({ cachedBefore: cached0, cachedAfter: cached1, loads: loads, purge: purge }));
+    s.check('SW: a lab page that meets an engine of another build leaves the app\'s cache whole (its ' + cached0 + ' engine files), says so with both stamps, and loads once only',
+            cached0 === engine.length && cached1 === cached0 && loads === 1 && mixed.build.build === B && mixed.mark === null &&
+            mixed.status.indexOf('build ' + B) >= 0 && mixed.status.indexOf('build sw-test-C') >= 0 && /reload with a connection/i.test(mixed.status),
+            JSON.stringify({ cachedBefore: cached0, cachedAfter: cached1, loads: loads, lab: mixed }));
     s.check('SW: no page or console errors', t.errors.length === 0 && labErrors.length === 0, t.errors.concat(labErrors).slice(0, 3).join(' | '));
     await lp.close();
+    // ... and then the app starts offline, from its cache (the server stopped, the page offline)
+    await t.context.setOffline(true);
+    await new Promise(function (r) { env.server.close(function () { r(); }); if (env.server.closeAllConnections) env.server.closeAllConnections(); });
+    var bad = [];
+    t.page.on('response', function (r) { if (r.status() >= 400) bad.push(r.status() + ' ' + new URL(r.url()).pathname); });
+    t.page.on('requestfailed', function (q) { bad.push('failed ' + new URL(q.url()).pathname); });
+    t.errors.length = 0;
+    await t.page.reload();
+    var off = await t.page.waitForFunction(function () { return !!(window.Hourglass && window.Hourglass.sim); }, null, { timeout: 15000 })
+      .then(function () { return t.eval(function () { return { sim: !!window.Hourglass.sim, ctl: !!navigator.serviceWorker.controller }; }); },
+            function (e) { return { error: String(e && e.message).split('\n')[0] }; });
+    var cached2 = await t.eval(engineCached);
+    s.check('SW: ... and the app then starts offline, from its cache (Hourglass.sim, no page errors, no failed or 504 responses), the engine\'s files all still there',
+            off.sim === true && off.ctl === true && t.errors.length === 0 && bad.length === 0 && cached2 === cached0,
+            JSON.stringify({ off: off, errors: t.errors.slice(0, 3), bad: bad.slice(0, 5), cached: cached2 }));
+    // (the control: the count sees one engine file taken out)
+    var cached3 = await t.eval(function (f) {
+      return caches.keys().then(function (keys) {
+        return caches.open(keys.filter(function (k) { return k.indexOf('hourglass-') === 0; })[0]).then(function (c) { return c.delete(f); });
+      });
+    }, '.' + engine[0]).then(function () { return t.eval(engineCached); });
+    s.check('SW: ... and that count sees an engine file taken out of the cache (control)', cached3 === cached0 - 1, cached3 + ' of ' + cached0);
     await t.close();
   } finally {
     await env.close();
@@ -249,6 +312,7 @@ async function main() {
   var root = env.root;
   try {
     await testFlow(s, env);
+    await testServed(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

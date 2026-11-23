@@ -16,7 +16,8 @@ var server = require('./lib/static-server.js');
 var chromium = require('playwright').chromium;
 
 var PORT = +(process.argv[2] || process.env.PORT || 8802);
-var ROOT = path.resolve(__dirname, '..', '..');
+var ROOT = require('./lib/paths.js').ROOT;
+var seed = require('./lib/seed.js');
 var URL = 'http://127.0.0.1:' + PORT + '/';
 var SNAP = process.env.SNAP || '';
 
@@ -75,7 +76,10 @@ function newPage(isolated) {
   var page;
   return browser.newContext({
     viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true
-  }).then(function (ctx) { return ctx.newPage(); }).then(function (p) {
+  }).then(function (ctx) {
+    // the classic sand, as before Real sand was the default (lib/seed.js)
+    return ctx.addInitScript(seed.seedOnce, seed.storageFor({})).then(function () { return ctx.newPage(); });
+  }).then(function (p) {
     page = p;
     page.errors = [];
     page.on('pageerror', function (e) { page.errors.push('pageerror: ' + e.message); });

@@ -98,13 +98,12 @@
  *   node tools/test/sim-shape.test.js        exits 0 when every case passes
  */
 'use strict';
-var fs = require('fs');
 var path = require('path');
 var childProcess = require('child_process');
 var L = require('./lib/load-physics.js');
 var H = require('./lib/harness.js');
 var P = H.P, Sim = P.Sim, Clock = H.Clock, DT = H.DT, DT_MS = Clock.DT_MS;
-var SRC = fs.readFileSync(L.PHYSICS, 'utf8');
+var SRC = L.physicsSource();
 var WALL = 1, REST = 2, Q = 1.08, DEG = Math.PI / 180;
 
 var failures = 0, count = 0;

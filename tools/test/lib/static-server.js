@@ -17,7 +17,7 @@ var http = require('http');
 var fs = require('fs');
 var path = require('path');
 
-var DEFAULT_ROOT = path.resolve(__dirname, '..', '..', '..');
+var DEFAULT_ROOT = require('./paths.js').ROOT;
 
 var TYPES = {
   '.html': 'text/html; charset=utf-8',

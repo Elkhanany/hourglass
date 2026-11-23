@@ -229,13 +229,10 @@ async function e5b(s, env) {
   var env = await H.start();
   var only = env.args.only;
   try {
-    if (!env.caps.p1) s.check('E4/E5 need the motion path (physics-core P1)', false, 'the served sim is P0');
-    else {
-      if (!only || only === 'e4') await e4(s, env);
-      if (!only || only === 'e4b') await e4b(s, env);
-      if (!only || only === 'e5') await e5(s, env);
-      if (!only || only === 'e5b') await e5b(s, env);
-    }
+    if (!only || only === 'e4') await e4(s, env);
+    if (!only || only === 'e4b') await e4b(s, env);
+    if (!only || only === 'e5') await e5(s, env);
+    if (!only || only === 'e5b') await e5b(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

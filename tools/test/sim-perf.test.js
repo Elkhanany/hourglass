@@ -25,7 +25,6 @@
  *   node tools/test/sim-perf.test.js        exits 0 when every case passes
  */
 'use strict';
-var fs = require('fs');
 var L = require('./lib/load-physics.js');
 var H = require('./lib/harness.js');
 var Clock = H.Clock, Pr = H.Profiles;
@@ -227,7 +226,7 @@ timeSpin(1.08, 1); timeSpin(1.08, 2);
 
 // the idle path against f446085, both loaded the same way, alternating
 (function () {
-  var NEW = L.loadIsolated(fs.readFileSync(L.PHYSICS, 'utf8'), 'physics.js');
+  var NEW = L.loadIsolated(L.physicsSource(), 'physics.js');
   var OLD = L.baseline();
   function idleCost(Pk, reps) {
     var sim = new Pk.Sim({ scale: 1.08, seed: 99 });

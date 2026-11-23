@@ -17,13 +17,11 @@
  *   node tools/test/motion-sensors.test.js        exits 0 when every case passes
  */
 'use strict';
-var fs = require('fs');
-var path = require('path');
 var vm = require('vm');
 var Profiles = require('./lib/profiles.js');
 
-var ROOT = path.resolve(__dirname, '..', '..');
-var SRC = fs.readFileSync(path.join(ROOT, 'motion.js'), 'utf8');
+var paths = require('./lib/paths.js');
+var SRC = paths.piece(paths.script('motion.js'));
 var G0 = 9.80665, RAD = Math.PI / 180, TAU = Math.PI * 2;
 var ANDROID_UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0 Mobile Safari/537.36';
 
