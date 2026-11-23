@@ -11,7 +11,9 @@
  *    it names, and every icon of manifest.json is a file that exists and is in SHELL; the named
  *    exceptions to SHELL are the launch screens (icons/splash/: iOS reads them when the app is
  *    added to the home screen) and the manifest's screenshots (docs/images/: for the install sheet);
- *  - index.html has no inline script (a script tag without src): no check here would read it;
+ *  - an inline script of index.html (a script tag without src: the page has one, which says
+ *    "Hourglass is updating" when app.js itself or the stylesheet is missing from the offline
+ *    copy) is read by the same syntax check as the classic files, and none is a module;
  *  - every SHELL path is a file that exists, and none is there twice;
  *  - no classic script (the scripts index.html loads, from lib/paths.js, and sw.js, which is
  *    registered as a classic worker) has any of these kinds of newer syntax: module syntax,
@@ -88,11 +90,24 @@ function notInShell(list, shell, man) {
     return !inShell[n.f] && !EXCEPT.some(function (e) { return e.test(n.f, man); });
   }).map(function (n) { return n.f + ' (' + n.from + ')'; });
 }
-/** The script tags of a page that have no src (their code would be checked by nothing here): ['line N', ...]. */
+/** The inline scripts of a page: its script tags that have no src and whose type, if any, is JavaScript: [{ line, code, module }]. */
 function inlineScripts(html) {
-  var out = [], m, re = /<script\b([^>]*)>/gi, clean = html.replace(/<!--[\s\S]*?-->/g, function (c) { return c.replace(/[^\n]/g, ' '); });
-  while ((m = re.exec(clean))) if (!paths.attr(m[1], 'src')) out.push('line ' + clean.slice(0, m.index).split('\n').length);
+  var out = [], m, re = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi, clean = html.replace(/<!--[\s\S]*?-->/g, function (c) { return c.replace(/[^\n]/g, ' '); });
+  while ((m = re.exec(clean))) {
+    var type = paths.attr(m[1], 'type');
+    if (paths.attr(m[1], 'src') || (type && !/^(?:module|(?:text|application)\/(?:x-)?(?:java|ecma)script)$/i.test(type))) continue;   // a file, or data
+    out.push({ line: clean.slice(0, m.index).split('\n').length, code: m[2], module: /^module$/i.test(type || '') });
+  }
   return out;
+}
+/** What is wrong with them: a module, or newer syntax, by the same list as the classic files: ['the inline script at line N: ...', ...]. */
+function inlineProblems(html) {
+  var bad = [];
+  inlineScripts(html).forEach(function (sc) {
+    if (sc.module) bad.push('the inline script at line ' + sc.line + ': a module');
+    newer(sc.code).forEach(function (b) { bad.push('the inline script at line ' + sc.line + ', its ' + b); });
+  });
+  return bad;
 }
 function added(list, base) { return list.filter(function (x) { return base.indexOf(x) < 0; }); }
 function absent(shell, root) {
@@ -139,11 +154,6 @@ check(gone.length === 0, 'every file they name exists, the launch screens and th
 var c2e = added(notThere(named(HTML.replace('</head>', '<link rel="apple-touch-startup-image" href="./icons/splash/splash-1x9999.png"></head>'), MAN)), gone);
 check(c2e.length === 1 && /^icons\/splash\/splash-1x9999\.png/.test(c2e[0]) && EXCEPT[0].test('icons/splash/splash-1x9999.png', MAN),
   '... and that check finds a launch screen the page names that is not in the tree (control)', c2e.join(', '));
-var inline = inlineScripts(HTML);
-check(inline.length === 0, 'index.html has no inline script (every script is a file, which the checks below read)', inline.join(', '));
-var c2f = inlineScripts(HTML.replace('</body>', '<!-- <script>var a;</script> -->\n<script>const x = 1;</script>\n<script type="application/json">{}</script></body>'));
-check(c2f.length === inline.length + 2, '... and that check finds a script tag with no src, but not one in a comment (control)', c2f.join(', '));
-
 /* ---- 2. every SHELL path exists, once ---- */
 var missing = absent(SHELL);
 check(missing.length === 0, 'every path in SHELL is a file that exists (cache.addAll fails the install on one that is not)', missing.join(', '));
@@ -240,6 +250,13 @@ check(flagged.length === 0, '... and finds none where the words are only in stri
 var mot = read(paths.script('motion.js')), app = read('app.js');
 var c4 = added(newer(mot + '\nconst EXTRA = 1;\n'), newer(mot)), c5 = added(newer(app.replace(/var REALSAND_BUILD = '([^']+)'/, 'var REALSAND_BUILD = `$1`')), newer(app));
 check(c4.length === 1 && /const/.test(c4[0]) && c5.length === 1 && /template/.test(c5[0]), '... and in a copy of motion.js with a const and of app.js with a template string (control)', c4.concat(c5).join('; '));
+
+// the page's inline script, by the same list
+var inline = inlineScripts(HTML), inlineBad = inlineProblems(HTML);
+check(inlineBad.length === 0, 'index.html\'s inline script' + (inline.length === 1 ? '' : 's') + ' (' + inline.length + ': a script tag with no src) ' + (inline.length === 1 ? 'is' : 'are') + ' read by the same check as the classic files: no module, none of the kinds of newer syntax', inlineBad.slice(0, 6).join('; '));
+var c6 = inlineProblems(HTML.replace('</body>', '<!-- <script>const hidden = 1;</script> -->\n<script>const x = 1;</script>\n<script type="module">var y = 2;</script>\n<script type="application/json">{"const": 1}</script></body>'));
+check(added(c6, inlineBad).length === 2 && /const/.test(c6.join(';')) && /a module/.test(c6.join(';')),
+  '... and that check finds a const in a script tag with no src, and an inline module, but not a script in a comment or a tag that holds data (control)', c6.join('; '));
 
 console.log('check-shell: ' + (count - failures) + '/' + count + ' passed');
 if (failures) process.exitCode = 1;

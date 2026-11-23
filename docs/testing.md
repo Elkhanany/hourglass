@@ -18,7 +18,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   that must fail. `check-shell`: every file `index.html` (a name without
   quotes too), its stylesheet (`url()`, `@import`) and the manifest name
   exists and is in the service worker's `SHELL` (the launch screens and the
-  install screenshots excepted from `SHELL`), the page has no inline script,
+  install screenshots excepted from `SHELL`), the page's one inline script (the
+  "Hourglass is updating" note) is held to the same syntax rule as the files,
   every `SHELL` path exists, once, and no classic script (the page's and
   `sw.js`) has module syntax, `import()` or any of the kinds of syntax newer
   than ES5 that the check lists (`=>`, `let`, `const`, template strings,
