@@ -107,6 +107,16 @@ const RC = 0.36;                           // a grain's radius, solver cells (th
 const BLUR = 1;                            // a grain in flight streaks over one display frame
 const SAMPLES = 64;                        // the app's field samples kept (half a second at 120 Hz)
 const EV_CAP = 48;                         // landings a frame for the audio (physics.js EV_CAP)
+// The bed's sounds (design 8), on the classic Sim's scale (physics.js _landing, _stepMotion):
+//  E_MIN: a landing under this energy is not heard (audio.js thump: 1.3 sqrt(E) under 0.05);
+//  FALL_RUNS: a bed that lands has lost half its speed within this many runs of its fastest;
+//  SLIDE_K: the share of the bed's motion within itself that counts as the classic sand's slides
+//  (calibrated: the classic sand on the same motions, design 8); TAU_T: the agitation's memory, s
+//  (physics.js MOT.tauT), IDLE_T: under this, with the bed at rest, it is 0 (MOT.idleT);
+//  HOLD_MS: a readback's slides are fed until the next comes, this long at most; MUTE_MS: a fresh
+//  bed (a fill, a transfer) settles unheard this long; TURN_W: turned faster than this (rad/s), a
+//  bed neither lands nor heats (as the classic sand's, which a turn leaves calm)
+const SND = Object.freeze({ E_MIN: 0.0015, FALL_RUNS: 6, SLIDE_K: 0.45, TAU_T: 0.25, IDLE_T: 0.02, HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5 });
 const SELF_TEST_POINTS = 500;
 
 const ENGINE = { createDevice, Solver, GrainRenderer, ShaderLibrary, Toner };
@@ -207,6 +217,11 @@ export class RealSand {
     // from hidden, a new bed): asleep, the next submit draws it in a run of no substeps
     this._redraw = false; this._guardOn = false;
     this._land = []; this._r2 = [0, 0];
+    // the bed's sounds: what the readbacks since the last frame said (thump, slam), the slides'
+    // rate (grain-cell moves a second) of the newest, each grid bulb's bed at the last readback
+    // (prev) and its fall under way (fall), and the counts for the report
+    this._snd = { thump: new Float32Array(4), slam: new Float32Array(2), rate: 0, rateAt: -Infinity, heardAt: -Infinity, fedAt: 0,
+      prev: [null, null], fall: [null, null], gen: -1, parity: -1, muteUntil: -Infinity, n: { thumps: 0, slams: 0 } };
     this._tally = null; this._gen = 0;
     this._fall = { from: null, wallFrom: null, s: NaN, wall: NaN, floor: this._floorDepth(), log: [] };
     this._losses = []; this._lostInfo = null;
@@ -390,6 +405,7 @@ export class RealSand {
     // (layers turned on or off while the CPU sand was the app's: the GPU's tones follow)
     if (this.layers !== !!cpu.layers) { this.layers = !!cpu.layers; this._retoneDue = true; }
     this.live = true;
+    this._quiet(false);
     this._planned = false; this._mid = null;
     this._lastNow = 0; this._lastDrawn = 0; this._acc = 0; this._lastRunPerf = null;
     this._lastState = this.T ? this.T.state : 'idle';
@@ -435,6 +451,7 @@ export class RealSand {
     // (not ready until a rebuilt engine has drawn its settled bed: the app must not hand it the sand)
     this.live = false; this._gone = true; this._ready = false; this.n.losses++;
     this._xfer = null; this._xferGen++; this._gen++;
+    this._quiet(false);
     let final = false;
     if (!lifecycle) {
       this._losses = this._losses.filter(t => now - t < LOSS_WINDOW_MS);
@@ -510,6 +527,7 @@ export class RealSand {
     if (hidden === this.hidden) return;
     this.hidden = hidden;
     if (hidden && !this.started) this._hiddenInStart = true;
+    if (hidden) this._quiet(false);
     if (!hidden) {
       this._visibleAt = this.clock.perf();
       this._lastNow = 0; this._lastDrawn = 0; this._acc = 0; this._lastRunPerf = null;
@@ -555,7 +573,19 @@ export class RealSand {
   census() { const top = this.nTop, total = this.total; return { top, bottom: total - top, total }; }
   /** Grains of each tone (layered sand: design 7.4 fills this from the readbacks). */
   tones() { return this._tones ? this._tones.slice() : [this.total, 0]; }
-  agitation() { return 0; }
+  /**
+   * How shaken the sand is (0 ... 3), as the CPU Sim's: the hotter bed's granular temperature, from
+   * the beds' own motion in the readbacks (_hear); fading when none comes, 0 asleep, hidden or lost.
+   */
+  agitation() {
+    if (!this._heard()) return 0;
+    const a = this.agit, T = a[0] > a[1] ? a[0] : a[1];
+    if (!(T > 0)) return 0;
+    const late = (this.clock.perf() - this._snd.heardAt - SND.HOLD_MS) / 1000;
+    if (!(late > 0)) return T;
+    const v = T * Math.exp(-late / SND.TAU_T);
+    return v < SND.IDLE_T ? 0 : v;
+  }
   /** The skater effect: each bed's mean r^2 per grain, as at the last fill (app cells^2). */
   inertiaZ() { return this.nTop * this._r2[0] + this.nBottom * this._r2[1]; }
 
@@ -986,7 +1016,7 @@ export class RealSand {
     now = fin(now);
     this._rafLog.push(now);
     if (this._rafLog.length > 61) this._rafLog.shift();
-    this._sound();
+    this._sound(now);
     if (!this.live || this.hidden || this.destroyed) return;
     // (the Renderer's table rebuilt by anything else than a theme or the layers switch, a sand of
     // its own: the grains take its colours at once)
@@ -1021,6 +1051,7 @@ export class RealSand {
     if (this.modes.guard !== this._guardOn) this._guardSays(this.modes.guard, now, mode);
     if (mode === 'asleep') {
       this.n.asleep++; this._lastDrawn = 0; this._acc = 0; this._lastRunPerf = null;
+      if (before !== 'asleep') this._quiet(false);                       // (a sleeping glass is silent)
       // a new palette, a resized canvas, back from hidden: drawn again, with no substep and no change of mode
       if (this._redraw && this.pace.inflight < QUEUE) { this.n.redraws++; this._run(0, this.rate.hz, wall, now, true, this._displayMs()); this._lastRunPerf = null; }
       this._turnCss();
@@ -1090,6 +1121,7 @@ export class RealSand {
     const set = this._set(hz);
     const gen = this._gen, parity = v.parity;
     this._toneField = fields[fields.length - 1];
+    w.snd = this._runSound(steps, hz, fields);
     const p = sol.run(steps, set, k => fields[Math.min(k, fields.length - 1)], draw ? enc => this.grains.encode(enc, sol.count, this._look(hz)) : null, w);
     if (draw) { this._drawnParity = v.parity; this._turnCss(); this._redraw = false; }
     const tSim = this.simTime, seq = paceSubmit(this.pace, this.clock.perf()), tSub = this.clock.perf();
@@ -1207,6 +1239,7 @@ export class RealSand {
     this._tally = t;
     this._endsOf(w, t);
     if (t.post && this.layers) this._toneCounts(toneWords(t.post), parity === undefined ? this.valve.parity : parity);
+    this._hear(w, t, parity === undefined ? this.valve.parity : parity);
     const F = this._fall;
     if (F.from === null && t.crossings > 0 && t.below === t.crossings) { F.from = tSim; F.wallFrom = w.to; }
     else if (F.from !== null && !(F.s >= 0) && t.deepest >= F.floor - 1.5) {
@@ -1288,6 +1321,7 @@ export class RealSand {
   }
   _afterUpload() {
     this._tally = null; this._gen++;
+    this._quiet(true);
     paceReset(this.pace);
     Rate.rateReset(this.rate, SET.hz);
     this.felt.reset(0);
@@ -1407,6 +1441,7 @@ export class RealSand {
     const F = this._fall;
     if (!(F.s >= 0)) { F.from = null; F.s = NaN; F.wall = NaN; }
     this._tally = null; this._gen++; this._lastRunPerf = null;
+    this._quiet(true);
   }
 
   /** Particle records turned half a turn about the neck (the flip pass's map: a point on the line first moved 0.01 below it). */
@@ -1555,7 +1590,7 @@ export class RealSand {
     } else v = 0.4 * vc;
     this._land.push({ at: this._wall() + t * 1000, n, v, top: !!top });
   }
-  _sound() {
+  _sound(raf) {
     const f = this.cpu.frame, now = this._wall();
     const rel = f.released;
     if (rel > 0) this._landing(rel, 0, false);
@@ -1572,6 +1607,122 @@ export class RealSand {
       }
     }
     if (this._land.length > 512) this._land.splice(0, this._land.length - 512);
+    this._bedSound(f, raf);
+  }
+
+  /* ---------------------------------------------------------------------------------------- *
+   *  Sounds (design 8): the beds. What the classic Sim's record says of a moved glass (physics.js:
+   *  frame.thump, frame.slam, frame.slides, agitation), made from what the GPU sand did: each
+   *  readback's beds (solver.mjs bedOf: each bulb's sand in a bed, its mean velocity, speeds and
+   *  place), never from the phone's motion alone. Nothing here asks for a run or keeps the glass
+   *  awake, and the clock's state is not looked at: idle, running, paused and done sound alike.
+   * ---------------------------------------------------------------------------------------- */
+  /** The GPU sand is the app's, in view and awake: only then is anything of the bed heard. */
+  _heard() { return this.live && !this.hidden && !this._gone && !this.destroyed && this.modes.mode !== 'asleep'; }
+
+  /** Nothing of the bed is heard from now: its record forgotten; fresh: a new bed settles unheard for MUTE_MS. */
+  _quiet(fresh) {
+    const S = this._snd;
+    S.thump.fill(0); S.slam.fill(0); S.rate = 0; S.rateAt = -Infinity; S.heardAt = -Infinity;
+    S.prev[0] = S.prev[1] = null; S.fall[0] = S.fall[1] = null;
+    this.agit[0] = this.agit[1] = 0;
+    if (fresh) S.muteUntil = this._wall() + SND.MUTE_MS;
+  }
+
+  /**
+   * What a run's readback will need of the run: its simulated time, its mean field and the
+   * direction of plain gravity (grid frame, y up), and whether the glass was being turned.
+   */
+  _runSound(steps, hz, fields) {
+    if (!(steps > 0)) return null;
+    let gx = 0, gy = 0, w = 0;
+    const n = Math.min(steps, fields.length);
+    for (let k = 0; k < n; k++) { gx += fields[k].gravity[0]; gy += fields[k].gravity[1]; w = Math.max(w, Math.abs(fields[k].omega)); }
+    const th = this.angle + this.tilt, rl = Math.sqrt(this._lam > 0 ? this._lam : LAM0);
+    return { dt: steps / hz, ax: gx / n, ay: gy / n, sx: Math.sin(th), sy: -Math.cos(th), turn: this.flipping || w > SND.TURN_W * rl };
+  }
+
+  /**
+   * A readback's beds, heard (t.beds: [the bulb above the line, the one below] in the run's
+   * orientation, parity; w.snd: _runSound). On the classic sand's scale:
+   *  - a landing. A bed that falls with the field along the glass's axis, and is then stopped by
+   *    the glass (it loses half its speed within FALL_RUNS runs, the field not having slowed it),
+   *    has landed with the speed u it fell at: E = u^2 / (2 G HB), the classic's energy of a bed
+   *    landing at u (its kinetic energy a grain over G times the bulb's height). On the side
+   *    gravity holds the sand to, a thump; on the far end, a slam; its place, the bed's centre
+   *    across the bulb. A bed stopped sideways lands nothing, as the classic sand's slip does not.
+   *  - slides: the bed's motion within itself, the summed speed of its moving points beyond their
+   *    share of the bed's own speed (a bed flying or sliding as one body slides nothing), in the
+   *    CPU Sim's grains and cells a second, times SLIDE_K;
+   *  - agitation: each bed's granular temperature follows its own acceleration over the glass (in
+   *    g, the classic's measure of the field's change) with the classic's memory, and a landing
+   *    heats it as the classic's does (E HB / 3); 0 once the bed is at rest.
+   */
+  _hear(w, t, parity) {
+    const S = this._snd, q = w && w.snd, beds = t && t.beds;
+    if (!beds || !q || !this._heard()) return;                // (a mock's tally with no beds; a run of no substeps; asleep)
+    const perf = this.clock.perf();
+    if (this._sweep || this._wall() < S.muteUntil) { S.prev[0] = S.prev[1] = null; S.fall[0] = S.fall[1] = null; return; }
+    if (S.gen !== this._gen || S.parity !== parity) { S.gen = this._gen; S.parity = parity; S.prev[0] = S.prev[1] = null; S.fall[0] = S.fall[1] = null; }
+    // (a readback of a run from before a swap: its bulbs are the other way up now)
+    const flipped = parity !== this.valve.parity, g = this.glass, GH = this.Gg * g.HBc, HB = this.cpu.geo.HB;
+    const am = Math.hypot(q.ax, q.ay) || 1, kT = 1 - Math.exp(-q.dt / SND.TAU_T), uMin = Math.sqrt(2 * SND.E_MIN * GH);
+    let rate = 0;
+    for (let gb = 0; gb < 2; gb++) {
+      const bed = beds[gb], b = flipped ? 1 - gb : gb;         // b: the app's bulb, 0 the one above now
+      if (!bed || !(bed.n > 0)) { S.prev[gb] = null; S.fall[gb] = null; this.agit[b] *= 1 - kT; continue; }
+      const vx = bed.vx, vy = bed.vy, sp = Math.hypot(vx, vy);
+      const moving = bed.sliding > Math.max(3, 0.01 * bed.n);
+      // slides: the moving points' speed beyond the bed's own
+      if (bed.sliding > 3) rate += Math.max(0, bed.slide - bed.sliding * sp);
+      // a landing
+      let E = 0, F = S.fall[gb];
+      if (q.turn) F = null;
+      else if (F && sp <= F.u) {
+        F.push += (q.ax * F.dx + q.ay * F.dy) * q.dt; F.runs++;
+        const u = vx * F.dx + vy * F.dy;
+        if (u <= 0.5 * F.u) {
+          // (stopped by the glass, not slowed by the field: what the glass took is 0.4 of its speed and more)
+          if (F.u + F.push - u >= 0.4 * F.u) {
+            E = 0.5 * F.u * F.u / GH;
+            const x = Math.max(-1, Math.min(1, (flipped ? -bed.x : bed.x) / g.Rc));
+            if (F.dx * q.sx + F.dy * q.sy > 0) { S.thump[2 * b] += E; S.thump[2 * b + 1] = x; S.n.thumps++; }
+            else { S.slam[0] += E; S.slam[1] = x; S.n.slams++; }
+          }
+          F = null;
+        } else if (F.runs > SND.FALL_RUNS) F = null;
+      } else if (sp >= uMin && vx * q.ax + vy * q.ay >= 0.5 * sp * am && Math.abs(vy) >= 0.707 * sp) F = { u: sp, dx: vx / sp, dy: vy / sp, push: 0, runs: 0 };
+      else if (F) F = null;
+      S.fall[gb] = F;
+      // the granular temperature
+      const P = S.prev[gb];
+      let D = P && moving && !q.turn ? Math.hypot(vx - P[0], vy - P[1]) / q.dt / this.Gg : 0;
+      if (D > 3) D = 3;
+      let T = this.agit[b] + (D - this.agit[b]) * kT + E * HB / 3;
+      if (T > 3) T = 3;
+      if (!moving && T < SND.IDLE_T) T = 0;
+      this.agit[b] = T;
+      S.prev[gb] = [vx, vy];
+    }
+    S.rate = SND.SLIDE_K * rate / (this.s * this.ppg);
+    S.rateAt = S.heardAt = perf;
+  }
+
+  /**
+   * The frame's record of the beds, from the readbacks since the last frame (submit: after the
+   * app's beginFrame, before its sound); raf: the frame's own time, as the app divides by it.
+   */
+  _bedSound(f, raf) {
+    const S = this._snd, perf = this.clock.perf();
+    const dt = S.fedAt && raf > S.fedAt ? Math.min(0.1, (raf - S.fedAt) / 1000) : 1 / 60;
+    S.fedAt = raf;
+    if (this._heard()) {
+      for (let b = 0; b < 2; b++) if (S.thump[2 * b] > 0) { f.thump[2 * b] += S.thump[2 * b]; f.thump[2 * b + 1] = S.thump[2 * b + 1]; }
+      if (S.slam[0] > 0) { f.slam[0] += S.slam[0]; f.slam[1] = S.slam[1]; }
+      // (the rate of the newest readback, for this frame's time: calm draws 30 runs a second, the app hears 60 frames)
+      if (perf - S.rateAt <= SND.HOLD_MS) { const n = Math.round(S.rate * dt); f.slides += n; f.moved += n; }
+    }
+    S.thump.fill(0); S.slam.fill(0);
   }
 
   /* ---------------------------------------------------------------------------------------- *
@@ -1592,6 +1743,7 @@ export class RealSand {
       ledger: v.stats(), fall: { s: F.s, wall: F.wall, floor: F.floor, log: F.log.slice() },
       layers: { on: this.layers, toner: !!this.toner, known: this._lay.known, share: this._lay.share, words: this._lay.words,
         developing: this._wall() < this._lay.until, tones: this.tones() },
+      sound: { agit: this.agitation(), slides: this._snd.rate, thumps: this._snd.n.thumps, slams: this._snd.n.slams },
       times: Object.assign({}, this.times), n: Object.assign({}, this.n), lost: this._lostInfo,
       ends: { runs: this._ends.runs, belowTarget: this._ends.below, crossedShut: this._ends.shutCross,
         audits: this._ends.audits, auditFails: this._ends.auditFails, lastPointMs: this._ends.last.slice() }

@@ -44,7 +44,16 @@
  *  - the glass's motion (felt.mjs) as RealSand's jolts say: live by default (a 0.5 g jolt at once
  *    and as it is, 1.5 g capped at 2 g; on its side the same along its floor, and into its floor
  *    as it is), 'film' slowed as before, plain under Reduce Motion; asleep,
- *    a flick wakes the glass in the frame after it begins and its push reaches the first run.
+ *    a flick wakes the glass in the frame after it begins and its push reaches the first run;
+ *  - the bed's sounds (design 8), with the mock solver saying what its sand does
+ *    (lib/realsand-beds.js): a bed that falls and is stopped by the glass feeds one thump of the
+ *    classic sand's energy, u^2 / (2 G HB), in the frame its readback comes, before the start,
+ *    paused, running and (the lower bulb's) finished; one stopped at the far end a slam; one
+ *    slowed by the field, or stopped sideways, nothing; sand sliding within a bed feeds the
+ *    classic's slides at the calibrated share, every frame also when calm draws every other, and
+ *    a bed moving as one body none; a shaken bed's agitation follows its own acceleration and is
+ *    0 again at rest; at rest, hidden and asleep nothing is fed, and the sound never keeps the
+ *    glass awake; each with its control (the same motion on an engine that hears nothing).
  *
  *   node tools/test/realsand-adapter.test.js
  */
@@ -155,6 +164,9 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
         maxSpeed: 0, meanSpeed: 0, moving: (out.crossings > 0 || pl.flow > 1 || env.V.frame - this.uploadSim < 30) ? 20 : 0,
         crossings: out.crossings, start: out.start, refused: out.refused, upward: out.upward, queue: out.queue, crowdSpeed: 0,
         brim: Math.round(brimY * 16), lastCross: -1, deepest: out.below > 0 ? g._floor : 0 };
+      // what a test says the mock's sand does (lib/realsand-beds.js): this run's beds; its moving points count as moving
+      var bd = env.beds && steps > 0 ? env.beds(env.V.frame) : null;
+      if (bd) { t.beds = bd; if (env.bedsMove !== false) t.moving = Math.max(t.moving, bd[0].sliding + bd[1].sliding); }
       var lag = env.lag ? env.lag() : 1 + Math.floor(env.rnd() * 3);
       lastRd = Math.max(lastRd, env.V.frame + lag);
       var due = lastRd - env.V.frame;
@@ -939,6 +951,162 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   check(jwAsleep && !jwWhys.jolt && jwAsleep2 && wokeFrames === 2 && rJW.n.jolts === jolts0 + 1 && gx1[0] > 0.05 && gx1[0] < 0.3 && push1 > 1,
     'asleep, a flick (a frame of 0.2 g, then 2 g for 50 ms and the stop) wakes the glass in the first frame of its 2 g (' + (wokeFrames === null ? 'never' : 'frame ' + wokeFrames + ', ending ' + Math.round(wokeAfter) + ' ms after it began') +
     '), and the first run starts from its first sample (its first substep ' + f1(gx1[0]) + ' g, then up to ' + f1(push1) + ' g); the hand\'s jitter is no jolt (' + Object.keys(jwWhys).join(', ') + ')');
+
+  /* ------------------------------------------------------------------------------------ *
+   *  The bed's sounds (design 8): the mock solver's sand does what the test says
+   *  (lib/realsand-beds.js), one readback a frame late
+   * ------------------------------------------------------------------------------------ */
+  var B = require('./lib/realsand-beds.js');
+  var one = function () { return 1; };
+  /** n frames of 1/60 s; each(app, k) after each. */
+  async function framesOf(app, n, each) {
+    for (var k = 0; k < n; k++) { app.V.frame++; app.env.pump(); await tick(); app.frame(1000 / 60); if (each) each(app, k); }
+  }
+  /**
+   * A scene: the glass is jolted awake (0.5 g sideways for 3 frames: full for 2 s after), 12
+   * quiet frames, then the mock's beds follow list (one a run) from the scene's frame 15; the
+   * record of every frame: { thump, slam, slides, agit, mode, active }.
+   */
+  async function scene(app, real, list, o) {
+    o = o || {};
+    var rec = [], f0 = null, pre = 15, lower = !!o.lower, n = list.length + (o.after === undefined ? 30 : o.after);
+    var still = B.rest(real.points);
+    app.env.beds = function (frame) {
+      if (f0 === null) return null;
+      var k = frame - f0 - pre, bed = k >= 0 && k < list.length ? list[k] : (o.hold && k >= list.length ? list[list.length - 1] : still);
+      return lower ? B.beds(null, bed) : B.beds(bed, null);
+    };
+    var t0s = app.V.perf;
+    app.motionIn = function (a, now) {
+      var u = now - t0s;
+      if (u <= 50) return { fx: 0.5, fy: 0, w: 0 };
+      return o.motion ? o.motion(Math.round(u * 60 / 1000) - pre) : null;
+    };
+    f0 = app.V.frame + 1;
+    await framesOf(app, pre + n, function (a) {
+      var f = a.cpu.frame;
+      rec.push({ k: a.V.frame - f0 - pre, th0: f.thump[0], x0: f.thump[1], th1: f.thump[2], slam: f.slam[0], slides: f.slides, agit: real.agitation(), mode: real.modes.mode, active: real.isActive() });
+    });
+    app.env.beds = null; app.motionIn = null;
+    return rec;
+  }
+  function fed(rec, key) { return rec.filter(function (r) { return r[key] > 0; }); }
+  function sum(rec, key) { return rec.reduce(function (a, r) { return a + r[key]; }, 0); }
+  var SO = makeApp({ ms: 300000, seed: 301, lag: one });
+  var rSO = await SO.attach(); SO.calibrate(); SO.T.rem = SO.T.durationMs;
+  var GH = rSO.Gg * rSO.glass.HBc, toss = B.toss({ n: rSO.points, up: 60, down: 86, stop: 2 }), Ewant = 86 * 86 / (2 * GH);
+  await framesOf(SO, 60);                    // (a fresh bed settles unheard for 0.4 s)
+  // before the start (idle): the bed is thrown, falls back at 86 cells/s and is stopped by the glass
+  var s1 = await scene(SO, rSO, toss.list), th1 = fed(s1, 'th0');
+  check(SO.T.state === 'idle' && th1.length === 1 && Math.abs(th1[0].th0 / Ewant - 1) < 1e-3 && th1[0].k === toss.stopped + 1 && fed(s1, 'slam').length === 0 && fed(s1, 'th1').length === 0,
+    'before the start, a bed thrown and stopped by the glass at 86 cells/s feeds one thump of the classic sand\'s energy for that landing, u^2 / (2 G HB) = ' + Ewant.toFixed(4) +
+    ' (' + th1.map(function (r) { return r.th0.toFixed(4) + ' in frame ' + r.k; }).join(', ') + '; the bed at half its speed in run ' + toss.stopped + ', its readback a frame later), in the upper bulb, and no slam');
+  // ... on an engine that hears nothing (as before this work), the same scene feeds nothing (control)
+  await framesOf(SO, 90);                    // (the landing's heat has faded)
+  var hearWas = rSO._hear; rSO._hear = function () {};
+  var s1c = await scene(SO, rSO, toss.list);
+  rSO._hear = hearWas;
+  check(fed(s1c, 'th0').length === 0 && sum(s1c, 'slides') === 0 && Math.max.apply(null, s1c.map(function (r) { return r.agit; })) === 0,
+    '... and with the readbacks unheard (control: the engine as it was) the same scene feeds no thump, no slide and no agitation');
+  // the landing heats the bed (the classic's E HB / 3) and the heat is gone at rest
+  var aPeak = Math.max.apply(null, s1.map(function (r) { return r.agit; })), aEnd = s1[s1.length - 1].agit, heat = Ewant * SO.cpu.geo.HB / 3;
+  check(aPeak > heat && aPeak < heat + 0.6 && aEnd < 0.3 * aPeak,
+    'the landing heats the bed as the classic sand\'s does (E HB / 3 = ' + heat.toFixed(2) + ' on top of what its fall stirred: agitation up to ' + aPeak.toFixed(2) + '), fading after (' + aEnd.toFixed(2) + ' half a second on)');
+  // sideways at the same speeds: stopped by the side of the glass, no landing (the classic sand's slip lands nothing)
+  var s2 = await scene(SO, rSO, B.toss({ n: rSO.points, up: 60, down: 86, stop: 2, axis: 'x' }).list);
+  // slowed by the field, not by the glass: falling at 86, then the hand pulls the glass down at 2 g (the field 1 g upward) and the bed slows by 35.75 a run
+  var slowed = [0, -35.75, -71.5, -86, -86, -50.25, -14.5, 0, 0, 0].map(function (v) { return B.bed([{ n: rSO.points, v: [0, v] }]); });
+  var s3 = await scene(SO, rSO, slowed, { motion: function (k) { return k >= 5 && k <= 7 ? { fx: 0, fy: -2, w: 0 } : null; } });
+  check(fed(s2, 'th0').length === 0 && fed(s2, 'slam').length === 0 && fed(s3, 'th0').length === 0 && fed(s3, 'slam').length === 0,
+    'a bed stopped sideways lands nothing, and one that the field slows (the glass pulled away under it) has not landed: no thump, no slam (' +
+    (fed(s2, 'th0').length + fed(s2, 'slam').length) + ', ' + (fed(s3, 'th0').length + fed(s3, 'slam').length) + ')');
+  // thrown to the far end: the field upward (the glass pulled down at 2 g), the bed rising at 80 and stopped there
+  var far = [40, 80, 80, 80, 40, 0, 0, 0].map(function (v) { return B.bed([{ n: rSO.points, v: [0, v] }], [12, 60]); });
+  var s4 = await scene(SO, rSO, far, { motion: function (k) { return k >= -2 && k <= 6 ? { fx: 0, fy: -2, w: 0 } : null; } }), sl4 = fed(s4, 'slam');
+  var Eslam = 80 * 80 / (2 * GH);
+  check(sl4.length === 1 && Math.abs(sl4[0].slam / Eslam - 1) < 1e-3 && fed(s4, 'th0').length === 0 && Math.abs(SO.cpu.frame.slam[1]) <= 1 && sl4[0].k === 5,
+    'a bed thrown at the far end of its bulb (the field upward, 80 cells/s) and stopped there feeds one slam of ' + Eslam.toFixed(4) + ' (' + sl4.map(function (r) { return r.slam.toFixed(4) + ' in frame ' + r.k; }).join(', ') + ') and no thump');
+  // slides: 200 of the bed's points sliding at 60 cells/s, the rest at rest; the classic's count at the calibrated share
+  var N = rSO.points, slideBed = B.bed([{ n: N - 200 }, { n: 200, v: [60, 0] }]), sp = 200 * 60 / N;
+  var rateWant = 0.45 * (200 * 60 - 200 * sp) / (rSO.s * rSO.ppg);
+  var s5 = await scene(SO, rSO, [slideBed], { hold: true, after: 240 });
+  // (full for 2 s after the jolt, calm after: the same slides a frame in both)
+  var full5 = s5.filter(function (r) { return r.k >= 5 && r.mode === 'full'; }), calm5 = s5.filter(function (r) { return r.mode === 'calm'; });
+  var perF = function (a) { return sum(a, 'slides') / a.length * 60; };
+  var body = B.bed([{ n: N, v: [60, 0] }]);
+  var s5c = await scene(SO, rSO, [body], { hold: true, after: 60 });
+  check(full5.length > 60 && calm5.length > 60 && Math.abs(perF(full5) / rateWant - 1) < 0.02 && Math.abs(perF(calm5) / rateWant - 1) < 0.02 &&
+    calm5.every(function (r) { return r.slides > 0; }) && sum(s5c.filter(function (r) { return r.k >= 2; }), 'slides') === 0 && fed(s5, 'th0').length === 0,
+    'sand sliding within the bed (200 points at 60 cells/s) feeds the classic\'s slides at the calibrated share, ' + Math.round(rateWant) + ' a second (full: ' + Math.round(perF(full5)) + ', calm, a run every other frame: ' + Math.round(perF(calm5)) +
+    ', in every frame); the whole bed moving as one body at that speed slides nothing (control: ' + sum(s5c.filter(function (r) { return r.k >= 2; }), 'slides') + ')');
+  // agitation: the bed thrown from side to side at +-100 cells/s, 5 Hz (its acceleration 0.93 g on average); then at rest
+  var shake = [];
+  for (var qk = 0; qk < 90; qk++) shake.push(B.bed([{ n: N, v: [100 * Math.sin(2 * Math.PI * 5 * qk / 60), 0] }]));
+  var s6 = await scene(SO, rSO, shake, { after: 150 });
+  var a6 = s6.filter(function (r) { return r.k >= 45 && r.k < 90; }).map(function (r) { return r.agit; }), a6lo = Math.min.apply(null, a6), a6hi = Math.max.apply(null, a6);
+  var back6 = s6.filter(function (r) { return r.k >= 90 && r.agit === 0; })[0];
+  // (control: the same bed drifting at a steady 100 cells/s: no acceleration but the start's)
+  var s6c = await scene(SO, rSO, [B.bed([{ n: N, v: [100, 0] }])], { hold: true, after: 60 });
+  var a6c = Math.max.apply(null, s6c.filter(function (r) { return r.k >= 45; }).map(function (r) { return r.agit; }));
+  check(a6lo > 0.4 && a6hi < 1.2 && back6 && back6.k - 90 < 90 && a6c < 0.05 && fed(s6, 'th0').length === 0 && fed(s6, 'slam').length === 0,
+    'a bed thrown from side to side at 100 cells/s, 5 Hz is agitated as its own acceleration over the glass says (' + a6lo.toFixed(2) + ' to ' + a6hi.toFixed(2) + ' while shaken, 0.93 g on average), with no landing, and exactly 0 again ' +
+    (back6 ? ((back6.k - 90) / 60).toFixed(2) + ' s' : 'never') + ' after it rests; one drifting at a steady speed is not (control: ' + a6c.toFixed(3) + ')');
+  // at rest nothing is fed: awake (running, the stream flowing) with both beds still
+  SO.start();
+  var rest7 = [];
+  SO.env.beds = function () { return B.beds(B.rest(rSO.valve.Pts(rSO.nTop)), B.rest(rSO.valve.Pts(rSO.nBottom))); };
+  await framesOf(SO, 90);                    // (the last scene's drift has stopped and faded)
+  await framesOf(SO, 150, function (a) { var f = a.cpu.frame; rest7.push({ th0: f.thump[0], th1: f.thump[2], slam: f.slam[0], slides: f.slides, agit: rSO.agitation(), mode: rSO.modes.mode }); });
+  SO.env.beds = null;
+  check(rest7.every(function (r) { return r.mode !== 'asleep'; }) && sum(rest7, 'th0') + sum(rest7, 'th1') + sum(rest7, 'slam') + sum(rest7, 'slides') + sum(rest7, 'agit') === 0 && SO.cpu.frame.released >= 0,
+    'at rest nothing is fed: a running glass, awake, its beds still: no thump, slam, slide or agitation in 150 frames (the stream\'s own record goes on)');
+  // running, and paused: the same landing, the same thump
+  var s8 = await scene(SO, rSO, toss.list), th8 = fed(s8, 'th0');
+  SO.T.state = 'paused';
+  var s9 = await scene(SO, rSO, toss.list), th9 = fed(s9, 'th0');
+  check(th8.length === 1 && Math.abs(th8[0].th0 / Ewant - 1) < 1e-3 && th9.length === 1 && Math.abs(th9[0].th0 / Ewant - 1) < 1e-3,
+    'running and paused, the same landing feeds the same thump (' + th8.map(function (r) { return r.th0.toFixed(4); }).join() + ' running, ' + th9.map(function (r) { return r.th0.toFixed(4); }).join() + ' paused)');
+  // asleep: silent; and never kept awake by sound (sliding beds in the readbacks, the tally's own count of moving points 0)
+  await framesOf(SO, 200);
+  SO.env.bedsMove = false;
+  var sleepAt = null, fedAsleep = 0, fedAwake = 0, t0SO = SO.V.perf;
+  SO.env.beds = function () { return B.beds(slideBed, null); };
+  SO.motionIn = function (a, now) { return now - t0SO <= 50 ? { fx: 0.5, fy: 0, w: 0 } : null; };
+  await framesOf(SO, 400, function (a, k) {
+    var f = a.cpu.frame, asl = rSO.modes.mode === 'asleep';
+    if (asl && sleepAt === null) sleepAt = k;
+    // (the app passes the record on only in a frame it counts active; agitation in every frame)
+    var got = (rSO.isActive() ? f.thump[0] + f.thump[2] + f.slam[0] + f.slides : 0) + rSO.agitation();
+    if (asl) fedAsleep += got; else fedAwake += got;
+  });
+  SO.env.beds = null; SO.env.bedsMove = undefined; SO.motionIn = null;
+  // (the same glass, jolted the same and left, with no beds in its readbacks, falls asleep after as many frames: control)
+  var S2 = makeApp({ ms: 300000, seed: 301, lag: one });
+  var rS2 = await S2.attach(); S2.calibrate(); S2.T.rem = S2.T.durationMs; S2.T.state = 'paused';
+  await framesOf(S2, 200);
+  var t0S2 = S2.V.perf, sleep2 = null;
+  S2.motionIn = function (a, now) { return now - t0S2 <= 50 ? { fx: 0.5, fy: 0, w: 0 } : null; };
+  await framesOf(S2, 400, function (a, k) { if (sleep2 === null && rS2.modes.mode === 'asleep') sleep2 = k; });
+  S2.motionIn = null;
+  check(sleepAt !== null && fedAwake > 0 && fedAsleep === 0 && !rSO.isActive() && rSO.agitation() === 0 && sleep2 !== null && Math.abs(sleepAt - sleep2) <= 2,
+    'a sleeping glass is silent, and sound never keeps it awake: jolted and left, with sliding beds in every readback but no point moving by the tally\'s own count, it sleeps after ' + sleepAt +
+    ' frames (the same with no beds heard: ' + sleep2 + '), fed while awake, nothing after (' + fedAsleep + ', agitation ' + rSO.agitation() + ')');
+  // hidden: nothing; back in view, the beds are heard afresh
+  var s10 = await scene(SO, rSO, [slideBed], { hold: true, after: 20 });
+  var before10 = rSO.stats().sound.slides;
+  rSO.setHidden(true);
+  var hid = { agit: rSO.agitation(), slides: rSO.stats().sound.slides };
+  rSO.setHidden(false);
+  check(before10 > 0 && sum(s10, 'slides') > 0 && hid.agit === 0 && hid.slides === 0,
+    'hidden, nothing of the bed is heard (slides ' + Math.round(before10) + ' a second before, ' + hid.slides + ' hidden; agitation ' + hid.agit + ')');
+  // finished: all the sand below; the lower bed thrown and landing feeds the lower bulb's thump
+  var SD = makeApp({ ms: 10000, seed: 303, lag: one });
+  var rSD = await SD.attach(); SD.calibrate(); SD.T.rem = SD.T.durationMs; SD.start();
+  await runGlass(SD, 10000);
+  var tossD = B.toss({ n: rSD.points, up: 60, down: 86, stop: 2 });
+  var s11 = await scene(SD, rSD, tossD.list, { lower: true }), th11 = fed(s11, 'th1');
+  check(SD.T.state === 'done' && rSD.nTop === 0 && th11.length === 1 && Math.abs(th11[0].th1 / Ewant - 1) < 1e-3 && fed(s11, 'th0').length === 0,
+    'finished (all the sand below), the lower bed\'s landing feeds the lower bulb\'s thump (' + th11.map(function (r) { return r.th1.toFixed(4) + ' in frame ' + r.k; }).join(', ') + '), none for the upper');
 
   // a device lost while hidden (a lock): the CPU takes over with the clock untouched, the GPU comes back on return
   var Z = makeApp({ ms: 10000, seed: 131 });
