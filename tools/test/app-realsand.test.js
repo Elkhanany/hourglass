@@ -1715,19 +1715,21 @@ function bedWatch(t) {
   });
 }
 /**
- * The mock engine says what its sand does, in every frame in which it ran: 800 slides, agitation
- * 1.2, a landing of E 0.4 in every 10th such frame and a slam of 0.3 in every 15th (on false: nothing).
+ * The mock engine says what its sand does, in every frame in which it ran: slides at 48,000 a
+ * second (for the time since it last said so, as an engine gives a rate), agitation 1.2, a
+ * landing of E 0.4 in every 10th such frame and a slam of 0.3 in every 15th (on false: nothing).
  */
 function bedSay(t, on) {
   return t.eval(function (on) {
-    var k = 0;
+    var k = 0, last = 0;
     window.__mockEnv.feeds = !on ? null : function () {
-      var S = window.__bed.said, th = k % 10 === 3, sm = k % 15 === 11;
-      k++;
-      S.frames++; S.moves += 800;
+      var S = window.__bed.said, th = k % 10 === 3, sm = k % 15 === 11, now = performance.now();
+      var n = Math.round(48000 * (last ? Math.min(0.1, (now - last) / 1000) : 1 / 60));
+      last = now; k++;
+      S.frames++; S.moves += n;
       if (th) S.thumps++;
       if (sm) S.slams++;
-      return { thump: th ? [0.4, 0.2, 0, 0] : [0, 0, 0, 0], slam: sm ? [0.3, -0.5] : [0, 0], slides: 800, agit: 1.2 };
+      return { thump: th ? [0.4, 0.2, 0, 0] : [0, 0, 0, 0], slam: sm ? [0.3, -0.5] : [0, 0], slides: n, agit: 1.2 };
     };
   }, on);
 }
