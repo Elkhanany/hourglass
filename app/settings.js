@@ -97,6 +97,7 @@
     { id: 'realSandFails', default: 0 },         // launches in a row at which Real sand did not start (it stops trying at 3)
     { id: 'realSandWhy', default: '' },          // ... and why the last one did not (or why this browser cannot have it)
     { id: 'realSandNa', default: '' },           // the user agent of a browser that could not have it: while it is this one, "Needs WebGPU", nothing loaded
+    { id: 'realSandNaAt', default: 0 },          // ... and when that was found (ms since 1970): after seven days it is tried again all the same
     { id: 'realSandBuild', default: '' },        // the engine build those three were found with: another build clears them, and it tries again
     { id: 'v', default: 2 }                      // the settings' version (see STEPS)
   ];
