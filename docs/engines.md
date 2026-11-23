@@ -829,11 +829,16 @@ colours from the Renderer's own table (`renderer.lut`, `renderer.isMica`), so
 any sand the Renderer can draw, Real sand draws. The Sim knows nothing of a
 Renderer.
 
-The exact lists live in one place, the test that checks them
-(`tools/test/realsand-adapter.test.js`): every member the app and the sound
-use on `sim` must exist on RealSand with the CPU Sim's type, and the shared
-objects must be the CPU Sim's own. Real sand's side of it, member by member,
-is in [Real sand: the design](design/real-sand.md), section 4.
+The exact lists live in one place, the test that checks them (the first
+check of `tools/test/realsand-adapter.test.js`). It reads every name that
+`app.js` and `audio.js` bind to an engine (`sim`, `cpuSim`, `real`,
+`realEng`, `eng`, the class, and the sound's `sim`) and compares them with
+its lists: a member used and not listed, or listed and no longer used,
+fails, so a new member joins the contract on purpose. Then the CPU Sim must
+have every member of the first group, RealSand each of them with the CPU
+Sim's type and every member of the second, and the shared objects must be
+the CPU Sim's own. Real sand's side of it, member by member, is in
+[Real sand: the design](design/real-sand.md), section 4.
 
 A third sand engine would follow the same checklist: every member of the
 first group; the lifecycle members the app calls on the GPU engine; loaded

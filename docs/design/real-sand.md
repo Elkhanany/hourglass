@@ -346,9 +346,9 @@ them by group):
 | `knock()`, `flick()`, `shake()` | -1, 0, -1: no damage (section 12) |
 | `census()`, `tones()` | the ledger's counts; each tone's count from the readbacks |
 
-`realsand-adapter` checks that every member the app and the sound use exists
-on RealSand with the CPU Sim's type, and that the shared objects are the CPU
-Sim's own.
+`realsand-adapter`'s first check holds the contract: every name the app and
+the sound bind to an engine against its lists, every Sim member on RealSand
+with the CPU Sim's type, and the shared objects the CPU Sim's own.
 
 ---
 
