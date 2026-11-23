@@ -21,8 +21,8 @@
  *     and a record's `from` (the value for a save without the key), on a made-up store; every
  *     record of the app with a `from` has its example in FROM below.
  *  4. The names: every settings.<name> in app.js is a record, and every record is used there.
- *  5. save(), a blocked storage, bindSwitch (set, save, then the callback, inside the event),
- *     and that the file reads nothing when it loads.
+ *  5. save(), a blocked storage, bindSwitch (the loaded value shown; then set, save and the
+ *     callback, inside the event), and that the file reads nothing when it loads.
  * Each rule has its control: a store, a table or a copy of app.js that breaks it must fail the
  * same check.
  *
@@ -555,6 +555,29 @@ var notSwitch = [];
 ['volume', 'nothing'].forEach(function (k) { try { S.bindSwitch(el, k); } catch (e) { notSwitch.push(k); } });
 check(heard.length === 1 && heard[0][0] === 'change' && order.join(' | ') === 'after false saved false value false | returned | after true saved true value true' && notSwitch.join() === 'volume,nothing',
   'bindSwitch: on change the value is set, saved, and then the callback is called, in that order and before the event returns; a key that is no switch throws', order.join(' | '));
+// ... and it shows the loaded value from the moment it is bound, whatever the page's markup says
+/** Whether a store's bindSwitch sets the switch from the loaded value: one the markup has on for a value saved off, and the other way round. */
+function showsLoaded(store) {
+  var st = Storage('{"v":2,"realSand":false,"chime":true}', 'ok');
+  store.load(st.reach, '', REG);
+  var off = { checked: true, addEventListener: function () {} }, on = { checked: false, addEventListener: function () {} };
+  store.bindSwitch(off, 'realSand'); store.bindSwitch(on, 'chime');
+  return off.checked === false && on.checked === true;
+}
+/** The store a source of app/settings.js defines, in a context of its own. */
+function storeOf(source) {
+  var b = {};
+  b.window = b;
+  vm.createContext(b);
+  vm.runInContext(source, b, { filename: STORE_FILE });
+  return b.HourglassSettings;
+}
+var STORE_SRC = paths.piece(STORE_FILE), unloaded = '';
+try { S.make(S.RECORDS, S.STEPS, S.repair).bindSwitch({ addEventListener: function () {} }, 'chime'); } catch (e) { unloaded = e.message; }
+check(showsLoaded(S) && showsLoaded(storeOf(STORE_SRC)) && /bound before the settings are loaded/.test(unloaded),
+  'bindSwitch sets the switch to the loaded value as it binds (a switch the page has on comes up off for a value saved off), so a switch needs no line of its own at the boot; bound before a load, it throws', unloaded);
+var deaf = STORE_SRC.replace('      el.checked = !!current[key];\n', '');
+check(deaf !== STORE_SRC && !showsLoaded(storeOf(deaf)), '... and a copy of ' + STORE_FILE + ' whose bindSwitch only listens leaves the switch as the page has it (control)');
 // the file reads nothing when it loads: run where every global it could read is watched
 var touched = [], box = {};
 ['localStorage', 'sessionStorage', 'location', 'document', 'navigator', 'HourglassPhysics'].forEach(function (g) {
@@ -562,7 +585,7 @@ var touched = [], box = {};
 });
 box.window = box;
 vm.createContext(box);
-var src = paths.piece(STORE_FILE), loaded = '';
+var src = STORE_SRC, loaded = '';
 try { vm.runInContext(src, box, { filename: STORE_FILE }); } catch (e) { loaded = e.message; }
 check(!loaded && touched.length === 0 && box.HourglassSettings && typeof box.HourglassSettings.load === 'function',
   STORE_FILE + ' reads nothing when it loads (no storage, no location, no document), and defines HourglassSettings', loaded || touched.join());

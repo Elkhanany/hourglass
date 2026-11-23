@@ -14,11 +14,17 @@
  *     default   its value on a new install; its type is the setting's type
  *               (a saved value of another type is dropped)
  *     valid     optional, valid(value, reg): false puts the default back
- *               (the default itself need not pass)
+ *               (the default itself need not pass). It does not clamp: a
+ *               level saved outside its range comes up as the default, not
+ *               as the nearest end
  *     from      optional, from(saved, reg): the value for a save that has no
  *               such key yet (a setting made from older ones). A migration
  *               is keyed on its own key being absent, never on a version,
- *               so that settings can ship in any order (settings design 5.1)
+ *               so that settings can ship in any order (settings design 5.1).
+ *               `saved` is the save as it was read, before any type is
+ *               checked: a from must stand any value under any key (one
+ *               that throws, or gives another type, costs its own key the
+ *               default)
  *
  *   HourglassSettings.load(storage, search, reg) -> values
  *       storage   the Storage, or a function that returns it (it is called
@@ -28,7 +34,9 @@
  *       reg       what the checks need: { themes: HourglassPhysics.THEMES }
  *   HourglassSettings.save(values)      to the storage of the last load
  *   HourglassSettings.preset(search)    "?t=300": { durationMs }, else null
- *   HourglassSettings.bindSwitch(el, key, after)   a plain switch of Tune
+ *   HourglassSettings.bindSwitch(el, key, after)   a plain switch of Tune:
+ *       it shows the loaded value from then on (so load comes first), and
+ *       when it flips the value is set and saved, then after(value) called
  *   HourglassSettings.KEY, .VERSION, .RECORDS, .KEYS (the ids, in the order
  *       they are saved)
  *
@@ -162,13 +170,16 @@
     }
 
     /**
-     * A plain switch of Tune: when it flips, the value is set and saved, and then after(value)
-     * is called, in that order and inside the event, so that what must happen within the tap
-     * (the iPhone's tick, a permission question) still does.
+     * A plain switch of Tune. It is set to the loaded value as it is bound (not left as the
+     * page's markup has it), so it needs no line of its own at the boot. When it flips, the value
+     * is set and saved, and then after(value) is called, in that order and inside the event, so
+     * that what must happen within the tap (the iPhone's tick, a permission question) still does.
      */
     function bindSwitch(el, key, after) {
       var k = keys.indexOf(key);
       if (k < 0 || typeof records[k].default !== 'boolean') throw new Error('settings: ' + key + ' is not a switch');
+      if (!current) throw new Error('settings: ' + key + ' is bound before the settings are loaded');
+      el.checked = !!current[key];
       el.addEventListener('change', function (e) {
         var on = !!e.target.checked;
         current[key] = on;
