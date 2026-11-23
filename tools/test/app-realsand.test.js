@@ -1929,8 +1929,8 @@ async function testSounds(s, env) {
           // moved: a quarter of its points sliding at 60 cells a second, its own velocity swinging; then 3 readbacks falling at 160, and stopped
           var vx = how === 'moved' ? 6 * Math.sin(k / 3) : 0, vy = fall ? -160 : (stop ? -8 : 0), sl = how === 'moved' ? 5000 : 0;
           return { moving: 5000, beds: [
-            { n: 20000, vx: vx, vy: vy, v2: 3600, x: 3, y: 30, sliding: sl, slide: sl * (60 + Math.sqrt(vx * vx + vy * vy)) },
-            { n: 0, vx: 0, vy: 0, v2: 0, x: 0, y: 0, sliding: 0, slide: 0 }] };
+            { n: 20000, vx: vx, vy: vy, x: 3, sliding: sl, slide: sl * (60 + Math.sqrt(vx * vx + vy * vy)) },
+            { n: 0, vx: 0, vy: 0, x: 0, sliding: 0, slide: 0 }] };
         };
       }, how);
     };
