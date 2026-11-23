@@ -27,6 +27,7 @@ icons/                      app icons and iPhone launch screens (icons/splash)
 docs/                       the guide, how it works, the architecture, the tests, and the designs
 docs/images/                the pictures in the README and the install screenshots
 tools/icons.html            regenerates the icons from one SVG
+tools/audio-identity.js     run by hand: shows that a change to audio.js changed no sound
 tools/test/                 development-only tests (not part of the app)
 ```
 

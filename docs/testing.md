@@ -32,7 +32,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   themselves: `tools/test/lib/paths.js` reads the page's scripts from
   `index.html`, a suite that still reads one `physics.js` fails at once, and
   the browser harness refuses a tree that lacks a script the page loads,
-  naming it.
+  naming it. `check-registry`: the sound cards of `index.html` and the
+  registry of `audio.js` say the same (the ids, names and icons of
+  `HourglassAudio.characters()` and `.ambiences()`, in order); a character,
+  an ambience or a glass shape that is not whole is refused by name
+  (`defineCharacter`, `defineAmbience`, `addShape`); and the shapes of
+  `physics.js` are whole records that `checkShape` finds nothing wrong with.
 - On GitHub, every pull request and every push to `main` runs the check
   group and the Node suites that take seconds (`.github/workflows/checks.yml`
   lists them; about three minutes, no browser and no `npm install`). The
@@ -99,7 +104,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   glass fitting under the neck, the Flip, pours that fill it to exactly its
   cap, layered sand, a hard shake that must never write sand into the glass,
   and going quiet after hard jerks; and that glasses the sand cannot use are
-  refused by name, each by its own rule.
+  refused by name, each by its own rule. It also holds the registry to its
+  rules: the records (the classic first, which shapes Tune may offer),
+  `addShape` taking a whole record and refusing one that is not, and
+  `checkShape` saying what a Sim would refuse a glass with, without building
+  one, at the pace it is asked for.
   (`HOURGLASS_SHAPE=delta node tools/test/sim-clock.test.js` runs any `sim-*`
   suite on another shape; many state what the teardrop does, so some of
   their cases then fail without anything being wrong.) The
@@ -119,7 +128,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the sound engine's calls and levels, and the water ambiences: that each
   starts, switches and stops leaving nothing behind, their levels, that
   nothing clips behind the sand, their synthesis slices, and the fallback for
-  browsers that refuse low sample rates.
+  browsers that refuse low sample rates. A change to `audio.js` that should
+  change no sound has a tool of its own, run by hand because it must be told
+  what to compare with: `node tools/audio-identity.js --base <commit>` runs
+  that commit's engine and the checkout's from the same random numbers and
+  compares the tables, the sand's material and every ambience's loops sample
+  for sample (in Node), and every character and ambience through the graph
+  (in Chromium), to within what a render there differs from itself.
 - `app-*`: the app's own acceptance tests (permission, gestures, motion,
   re-timing, session, the existing flow), on the app as it ships: every
   script `index.html` loads is served as it is, except that a suite may ask
