@@ -8,8 +8,8 @@
  * two bases: the merge-base of HEAD and origin/main (what this branch changed) and origin/main
  * itself (a release that landed meanwhile takes its number). If this branch changed a shipped
  * file, VERSION must be greater than the VERSION of both, as semver (1.10.0 is after 1.9.0).
- * index.html's <meta name="hourglass-version" content="X.Y.Z">, the page's own release, must
- * equal VERSION wherever the page has it, and may not be dropped once a base has it.
+ * index.html's <meta name="hourglass-version" content="X.Y.Z">, the page's own release (Tune's
+ * last line reads it), must be there and equal VERSION.
  *
  * HOURGLASS_MAIN=<ref> compares with another ref than origin/main. Without that ref (a clone
  * with no remote, or a shallow one) the check fails and says how to fetch it.
@@ -73,11 +73,10 @@ function releaseProblems(now, bases) {
     });
   }
   var nowMeta = now.meta;
-  if (nowMeta !== null && nowMeta !== now.version.replace(/^hourglass-v/, '')) {
+  if (nowMeta === null) {
+    out.push('index.html has no hourglass-version meta (<meta name="hourglass-version" content="' + now.version.replace(/^hourglass-v/, '') + '">)');
+  } else if (nowMeta !== now.version.replace(/^hourglass-v/, '')) {
     out.push('index.html says hourglass-version ' + nowMeta + ', sw.js says ' + now.version);
-  }
-  if (nowMeta === null && bases.some(function (b) { return b.meta !== null; })) {
-    out.push('index.html has lost its hourglass-version meta');
   }
   return out;
 }
@@ -106,29 +105,35 @@ if (why !== null) {
   var p = releaseProblems(now, bases), mine = bases[0].changed.filter(function (f) { return shipped(now.shell)[f]; });
   check(p.length === 0, 'the release is in order: VERSION ' + now.version + '; ' + bases.map(function (b) { return b.name + ' ' + b.version; }).join(', ') +
     '; shipped files changed on this branch: ' + (mine.length ? mine.length + ' (' + mine.slice(0, 5).join(', ') + (mine.length > 5 ? ', ...' : '') + ')' : 'none') +
-    '; index.html\'s hourglass-version ' + (now.meta === null ? 'not there yet' : now.meta), p.join(' | '));
+    '; index.html\'s hourglass-version ' + now.meta, p.join(' | '));
 }
 
 /* ---- controls: the rule on made-up trees ---- */
+// Each tree's meta is its VERSION's number unless the case gives another (null: no meta). A case
+// that must fail must fail with its own one problem, named by `why`; one that must pass has none.
 var SH = ['./', './index.html', './app.js', './realsand/boot.mjs'];
-function T(version, metaV) { return { version: version, shell: SH, meta: metaV === undefined ? null : metaV }; }
-function B(name, version, changed, metaV) { return { name: name, version: version, shell: SH, changed: changed, meta: metaV === undefined ? null : metaV }; }
+function T(version, metaV) { return { version: version, shell: SH, meta: metaV === undefined ? version.replace(/^hourglass-v/, '') : metaV }; }
+function B(name, version, changed) { return { name: name, version: version, shell: SH, changed: changed, meta: version.replace(/^hourglass-v/, '') }; }
 var cases = [
-  ['app.js changed, VERSION the same as the merge-base\'s', false, T('hourglass-v1.9.0'), [B('mb', 'hourglass-v1.9.0', ['app.js']), B('main', 'hourglass-v1.9.0', ['app.js'])]],
-  ['index.html changed (as ./), VERSION the same', false, T('hourglass-v1.9.0'), [B('mb', 'hourglass-v1.9.0', ['index.html']), B('main', 'hourglass-v1.9.0', ['index.html'])]],
-  ['an engine module changed, VERSION the same', false, T('hourglass-v1.9.0'), [B('mb', 'hourglass-v1.9.0', ['realsand/boot.mjs']), B('main', 'hourglass-v1.9.0', [])]],
-  ['sw.js changed, VERSION lower', false, T('hourglass-v1.8.9'), [B('mb', 'hourglass-v1.9.0', ['sw.js']), B('main', 'hourglass-v1.9.0', ['sw.js'])]],
-  ['app.js changed and VERSION up, but origin/main took that number meanwhile', false, T('hourglass-v1.10.0'), [B('mb', 'hourglass-v1.9.0', ['app.js', 'sw.js']), B('main', 'hourglass-v1.10.0', ['app.js'])]],
-  ['VERSION up, but index.html\'s meta says another release', false, T('hourglass-v1.10.0', '1.9.0'), [B('mb', 'hourglass-v1.9.0', ['app.js', 'sw.js']), B('main', 'hourglass-v1.9.0', ['app.js', 'sw.js'])]],
-  ['the meta dropped from index.html', false, T('hourglass-v1.10.0'), [B('mb', 'hourglass-v1.9.0', ['index.html', 'sw.js'], '1.9.0'), B('main', 'hourglass-v1.9.0', ['index.html', 'sw.js'], '1.9.0')]],
-  ['a VERSION that is not hourglass-vX.Y.Z', false, T('hourglass-1.10'), [B('mb', 'hourglass-v1.9.0', ['sw.js']), B('main', 'hourglass-v1.9.0', ['sw.js'])]],
-  ['app.js changed, VERSION 1.9.0 to 1.10.0 (after it as semver, not as text), meta equal', true, T('hourglass-v1.10.0', '1.10.0'), [B('mb', 'hourglass-v1.9.0', ['app.js', 'sw.js', 'index.html']), B('main', 'hourglass-v1.9.0', ['app.js', 'sw.js', 'index.html'])]],
-  ['only tests, docs and the lab changed, VERSION the same', true, T('hourglass-v1.9.0'), [B('mb', 'hourglass-v1.9.0', ['tools/test/run-all.js', 'docs/testing.md', 'lab/sand/main.mjs', 'README.md']), B('main', 'hourglass-v1.9.0', ['README.md'])]],
-  ['nothing of this branch shipped, though origin/main has moved on to a new release', true, T('hourglass-v1.9.0'), [B('mb', 'hourglass-v1.9.0', ['README.md']), B('main', 'hourglass-v1.10.0', ['app.js', 'sw.js'])]]
+  ['app.js changed, VERSION the same as the merge-base\'s', /app\.js.*not after (?:mb|main)/, T('hourglass-v1.9.0'), [B('mb', 'hourglass-v1.9.0', ['app.js']), B('main', 'hourglass-v1.9.0', [])], 2],
+  ['index.html changed (as ./), VERSION the same', /index\.html.*not after (?:mb|main)/, T('hourglass-v1.9.0'), [B('mb', 'hourglass-v1.9.0', ['index.html']), B('main', 'hourglass-v1.9.0', ['index.html'])], 2],
+  ['an engine module changed, VERSION the same', /realsand\/boot\.mjs.*not after (?:mb|main)/, T('hourglass-v1.9.0'), [B('mb', 'hourglass-v1.9.0', ['realsand/boot.mjs']), B('main', 'hourglass-v1.9.0', [])], 2],
+  ['sw.js changed, VERSION lower', /sw\.js.*1\.8\.9 is not after (?:mb|main)/, T('hourglass-v1.8.9'), [B('mb', 'hourglass-v1.9.0', ['sw.js']), B('main', 'hourglass-v1.9.0', ['sw.js'])], 2],
+  ['app.js changed and VERSION up, but origin/main took that number meanwhile', /not after main's hourglass-v1\.10\.0/, T('hourglass-v1.10.0'), [B('mb', 'hourglass-v1.9.0', ['app.js', 'sw.js']), B('main', 'hourglass-v1.10.0', ['app.js'])], 1],
+  ['VERSION up, but index.html\'s meta says another release', /says hourglass-version 1\.9\.0, sw\.js says hourglass-v1\.10\.0/, T('hourglass-v1.10.0', '1.9.0'), [B('mb', 'hourglass-v1.9.0', ['app.js', 'sw.js']), B('main', 'hourglass-v1.9.0', ['app.js', 'sw.js'])], 1],
+  ['index.html without the meta, on a release', /no hourglass-version meta/, T('hourglass-v1.10.0', null), [B('mb', 'hourglass-v1.9.0', ['index.html', 'sw.js']), B('main', 'hourglass-v1.9.0', ['index.html', 'sw.js'])], 1],
+  ['index.html without the meta, and nothing shipped changed', /no hourglass-version meta/, T('hourglass-v1.9.0', null), [B('mb', 'hourglass-v1.9.0', ['README.md']), B('main', 'hourglass-v1.9.0', [])], 1],
+  ['a VERSION that is not hourglass-vX.Y.Z', /is not hourglass-vX\.Y\.Z/, T('hourglass-1.10', '1.10.0'), [B('mb', 'hourglass-v1.9.0', ['sw.js']), B('main', 'hourglass-v1.9.0', ['sw.js'])], 1],
+  ['app.js changed, VERSION 1.9.0 to 1.10.0 (after it as semver, not as text), meta equal', null, T('hourglass-v1.10.0'), [B('mb', 'hourglass-v1.9.0', ['app.js', 'sw.js', 'index.html']), B('main', 'hourglass-v1.9.0', ['app.js', 'sw.js', 'index.html'])], 0],
+  ['only tests, docs and the lab changed, VERSION the same', null, T('hourglass-v1.9.0'), [B('mb', 'hourglass-v1.9.0', ['tools/test/run-all.js', 'docs/testing.md', 'lab/sand/main.mjs', 'README.md']), B('main', 'hourglass-v1.9.0', ['README.md'])], 0],
+  ['nothing of this branch shipped, though origin/main has moved on to a new release', null, T('hourglass-v1.9.0'), [B('mb', 'hourglass-v1.9.0', ['README.md']), B('main', 'hourglass-v1.10.0', ['app.js', 'sw.js'])], 0]
 ];
-var wrong = cases.filter(function (c) { return (releaseProblems(c[2], c[3]).length === 0) !== c[1]; }).map(function (c) { return c[0]; });
-check(wrong.length === 0, 'the rule on ' + cases.length + ' made-up trees (control): ' + cases.filter(function (c) { return !c[1]; }).length + ' must fail, ' +
-  cases.filter(function (c) { return c[1]; }).length + ' must pass', 'wrong: ' + wrong.join(' | '));
+var wrong = cases.filter(function (c) {
+  var got = releaseProblems(c[2], c[3]);
+  return got.length !== c[4] || (c[1] && !got.every(function (g) { return c[1].test(g); }));
+}).map(function (c) { return c[0] + ' → ' + (releaseProblems(c[2], c[3]).join(' / ') || 'no problem'); });
+check(wrong.length === 0, 'the rule on ' + cases.length + ' made-up trees (control): ' + cases.filter(function (c) { return c[1]; }).length + ' must fail, each with its own problem only, ' +
+  cases.filter(function (c) { return !c[1]; }).length + ' must pass', wrong.length ? 'wrong: ' + wrong.join(' | ') : '');
 
 console.log('check-release: ' + (count - failures) + '/' + count + ' passed');
 if (failures) process.exitCode = 1;
