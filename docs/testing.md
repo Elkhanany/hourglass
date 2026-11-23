@@ -30,6 +30,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `index.html`, a suite that still reads one `physics.js` fails at once, and
   the browser harness refuses a tree that lacks a script the page loads,
   naming it.
+- On GitHub, every pull request and every push to `main` runs the check
+  group and the Node suites that take seconds (`.github/workflows/checks.yml`
+  lists them; about three minutes, no browser and no `npm install`). The
+  browser suites, the longer Node suites and `realsand-gpu` are run by hand,
+  as above, and their results go in the pull request
+  (`.github/pull_request_template.md`).
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
   nothing moving, every grain lands exactly as before. `sim-tone` covers
