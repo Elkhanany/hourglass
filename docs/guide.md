@@ -167,10 +167,13 @@ much as while it runs. Shake it and the bed lifts and lands with a soft
 thump (a hard landing also buzzes, on Android), sand thrown against the far
 end of the glass clacks, and the stirred grains shimmer. Lean it past the
 sand's slope, or carry it about, and the sand slides with a soft hiss on the
-side it runs to. In a glass that only stands there (not running) that hiss
-is heard from a small slide on, well under the stream's own level; under a
-running stream small slides stay beneath the stream, as they always did,
-and only a turned or shaken bed rushes. Nothing sounds while no sand moves.
+side it runs to: leaned to the right, in the right ear. In a glass that only
+stands there (not running) that hiss is heard from a small slide on, well
+under the stream's own level, and when such a glass is turned over (the Flip
+button before the start, or while paused) the slide is heard through the
+turn and on until the sand rests; under a running stream small slides stay
+beneath the stream, as they always did, and only a turned or shaken bed
+rushes. Nothing sounds while no sand moves.
 The stream and the ambience still begin only when the glass runs, and the
 mute button and the volume apply to all of it. On an iPhone the sound of
 each launch begins with the first touch that ends: any touch will do (a
@@ -243,7 +246,11 @@ chip did, a few frames after it did it: a bed that falls and lands thumps,
 one thrown against the far end clacks, sand sliding within its bed hisses
 on the side it runs to, and stirred sand shimmers, about as loud as the
 classic sand for the same motion, before the start, paused and finished as
-while it runs. A phone that moves without moving its sand makes no sound of
+while it runs. A bed is the sand that lies together: the thin stream, the
+first grains on the floor of a glass just started and the last above its
+neck make no sound of a bed, so a glass that is started and left alone
+sounds of its stream only; and a bed that is thrown flies without a hiss
+and lands with its thump. A phone that moves without moving its sand makes no sound of
 sand: walked with, the sand on the chip lies still, and is silent, where
 the classic sand shimmers a little. And leaned, its heaps stand steeper
 than the classic sand's and hardly slide (one of the lab's known faults,

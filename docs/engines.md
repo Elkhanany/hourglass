@@ -513,12 +513,17 @@ is what the grains land on.
    to 24,000 slides a second, full at 184,000, so that under a running stream
    the heap's own avalanches stay beneath it and only a turned or shaken bed
    rushes. A glass with no stream (idle before the start, paused, finished:
-   no stream, pour or run for half a second, and not being turned) has
+   no stream, pour or run for half a second) has
    nothing to hide a slide under, and there the rush begins at 1,000 slides a
    second and rises to 0.3 of its full level by 24,000 (the old curve passes
    that at 42,000, and is unchanged above): a lean past the slope, 13,000
    slides a second on a five-minute glass, sounds near -45 dBFS, 15 dB under
-   the stream, on the side the sand runs to.
+   the stream, on the side the sand runs to (`rushPan`, + the right ear:
+   `app.js` gives 0.6 of the fuller bulb's field across the page, in g). The
+   floor holds through a turn of such a glass, under the turn's own rule, so
+   the sand a Flip sets sliding is heard until it rests, with no gap at the
+   turn's end; a running glass that is turned (the app says so: `ambient`)
+   keeps the turn's rule alone, as ever.
 6. **The glass in the hand**: shaking is heard as it happens in the physics,
    in every state of the clock: the bed's sounds do not ask whether the glass
    runs, only whether the sand moved (the stream and the ambience are the
@@ -738,7 +743,12 @@ for each bulb, the sand that lies in a bed (not the falling stream): how
 much, its mean velocity, where it is, and how many of its points move and
 how fast. From these `RealSand` fills the classic sand's record, on the
 classic sand's scale ([the engine contract](#the-engine-contract)). A bed
+is heard once it is 3 % of the glass's points (and 40 of them): the plug of
+the stream under the neck of a glass just started, the first grains on its
+floor and the last above the neck are no bed, and a glass started and left
+alone feeds nothing of a bed. A bed
 that falls with the field along the glass and is then stopped by the glass
+(half its speed lost within 0.15 s, whatever the display's rate)
 has landed with the speed `u` it fell at: a thump of `u² / (2 G HB)`, the
 classic sand's own energy for a bed landing at that speed, or a slam when it
 is the far end that stops it; a bed that the field itself slowed has not
@@ -747,7 +757,10 @@ does not. The slides are the bed's motion within itself: a bed that flies or
 slides as one body slides nothing, and one that only creeps next to nothing.
 They are counted at a share set against the classic sand, 16 over the square
 root of the bed's grains, because the classic sand slides at its surface
-while the GPU bed shears through its depth. The agitation follows each bed's
+while the GPU bed shears through its depth, and only of a bed that lies
+packed: thrown, a bed flies (loose, until it has packed again, or moving
+along the glass as a body), and the classic sand's bed in the air slides
+nothing. The agitation follows each bed's
 own acceleration over the glass, with the classic sand's memory (0.25 s) and
 a landing's heat. Nothing is fitted in the thumps and the agitation, and on
 the same scripted motions they agree with the classic sand's (a 10 s glass
@@ -756,8 +769,10 @@ beside it): flicked along the glass, one thump of 0.0048 against 0.0043 and
 agitation 0.60 against 0.71; shaken along the glass at 1.5 g and 5 Hz for
 3 s, 14 thumps of 0.094 in all (the largest 0.012) against 10 of 0.072
 (0.013), agitation 2.1 against 2.4; shaken sideways, no thump in either,
-agitation 0.93 against 0.87, and 22,100 slides a second at their fastest
-against 21,300 (a 1 minute glass: 39,200 against 36,000). Two things differ,
+agitation 0.93 against 0.87, and 21,900 slides a second at their fastest
+against 21,300 (a 1 minute glass: 39,000 against 36,000). Played through
+`audio.js`, the two engines' feeds for these motions sound within 3 dB of
+each other (the table in the design, section 8). Two things differ,
 both because the sound is made from what the GPU sand did. A phone that moves
 without moving its sand makes no sand sound: carried at a walk the GPU bed
 lies still and is silent, where the classic sand shimmers (agitation 0.07

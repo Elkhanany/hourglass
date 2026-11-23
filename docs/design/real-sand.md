@@ -644,10 +644,21 @@ makes the classic sand's record from the two, and `_bedSound` writes it
 into the frame's record in `submit`, after the app's `beginFrame` and
 before its sound:
 
+- a bed: a bulb's crowded points are heard as a bed once they are 3 % of
+  the glass's points, and 40. Fewer are the plug of the stream just under
+  the neck, the first grains on the floor, or the last above the neck: on a
+  10 s glass just started the lower bulb's crowded points are 3 to 14 for
+  the first second, at up to 59 cells/s, and their mean speed is no bed's.
+  (Taken for a bed, they landed a thump of 0.0056 and stirred the agitation
+  to 0.47, 8 frames after Start, with the phone at rest.) The heap is heard
+  from 59 points on a 10 s glass (1.2 s into its run) and 144 on a
+  minute's.
 - `frame.thump`, `frame.slam`: a landing. A bed that moves with the field
   (within 60° of it), along the glass's axis (within 45°), faster than the
   speed of the quietest thump heard (30 cells/s) is falling. When it has
-  lost half that speed within 6 runs, and it was the glass that took it
+  lost half that speed within 0.15 s of simulated time (time, not runs: the
+  same landing at 60, 120 and 180 runs a second), and it was the glass that
+  took it
   (the speed lost, with what the field added meanwhile, is 0.4 of it or
   more: a bed the field itself slowed has not landed), it has landed with
   the speed `u` it fell at: `E = u² / (2 G HB)`, the classic sand's energy
@@ -662,11 +673,23 @@ before its sound:
   speed (a bed that flies or slides as one body slides nothing) or the
   speed a point moves from, whichever is more (a bed that only creeps
   slides nothing); in the CPU Sim's grains and cells a second, times 16
-  over the square root of the bed's grains. That share is the calibration:
+  over the square root of the bed's grains (never more than all of it).
+  That share is the calibration:
   the classic sand slides at its surface, the GPU bed shears through its
   depth, and a bed of n grains has a surface of about √n (0.47 of the GPU
   bed's motion for the 1,155 grains of a 10 s glass, 0.30 for the 2,830 of
-  a minute's). It is fed as that rate times the frame's time in every frame
+  a minute's). The grains are counted on the lattice of the calibration
+  (a phone's classic grain, 1.69 points a grain), so the same GPU motion is
+  the same sound at Fine and Finest and on a tablet, once the app has
+  divided by its lattice's grains and cells. Only a bed that lies packed
+  slides: a thrown bed flies, as the classic sand's bed in the air, which
+  slides nothing. Packed is the share of the bulb's points that are
+  crowded, against how packed the bed has lately been (a memory of 1 s:
+  the heap under a running stream is never all crowded): in full from 0.95
+  of it, less below, and once under 0.75 nothing until the bed has packed
+  again; and nothing while the bed moves as a body along the glass (within
+  26° of its axis) faster than the quietest landing. It is fed as that
+  rate times the frame's time in every frame
   until the next readback comes (120 ms at most), so calm's 30 runs a
   second do not flicker.
 - `agitation()` (`agit`): each bed's granular temperature follows its own
@@ -674,7 +697,8 @@ before its sound:
   one readback to the next, while more than 1 % of it moves; not while the
   glass is turned), with the classic sand's memory of 0.25 s, and a landing
   adds the classic's heat, `E HB / 3`. Under 0.02 with the bed at rest it is
-  0, and it fades by the clock when no readback comes.
+  0, and it fades by the clock when no readback comes (a stall): the next
+  readback goes on from what is left, not from what was.
 
 Nothing of the bed is heard while the engine is asleep, hidden, lost or not
 the app's sand, during the Reset's sweep, or for 0.4 s after a fill or a
@@ -714,17 +738,22 @@ The slides, with their one calibrated share, on the same motions and on a
 
 | motion | classic | GPU |
 |---|---|---|
-| 1.5 g at 5 Hz sideways, 10 s glass | 39,200; 21,300 | 40,500; 22,100 |
-| the same, 1 minute glass | 68,700; 36,000 | 83,100; 39,200 |
-| a flick sideways, 10 s glass | 1,260; 7,000 | 2,950; 14,800 |
-| 1.5 g at 5 Hz along the glass, 10 s glass | 4,540; 6,200 | 17,800; 9,800 |
-| a flick along the glass, 10 s glass | 0 | 1,570; 6,600 |
-| leaned 50°, 1 minute glass | 8,760; 7,770 | 120; 330 |
-| laid on its side (90°) and stood up again, 1 minute glass | 59,700; 23,800 | 21,300; 26,300 |
+| 1.5 g at 5 Hz sideways, 10 s glass | 39,200; 21,300 | 38,800; 21,900 |
+| the same, 1 minute glass | 68,700; 36,000 | 82,300; 39,000 |
+| a flick sideways, 10 s glass | 1,260; 7,000 | 2,910; 14,800 |
+| 1.5 g at 5 Hz along the glass, 10 s glass | 4,540; 6,200 | 7,440; 5,600 |
+| a flick along the glass, 10 s glass | 0 | 320; 1,900 |
+| leaned 50°, 1 minute glass | 8,760; 7,770 | 110; 330 |
+| laid on its side (90°) and stood up again, 1 minute glass | 59,700; 23,800 | 20,200; 26,200 |
 
 Thrown along the glass the GPU bed loosens and packs again, which is motion
-within it, where the classic sand's bed flies as one body: more slides, for
-a moment, under the thumps and the shimmer. Leaned 50° the GPU sand of
+within it, where the classic sand's bed flies as one body. Counted in full,
+that was 6,600 slides a second at their fastest for a flick of the 10 s
+glass and 14,400 for the minute's, where the classic sand has none, and in
+a glass that stands the rush played it louder than the thump: the flick
+sounded 6 and 10 dB over the classic sand's. A thrown bed's motion is
+therefore not counted while it flies (the rule above); what is left is the
+push and the settling, 1,900 and 4,000 slides a second. Leaned 50° the GPU sand of
 these glasses all but stands (its centre creeps three cells in three
 seconds), where the classic sand's heap runs: a lean is heard only as far
 as the GPU sand answers it (section 12: heaps stand steep). Laid on its
@@ -733,6 +762,24 @@ goes (18,000 to 21,000 slides a second for half a second), and stood up
 again it slides back and lands in the funnel: a thump of 0.043 and its
 heat, where the classic sand's heap runs back grain by grain and lands
 nothing.
+
+What the ear is given: both engines' feeds for the same motion, as `app.js`
+passes them on, played through `audio.js` (a glass before its start, the
+default volume; dBFS RMS over the motion and a second after, the mean of
+three renders, which differ by about 1 dB among themselves):
+
+| motion | classic | GPU | GPU over classic |
+|---|---|---|---|
+| a flick along the glass, 10 s glass | -65.4 | -64.4 | +1.0 dB |
+| the same, 1 minute glass | -64.1 | -62.3 | +1.8 dB |
+| 1.5 g at 5 Hz sideways, 10 s glass | -45.6 | -45.8 | -0.2 dB |
+| the same, 1 minute glass | -43.6 | -43.1 | +0.5 dB |
+| 1.5 g at 5 Hz along the glass, 10 s glass | -44.8 | -44.5 | +0.3 dB |
+| the same, 1 minute glass | -44.5 | -43.1 | +1.4 dB |
+| laid on its side and stood up again, 1 minute glass | -43.7 | -45.0 | -1.3 dB |
+
+(The 1 minute glass's flick has two thumps, 0.0022 as the push presses the
+bed down and 0.0036 as it lands, where the classic sand has one of 0.0043.)
 
 A blow of the glass from 700 px/s thumps and clacks (`impact` returns 1).
 Mending is forwarded to the CPU Sim, whose event plays the chime. The
