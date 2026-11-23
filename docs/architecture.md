@@ -112,11 +112,15 @@ keys are saved:
   saved value of another type is dropped;
 - `valid(value, reg)`, where a value must be checked: false puts the default
   back (the material must be one of `HourglassPhysics.THEMES`, the grain 1 or
-  2, the accelerometer's sign 1 or -1);
+  2, the accelerometer's sign 1 or -1). It does not clamp: a value outside
+  its range comes up as the default, not as the nearest end;
 - `from(saved, reg)`, where a setting is made from older ones: the value for
   a save that has no such key yet. A migration is keyed on its own key being
   absent, never on a version, so that settings can ship in any order
-  ([settings design 5.1](design/settings.md)). No record needs one yet.
+  ([settings design 5.1](design/settings.md)). It is handed the save as it
+  was read, before any type is checked, so it must stand any value under any
+  key; one that throws, or gives another type, costs its own key the
+  default. No record needs one yet.
 
 `HourglassSettings.load(storage, search, reg)` gives the values: the
 defaults; over them the saved values of the right type; the version step
@@ -137,12 +141,16 @@ against the engine's own, and every control's handler, which saves, tells the
 engine and buzzes inside its tap (an iPhone ticks, and asks for motion, only
 from inside one). The store draws nothing and binds none of today's
 controls. For the plain switches of a later Tune it has
-`bindSwitch(el, key, after)`: when the switch flips, the value is set, saved,
-and `after(value)` called, in that order, inside the event.
+`bindSwitch(el, key, after)`: the switch shows the loaded value from when it
+is bound, and when it flips, the value is set, saved, and `after(value)`
+called, in that order, inside the event.
 
-To add a setting: one record at the end of the table, with a `from` if an
-older save should come up with something other than the default; then its
-control and its effect in `app.js`. `settings-unit` checks the table.
+To add a setting: one record at the end of the table, after the ones there,
+with a `from` if an older save should come up with something other than the
+default; then its row, its handler, its line at the boot, its lines in the
+Tune trace's driver, and the two kept traces made again. The steps are in
+[Engines](engines.md#adding-a-sand-a-glass-shape-a-sound-or-a-setting).
+`settings-unit` needs no change for it.
 
 Three checks hold the store, and whatever is built on it, to what the app
 did before it. Each compares with a file in `tools/test/base/`, made from
@@ -154,7 +162,15 @@ with `--base <commit>` makes its file again from that commit and compares):
   states (keys missing, wrong types, values out of range, saves that are not
   JSON, `?t=` queries, with and without a version, storage that throws) and
   must give the same settings in the same order, the same saved JSON byte for
-  byte, and the same again on a second launch;
+  byte, and the same again on a second launch. So must the Settings section
+  `app.js` has today, the few lines that call the store, run as `app.js` runs
+  them: the storage handed over as a function (a blocked storage throws when
+  it is reached, and the store reaches it inside its own try), and the query
+  given to the preset (a shortcut starts a new glass over a saved session).
+  The old section knows the 30 keys the app had then: they are the store's
+  first records, in their order, and a record added since is left out of
+  this comparison. The suite also holds the names: every `settings.…` in
+  `app.js` is a record, and every record is named there;
 - the boot (`app-boot-trace`, in the browser): for five saved states, what
   the app reads and saves and what it calls on the Sim, the Renderer, the
   sound engine and the motion sensors until it has started, in order;
@@ -162,7 +178,12 @@ with `--base <commit>` makes its file again from that commit and compares):
   setting, what its tap saves, calls and buzzes, and what follows (the
   cross-fade, the answer to the motion question, the reload a grain makes).
   The controls are named for what they set, not for the page's markup, so a
-  new Tune is compared with the same file.
+  new Tune is compared with the same file. Every switch, choice and slider
+  of Tune's sheet must be one the trace drives.
+
+A setting or a control added on purpose changes the two traces: each suite,
+run with `--write` and no `--base`, writes its file from the tree just run,
+in a commit of its own whose diff is read.
 
 ## `sw.js`, `manifest.json`
 

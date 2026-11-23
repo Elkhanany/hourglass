@@ -34,10 +34,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the browser harness refuses a tree that lacks a script the page loads,
   naming it. `check-registry`: the sound cards of `index.html` and the
   registry of `audio.js` say the same (the ids, names and icons of
-  `HourglassAudio.characters()` and `.ambiences()`, in order); a character,
-  an ambience or a glass shape that is not whole is refused by name
-  (`defineCharacter`, `defineAmbience`, `addShape`); and the shapes of
-  `physics.js` are whole records that `checkShape` finds nothing wrong with.
+  `HourglassAudio.characters()` and `.ambiences()`, in order, each card a
+  choice of its group); a character, an ambience or a glass shape that is
+  not whole is refused by name (`defineCharacter`, `defineAmbience`,
+  `addShape`), and so is one with a field nothing reads, which is a field
+  misspelt (the fields the records hold are pinned to the fields a record
+  may); and the shapes of `physics.js` are whole records that `checkShape`
+  finds nothing wrong with.
 - On GitHub, every pull request and every push to `main` runs the check
   group and the Node suites that take seconds (`.github/workflows/checks.yml`
   lists them; about three minutes, no browser and no `npm install`). The
@@ -48,17 +51,28 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   store (`app/settings.js`), and whatever is built on it, to what the app did
   before it, each against a file kept in `tools/test/base/` (see
   [the architecture](architecture.md#appsettingsjs)). `settings-unit`, in
-  Node, in a moment: the records are well formed, and are the old settings'
-  keys and defaults in their order; the old Settings section of `app.js`,
-  kept byte for byte, and the store give the same on 500 saved states (keys
-  missing, wrong types, values out of range, saves that are not JSON, `?t=`
-  queries, with and without a version, storage that throws): the same
-  settings in the same order, the same saved JSON byte for byte, the same
-  calls on storage, and the same again on a second launch, and nine stores
-  that differ in one thing each are found out; the version step (Real sand
-  on, once, for a save from before version 2); a record's `from` and the
-  steps' order, on a made-up store; `bindSwitch`; and that the file reads
-  nothing when it loads. `app-boot-trace`, in the browser: what the app
+  Node, in a moment: the records are well formed, and the first 30 are the
+  old settings' keys and defaults in their order; the old Settings section
+  of `app.js`, kept byte for byte, and the store give the same on 500 saved
+  states (keys missing, wrong types, values out of range, saves that are not
+  JSON, `?t=` queries, with and without a version, storage that throws): the
+  same settings in the same order, the same saved JSON byte for byte, the
+  same calls on storage, and the same again on a second launch, and nine
+  stores that differ in one thing each are found out; the Settings section
+  `app.js` has today (the lines that call the store, cut by its banners and
+  run as `app.js` runs them) gives the same on the 500 too, and five copies
+  of it with one thing changed are found out (the Storage handed over itself,
+  which a blocked storage then throws from; the preset asked without the
+  query); a record added after the old 30 is left out of the comparison, so
+  a new setting changes nothing here, and one put among them is found out;
+  the version step (Real sand on, once, for a save from before version 2); a
+  record's `from` and the steps' order, on a made-up store, and an example
+  for every `from` the app has, which must come up with something other
+  than the default; the names (every `settings.…` in `app.js` is a record,
+  every record but the version is named there, none is read by a computed
+  name); `bindSwitch` (the loaded value shown as it binds; then set, save
+  and the callback inside the event); and that the file reads nothing when
+  it loads. `app-boot-trace`, in the browser: what the app
   reads, saves and calls on the Sim, the Renderer, the sound engine and the
   sensors as it starts, in order, for five saved states (nothing saved; a
   save from before version 2 with everything changed; Real motion left on; a
@@ -68,11 +82,19 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   its own tap, and what follows it (what the cross-fade sets, the answer to
   the motion question, the boot after the reload a grain makes); a copy of
   `app.js` whose completion bowl saves after it has told the sound engine,
-  and whose Haptics switch has lost its buzz, must fail at those. Run with
-  `--base <commit>` (or `HOURGLASS_BASE=<commit>`), each makes its file again
-  from that commit's tree and compares; with `--write` as well it writes it,
-  which is how a Tune that changes a control on purpose gets its new trace.
-  The two traces use three ports: the suite's own and the next two.
+  and whose Haptics switch has lost its buzz, must fail at those. Every
+  switch, choice and slider of Tune's sheet must be one the trace drives
+  (`DRIVE` in `tools/test/lib/trace.js`), so a control added to Tune and not
+  to the driver fails instead of going untraced; a copy of the page with one
+  switch more must be found out. Run with `--base <commit>` (or
+  `HOURGLASS_BASE=<commit>`), each makes its file again from that commit's
+  tree and compares; with `--write` as well it writes it from that commit.
+  The two traces run with `--write` alone write their file from the tree
+  just run: that is how a setting or a control added on purpose gets its new
+  trace, in a commit of its own whose diff is read (the new key in the
+  saves, the new control's lines, and nothing else). The kept Settings
+  section is the app before the store and is never made again. The two
+  traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
   nothing moving, every grain lands exactly as before. `sim-tone` covers
@@ -128,7 +150,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the sound engine's calls and levels, and the water ambiences: that each
   starts, switches and stops leaving nothing behind, their levels, that
   nothing clips behind the sand, their synthesis slices, and the fallback for
-  browsers that refuse low sample rates. A change to `audio.js` that should
+  browsers that refuse low sample rates. `audio-levels` renders every
+  character of the registry behind every ambience its tables name, and an
+  ambience that makes a sound and is in neither table (its level, the
+  clipper) fails there instead of going unmeasured. A change to `audio.js` that should
   change no sound has a tool of its own, run by hand because it must be told
   what to compare with: `node tools/audio-identity.js --base <commit>` runs
   that commit's engine and the checkout's from the same random numbers and
@@ -147,7 +172,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `lib/replay-iphone.js`): the suites measure the classic sand, as before. A
   page seeds `realSand: true` to have Real sand, or `rawStorage` for exactly
   what it gives (`{}`: a first launch). `app-upgrade` seeds nothing: it runs
-  the app as an iPhone would after the update, Real sand on. `app-breath` covers breathing pace: the Tune row and what is
+  the app as an iPhone would after the update, Real sand on. `app-session`
+  ends with the app's shortcut: `./?t=300` over a saved session of a running
+  5-minute glass is a new glass, after a plain launch has picked that glass
+  up (the control). `app-breath` covers breathing pace: the Tune row and what is
   saved, the toast's place in the sheet's head, the three patterns against
   the wall clock, a blocked main thread, a hidden page and a long sleep,
   easing back to rest, Reduce Motion, Full Zen, the landscape halo, a damaged
@@ -225,12 +253,18 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   whose `SHELL` names a missing file (its install fails, leaves no cache,
   and the installed release runs whole, online and offline); a script taken
   out of the cache (offline the page says it is updating; one launch with a
-  connection fills the cache again, from the same release only); and a lab
-  page that meets another build (the app's cache stays whole). Its controls
-  run 13a9772's worker and lab (v1.9.0, the last release before the
-  snapshot worker), which fail the same checks: an empty cache left by the
-  failed install, the next release's files on the page, the engine dropped
-  from the cache. It needs `origin/main` and 13a9772 from git
+  connection fills the cache again, from the same release only); a lab
+  page that meets another build (the app's cache stays whole); and an update
+  that never finishes over a copy installed before the snapshot worker
+  (13a9772's worker fetches each file it answers into its copy, so offline
+  the copy is mixed: this tree's page without its settings store, a file the
+  old page never asked for. The page says it is updating and throws nothing,
+  and runs again with a connection). Its controls run 13a9772's worker and
+  lab (v1.9.0, the last release before the snapshot worker), which fail the
+  same checks: an empty cache left by the failed install, the next release's
+  files on the page, the engine dropped from the cache; and a copy of
+  `app.js` that does not ask for the settings store before it starts, which
+  throws in the mixed copy. It needs `origin/main` and 13a9772 from git
   (`HOURGLASS_MAIN=<ref>` names another first release).
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-ambience` covers the six

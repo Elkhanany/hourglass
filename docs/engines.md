@@ -892,11 +892,19 @@ The glass shapes, the sound characters, the ambiences and the stored
 settings are registries: one record each, in one list, which the engine
 reads and which a picker in Tune can show. So each is added in one place,
 and a record that cannot work is refused by name: as the page loads where
-seeing it costs nothing, by a check where it does. The sands are still a
-table (`THEMES`) until the nine sands of the coming Tune land. Whatever is
-added, a shipped change also goes through the release checklist in
-[Architecture](architecture.md): `VERSION` in `sw.js` goes up, and a new
-file needs its `<script>` tag and its line in `SHELL`.
+seeing it costs nothing, by a check where it does. A field nothing reads is
+refused too, since it is a field misspelt (`layer` for `layers` would be an
+ambience that plays nothing). The sands are still a table (`THEMES`) until
+the nine sands of the coming Tune land. Whatever is added, a shipped change
+also goes through the release checklist in [Architecture](architecture.md):
+`VERSION` in `sw.js` goes up, and a new file needs its `<script>` tag and
+its line in `SHELL`.
+
+A record refused as the page loads stops its script, so the engine it would
+have defined is not there, and the page says "Hourglass is updating. Open
+it again with a connection." as it does for a missing file. The reason is
+in the console (`defineCharacter "tin": lp is undefined, not a number`), and
+`node tools/test/check-registry.test.js` stops with it, without a browser.
 
 **A sand (a material).** A record in `THEMES` in `physics.js`: the grain
 tables of the sand (`sand`) and of its companion tone for layered sand
@@ -924,11 +932,12 @@ true`): its curve stays in `profile()`, so its numbers never move.
 
 - What is checked as the page loads, and refused by name: an id nothing
   else has, a name, `kR` and `kH`, an `f` that is 0 at the neck, the
-  symmetry. The curve is not walked then: a curve scaled by `shUnit` is
-  asked 20,000 times the first time it is used (10 to 25 ms), and a page
-  that shows the classic glass never pays for it. For the same reason a
-  record's `equator` (the `u` of its widest point) is found the first time
-  it is read.
+  symmetry, and a field that is none of a shape's. The curve is not walked
+  then: a curve scaled by `shUnit` is asked 20,000 times the first time it
+  is used (10 to 25 ms), and a page that shows the classic glass never pays
+  for it. For the same reason a record's `equator` (the `u` of its widest
+  point) is found the first time it is read, and the record names none
+  (only the classic glass, which has no `f`, says its own).
 - `P.checkShape(id, q, pace)` says the rest, without building a Sim: `[]`,
   or the reasons in words. First what the curve says at any size (`f`
   between 0 and 1, one bulge), then the lattice's rules at scale `q` for
@@ -960,26 +969,35 @@ glass should crackle louder than `beds`), the room and the tone (`room`,
 `low`, `high`, `lp`), what of the sand rings the vessel (`send`, `vessel`),
 and, if it has its own glass, its resonators (`modes`: six rows of `[Hz, Q,
 gain, shift]` in a `MODES_*` table, with `tick` and `bed` for the pitch of
-the grains; the thin glass of `MODES` when it names none). The icon is what
-is drawn inside the card's `<svg>`: `ICON_GLASS`, the small hourglass every
-sound card shares, and the sound's own mark beside it.
+the grains; the thin glass of `MODES` when it names none). The levels are
+gains, set by ear against the six records there are, which are the guide
+to their ranges, and then held by `audio-levels`. `low` and `high` are
+decibels on a low shelf at 230 Hz and a high shelf at 6.2 kHz (0: flat),
+and `lp` is the low-pass in hertz (18000 for Close-Miked ASMR, 5200 for
+Desert Dune). The icon is what is drawn inside the card's `<svg>`:
+`ICON_GLASS`, the small hourglass every sound card shares, and the sound's
+own mark beside it.
 
 - What is checked as the page loads, and refused by name: the id, the name
-  and the icon, every number, and `modes` (exactly six rows of four
-  numbers: the graph has six bands).
+  and the icon, every number, `modes` (exactly six rows of four numbers:
+  the graph has six bands), and a field that is none of a character's.
 - What picks it up: `HourglassAudio.CHARACTERS[id]`, which the engine and
   the saved setting read (a saved character the app does not know falls
   back to Close-Miked ASMR), and `HourglassAudio.characters()`, the cards'
   `{ id, name, icon }` in order. Tune's cards are still written by hand in
-  `index.html`: a button in `#characters` with `data-character`, the icon
-  inside its `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">` and
-  the name in its `<span>`. The click handler is the group's own, so the
-  card needs nothing in `app.js`.
+  `index.html`: a `<button type="button" role="radio" aria-checked="false"
+  data-character="…">` in `#characters`, the icon inside its `<svg
+  class="ic" viewBox="0 0 24 24" aria-hidden="true">` and the name in its
+  `<span>`. The click handler is the group's own, so the card needs nothing
+  in `app.js`.
 - What checks it: `check-registry` fails until the cards and the registry
-  say the same (id, name and icon, in order); `audio-levels` renders every
-  character behind every ambience at full volume and holds the mix under
-  the clipper; `settings-unit` and the Tune trace (`tools/test/lib/trace.js`)
-  list the characters they try, so a new one is added there to be tried.
+  say the same (id, name and icon, in order, each card a choice of its
+  group); `audio-levels` renders every character of the registry behind
+  every ambience at full volume and holds the mix under the clipper, with
+  no change to the suite; the Tune trace drives every card of Tune, so the
+  new one gets its line in `DRIVE` (`tools/test/lib/trace.js`) and the kept
+  trace is made again (below, under a setting); `settings-unit` lists the
+  characters its saved states try, where a new one may be added.
 
 **An ambience.** A synthesiser and one `defineAmbience` in `audio.js`,
 after the others, and its card in Tune. The record: `id`, `name`, `icon`,
@@ -991,19 +1009,37 @@ seed)` where a first hearing should start in it, if not anywhere.
 `audition` is how long a tap in Tune plays it (5 s if left out). A record
 without `layers` is silence (None).
 
+`make` returns a `Float32Array` of `Math.floor(sr * seconds)` samples that
+runs into its own beginning without a seam: the engine plays it as a loop,
+and nothing cross-fades the join. What both ears must share (when a wave
+breaks, when a drop falls) is drawn from the seed, as the brook, the
+ocean, the waterfall and the drips do (`mulberry32(seed * 7919 + 13)` for
+both ears, and one more generator with `ch` in it for each ear's own). The
+older helpers draw from `rnd()`, which is `Math.random`: the tests and the
+audio-identity tool put a seeded generator in its place. What the six are
+built from is there to use: `rawWash(sr, seconds, loHz, hiHz)` is looping
+band-limited noise with a slow swell (from `rnd()`), `level(out, rms)` sets
+a channel to a loudness and keeps its peak under 0.95, and `steps([…])`
+turns a list of functions into the work-in-slices form (the last one
+returns the samples).
+
 - What is checked as the page loads, and refused by name: the id, the name
-  and the icon, every layer's `make`, length and rate, and the PCM of all
+  and the icon, every layer's `make`, length and rate, the PCM of all
   layers together, two channels of 32-bit samples each: at most 8 MB (the
-  waterfall holds 8.00).
+  waterfall holds 8.00), and a field that is none of an ambience's or of a
+  layer's.
 - What picks it up: `HourglassAudio.AMBIENCES[id]` (a saved ambience the app
   does not know falls back to None) and `HourglassAudio.ambiences()`. Its
   card is a button in `#ambiences` with `data-ambience`, written by hand as
   the characters' are.
 - What checks it: `check-registry`, as for a character; `app-ambience` pins
   the six cards, their names and their two rows of three, so a seventh
-  changes that suite on purpose; `audio-levels` holds each ambience to a
-  level and to the clipper by name, so a new one gets its line there;
-  `audio-api` times the slices of the three that are made in slices.
+  changes that suite on purpose (8 of its checks fail until then);
+  `audio-levels` holds each ambience to a level and to the clipper by name
+  (its tables `LEN` and `CLIP`), and fails for one that makes a sound and
+  is in neither, so a new one gets its two lines and its level's rule
+  there; `audio-api` times the slices of the three that are made in slices;
+  the Tune trace, as for a character.
 
 A change to `audio.js` that should change no sound (a table moved, a record
 renamed, the engine tidied) is shown to change none with `node
@@ -1015,17 +1051,47 @@ Chromium, to within what a render there differs from itself. A character or
 an ambience the old engine does not have is listed as new, and the rest
 must still be what it was.
 
-**A setting.** One record at the end of `RECORDS` in `app/settings.js`
-(the store is described in [Architecture](architecture.md#appsettingsjs)):
-its `id` (the saved key), its `default`, whose type is the setting's type,
-a `valid` where only some values are allowed, and a `from` where an older
-save should come up with something other than the default. The store loads
-and saves; the rest stays by hand in the controller: its row in Tune in
-`index.html`, its handler in `app.js` (it sets `settings.…`, calls `save()`
-and applies the change), and its effect at boot, in the Engines section, in
-the order the boot applies the rest. `settings-unit` checks the table, and
-`app-boot-trace` and `app-tune-trace` hold the boot and every control of
-Tune to what they did before, so a new setting is added to what they expect
-on purpose. Four suites pin Tune's rows at ten (`app-regression`,
-`e2e-calm`, `app-breath`, `app-sequence`), so a new row changes those
-counts on purpose too.
+**A setting.** The store is described in
+[Architecture](architecture.md#appsettingsjs); the store loads and saves,
+and the rest stays by hand in the controller. In order:
+
+1. Its record, at the end of `RECORDS` in `app/settings.js`, after the
+   ones there: `id` (the saved key), `default`, whose type is the setting's
+   type, a `valid` where only some values are allowed (false puts the
+   default back; it does not clamp, so a level saved outside its range
+   comes up as the default), and a `from` where an older save should come
+   up with something other than the default (it is handed the save as it
+   was read, before any type is checked).
+2. Its row in Tune, in `index.html`.
+3. Its handler in `app.js`: it sets `settings.…`, calls `save()` and
+   applies the change, inside the tap. A plain switch can use
+   `Store.bindSwitch(el, 'key', after)` instead, which also shows the
+   loaded value; `after(on)` applies the change.
+4. Its control set from the value at the boot (`$('opt-…').checked =
+   settings.…;` in `app.js`'s Boot section; not needed for a switch bound
+   with `bindSwitch`), and its effect there, in the order the boot applies
+   the rest. A control left as the page's markup has it shows the default
+   whatever was saved.
+5. Its lines in `DRIVE` in `tools/test/lib/trace.js`, where it stands in
+   Tune: two for a switch (on, off), one for each choice of a group.
+   `app-tune-trace` fails for a control of Tune that no line drives.
+6. Both kept traces made again, in a commit of their own: `node
+   tools/test/app-boot-trace.test.js --write` and `node
+   tools/test/app-tune-trace.test.js --write` write them from the tree
+   just run. Read the diff: the new key in each save, the new control's
+   lines and each file's `from` line, and nothing else.
+7. The row counts: five suites pin Tune's rows at ten (`app-regression`,
+   `e2e-calm`, `app-breath`, `app-sequence`, `app-realsand`), and
+   `app-layers` pins Layered sand right after Frame, so a new row changes
+   those on purpose.
+
+`settings-unit` needs no change for a record after the old ones: it holds
+the store's first 30 records to the app before the store, and leaves newer
+keys out of that comparison. It does fail for a `settings.…` name in
+`app.js` that is no record (a name misspelt), for a key bound with
+`bindSwitch` that is no switch of the store, for a record `app.js` neither
+names nor binds, and for a `from` without its example (`FROM` in the
+suite: a saved object, and the value it must come up with, which is not
+the default). These steps were tried on a scratch copy with a switch made
+from an older key: the three suites passed with its own lines and nothing
+else changed.
