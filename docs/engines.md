@@ -1069,9 +1069,11 @@ and the rest stays by hand in the controller. In order:
    loaded value; `after(on)` applies the change.
 4. Its control set from the value at the boot (`$('opt-…').checked =
    settings.…;` in `app.js`'s Boot section; not needed for a switch bound
-   with `bindSwitch`), and its effect there, in the order the boot applies
-   the rest. A control left as the page's markup has it shows the default
-   whatever was saved.
+   with `bindSwitch`), and its effect at the boot, where the rest of its
+   kind is applied (what an engine is built with in the Engines section,
+   the rest in the Boot section), in the order the boot applies them. A
+   control left as the page's markup has it shows the default whatever was
+   saved.
 5. Its lines in `DRIVE` in `tools/test/lib/trace.js`, where it stands in
    Tune: two for a switch (on, off), one for each choice of a group.
    `app-tune-trace` fails for a control of Tune that no line drives.
