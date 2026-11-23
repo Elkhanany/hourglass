@@ -339,7 +339,8 @@ them by group):
 | `bf` | the field each bulb feels, for the sound's pan |
 | `frame`, `nev`, `evX`, `evV`, `evK` | the CPU Sim's own record and arrays, filled by RealSand (section 8) |
 | `cracks`, `warnSeg`, `segInfo`, `sealCracks`, `serializeDamage`, `restoreDamage`, `forceCrack` | forwarded to the CPU Sim; their events land in the shared record |
-| `lost`, `agit`, `agitation()`, `dMax`, the escaped grains | 0, or the CPU Sim's (empty) arrays |
+| `agit`, `agitation()` | each bed's granular temperature and the hotter one's, from the readbacks (section 8); 0 asleep, hidden or lost |
+| `lost`, `dMax`, the escaped grains | 0, or the CPU Sim's (empty) arrays |
 | `reset(n)` | the CPU Sim's `reset(n)`, then a GPU fill from its lattice (7.1), deferred while hidden (7.7) |
 | `beginFrame()` | the CPU Sim's (it clears the record) |
 | `step()` | counts the app's 120 Hz step; moves `nTop` within the frame (3.4) |
@@ -630,11 +631,113 @@ Sim's event list. RealSand fills them from the ledger:
 - the tail, the fill, the turn and the spin come from the app's own state, as
   ever.
 
-Silent for now: the bed's landing thumps, the avalanche hiss, the bed's slams
-and the shake shimmer (`agitation()` is 0), and so the landing buzz. A blow
-of the glass from 700 px/s thumps and clacks (`impact` returns 1). Mending is
-forwarded to the CPU Sim, whose event plays the chime. Every other haptic is
-the app's own, tied to its own events.
+The bed's sounds come from the readbacks (from build 6; silent before). The
+tally of each run sums, for the bulb above the counting line and the one
+below, the sand that lies in a bed (points crowded as `grains.mjs` draws a
+grain sharp: not the falling stream, not spray): how many points, their
+summed velocity and place across the glass, and the number and summed speed
+of those that move (faster than 2 % of a free fall over the glass, the sleep
+rule's own measure): 12 words (`tally.wgsl`; `solver.mjs` `bedOf` gives
+`beds`, two records). Each run keeps its simulated time, its mean field and
+the direction of plain gravity for its readback (`_runSound`); `_hear`
+makes the classic sand's record from the two, and `_bedSound` writes it
+into the frame's record in `submit`, after the app's `beginFrame` and
+before its sound:
+
+- `frame.thump`, `frame.slam`: a landing. A bed that moves with the field
+  (within 60° of it), along the glass's axis (within 45°), faster than the
+  speed of the quietest thump heard (30 cells/s) is falling. When it has
+  lost half that speed within 6 runs, and it was the glass that took it
+  (the speed lost, with what the field added meanwhile, is 0.4 of it or
+  more: a bed the field itself slowed has not landed), it has landed with
+  the speed `u` it fell at: `E = u² / (2 G HB)`, the classic sand's energy
+  for a bed landing at `u`. Toward the side plain gravity holds the sand to
+  it is that bulb's thump, at the far end the slam; its place is the bed's
+  centre across the bulb. Never while the glass is turned (the Flip, or
+  faster than 0.5 rad/s), as the classic sand's bed does not fly then, and
+  never for a bed stopped sideways, as the classic sand's slip lands
+  nothing.
+- `frame.slides` (and `frame.moved`): the bed's motion within itself: the
+  summed speed of its moving points, less their number times the bed's own
+  speed (a bed that flies or slides as one body slides nothing) or the
+  speed a point moves from, whichever is more (a bed that only creeps
+  slides nothing); in the CPU Sim's grains and cells a second, times 16
+  over the square root of the bed's grains. That share is the calibration:
+  the classic sand slides at its surface, the GPU bed shears through its
+  depth, and a bed of n grains has a surface of about √n (0.47 of the GPU
+  bed's motion for the 1,155 grains of a 10 s glass, 0.30 for the 2,830 of
+  a minute's). It is fed as that rate times the frame's time in every frame
+  until the next readback comes (120 ms at most), so calm's 30 runs a
+  second do not flicker.
+- `agitation()` (`agit`): each bed's granular temperature follows its own
+  acceleration over the glass in g (the change of its mean velocity from
+  one readback to the next, while more than 1 % of it moves; not while the
+  glass is turned), with the classic sand's memory of 0.25 s, and a landing
+  adds the classic's heat, `E HB / 3`. Under 0.02 with the bed at rest it is
+  0, and it fades by the clock when no readback comes.
+
+Nothing of the bed is heard while the engine is asleep, hidden, lost or not
+the app's sand, during the Reset's sweep, or for 0.4 s after a fill or a
+transfer (a fresh bed settles). The feeds are read from readbacks that the
+frame makes anyway: they ask for no run and do not enter the power modes,
+so sound never keeps a glass awake. The clock's state is not looked at:
+before the start, running, paused and finished sound alike. The sound comes
+with the readback, one to three frames after the sand's own motion; a thump
+in the run in which the bed has lost half its speed, about four frames after
+its fastest fall, as it comes to rest.
+
+Measured against the classic sand on the same scripted motions (the app's
+10 s glass before its start, all the sand above; WebGPU in software, the
+phone's motion played through the real `motion.js` to both engines):
+
+| motion | thumps: classic (number, summed E, largest) | GPU | agitation: classic (highest, summed over time) | GPU |
+|---|---|---|---|---|
+| a flick along the glass (2 g, 60 ms) | 1, 0.0043, 0.0043 | 1, 0.0048, 0.0048 | 0.71, 0.23 | 0.60, 0.22 |
+| a flick sideways | none | none | 0.43, 0.14 | 0.39, 0.15 |
+| 1.5 g at 5 Hz sideways, 3 s | none | none | 0.87, 2.20 | 0.93, 1.96 |
+| 1.5 g at 5 Hz along the glass, 3 s | 10, 0.072, 0.013 | 14, 0.094, 0.012 | 2.36, 3.61 | 2.13, 3.39 |
+| carried at a walk | none | none | 0.72, 2.85 | 0.07, 0.05 |
+
+Nothing is fitted in the thumps and the agitation: they are the classic
+sand's own formulas on the GPU bed's own motion. Walking differs on
+purpose: the classic sand's temperature follows the phone's motion, the GPU
+bed's follows the bed, and walked with, the GPU bed lies still. And a
+thump is the energy of the GPU bed's own fall, which is not always the
+classic bed's: a flick whose pull is held longer (1.3 g for 83 ms) throws
+the classic sand's bed up as one body (a thump of 0.0145), while the GPU
+bed loosens as it lifts and comes down slower (0.004 and 0.009 in two
+takes: half to four fifths as loud, since `audio.js` plays the square root).
+
+The slides, with their one calibrated share, on the same motions and on a
+1 minute glass (2,830 grains; in all, and a second at their fastest as
+`app.js` smooths them):
+
+| motion | classic | GPU |
+|---|---|---|
+| 1.5 g at 5 Hz sideways, 10 s glass | 39,200; 21,300 | 40,500; 22,100 |
+| the same, 1 minute glass | 68,700; 36,000 | 83,100; 39,200 |
+| a flick sideways, 10 s glass | 1,260; 7,000 | 2,950; 14,800 |
+| 1.5 g at 5 Hz along the glass, 10 s glass | 4,540; 6,200 | 17,800; 9,800 |
+| a flick along the glass, 10 s glass | 0 | 1,570; 6,600 |
+| leaned 50°, 1 minute glass | 8,760; 7,770 | 120; 330 |
+| laid on its side (90°) and stood up again, 1 minute glass | 59,700; 23,800 | 21,300; 26,300 |
+
+Thrown along the glass the GPU bed loosens and packs again, which is motion
+within it, where the classic sand's bed flies as one body: more slides, for
+a moment, under the thumps and the shimmer. Leaned 50° the GPU sand of
+these glasses all but stands (its centre creeps three cells in three
+seconds), where the classic sand's heap runs: a lean is heard only as far
+as the GPU sand answers it (section 12: heaps stand steep). Laid on its
+side, the GPU bed goes across from about 60° as one body that shears as it
+goes (18,000 to 21,000 slides a second for half a second), and stood up
+again it slides back and lands in the funnel: a thump of 0.043 and its
+heat, where the classic sand's heap runs back grain by grain and lands
+nothing.
+
+A blow of the glass from 700 px/s thumps and clacks (`impact` returns 1).
+Mending is forwarded to the CPU Sim, whose event plays the chime. The
+landing buzz follows `frame.thump`, as with the classic sand; every other
+haptic is the app's own, tied to its own events.
 
 ---
 
@@ -761,7 +864,7 @@ the engine's figures and its log, also from a home-screen app, where
 | left out | with Real sand on |
 |---|---|
 | Cracks, leaks, spilled sand | the glass does not crack: a blow thumps and clacks, knocks, flicks and shaking do nothing to it; cracks it already has stay drawn (from the CPU Sim), leak nothing and can be mended; Reset makes it whole |
-| The bed's landing thumps, the avalanche hiss, the bed's slams, the shake shimmer; the landing buzz | silent |
+| The classic sand's shimmer under a phone that moves without moving its sand (carried at a walk) | silent: the bed's sounds are made from what the GPU sand did (section 8) |
 | The beds sliding on when a carried glass stops (`setCarry`) | none |
 | Tilt out of the page's plane | ignored: the sand is 2-D |
 | Bloom, rim light, depth shading, gloss | not drawn; the lab's lit grains |
@@ -789,7 +892,8 @@ Every suite is described in [Tests](../testing.md); these are Real sand's.
 - `realsand-adapter`: RealSand on a mock solver whose neck is the valve
   test's model, inside a copy of the app's frame: the contract (section 4),
   every clock site (3.6), the start's failures, the heat guard, sleep, losses,
-  the swap frame.
+  the swap frame; and the bed's sounds (section 8), the mock solver saying
+  what its sand does (`tools/test/lib/realsand-beds.js`).
 - `realsand-shell`: the worker's `SHELL` against the engine's files, and the
   four build stamps (2.3); `app.js` holds no module syntax.
 - `lab-timer` and `lab-pace`: the lab's Timer and the GPU's pace.
@@ -817,7 +921,9 @@ its cached one, a lab page gets the new one.
 `realsand-gpu`: the app with Real sand on the real engine, on Chromium's
 WebGPU in software (SwiftShader), with `?offscreen=1` and the page's clock
 made virtual once the engine has started, so the sand runs at real time in
-it. Seven cases on 10 s glasses: the start and the handover; a glass to its
+it. Eight cases on 10 s glasses: the start and the handover; the bed's
+sounds before the start (asleep nothing; flicked, shaken and leaned, beside
+the classic Sim on the same motion); a glass to its
 end, its last grain within one frame after `00:00.0` by the chip's own
 record; Reset; a Flip; a pour with real motion turning the glass; 30 s
 hidden and caught up by one transfer; the chip lost mid-run. `lab-sand` runs

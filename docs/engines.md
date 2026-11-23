@@ -730,9 +730,51 @@ What it sounds like. The stream is the grains the GPU sand lets through the
 neck each frame (the same count the clock reads); each lands after its fall
 from the neck to the heap, on glass while the lower bulb is nearly empty,
 and poured sand lands in the top bulb; the tail follows the last grains, and
-the fill the lower bulb. Blows thump and clack; mending chimes. Knowingly
-silent for now: the bed's landing thumps, the avalanche hiss and the bed's
-slams, and so the landing buzz (Android); every other buzz is the app's own.
+the fill the lower bulb. Blows thump and clack; mending chimes.
+
+The bed is heard as the classic sand's is, in every state of the clock, and
+it is made from what the GPU sand itself did. Each frame's readback carries,
+for each bulb, the sand that lies in a bed (not the falling stream): how
+much, its mean velocity, where it is, and how many of its points move and
+how fast. From these `RealSand` fills the classic sand's record, on the
+classic sand's scale ([the engine contract](#the-engine-contract)). A bed
+that falls with the field along the glass and is then stopped by the glass
+has landed with the speed `u` it fell at: a thump of `u² / (2 G HB)`, the
+classic sand's own energy for a bed landing at that speed, or a slam when it
+is the far end that stops it; a bed that the field itself slowed has not
+landed, and one stopped sideways lands nothing, as the classic sand's slip
+does not. The slides are the bed's motion within itself: a bed that flies or
+slides as one body slides nothing, and one that only creeps next to nothing.
+They are counted at a share set against the classic sand, 16 over the square
+root of the bed's grains, because the classic sand slides at its surface
+while the GPU bed shears through its depth. The agitation follows each bed's
+own acceleration over the glass, with the classic sand's memory (0.25 s) and
+a landing's heat. Nothing is fitted in the thumps and the agitation, and on
+the same scripted motions they agree with the classic sand's (a 10 s glass
+before its start, WebGPU in software, the classic Sim on the same motion
+beside it): flicked along the glass, one thump of 0.0048 against 0.0043 and
+agitation 0.60 against 0.71; shaken along the glass at 1.5 g and 5 Hz for
+3 s, 14 thumps of 0.094 in all (the largest 0.012) against 10 of 0.072
+(0.013), agitation 2.1 against 2.4; shaken sideways, no thump in either,
+agitation 0.93 against 0.87, and 22,100 slides a second at their fastest
+against 21,300 (a 1 minute glass: 39,200 against 36,000). Two things differ,
+both because the sound is made from what the GPU sand did. A phone that moves
+without moving its sand makes no sand sound: carried at a walk the GPU bed
+lies still and is silent, where the classic sand shimmers (agitation 0.07
+against 0.72). And a lean is heard as far as the GPU sand answers it:
+leaned 50°, a 1 minute glass's GPU bed creeps three cells in three seconds
+(300 slides a second, under the 1,000 the rush begins at), where the classic
+sand's heap runs (7,800); laid on its side it goes across as a body that
+shears as it goes (26,000 slides a second at their fastest against the
+classic's 24,000) and, stood up again, lands back in the funnel with a
+thump (0.043), where the classic sand's heap runs back and lands nothing.
+
+The sound comes one to three frames after the sand's own motion (a
+readback's delay), a thump as the bed comes to rest. A sleeping glass is
+silent and sound never keeps it awake (the feeds are read from readbacks
+the frame makes anyway); a fresh bed (a fill, a transfer) settles unheard
+for 0.4 s. The landing buzz (Android) follows the thumps, as with the
+classic sand; every other buzz is the app's own.
 
 With Real sand on the glass does not crack: a blow thumps and clacks, cracks
 the glass already has stay and can be mended, and Reset makes it whole. The
@@ -752,9 +794,9 @@ imports the same files.
 | File | What it is |
 | --- | --- |
 | `boot.mjs` | the one module `app.js` appends (switch on, `navigator.gpu` there): it hands `RealSand` and the build stamp to `Hourglass.attachRealSand` |
-| `app-sand.mjs` | `RealSand`, the adapter: every member of the CPU `Sim` that `app.js` and `audio.js` use, with the same types; the frame's `submit`, fills, transfers, the swap frame, the Reset's sweep, the sound record, start-up, loss and rebuild, `stats()` and `audit()` |
+| `app-sand.mjs` | `RealSand`, the adapter: every member of the CPU `Sim` that `app.js` and `audio.js` use, with the same types; the frame's `submit`, fills, transfers, the swap frame, the Reset's sweep, the sound record (the stream from the ledger, the bed from the readbacks), start-up, loss and rebuild, `stats()` and `audit()` |
 | `valve.mjs` | the ledger (the sand above the neck in the app's whole grains) and the controller that meters the neck once a frame; pure JavaScript |
-| `solver.mjs`, `shaders/` | the PB-MPM solver on WebGPU and its WGSL: the neck's throttle and membrane, the tally, the flip pass, appends, readbacks, the tone pass |
+| `solver.mjs`, `shaders/` | the PB-MPM solver on WebGPU and its WGSL: the neck's throttle and membrane, the tally (with each bulb's bed, for the sound), the flip pass, appends, readbacks, the tone pass |
 | `glass.mjs` | the glass on the solver's grid, built from the app's own geometry (`makeGeometry`, `profile` of `physics.js`), with the neck's warp |
 | `fill.mjs` | fills: the lattice, and `fromLattice`, the GPU bed laid where the CPU sand's grains are, each with its grain's colour seed |
 | `grains.mjs` | the grains drawn: the palette from the Renderer's colour table, the warp, the room's light, the sweep |

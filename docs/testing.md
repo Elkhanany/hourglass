@@ -304,19 +304,39 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   cases: a lost engine never ready nor taken over, a handover after the CPU
   caught up (by a transfer, the count never back up), a brief lock while the
   device opened, the picture drawn again while asleep, and one shader
-  library a page with the shaders' build checked.
+  library a page with the shaders' build checked; and the bed's sounds, the
+  mock solver saying what its sand does (`tools/test/lib/realsand-beds.js`
+  sums a bed from groups of points as the shader does): a bed that falls
+  and is stopped by the glass feeds one thump of the classic sand's energy
+  for that landing, in the frame its readback comes, before the start,
+  running, paused and (the lower bulb's) finished; one stopped at the far
+  end a slam; one that the field slowed, or that stopped sideways, nothing;
+  sand sliding within a bed the classic's slides at the calibrated share, in
+  every frame also when calm draws every other, and a bed moving as one body
+  none; a shaken bed's agitation, 0 again at rest; nothing at rest, hidden
+  or asleep, and a glass that sleeps as soon with sound in its readbacks as
+  without; each with its control (the same scene on an engine that hears
+  nothing, or the motion that must not sound).
   `realsand-shell` checks the service worker's shell for Real sand: every
   path in it exists (one missing would fail the whole install), every module
   `realsand/boot.mjs` loads and every shader of the engine is in it, and
   `app.js`, the lab, the engine and its shaders name the same build stamp.
   `realsand-gpu` runs only when named (`node tools/test/run-all.js
-  realsand-gpu`, 10 to 15 minutes, every core busy): the app with Real sand
+  realsand-gpu`, 15 to 20 minutes, every core busy): the app with Real sand
   and layered sand on the real engine, on Chromium's WebGPU in software
   (SwiftShader), loaded with `?offscreen=1`. Software runs the sand at a few
   hundredths of real time, so once the engine has started the page's clock
   is made virtual (its time, frames and timers driven by the test, a frame
   at a time, each once the chip has done the last), and the sand runs at
-  real time in it. Seven cases on 10 s glasses: the start and the handover;
+  real time in it. Eight cases on 10 s glasses: the start and the handover;
+  the bed's sounds before the start (nothing while asleep; flicked along the
+  glass as `motion.js` reports a flick, a thump of the energy of the bed's
+  fastest fall, fed within 6 frames of that fall and as loud as the classic
+  Sim's for the same flick, stepped in Node beside it, within a factor of 2
+  of the level `audio.js` plays, the agitation within a factor of 2;
+  nothing with the readbacks unheard, its control; shaken sideways, no thump
+  and the agitation and slides within a factor of 2 of the classic's;
+  leaned, sound only as far as the sand moved);
   a glass to its end, its last grain crossing within one frame after
   00:00.0 by the chip's own record, with no catch-up and no residue; Reset;
   a Flip at 4 s; a pour, then real motion turning the glass over while sand
