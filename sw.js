@@ -24,6 +24,7 @@ var SHELL = [
   './physics.js',
   './audio.js',
   './motion.js',
+  './app/settings.js',
   './app.js',
   // the manifest and the icons
   './manifest.json',

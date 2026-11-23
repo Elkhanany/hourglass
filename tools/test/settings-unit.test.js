@@ -1,0 +1,407 @@
+#!/usr/bin/env node
+/*
+ * The settings store (app/settings.js), in Node, in a moment.
+ *
+ *  1. The records: one per saved key, well formed; their ids and defaults are those of the
+ *     app's settings before the store, in the same order.
+ *  2. The loader, differential: app.js's "Settings (persisted)" section as it was before the
+ *     store (kept byte for byte in tools/test/base/app-settings-section.txt) and the store are
+ *     run on the same 500 saved states (hand-written edge cases and generated ones: missing
+ *     keys, wrong types, values out of range, a save that is not JSON, "?t=" queries, with and
+ *     without a version, storage that throws). Each must give the same settings (the same keys
+ *     in the same order, the same values), the same saved JSON byte for byte, the same calls on
+ *     storage and the same answer to "was a duration asked for"; and again on a second launch
+ *     from what was saved.
+ *  3. The migrations: the version step (Real sand on, once, for a save from before version 2),
+ *     and a record's `from` (the value for a save without the key), on a made-up store.
+ *  4. save(), a blocked storage, bindSwitch (set, save, then the callback, inside the event),
+ *     and that the file reads nothing when it loads.
+ * Each rule has its control: a store or a table that breaks it must fail the same check.
+ *
+ *   node tools/test/settings-unit.test.js [--base <commit>] [--write]
+ *
+ * --base <commit> (or HOURGLASS_BASE): the kept section must be that commit's, cut from its
+ * app.js by its banners; with --write it is written from it (and its hash below changes).
+ */
+'use strict';
+var fs = require('fs'), path = require('path'), vm = require('vm'), crypto = require('crypto');
+var paths = require('./lib/paths.js');
+var base = require('./lib/base.js');
+var ROOT = paths.ROOT;
+var count = 0, failures = 0;
+function check(ok, what, detail) {
+  count++; if (!ok) failures++;
+  console.log((ok ? 'ok    ' : 'FAIL  ') + what + (detail ? '  — ' + detail : ''));
+}
+function sha(s) { return crypto.createHash('sha256').update(s).digest('hex'); }
+
+/* ---- the store, and the section it replaced -------------------------------------------- */
+var STORE_FILE = paths.script('settings.js');
+require(path.join(ROOT, STORE_FILE));
+var S = globalThis.HourglassSettings;
+var THEMES = require('./lib/load-physics.js').P.THEMES;
+var REG = { themes: THEMES };
+var KEY = 'hourglass.settings.v1';
+
+// the kept section: pinned, so that a change to it is made on purpose
+var SECTION_SHA = 'e0757fdbaefe4390eecee9c8668c28e99e0c182c2721f7bbca573a8ef263d730';
+var rev = base.asked();
+if (rev && base.writing()) fs.writeFileSync(base.SECTION, base.section(base.show(rev, 'app.js'), 'Settings (persisted)'));
+var SECTION = fs.readFileSync(base.SECTION, 'utf8');
+check(sha(SECTION) === SECTION_SHA && /var KEY = 'hourglass\.settings\.v1';/.test(SECTION) && /function save\(\)/.test(SECTION),
+  'the kept section (tools/test/base/app-settings-section.txt, ' + (SECTION.split('\n').length - 1) + ' lines) is the one this test was written against (its SHA-256)',
+  sha(SECTION));
+check(sha(SECTION + ' ') !== SECTION_SHA, '... and a byte more in it would fail that (control)');
+if (rev) {
+  var cut = null, why = '';
+  try { cut = base.section(base.show(rev, 'app.js'), 'Settings (persisted)'); } catch (e) { why = String(e.stderr || e.message).trim().split('\n')[0]; }
+  check(cut === SECTION, 'the kept section is app.js\'s "Settings (persisted)" section at ' + rev + ', byte for byte, cut by its banners', why);
+  var moved = null;
+  try { moved = base.section(base.show(rev, 'app.js').replace('var KEY = ', 'var KEY2 = '), 'Settings (persisted)'); } catch (e) {}
+  check(moved !== null && moved !== SECTION, '... and that commit\'s section with one name changed is not it (control)');
+}
+
+/**
+ * The old loader: the section run as it ran in app.js (strict, inside a function), in a vm
+ * context whose localStorage, location and P are the test's.
+ */
+var refBox = { P: { THEMES: THEMES }, location: { search: '' }, __storage: null };
+Object.defineProperty(refBox, 'localStorage', { get: function () { return refBox.__storage(); }, enumerable: true });
+vm.createContext(refBox);
+var refScript = new vm.Script('(function () {\n\'use strict\';\n' + SECTION + '\nreturn { settings: settings, save: save, qt: qt };\n})()', { filename: 'app-settings-section.txt' });
+
+/** A localStorage of the test's: what it holds, the calls made on it, and how it fails. */
+function Storage(text, mode) {
+  var st = { data: {}, ops: [], reached: 0, mode: mode || 'ok' };
+  if (text !== null) st.data[KEY] = text;
+  st.api = {
+    getItem: function (k) {
+      st.ops.push('get ' + k);
+      if (st.mode === 'noget') throw new Error('SecurityError');
+      return Object.prototype.hasOwnProperty.call(st.data, k) ? st.data[k] : null;
+    },
+    setItem: function (k, v) {
+      st.ops.push('set ' + k);
+      if (st.mode === 'noset') throw new Error('QuotaExceededError');
+      st.data[k] = String(v);
+    }
+  };
+  /** Reaching the storage itself (window.localStorage): where storage is blocked, this throws. */
+  st.reach = function () {
+    st.reached++;
+    if (st.mode === 'blocked') throw new Error('SecurityError: the operation is insecure');
+    return st.api;
+  };
+  return st;
+}
+function entries(o) { return Object.keys(o).map(function (k) { return [k, o[k]]; }); }
+/** One launch of the old loader: load, then save. */
+function runRef(text, search, mode) {
+  var st = Storage(text, mode);
+  refBox.__storage = st.reach;
+  refBox.location = { search: search };
+  var r = refScript.runInContext(refBox);
+  var out = { values: entries(r.settings), asked: r.qt ? +r.qt[1] * 1000 : null };
+  r.save();
+  out.json = Object.prototype.hasOwnProperty.call(st.data, KEY) ? st.data[KEY] : null;
+  out.ops = st.ops; out.reached = st.reached;
+  return out;
+}
+/** One launch of a store: load, then save. `how`: the storage handed over as the function (as app.js does) or as the object. */
+function runStore(store, text, search, mode, how) {
+  var st = Storage(text, mode);
+  var values = store.load(how === 'object' ? st.api : st.reach, search, REG);
+  var p = store.preset(search);
+  var out = { values: entries(values), asked: p ? p.durationMs : null };
+  store.save(values);
+  out.json = Object.prototype.hasOwnProperty.call(st.data, KEY) ? st.data[KEY] : null;
+  out.ops = st.ops; out.reached = st.reached;
+  return out;
+}
+function show(v) { return typeof v === 'number' && 1 / v === -Infinity ? '-0' : typeof v === 'string' ? JSON.stringify(v) : String(v); }
+/** How two launches differ: [] when they are the same. */
+function differ(a, b) {
+  var out = [];
+  var ka = a.values.map(function (e) { return e[0]; }).join(), kb = b.values.map(function (e) { return e[0]; }).join();
+  if (ka !== kb) out.push('keys ' + kb + ' for ' + ka);
+  else a.values.forEach(function (e, i) {
+    if (!Object.is(e[1], b.values[i][1])) out.push(e[0] + ' ' + show(b.values[i][1]) + ' for ' + show(e[1]));
+  });
+  if (a.json !== b.json) out.push('saved ' + b.json + ' for ' + a.json);
+  if (a.ops.join() !== b.ops.join()) out.push('storage calls ' + b.ops.join() + ' for ' + a.ops.join());
+  if (a.reached !== b.reached) out.push('storage reached ' + b.reached + ' times for ' + a.reached);
+  if (a.asked !== b.asked) out.push('duration asked ' + b.asked + ' for ' + a.asked);
+  return out;
+}
+/**
+ * A case on the old loader and on a store: the first launch, and a second one from what the
+ * first saved. (Handed the Storage itself, a store never reaches for it: that count is left out.)
+ */
+function compare(store, c, how) {
+  var a = runRef(c.text, c.search, c.mode), b = runStore(store, c.text, c.search, c.mode, how);
+  if (how === 'object') b.reached = a.reached;
+  var out = differ(a, b);
+  if (!out.length && a.json !== null) {
+    var a2 = runRef(a.json, '', 'ok'), b2 = runStore(store, b.json, '', 'ok', how);
+    if (how === 'object') b2.reached = a2.reached;
+    out = differ(a2, b2).map(function (d) { return 'second launch: ' + d; });
+  }
+  return out;
+}
+
+/* ---- 1. the records -------------------------------------------------------------------- */
+/** What is wrong with a table of records: [] when it is well formed. */
+function tableProblems(records) {
+  var out = [], seen = {};
+  records.forEach(function (r, i) {
+    var t = typeof r.default;
+    if (typeof r.id !== 'string' || !r.id) { out.push('record ' + i + ' has no id'); return; }
+    if (seen[r.id]) out.push(r.id + ' is there twice');
+    seen[r.id] = true;
+    if (t !== 'string' && t !== 'number' && t !== 'boolean') out.push(r.id + ': its default is ' + (r.default === null ? 'null' : t));
+    if (t === 'number' && !isFinite(r.default)) out.push(r.id + ': its default is not finite');
+    if ('valid' in r && typeof r.valid !== 'function') out.push(r.id + ': valid is not a function');
+    if ('from' in r && typeof r.from !== 'function') out.push(r.id + ': from is not a function');
+    Object.keys(r).forEach(function (k) { if (['id', 'default', 'valid', 'from'].indexOf(k) < 0) out.push(r.id + ': an unknown field, ' + k); });
+  });
+  return out;
+}
+var fresh = runRef(null, '', 'ok'), table = tableProblems(S.RECORDS);
+var ids = S.RECORDS.map(function (r) { return r.id; });
+check(S.KEY === KEY && table.length === 0 && S.KEYS.join() === ids.join() && S.RECORDS.length >= 30,
+  'the store has ' + S.RECORDS.length + ' records, well formed (an id, a default that is a string, a number or a boolean), under \'' + S.KEY + '\'', table.join('; '));
+var bad = tableProblems([{ id: 'a', default: 1 }, { id: 'a', default: null }, { id: 'b', default: 'x', valid: 1, to: 2 }, { default: 2 }, { id: 'c', default: 1 / 0 }]);
+check(bad.length === 6, '... and a table with an id twice, a default of null, a valid that is no function, an unknown field, no id and a default that is not finite fails that (control)', bad.join('; '));
+var was = fresh.values.map(function (e) { return e[0] + '=' + show(e[1]); }).join(' '), now = S.RECORDS.map(function (r) { return r.id + '=' + show(r.default); }).join(' ');
+check(was === now, 'the records\' ids and defaults are the old settings\', in the same order (' + fresh.values.length + ' keys, theme to v)', was === now ? '' : now + '  for  ' + was);
+check(S.VERSION === 2 && S.STEPS.length === 1 && S.STEPS[0].v === 2, 'the settings\' version is 2, with one version step');
+
+/* ---- 2. the loader, differential ------------------------------------------------------- */
+/** mulberry32: the same cases at every run. */
+function rng(seed) {
+  var a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    var t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+var rand = rng(20261123);
+function pick(list) { return list[Math.floor(rand() * list.length)]; }
+// values as JSON text, so that a save can hold what JSON.stringify never writes (-0, 1e999)
+var GOOD = {
+  theme: Object.keys(THEMES).map(function (k) { return JSON.stringify(k); }),
+  character: ['"asmr"', '"warm"', '"pure"', '"chime"', '"bamboo"', '"dune"'],
+  ambience: ['"none"', '"brook"', '"rain"', '"ocean"', '"waterfall"', '"drips"'],
+  breathPattern: ['"calm"', '"box"', '"deep"'],
+  volume: ['0', '0.35', '0.8', '1'], ambienceLevel: ['0', '0.5', '0.72', '1'],
+  durationMs: ['10000', '60000', '300000', '1500000', '3600000', '5999000'],
+  restMs: ['0', '10000', '60000', '300000', '3600000'], rounds: ['1', '2', '4', '12'],
+  motionSign: ['0', '1', '-1'], grain: ['0', '1', '2'],
+  mendNotes: ['0', '1', '3'], hintZen: ['0', '2', '3'], hintMotion: ['0', '1', '3'],
+  realSandFails: ['0', '1', '3'], realSandWhy: ['""', '"Needs WebGPU (iOS 26 or later)"'],
+  realSandNa: ['""', '"Mozilla/5.0 (iPhone)"'], realSandBuild: ['""', '"4"', '"5"'],
+  v: ['1', '2']
+};
+var ODD = {
+  string: ['""', '"x"', '"granite"', '"tuba"', '"toString"', '"constructor"', '"__proto__"', '"hasOwnProperty"', '"SAHARA"', '" sahara"', '"5"', '"null"', '"\\u00fcn\\u00ef"'],
+  number: ['-0', '-1', '-5', '0.5', '1.5', '2.5', '3', '5', '7', '13', '99', '9999', '9999.9', '10000.5', '3600001', '5999001', '1e21', '1e-7', '1e999', '-1e999',
+           '2147483648', '4294967297', '4294967300', '-4294967295'],
+  boolean: ['true', 'false']
+};
+var WRONG = ['null', '[]', '{}', '[1]', '{"a":1}'];
+var QUERIES = ['?t=300', '?t=0', '?t=5', '?t=45', '?t=99999', '?t=100000', '?t=12x', '?x=1&t=45', '?t=45&debug=motion', '?debug=motion&t=7', '?tt=5', '?T=5', '?t=', '?t=5&t=9', '?debug=sand', '?offscreen=1&t=90'];
+var tally = { missing: 0, wrongType: 0, odd: 0, query: 0, withV: 0, withoutV: 0, throws: 0, notJson: 0, notObject: 0, extra: 0, shuffled: 0 };
+function oneCase() {
+  var kind = pick(['sparse', 'full', 'full', 'damaged', 'damaged', 'typical']);
+  var present = kind === 'sparse' ? 0.3 : kind === 'full' ? 0.9 : kind === 'damaged' ? 0.7 : 1;
+  var pWrong = kind === 'damaged' ? 0.3 : kind === 'typical' ? 0 : 0.06, pOdd = kind === 'damaged' ? 0.4 : kind === 'typical' ? 0 : 0.15;
+  var parts = [], c = { missing: false, wrongType: false, odd: false, hasV: false };
+  S.RECORDS.forEach(function (r) {
+    var t = typeof r.default, x;
+    if (r.id === 'v' ? rand() < 0.5 : rand() >= present) { c.missing = true; return; }
+    if (rand() < pWrong) { x = rand() < 0.5 ? pick(WRONG) : pick(ODD[t === 'string' ? 'number' : t === 'number' ? 'boolean' : 'string']); c.wrongType = true; }
+    else if (rand() < pOdd) { x = pick(ODD[t]); c.odd = true; }
+    else x = GOOD[r.id] ? pick(GOOD[r.id]) : t === 'boolean' ? pick(ODD.boolean) : JSON.stringify(r.default);
+    if (r.id === 'v') c.hasV = true;
+    parts.push(JSON.stringify(r.id) + ':' + x);
+  });
+  if (rand() < 0.2) { parts.push(pick(['"sand":"blue"', '"extra":{"a":1}', '"hasOwnProperty":1', '"__proto__":{"theme":"lapis"}', '"frameStyle":3'])); c.extra = true; }
+  if (rand() < 0.3) { parts.sort(function () { return rand() - 0.5; }); c.shuffled = true; }
+  var m = rand();
+  return { text: '{' + parts.join(',') + '}', search: rand() < 0.3 ? pick(QUERIES) : '',
+           mode: m < 0.02 ? 'noget' : m < 0.05 ? 'noset' : m < 0.08 ? 'blocked' : 'ok', tags: c };
+}
+var CASES = [];
+// by hand: nothing saved, saves that are no objects or no JSON, the version, the checks and repairs at their edges
+[null, '', 'null', '{', 'undefined', '{"theme":', '5', '0', '"abc"', '"v"', 'true', 'false', '[]', '[1,2]', '{}',
+ '{"v":2}', '{"realSand":false}', '{"v":1,"realSand":false}', '{"v":2,"realSand":false}', '{"v":3,"realSand":false}', '{"v":"2","realSand":false}',
+ '{"v":1e999,"realSand":false}', '{"v":2.5,"realSand":false}', '{"v":1.9999,"realSand":false}', '{"v":-0,"realSand":false}', '{"v":null,"realSand":false}',
+ '{"v":true,"realSand":false}', '{"v":1,"realSand":"no"}',
+ '{"theme":"toString"}', '{"theme":"__proto__"}', '{"theme":"constructor"}', '{"theme":"lapis"}', '{"theme":5}', '{"theme":""}',
+ '{"motionSign":-0}', '{"motionSign":-1}', '{"motionSign":2}', '{"grain":-0}', '{"grain":2}', '{"grain":1.5}', '{"grain":3}',
+ '{"durationMs":1e999}', '{"durationMs":-1e999}', '{"durationMs":0}', '{"durationMs":-0}', '{"durationMs":9999.99}', '{"durationMs":1234567.5}',
+ '{"restMs":9999.9,"rounds":5}', '{"restMs":10000,"rounds":4294967300}', '{"restMs":3600000,"rounds":13}', '{"restMs":3600001,"rounds":3}',
+ '{"restMs":60000,"rounds":0}', '{"restMs":60000,"rounds":-3}', '{"restMs":60000,"rounds":2.9}', '{"restMs":-0,"rounds":7}', '{"restMs":1e999,"rounds":2}',
+ '{"__proto__":{"theme":"lapis"},"character":"dune"}', '{"hasOwnProperty":1,"theme":"lapis"}', '{"volume":7,"ambienceLevel":-3,"hintZen":99}',
+ '{"character":"tuba","ambience":"jungle","breathPattern":"fast"}'
+].forEach(function (text) { CASES.push({ text: text, search: '', mode: 'ok', tags: {} }); });
+QUERIES.forEach(function (q) {
+  CASES.push({ text: '{"v":2,"durationMs":1500000,"restMs":300000,"rounds":4}', search: q, mode: 'ok', tags: {} });
+});
+['noget', 'noset', 'blocked'].forEach(function (mode) {
+  CASES.push({ text: '{"v":2,"theme":"lapis","realSand":false}', search: '', mode: mode, tags: {} });
+  CASES.push({ text: null, search: '?t=45', mode: mode, tags: {} });
+});
+var byHand = CASES.length;
+while (CASES.length < 500) CASES.push(oneCase());
+CASES.forEach(function (c) {
+  var parsed, ok = true;
+  try { parsed = JSON.parse(c.text || 'null'); } catch (e) { ok = false; }
+  if (!ok) tally.notJson++;
+  else if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) tally.notObject++;
+  else if (Object.prototype.hasOwnProperty.call(parsed, 'v')) tally.withV++; else tally.withoutV++;
+  if (c.tags.missing) tally.missing++;
+  if (c.tags.wrongType) tally.wrongType++;
+  if (c.tags.odd) tally.odd++;
+  if (c.tags.extra) tally.extra++;
+  if (c.tags.shuffled) tally.shuffled++;
+  if (S.preset(c.search)) tally.query++;
+  if (c.mode !== 'ok') tally.throws++;
+});
+check(CASES.length === 500 && tally.missing >= 300 && tally.wrongType >= 150 && tally.odd >= 250 && tally.query >= 80 && tally.withV >= 150 && tally.withoutV >= 150 &&
+      tally.throws >= 20 && tally.notJson >= 3 && tally.notObject >= 10,
+  'the 500 saved states (' + byHand + ' by hand, ' + (500 - byHand) + ' generated): ' + tally.missing + ' with keys missing, ' + tally.wrongType + ' with a value of the wrong type, ' +
+  tally.odd + ' with one out of range, ' + tally.query + ' with "?t=", ' + tally.withV + ' with a version and ' + tally.withoutV + ' without, ' + tally.throws +
+  ' on a storage that throws, ' + tally.notJson + ' that are not JSON, ' + tally.notObject + ' that are no object');
+
+/** The cases on which a store differs from the old loader: [{ i, how, ... }]. */
+function differing(store, how) {
+  var out = [];
+  CASES.forEach(function (c, i) {
+    if (how === 'object' && c.mode === 'blocked') return;       // (a Storage in hand cannot be out of reach)
+    var d = compare(store, c, how);
+    if (d.length) out.push({ i: i, how: d[0], text: c.text, search: c.search, mode: c.mode });
+  });
+  return out;
+}
+function first(list) { return list.slice(0, 3).map(function (d) { return '#' + d.i + ' ' + JSON.stringify(d.text) + ' ' + d.search + ' (' + d.mode + '): ' + d.how; }).join(' | '); }
+var dFn = differing(S, 'function'), dObj = differing(S, 'object');
+check(dFn.length === 0, 'the loader: on all 500, the store gives what the old section gave: the same settings in the same order, the same saved JSON byte for byte, ' +
+  'the same calls on storage, the same answer to "?t=", and the same again on a second launch', first(dFn));
+check(dObj.length === 0, '... and the same with the Storage handed over itself instead of the function that reaches it', first(dObj));
+
+// controls: stores that differ from the old loader in one thing each must be found out
+function variant(change) {
+  var recs = S.RECORDS.map(function (r) { var q = {}; Object.keys(r).forEach(function (k) { q[k] = r[k]; }); return q; });
+  var o = { records: recs, steps: S.STEPS.slice(), repair: S.repair };
+  change(o);
+  return S.make(o.records, o.steps, o.repair);
+}
+var plainCopy = variant(function () {});
+var dCopy = differing(plainCopy, 'function');
+check(dCopy.length === 0, 'a store made again from the same records, steps and repairs gives the same on all 500 (the controls below change one thing each)', first(dCopy));
+var CONTROLS = [
+  ['two records in another order (volume after muted)', function (o) { var a = o.records[2]; o.records[2] = o.records[3]; o.records[3] = a; }, 500],
+  ['a version step that does nothing', function (o) { o.steps[0] = { v: 2, run: function () {} }; }, 20],
+  ['no version step at all (v is not set)', function (o) { o.steps.length = 0; }, 100],
+  ['a theme checked with hasOwnProperty', function (o) { o.records[0].valid = function (v, reg) { return Object.prototype.hasOwnProperty.call(reg.themes, v); }; }, 3],
+  ['a volume held between 0 and 1', function (o) { o.records[2].valid = function (v) { return v >= 0 && v <= 1; }; }, 5],
+  ['a motionSign that keeps the zero it was given (-0)', function (o) { o.records[18].valid = function (v) { return v === 0 || v === 1 || v === -1; }; }, 1],
+  ['a grain of 3 kept', function (o) { o.records[22].valid = function (v) { return v >= 1 && v <= 3; }; }, 1],
+  ['no check of the rest and the rounds', function (o) { o.repair = function (values, search) { var p = S.preset(search); if (p) { values.durationMs = p.durationMs; values.restMs = 0; } values.durationMs = Math.max(10000, Math.min(5999000, values.durationMs)); }; }, 20],
+  ['"?t=" not read', function (o) { o.repair = function (values, search, reg) { S.repair(values, '', reg); }; }, 50]
+];
+var weak = [];
+CONTROLS.forEach(function (c) {
+  var n = differing(variant(c[1]), 'function').length;
+  if (n < c[2]) weak.push(c[0] + ': ' + n + ' of 500 differ, at least ' + c[2] + ' expected');
+});
+check(weak.length === 0 && S.RECORDS[2].id === 'volume' && S.RECORDS[18].id === 'motionSign' && S.RECORDS[22].id === 'grain',
+  '... and each of ' + CONTROLS.length + ' stores that differ in one thing (the records\' order, the version step, the theme\'s check, a range, the zero\'s sign, the repairs, "?t=") is found out by the 500 (control)', weak.join('; '));
+
+/* ---- 3. the migrations ----------------------------------------------------------------- */
+function loadOf(store, saved, search) {
+  var st = Storage(saved === null ? null : typeof saved === 'string' ? saved : JSON.stringify(saved), 'ok');
+  var values = store.load(st.reach, search || '', REG);
+  store.save(values);
+  return { values: values, json: st.data[KEY], st: st };
+}
+var V = [
+  [null, true, 'nothing saved'], [{ realSand: false }, true, 'a save without a version'], [{ v: 1, realSand: false }, true, 'version 1'],
+  [{ v: 2, realSand: false }, false, 'version 2, off'], [{ v: 2, realSand: true }, true, 'version 2, on'], [{ v: 3, realSand: false }, false, 'a later version, off'],
+  [{ v: '2', realSand: false }, true, 'a version that is no number']
+];
+var vBad = V.filter(function (c) { var r = loadOf(S, c[0]); return r.values.realSand !== c[1] || r.values.v !== 2 || JSON.parse(r.json).v !== 2; }).map(function (c) { return c[2]; });
+var again = loadOf(S, loadOf(S, { v: 1, realSand: false }).json);
+again.values.realSand = false; S.save(again.values);
+var kept = loadOf(S, again.st.data[KEY]);
+check(vBad.length === 0 && kept.values.realSand === false,
+  'the version step: Real sand comes up on for a save of no version or of version 1, once; the save then says version 2, and turned off after that it stays off', vBad.join(', '));
+// a made-up store: a record made from an older one, and one whose `from` throws
+var calls = [];
+var M = S.make([
+  { id: 'theme', default: 'sahara' },
+  { id: 'sand', default: 'quartz', from: function (saved, reg) { calls.push(reg === REG); return saved.theme === 'lapis' ? 'blue' : saved.theme === 'volcanic' ? 7 : undefined; } },
+  { id: 'finish', default: 'walnut', from: function () { throw new Error('no'); } },
+  { id: 'last', default: 1, valid: function (v) { return v < 10; } },
+  { id: 'v', default: 3 }
+], [{ v: 2, run: function (values) { values.last = 5; } }, { v: 3, run: function (values, saved) { values.theme = saved.theme === 'old' ? 'new' : values.theme; } }]);
+var F = [
+  [null, 'sahara,quartz,walnut,1,3', 'nothing saved: the defaults, no from'],
+  [{ theme: 'lapis', v: 3 }, 'lapis,blue,walnut,1,3', 'the key absent: from the older key'],
+  [{ theme: 'lapis', sand: 'red', v: 3 }, 'lapis,red,walnut,1,3', 'the key saved: kept, no from'],
+  [{ theme: 'volcanic', v: 3 }, 'volcanic,quartz,walnut,1,3', 'from gives another type: the default'],
+  [{ theme: 'lapis', sand: 5, v: 3 }, 'lapis,quartz,walnut,1,3', 'the key saved with the wrong type: the default, no from'],
+  [{ theme: 'x', last: 4, v: 3 }, 'x,quartz,walnut,4,3', 'a from that throws costs only its own key'],
+  [{ theme: 'old', last: 4 }, 'new,quartz,walnut,5,3', 'no version: both steps, in order'],
+  [{ theme: 'old', last: 4, v: 2 }, 'new,quartz,walnut,4,3', 'version 2: the third step only'],
+  [{ theme: 'old', last: 40, v: 3 }, 'old,quartz,walnut,1,3', 'version 3: no step; a value out of range is the default'],
+  ['[1]', 'sahara,quartz,walnut,5,3', 'an array is no save: no from (the steps run, as they did)']
+];
+calls.length = 0;
+var fBad = F.filter(function (c) { var r = loadOf(M, c[0]); return M.KEYS.map(function (k) { return r.values[k]; }).join() !== c[1]; })
+  .map(function (c) { var r = loadOf(M, c[0]); return c[2] + ' (' + M.KEYS.map(function (k) { return r.values[k]; }).join() + ')'; });
+check(fBad.length === 0 && M.VERSION === 3 && calls.length > 0 && calls.every(Boolean),
+  'a record\'s `from` gives the value for a save without its key (and only then; another type, or a throw, is the default), and the steps run in order for an older save (a made-up store, ' + F.length + ' cases)', fBad.join('; '));
+
+/* ---- 4. save, a blocked storage, bindSwitch, loading ------------------------------------ */
+var st1 = Storage('{"v":2,"realSand":false,"theme":"lapis"}', 'ok'), v1 = S.load(st1.reach, '', REG);
+v1.volume = 0.25; S.save();
+var v2 = S.load(st1.reach, '', REG);
+check(v2.volume === 0.25 && v2.theme === 'lapis' && v2 !== v1 && st1.ops.join() === 'get ' + KEY + ',set ' + KEY + ',get ' + KEY,
+  'save() with no values saves those of the last load; a load reads storage once and writes nothing');
+var blocked = Storage('{"v":2,"theme":"lapis"}', 'blocked'), vb = null, threw = '';
+try { vb = S.load(blocked.reach, '?t=45', REG); S.save(vb); } catch (e) { threw = e.message; }
+check(!threw && vb && vb.theme === 'sahara' && vb.durationMs === 45000 && blocked.reached === 2,
+  'a storage that cannot be reached at all (blocked: localStorage itself throws) runs with the defaults, and "?t=" still counts', threw);
+// bindSwitch: set, save, then the callback, inside the event
+var st2 = Storage('{"v":2,"realSand":false}', 'ok'), v3 = S.load(st2.reach, '', REG), heard = [], order = [];
+var el = { addEventListener: function (type, fn) { heard.push([type, fn]); } };
+S.bindSwitch(el, 'chime', function (on) { order.push('after ' + on + ' saved ' + JSON.parse(st2.data[KEY]).chime + ' value ' + v3.chime); });
+heard[0][1]({ target: { checked: false } });
+order.push('returned');
+heard[0][1]({ target: { checked: true } });
+var notSwitch = [];
+['volume', 'nothing'].forEach(function (k) { try { S.bindSwitch(el, k); } catch (e) { notSwitch.push(k); } });
+check(heard.length === 1 && heard[0][0] === 'change' && order.join(' | ') === 'after false saved false value false | returned | after true saved true value true' && notSwitch.join() === 'volume,nothing',
+  'bindSwitch: on change the value is set, saved, and then the callback is called, in that order and before the event returns; a key that is no switch throws', order.join(' | '));
+// the file reads nothing when it loads: run where every global it could read is watched
+var touched = [], box = {};
+['localStorage', 'sessionStorage', 'location', 'document', 'navigator', 'HourglassPhysics'].forEach(function (g) {
+  Object.defineProperty(box, g, { get: function () { touched.push(g); return undefined; }, enumerable: true });
+});
+box.window = box;
+vm.createContext(box);
+var src = paths.piece(STORE_FILE), loaded = '';
+try { vm.runInContext(src, box, { filename: STORE_FILE }); } catch (e) { loaded = e.message; }
+check(!loaded && touched.length === 0 && box.HourglassSettings && typeof box.HourglassSettings.load === 'function',
+  STORE_FILE + ' reads nothing when it loads (no storage, no location, no document), and defines HourglassSettings', loaded || touched.join());
+var early = src.replace("var KEY = 'hourglass.settings.v1';", "var KEY = 'hourglass.settings.v1', early = root.localStorage;");
+try { vm.runInContext(early, box); } catch (e) {}
+check(early !== src && touched.join() === 'localStorage', '... and a copy that reaches localStorage as it loads is seen to (control)', touched.join());
+
+console.log('settings-unit: ' + (count - failures) + '/' + count + ' passed');
+if (failures) process.exitCode = 1;
