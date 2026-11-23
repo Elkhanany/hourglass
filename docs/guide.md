@@ -337,6 +337,7 @@ The note under the switch says how it is doing:
 | *Real sand paused: the graphics chip stopped answering three times; it will try again next launch* | the classic sand until the app is opened again |
 | *Paused after the graphics chip was reset twice; it will try again next launch* | the classic sand until the app is opened again |
 | *Real sand could not restart after the graphics chip was reset; it will try again next launch* | the same, when the chip could not be opened again |
+| *Real sand could not restart; it will try again next launch* | the same, when no graphics adapter was found right after the chip was reset or stopped answering: nothing is remembered or counted, and the next launch tries again |
 
 Around a lock or a switch to another app, a reset graphics chip is
 rebuilt without a word.
