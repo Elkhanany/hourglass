@@ -144,7 +144,7 @@ function arg(name, def) {
 var PORT = parseInt(arg('--port', process.env.PORT || '8995'), 10);
 var ONLY = (arg('--only', '') || '').split(',').filter(Boolean).map(Number);
 var SHOTS = arg('--shots', '');
-var ROOT = path.resolve(__dirname, '..', '..');
+var ROOT = require('./lib/paths.js').ROOT;
 var URL0 = 'http://127.0.0.1:' + PORT + '/lab/sand/?offscreen=1&res=S&amount=minute';
 
 var failures = 0, count = 0, t0 = Date.now();

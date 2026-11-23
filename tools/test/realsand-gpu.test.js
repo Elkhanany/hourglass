@@ -47,7 +47,7 @@ var playwright = require('playwright');
 var staticServer = require('./lib/static-server.js');
 var path = require('path');
 var fs = require('fs');
-var ROOT = path.join(__dirname, '..', '..');
+var ROOT = require('./lib/paths.js').ROOT;
 var port = +process.env.PORT || 8908, shots = null;
 for (var i = 2; i < process.argv.length; i++) {
   if (process.argv[i] === '--port') port = +process.argv[++i];

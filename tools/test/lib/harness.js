@@ -19,11 +19,10 @@
  */
 'use strict';
 var os = require('os');
-var fs = require('fs');
-var path = require('path');
 var vm = require('vm');
 var childProcess = require('child_process');
 var L = require('./load-physics.js');
+var paths = require('./paths.js');
 var Clock = require('./clock.js');
 var Pr = require('./profiles.js');
 
@@ -69,7 +68,7 @@ function armGate() {
                 navigator: { userAgent: '' }, screen: {}, console: console };
     win.window = win;
     vm.createContext(win);
-    vm.runInContext(fs.readFileSync(path.join(L.ROOT, 'motion.js'), 'utf8'), win, { filename: 'motion.js' });
+    vm.runInContext(paths.piece(paths.script('motion.js')), win, { filename: 'motion.js' });
     MotionCtor = win.HourglassMotion;
   }
   var m = new MotionCtor({});

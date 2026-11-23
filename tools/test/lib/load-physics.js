@@ -1,13 +1,18 @@
 /*
- * Load physics.js for the Node tests (development only, not shipped).
+ * Load the classic sand and the glass (HourglassPhysics) for the Node tests
+ * (development only, not shipped).
  *
  *   var L = require('./lib/load-physics.js');
  *   L.P                     HourglassPhysics from this checkout (also on globalThis)
+ *   L.physicsSource()       its source: the scripts index.html loads for it, joined
+ *                           (lib/paths.js; today physics.js alone)
  *   L.loadIsolated(src)     another copy, from a source string, in its own vm context
  *   L.baseline([rev])       HourglassPhysics as it was at a git revision (f446085,
  *                           the last version before motion), for identity tests
  *
  * HOURGLASS_BASELINE=<file> makes baseline() read that file instead of git.
+ * There is no L.PHYSICS: reading it throws, so a test written for one
+ * physics.js fails at once instead of reading a file that may not be there.
  */
 'use strict';
 var fs = require('fs');
@@ -15,12 +20,13 @@ var path = require('path');
 var vm = require('vm');
 var childProcess = require('child_process');
 
-var ROOT = path.resolve(__dirname, '..', '..', '..');
-var PHYSICS = path.join(ROOT, 'physics.js');
+var paths = require('./paths.js');
+
+var ROOT = paths.ROOT;
 var BASELINE_REV = 'f446085';
 
-// physics.js is a plain script: in Node it exports onto globalThis.
-require(PHYSICS);
+// The parts are plain scripts: in Node they export onto globalThis, in the page's order.
+paths.physicsParts().forEach(function (f) { require(path.join(ROOT, f)); });
 var P = globalThis.HourglassPhysics;
 
 /**
@@ -97,10 +103,17 @@ if (SHAPE) {
 
 module.exports = {
   ROOT: ROOT,
-  PHYSICS: PHYSICS,
   BASELINE_REV: BASELINE_REV,
   P: P,
+  physicsSource: function () { return paths.physicsSource(); },
   loadIsolated: loadIsolated,
   gitShow: gitShow,
   baseline: baseline
 };
+Object.defineProperty(module.exports, 'PHYSICS', {
+  enumerable: false,
+  get: function () {
+    throw new Error('L.PHYSICS is gone: the page may load HourglassPhysics from several files. ' +
+                    'Use L.physicsSource() for its text, or lib/paths.js for a file.');
+  }
+});

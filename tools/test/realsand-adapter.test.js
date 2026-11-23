@@ -45,7 +45,8 @@
 var path = require('path'), fs = require('fs');
 var L = require('./lib/realsand-plant.js');
 var P = require('./lib/load-physics.js').P;
-var ROOT = path.join(__dirname, '..', '..');
+var paths = require('./lib/paths.js');
+var ROOT = paths.ROOT;
 var t0 = Date.now(), count = 0, failures = 0;
 function log(s) { console.log(s); }
 function check(ok, what) { count++; if (!ok) failures++; log((ok ? 'ok    ' : 'FAIL  ') + what); }
@@ -461,7 +462,7 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   /* ------------------------------------------------------------------------------------ *
    *  1. The contract: every member app.js and audio.js use, with the CPU Sim's type
    * ------------------------------------------------------------------------------------ */
-  var appSrc = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8'), audioSrc = fs.readFileSync(path.join(ROOT, 'audio.js'), 'utf8');
+  var appSrc = fs.readFileSync(paths.APP, 'utf8'), audioSrc = paths.piece(paths.script('audio.js'));
   var members = {};
   (appSrc.match(/\bsim\.[A-Za-z_]\w*/g) || []).forEach(function (m) { members[m.slice(4)] = 1; });
   (audioSrc.match(/\bsim\.(nev|evX|evV|evK)\b/g) || []).forEach(function (m) { members[m.slice(4)] = 1; });

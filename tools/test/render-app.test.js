@@ -16,7 +16,7 @@ var server = require('./lib/static-server.js');
 var chromium = require('playwright').chromium;
 
 var PORT = +(process.argv[2] || process.env.PORT || 8802);
-var ROOT = path.resolve(__dirname, '..', '..');
+var ROOT = require('./lib/paths.js').ROOT;
 var URL = 'http://127.0.0.1:' + PORT + '/';
 var SNAP = process.env.SNAP || '';
 

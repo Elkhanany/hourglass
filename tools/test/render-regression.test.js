@@ -22,7 +22,7 @@ var L = require('./lib/load-physics.js');
 var chromium = require('playwright').chromium;
 
 var ORIGIN = 'http://localhost:' + (+(process.argv[2] || process.env.PORT || 8802)) + '/';
-var CUR = fs.readFileSync(L.PHYSICS, 'utf8');
+var CUR = L.physicsSource();
 var BASE = process.env.HOURGLASS_BASELINE ? fs.readFileSync(process.env.HOURGLASS_BASELINE, 'utf8')
                                           : L.gitShow(L.BASELINE_REV, 'physics.js');
 

@@ -33,11 +33,11 @@
  *   node tools/test/audio-api.test.js [port | --port <n>]      (default $PORT, else 8803)
  */
 'use strict';
-var path = require('path');
 var chromium = require('playwright').chromium;
 var Server = require('./lib/static-server.js');
 
-var ROOT = path.resolve(__dirname, '..', '..');
+var paths = require('./lib/paths.js');
+var ROOT = paths.ROOT, AUDIO = '/' + paths.script('audio.js');
 var PORT_AT = process.argv.indexOf('--port');
 var PORT = +((PORT_AT > 0 ? process.argv[PORT_AT + 1] : process.argv[2]) || process.env.PORT || 8803);
 var BASE = 'http://127.0.0.1:' + PORT;
@@ -277,7 +277,7 @@ async function main() {
     page2.on('pageerror', function (e) { errors.push('hush page: ' + e.message); });
     await page2.route(BASE + '/__hush.html', function (r) {
       r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">' +
-        '<button id="go" style="width:300px;height:200px">go</button><script src="/audio.js"></script>' +
+        '<button id="go" style="width:300px;height:200px">go</button><script src="' + AUDIO + '"></script>' +
         '<script>window.a = new HourglassAudio(); document.getElementById("go").addEventListener("click", function () { window.a.unlock(); });</script>' });
     });
     await page2.goto(BASE + '/__hush.html');
@@ -437,7 +437,7 @@ async function main() {
 
     /* ---- 12. synthesis slices, as the app runs them, on fresh pages (cold code) -------- */
     await page.route(BASE + '/__amb.html', function (r) {
-      r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="/audio.js"></script>' });
+      r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="' + AUDIO + '"></script>' });
     });
     for (var si = 0; si < NEW_AMB.length; si++) {
       var runs = [];

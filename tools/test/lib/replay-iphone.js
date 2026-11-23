@@ -29,7 +29,7 @@ var path = require('path');
 var playwright = require('playwright');
 var staticServer = require('./static-server.js');
 
-var REPO = path.resolve(__dirname, '..', '..', '..');
+var REPO = require('./paths.js').ROOT;
 var PROBE = path.join(__dirname, 'replay-probe.js');
 var STREAMS = path.join(__dirname, 'replay-streams.js');
 

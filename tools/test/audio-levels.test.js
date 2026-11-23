@@ -47,12 +47,12 @@
  *   node tools/test/audio-levels.test.js [port | --port <n>]      (default $PORT, else 8803)
  */
 'use strict';
-var path = require('path');
 var childProcess = require('child_process');
 var chromium = require('playwright').chromium;
 var Server = require('./lib/static-server.js');
 
-var ROOT = path.resolve(__dirname, '..', '..');
+var paths = require('./lib/paths.js');
+var ROOT = paths.ROOT, AUDIO = '/' + paths.script('audio.js');
 var PORT_AT = process.argv.indexOf('--port');
 var PORT = +((PORT_AT > 0 ? process.argv[PORT_AT + 1] : process.argv[2]) || process.env.PORT || 8803);
 var BASE = 'http://127.0.0.1:' + PORT;
@@ -129,7 +129,7 @@ async function main() {
     var oldSrc = childProcess.execFileSync('git', ['show', 'f446085:audio.js'], { cwd: ROOT, encoding: 'utf8' })
       .replace('root.HourglassAudio = HourglassAudio;', 'root.HourglassAudioOld = HourglassAudio;');
     await page.route(BASE + '/__levels.html', function (r) {
-      r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="/audio.js"></script><script src="/__old-audio.js"></script>' });
+      r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="' + AUDIO + '"></script><script src="/__old-audio.js"></script>' });
     });
     await page.route(BASE + '/__old-audio.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: oldSrc }); });
     await page.goto(BASE + '/__levels.html');

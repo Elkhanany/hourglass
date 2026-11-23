@@ -11,11 +11,10 @@
  *   node tools/test/sim-grain.test.js        exits 0 when every case passes
  */
 'use strict';
-var fs = require('fs');
 var L = require('./lib/load-physics.js');
 var H = require('./lib/harness.js');
 var DT = H.DT;
-var SRC = fs.readFileSync(L.PHYSICS, 'utf8');
+var SRC = L.physicsSource();
 var REST = 2, Q = 1.08;
 
 var failures = 0, count = 0;
