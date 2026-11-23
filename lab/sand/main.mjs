@@ -11,7 +11,8 @@
  * pace, the fills, the grains' drawing, auto Hz and the glass's felt jolts);
  * nothing is fetched from anywhere else. It registers no service
  * worker of its own; the app's service worker (sw.js, scope /hourglass/)
- * leaves lab/ and realsand/ to the network and never caches them.
+ * leaves lab/ to the network, answers this page's requests for realsand/
+ * from the network too, and stores none of them.
  *
  * Part of the Hourglass project. License: GPL-3.0. The solver
  * (../../realsand/solver.mjs, shaders/) derives from Smoosh (MIT) and EA's
@@ -46,28 +47,16 @@ function life(kind, detail = '') {
 }
 life('start', document.hidden ? 'hidden' : 'visible');
 // Belt and braces (design 2.3): the service worker answers this page's requests for the engine
-// from the network, so the engine here should always be the newest. Should a cached copy slip
-// through all the same (a stamp other than this page's), the engine's entries are dropped from
-// the app's caches and the page loads once more; sessionStorage stops a loop, and Copy results
-// prints both stamps.
-if (BUILD !== BUILD_EXPECTED) purgeEngine();
-async function purgeEngine() {
-  const KEY = 'hourglass.lab.purged', mark = BUILD + '/' + BUILD_EXPECTED;
-  try {
-    if (sessionStorage.getItem(KEY) === mark) return;
-    sessionStorage.setItem(KEY, mark);
-  } catch (e) { return; }
-  life('stamp', `the engine is build ${BUILD}, this page was written for ${BUILD_EXPECTED}: its cached copies dropped, loaded again`);
-  try {
-    if (globalThis.caches) {
-      for (const k of await caches.keys()) {
-        if (k.indexOf('hourglass-') !== 0) continue;
-        const c = await caches.open(k);
-        for (const r of await c.keys()) if (new URL(r.url).pathname.indexOf('/realsand/') >= 0) await c.delete(r);
-      }
-    }
-  } catch (e) { /* (no caches here: the reload alone) */ }
-  location.reload();
+// from the network, so the engine here should always be the newest. Should one of another build
+// reach it all the same (a stamp other than this page's), the page says so, with both stamps, in
+// its status line, and Copy results prints both. It leaves the app's caches alone: the app's
+// installed copy is a snapshot that only an install writes (sw.js), and a file taken out of it
+// would come back only with a connection.
+const STAMP_NOTE = BUILD === BUILD_EXPECTED ? '' :
+  `The engine is build ${BUILD}, this page was written for build ${BUILD_EXPECTED}: a mix of old and new files. Reload with a connection.`;
+if (STAMP_NOTE) {
+  life('stamp', `the engine is build ${BUILD}, this page was written for ${BUILD_EXPECTED}`);
+  if ($('status')) $('status').textContent = STAMP_NOTE;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1707,9 +1696,10 @@ function fallbackCopy(ta) {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 let statusTimer = 0;
 function setStatus(t) {
-  $('status').textContent = t;
+  // (with nothing else to say, the line says that the engine is of another build, if it is)
+  $('status').textContent = t || STAMP_NOTE;
   clearTimeout(statusTimer);
-  if (t && /copied|by hand|Real motion on/.test(t)) statusTimer = setTimeout(() => ($('status').textContent = ''), /Real motion/.test(t) ? 6000 : 2500);
+  if (t && /copied|by hand|Real motion on/.test(t)) statusTimer = setTimeout(() => ($('status').textContent = STAMP_NOTE), /Real motion/.test(t) ? 6000 : 2500);
 }
 function showSheet(title, node) {
   $('sheet-title').textContent = title;

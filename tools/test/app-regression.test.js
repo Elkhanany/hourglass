@@ -10,7 +10,9 @@
  *     and the sand engine (realsand/, for Real sand offline); it leaves the lab
  *     (lab/) to the network and never caches it, and a lab page gets a new
  *     engine at once: the engine's requests from a lab page go to the network
- *     and are never stored, while the app is answered from its cache
+ *     and are never stored, while the app is answered from its cache; a lab
+ *     page that meets an engine of another build says so and leaves the app's
+ *     cache whole, and the app then starts offline
  *   - no page errors
  *   - the harness serves the tree as it is: every script index.html loads,
  *     byte for byte, but the motion stub when a test asks for it, which is
@@ -245,8 +247,10 @@ async function testServiceWorker(s, root) {
     s.check('SW: lab/ pages are never cached, and what a lab page fetched of the engine was not stored (the cached shader is the installed one)',
             after.lab.length === 0 && after.grains.length === 1 && after.grains[0].fresh === false, JSON.stringify(after));
     // Should a lab page meet an engine of another build all the same (here: the lab written for
-    // build C, the engine at B), it drops the engine from the app's caches and loads once more,
-    // only once (sessionStorage stops a loop)
+    // build C, the engine at B), it says so, with both stamps, and leaves the app's cache alone:
+    // the app's installed copy is a snapshot only an install writes (sw.js), and a file taken out
+    // of it would come back only online. (Before R1 the lab dropped the engine from the app's
+    // caches and loaded once more; app-upgrade runs that lab, 13a9772's, as its control.)
     fs.writeFileSync(path.join(copy, 'lab', 'sand', 'main.mjs'), fs.readFileSync(path.join(copy, 'lab', 'sand', 'main.mjs'), 'utf8').replace(/const BUILD_EXPECTED = '[^']+'/, "const BUILD_EXPECTED = 'sw-test-C'"));
     var engineCached = function () {
       return caches.keys().then(function (keys) {
@@ -263,13 +267,38 @@ async function testServiceWorker(s, root) {
     await lp.reload();
     await lp.waitForFunction(function () { return !!window.__lab && window.__lab.build().expected === 'sw-test-C'; }, null, { timeout: 15000 });
     await sleep(2500);
-    var purge = await lp.evaluate(function () { return { build: window.__lab.build(), mark: sessionStorage.getItem('hourglass.lab.purged') }; });
+    var mixed = await lp.evaluate(function () {
+      return { build: window.__lab.build(), status: document.getElementById('status').textContent, mark: sessionStorage.getItem('hourglass.lab.purged') };
+    });
     var cached1 = await t.eval(engineCached);
-    s.check('SW: a lab page that meets an engine of another build drops the engine from the app\'s caches and loads once more, once only',
-            cached0 >= 30 && cached1 === 0 && loads === 2 && purge.build.build === B && purge.mark === B + '/sw-test-C',
-            JSON.stringify({ cachedBefore: cached0, cachedAfter: cached1, loads: loads, purge: purge }));
+    s.check('SW: a lab page that meets an engine of another build leaves the app\'s cache whole (its ' + cached0 + ' engine files), says so with both stamps, and loads once only',
+            cached0 === engine.length && cached1 === cached0 && loads === 1 && mixed.build.build === B && mixed.mark === null &&
+            mixed.status.indexOf('build ' + B) >= 0 && mixed.status.indexOf('build sw-test-C') >= 0 && /reload with a connection/i.test(mixed.status),
+            JSON.stringify({ cachedBefore: cached0, cachedAfter: cached1, loads: loads, lab: mixed }));
     s.check('SW: no page or console errors', t.errors.length === 0 && labErrors.length === 0, t.errors.concat(labErrors).slice(0, 3).join(' | '));
     await lp.close();
+    // ... and then the app starts offline, from its cache (the server stopped, the page offline)
+    await t.context.setOffline(true);
+    await new Promise(function (r) { env.server.close(function () { r(); }); if (env.server.closeAllConnections) env.server.closeAllConnections(); });
+    var bad = [];
+    t.page.on('response', function (r) { if (r.status() >= 400) bad.push(r.status() + ' ' + new URL(r.url()).pathname); });
+    t.page.on('requestfailed', function (q) { bad.push('failed ' + new URL(q.url()).pathname); });
+    t.errors.length = 0;
+    await t.page.reload();
+    var off = await t.page.waitForFunction(function () { return !!(window.Hourglass && window.Hourglass.sim); }, null, { timeout: 15000 })
+      .then(function () { return t.eval(function () { return { sim: !!window.Hourglass.sim, ctl: !!navigator.serviceWorker.controller }; }); },
+            function (e) { return { error: String(e && e.message).split('\n')[0] }; });
+    var cached2 = await t.eval(engineCached);
+    s.check('SW: ... and the app then starts offline, from its cache (Hourglass.sim, no page errors, no failed or 504 responses), the engine\'s files all still there',
+            off.sim === true && off.ctl === true && t.errors.length === 0 && bad.length === 0 && cached2 === cached0,
+            JSON.stringify({ off: off, errors: t.errors.slice(0, 3), bad: bad.slice(0, 5), cached: cached2 }));
+    // (the control: the count sees one engine file taken out)
+    var cached3 = await t.eval(function (f) {
+      return caches.keys().then(function (keys) {
+        return caches.open(keys.filter(function (k) { return k.indexOf('hourglass-') === 0; })[0]).then(function (c) { return c.delete(f); });
+      });
+    }, '.' + engine[0]).then(function () { return t.eval(engineCached); });
+    s.check('SW: ... and that count sees an engine file taken out of the cache (control)', cached3 === cached0 - 1, cached3 + ' of ' + cached0);
     await t.close();
   } finally {
     await env.close();
