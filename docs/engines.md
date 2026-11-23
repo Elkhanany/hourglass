@@ -746,7 +746,7 @@ imports the same files.
 | `layers.mjs`, `shaders/tone.wgsl` | layered sand on the GPU: the layer schedule, fresh tones as grains come to rest, the pattern after a turn |
 | `modes.mjs` | the power modes: asleep, full, calm and the heat guard |
 | `rate.mjs`, `pace.mjs` | auto Hz (480 to 1,440 substeps a second), and the GPU's pace (two frames in flight at most, the budget) |
-| `felt.mjs` | the glass's jolts played back slowed, as a slowed film of them |
+| `felt.mjs` | the glass's motion as the sand feels it (`GlassFelt`): `live` by default (the part of a push along the sand's floor beyond the bed's friction at the film's speed, at once, capped at 2 g; the rest, and every push off or into the floor, as it is; the floor taken from the sand's gravity), `slowmo` (a lone jolt as a slowed film, live while shaken), `film` (the slowed film, half a second late under shaking: before build 5), `plain`; `RealSand.jolts` picks one, plain under Reduce Motion |
 | `palette.mjs` | the lab's palettes (the app's come from its Renderer) |
 | `build.mjs` | the build stamp |
 | `LICENSES.md` | the solver's MIT and BSD-3-Clause notices |

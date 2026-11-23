@@ -250,6 +250,34 @@ time and with the same sand above, with a note; the new sand starts again
 the app is opened again. A glass that is idle, paused or finished and at
 rest sends nothing back and is never taken for one that stopped.
 
+Moving the glass. The sand answers the phone at once: a flick, a shake,
+the hand's jitter. The new sand lives in a slowed world (a fall takes about
+3.5 times longer than real), and until build 5 it played your motion back
+as a slowed film of it, which under any shaking or handling ran half a
+second behind the phone, and softly. Now the part of a push along the
+sand's floor that would slide a resting bed (beyond its friction, about
+0.6 g) is played at once, as fast as the film made it, and anything
+gentler is felt just as it is, as is every push up or down against the
+floor (so a shake up and down heaps the bed, as the film did, and does not
+throw it up in a column); the floor is where the sand's gravity points,
+however you hold the phone (upright, on its side, upside down). The
+sharpest peaks are held to 2 g and paid out over the next few hundredths
+of a second, so a jerk moves the bed without tearing it. Measured in the
+sand lab: a flick moves the bed 42 ms after the hand, where it took 108,
+and the sand stops sloshing about 0.1 s after you stop shaking, where it
+went on for half a second. What this trades: a lone jerk of a glass at
+rest moves its bed at once and as fast as the film did, but about a third
+as far, and the stop ends the slide; in the film (and in the sand's own
+physics at real speed) the bed is thrown against the far wall and the stop
+throws it on to the other one. A glass asleep (paused or finished, the
+sand at rest) wakes in the frame a jolt comes, where a flick never woke
+it. With Reduce Motion on, the glass's motion is felt as it is. The engine
+also keeps the slow-motion playback for a Tune choice later, "Moving the
+glass: Live | Slow motion", Slow motion reading: "A bump to a glass held
+still replays slowly, like a high-speed film; once you shake or handle it,
+the sand moves at once." (The sand lab's "jolts" button tries them both
+now.)
+
 Battery and heat. Nothing runs on the graphics chip while nothing moves (a
 glass paused or finished and at rest, or the page hidden). While the glass
 is turned, handled or shaken, as a glass starts and in its last seconds,
