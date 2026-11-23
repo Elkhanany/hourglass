@@ -78,7 +78,7 @@ function inOrder(list, wanted) {
     s.check('the kept trace sees the boot: the settings read; Sim.setPace(√2) before the Sim is built at that scale; setFrame, then setLayers on the Sim and the Renderer; ' +
             'the sound engine\'s volume, muted, character, chimeEnabled, ambience and ambLevel in that order; the sensors; the fill; a save',
             inOrder(all, ORDER) && paced && Math.abs(paced[1] - Math.SQRT2) < 1e-5 && built && Math.abs(built[1].scale - 1.08 * Math.SQRT2) < 1e-5 && built[1].seed === '(a seed)' &&
-            kept.boots.every(function (k) { return k.trace.length > 20 && typeof k.saved === 'string' && k.saved.indexOf('"v":2}') > 0; }) &&
+            kept.boots.every(function (k) { return k.trace.length > 20 && typeof k.saved === 'string' && /"v":2[,}]/.test(k.saved); }) &&        // (a setting added since is saved after the version)
             kept.boots[3].trace.some(function (e) { return e[0] === 'audio.character =' && e[1] === 'tuba'; }) &&
             kept.boots[4].saved.indexOf('"durationMs":45000,"restMs":0,"rounds":1') > 0,
             names(all).slice(0, 24).join(' '));

@@ -20,7 +20,8 @@
  *  3. The migrations: the version step (Real sand on, once, for a save from before version 2),
  *     and a record's `from` (the value for a save without the key), on a made-up store; every
  *     record of the app with a `from` has its example in FROM below.
- *  4. The names: every settings.<name> in app.js is a record, and every record is used there.
+ *  4. The names: every settings.<name> in app.js is a record, every key it binds with
+ *     bindSwitch is a switch, and every record is named or bound there.
  *  5. save(), a blocked storage, bindSwitch (the loaded value shown; then set, save and the
  *     callback, inside the event), and that the file reads nothing when it loads.
  * Each rule has its control: a store, a table or a copy of app.js that breaks it must fail the
@@ -416,13 +417,13 @@ check(weak.length === 0 && S.RECORDS[2].id === 'volume' && S.RECORDS[18].id === 
 
 // a record added since the store: after the old ones it changes nothing here (this file needs no
 // change for a new setting); among them it is found out
-var ADDED = { id: 'posts', default: true, from: function (saved) { return saved.frame; } };
+var ADDED = { id: 'x-added', default: true, from: function (saved) { return saved.frame; } };       // (a name no record of the app has)
 var atEnd = variant(function (o) { o.records.push(ADDED); }), among = variant(function (o) { o.records.splice(10, 0, ADDED); });
 var dEnd = differing(storeRun(atEnd, 'function')), dEndApp = differing(sectionRun(APP_SECTION, atEnd)), dAmong = differing(storeRun(among, 'function'));
 var endSt = Storage('{"v":2,"frame":false}', 'ok'), endValues = atEnd.load(endSt.reach, '', REG);
 atEnd.save(endValues);
-check(dEnd.length === 0 && dEndApp.length === 0 && atEnd.KEYS.length === OLD + 1 && firstRecords(atEnd.RECORDS) === was &&
-      endValues.posts === false && /,"v":2,"posts":false\}$/.test(endSt.data[KEY]),
+check(dEnd.length === 0 && dEndApp.length === 0 && atEnd.KEYS.length === S.KEYS.length + 1 && firstRecords(atEnd.RECORDS) === was &&
+      endValues['x-added'] === false && /,"x-added":false\}$/.test(endSt.data[KEY]) && endSt.data[KEY].indexOf('"v":2') > 0,
   'a store with a record added after the old ones (a switch made from an older key) gives the same on all 500, by itself and under ' + APP_FILE +
   '\'s section: its key is left out of the comparison, and is loaded, migrated and saved last', first(dEnd.concat(dEndApp)) + ' ' + endSt.data[KEY]);
 check(dAmong.length === 500 && firstRecords(among.RECORDS) !== was, '... and the same record put among the old ones is found out, by the 500 and by the records\' order (control)',
@@ -512,27 +513,44 @@ check(f1.join() === 'caps has a from and no example' && f2.length === 1 && /^cap
   [f1.join('; '), f2.join('; '), f3.join('; ')].join(' | '));
 
 /* ---- 4. the names app.js uses ----------------------------------------------------------- */
+/** The keys a controller binds with bindSwitch(el, 'key', …) in its code: the second argument, a string. */
+function boundKeys(src) {
+  var code = scan.blank(src).code, re = /\bbindSwitch\s*\(/g, m, k, out = [];     // (blank keeps every character's place)
+  while ((m = re.exec(code))) {
+    k = /^[^,]*,\s*(['"])([^'"\n]*)\1/.exec(src.slice(m.index + m[0].length));
+    out.push(k ? k[2] : '(a key that is no string)');
+  }
+  return out;
+}
 /**
  * What is wrong between the settings a controller names and a store's records: [] when every
- * settings.<name> in its code (strings and comments are not code) is a record, every record
- * but the version is named there, and no setting is read by a computed name.
+ * settings.<name> in its code (strings and comments are not code) is a record, every key it
+ * binds with bindSwitch is a switch of the store, every record but the version is named or
+ * bound there, and no setting is read by a computed name.
  */
-function nameProblems(src, keys) {
-  var used = scan.members(src, 'settings'), out = [];
+function nameProblems(src, records) {
+  var used = scan.members(src, 'settings'), bound = boundKeys(src), out = [];
+  var keys = records.map(function (r) { return r.id; });
   used.forEach(function (n) { if (keys.indexOf(n) < 0) out.push('settings.' + n + ' is no record of the store'); });
-  keys.forEach(function (k) { if (k !== 'v' && used.indexOf(k) < 0) out.push('the record ' + k + ' is named nowhere'); });
+  bound.forEach(function (k) {
+    if (keys.indexOf(k) < 0 || typeof records[keys.indexOf(k)].default !== 'boolean') out.push('bindSwitch binds ' + k + ', which is no switch of the store');
+  });
+  keys.forEach(function (k) { if (k !== 'v' && used.indexOf(k) < 0 && bound.indexOf(k) < 0) out.push('the record ' + k + ' is named nowhere'); });
   if (/(?<![.\w$])settings\s*\[/.test(scan.blank(src).code)) out.push('a setting is read as settings[…], which this check cannot follow');
   return out;
 }
-var usedNames = scan.members(APP_SRC, 'settings'), np = nameProblems(APP_SRC, S.KEYS);
-check(np.length === 0 && usedNames.length >= 29, 'every settings.<name> in ' + APP_FILE + ' is a record of the store (' + usedNames.length + ' names), and every record but the version is named there',
-  np.join('; '));
+var usedNames = scan.members(APP_SRC, 'settings'), np = nameProblems(APP_SRC, S.RECORDS);
+check(np.length === 0 && usedNames.length >= 29, 'every settings.<name> in ' + APP_FILE + ' is a record of the store (' + usedNames.length + ' names; ' + boundKeys(APP_SRC).length +
+  ' bound with bindSwitch, each a switch), and every record but the version is named there', np.join('; '));
 var typo = APP_SRC.replace('settings.chime = e.target.checked;', 'settings.chmie = e.target.checked;');
-var n1 = nameProblems(typo, S.KEYS), n2 = nameProblems(APP_SRC, S.KEYS.concat(['posts'])), n3 = nameProblems(APP_SRC + '\nvar k = settings[name];', S.KEYS);
-var n4 = nameProblems(APP_SRC + '\n// settings.inAComment\nvar t = "settings.inAString";', S.KEYS);
-check(typo !== APP_SRC && n1.join() === 'settings.chmie is no record of the store' && n2.join() === 'the record posts is named nowhere' && n3.length === 1 && /settings\[/.test(n3[0]) && n4.length === 0,
-  '... and a copy of ' + APP_FILE + ' that writes settings.chmie, a record it never names and a setting read by a computed name are each found; a name in a comment or a string is not one (control)',
-  [n1.join('; '), n2.join('; '), n3.join('; '), n4.join('; ')].join(' | '));
+var MORE = S.RECORDS.concat([{ id: 'zzNeverNamed', default: 0 }, { id: 'zzBound', default: true }]);          // (names no record of the app has)
+var n1 = nameProblems(typo, S.RECORDS), n2 = nameProblems(APP_SRC + '\nStore.bindSwitch($("opt-b"), "zzBound", f);', MORE), n3 = nameProblems(APP_SRC + '\nvar k = settings[name];', S.RECORDS);
+var n4 = nameProblems(APP_SRC + '\n// settings.inAComment and Store.bindSwitch(el, "inAComment")\nvar t = "settings.inAString";', S.RECORDS);
+var n5 = nameProblems(APP_SRC + '\nStore.bindSwitch($("opt-a"), \'chmie\', f);\nStore.bindSwitch(el, "volume");\nStore.bindSwitch(el, key);', S.RECORDS);
+check(typo !== APP_SRC && n1.join() === 'settings.chmie is no record of the store' && n2.join() === 'the record zzNeverNamed is named nowhere' && n3.length === 1 && /settings\[/.test(n3[0]) && n4.length === 0 &&
+      n5.join() === 'bindSwitch binds chmie, which is no switch of the store,bindSwitch binds volume, which is no switch of the store,bindSwitch binds (a key that is no string), which is no switch of the store',
+  '... and a copy of ' + APP_FILE + ' that writes settings.chmie, a record it never names (one it only binds is named), a setting read by a computed name, and a bindSwitch on a misspelt key, on a slider and on a key that is no string ' +
+  'are each found; a name in a comment or a string is not one (control)', [n1.join('; '), n2.join('; '), n3.join('; '), n4.join('; '), n5.join('; ')].join(' | '));
 
 /* ---- 5. save, a blocked storage, bindSwitch, loading ------------------------------------ */
 var st1 = Storage('{"v":2,"realSand":false,"theme":"lapis"}', 'ok'), v1 = S.load(st1.reach, '', REG);

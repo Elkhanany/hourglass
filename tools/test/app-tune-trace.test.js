@@ -116,7 +116,8 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
     var failed = ONLY.filter(function (n) { return trace.differ(byName(kept, n), byName(c, n)).length > 0; });
     s.check('CONTROL: a copy of app.js whose completion bowl tells the sound engine before it saves, and whose Haptics switch has lost its buzz, fails at those (and only there)',
             failed.join() === 'completion bowl: off,completion bowl: on,haptics: on', failed.join());
-    s.check('CONTROL: a copy of the page with one switch more in Tune is found to have a control that no line drives', c.undriven.join() === '#opt-extra', c.undriven.join(', ') || 'none found');
+    s.check('CONTROL: a copy of the page with one switch more in Tune is found to have a control that no line drives',
+            c.undriven.indexOf('#opt-extra') >= 0 && c.undriven.length === mine.undriven.length + 1, c.undriven.join(', ') || 'none found');
   } catch (e) {
     s.check('the suite ran', false, String(e && e.stack || e).split('\n').slice(0, 3).join(' '));
   } finally {

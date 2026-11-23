@@ -49,8 +49,12 @@ function writing() { return process.argv.indexOf('--write') > 0; }
 /** Where a trace written from the tree just run is from: the checkout's commit, and whether the tree has more than it. */
 function here(root) {
   if (path.resolve(root) !== path.resolve(paths.ROOT)) return 'a tree given with --root';
-  var dirty = git(['status', '--porcelain', '--', '.', ':(exclude)tools/test/base']).trim() !== '';
-  return git(['rev-parse', 'HEAD']).trim() + (dirty ? ', with the changes not yet committed' : '');
+  try {
+    var dirty = git(['status', '--porcelain', '--', '.', ':(exclude)tools/test/base']).trim() !== '';
+    return git(['rev-parse', 'HEAD']).trim() + (dirty ? ', with the changes not yet committed' : '');
+  } catch (e) {
+    return 'a tree that is no git checkout';
+  }
 }
 
 /**
