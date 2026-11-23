@@ -90,10 +90,16 @@
  *        (the control) stays off and loads nothing.
  *  BUILD 3 failed launches, or "Needs WebGPU" for this user agent, found with an older engine
  *        build: forgotten and tried again; with this build (the controls): not tried.
+ *  HANG  the watchdog (settings design 5.4, in app.js): the GPU stops answering while the glass
+ *        runs in view: the CPU sand after 4 s, at the stopped engine's counts, the clock
+ *        untouched, the toast; a new engine after 2 s; a second time the same; a third within
+ *        ten minutes final; a glass with a swap still ends on time. Controls: readbacks held 8 s
+ *        on an idle, a paused and a finished glass (asleep), a running glass whose readbacks come
+ *        (calm), and a glass hidden 10 s with its readbacks held then let go: never fires.
  *
  *   node tools/test/app-realsand.test.js [--port 8905] [--only slow]
  *   (cases: off nogpu mock fail stamp again slow wake life norebuild crash residue asleep quiet
- *    defaultna defaultmock migrate build)
+ *    defaultna defaultmock migrate build hang)
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -1267,8 +1273,20 @@ async function testCrash(s, env) {
 
 /* ------------------------------------------------------------------------------------------ *
  *  Real sand by default (settings design 5): a first launch, the migration, a new engine
- *  build, and the dark opening
+ *  build, the dark opening, and the watchdog
  * ------------------------------------------------------------------------------------------ */
+/** The row's state from inside the page, and whether a toast or the watchdog's log said anything. */
+function rowState(t) {
+  return t.eval(function () {
+    var Hg = window.Hourglass, rep = JSON.parse(Hg.realSandReport()), e = window.__mockEnv;
+    return { dstate: document.getElementById('realsand-row').getAttribute('data-state'), note: document.getElementById('realsand-note').textContent,
+      live: !!Hg.realSand && Hg.sim === Hg.realSand, cpu: Hg.sim instanceof window.HourglassPhysics.Sim, engine: !!Hg.realSand,
+      watchdog: rep.watchdog, hangLog: (rep.log || []).filter(function (l) { return /watchdog/.test(l); }).length,
+      creates: e ? e.creates : 0, gpus: document.querySelectorAll('#c-gpu').length, run: Hg.timer.state, mode: Hg.realSand ? Hg.realSand.stats().mode : null,
+      grainShown: !document.getElementById('grain-row').hidden, toasts: (window.__toasts || []).slice() };
+  });
+}
+
 async function testDefaultNa(s, env) {
   // a first launch on a phone whose browser has WebGPU but no adapter (this Chromium): nothing saved
   var net = realsandRequests();
@@ -1473,6 +1491,166 @@ async function testBuild(s, env) {
   } finally { await t4.close(); }
 }
 
+/**
+ * The GPU stops answering (the mock's hold: no work completes, no readback comes) while the glass
+ * runs in view; resolves at the first frame on the CPU sand, with what the swap looked like.
+ */
+function hangNow(t) {
+  return t.eval(function () {
+    var Hg = window.Hourglass, e = window.__mockEnv, t0 = performance.now(), prev = null;
+    e.hold = true;
+    return new Promise(function (res) {
+      (function w() {
+        var now = performance.now();
+        if (now - t0 > 15000) { res(null); return; }
+        if (!(Hg.sim instanceof window.HourglassPhysics.Sim)) {
+          prev = { end: Hg.timer.lastTick + Hg.timer.rem, run: Hg.timer.state };
+          requestAnimationFrame(w);
+          return;
+        }
+        var rs = Hg.realSand;           // (the stopped engine, kept until the CPU sand's canvas has faded in)
+        res({ ms: now - t0, prev: prev, end: Hg.timer.lastTick + Hg.timer.rem, run: Hg.timer.state,
+          top: Hg.sim.nTop, total: Hg.sim.total, ledger: rs ? { top: rs.nTop, total: rs.total } : null,
+          real: document.getElementById('app').classList.contains('real'), dstate: document.getElementById('realsand-row').getAttribute('data-state'),
+          note: document.getElementById('realsand-note').textContent, toasts: window.__toasts.slice(), grainShown: !document.getElementById('grain-row').hidden });
+      })();
+    });
+  });
+}
+/** The swap looked right: in [3.9, 5] s, the clock's end untouched, the CPU Sim at the stopped engine's counts. */
+function hangOk(h) {
+  return !!h && h.ms >= 3900 && h.ms <= 5000 && !!h.prev && h.prev.run === 'running' && Math.abs(h.end - h.prev.end) < 1 && !h.real &&
+    !!h.ledger && h.top === h.ledger.top && h.total === h.ledger.total;
+}
+var HANG_MSG = 'Real sand paused: the graphics chip stopped answering';
+var HANG_FINAL = 'Real sand paused: the graphics chip stopped answering three times; it will try again next launch';
+
+async function testHang(s, env) {
+  var t = await openMock(env, { seed: 61 }, { durationMs: 60000 });
+  try {
+    await waitLive(t);
+    await watchToasts(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(2500);
+    // 1: the CPU sand within 4-5 s, the toast; a new engine after 2 s
+    var h1 = await hangNow(t);
+    s.check('HANG: the GPU stops answering while the glass runs in view: after 4 s (here ' + (h1 ? (h1.ms / 1000).toFixed(2) : '-') + ' s) the CPU sand takes over, at the stopped engine\'s counts, the clock untouched',
+            hangOk(h1), JSON.stringify(h1));
+    s.check('HANG: the toast and the note say "Real sand paused: the graphics chip stopped answering" (data-state lost)',
+            !!h1 && h1.toasts.indexOf(HANG_MSG) >= 0 && h1.note === HANG_MSG && h1.dstate === 'lost' && !h1.grainShown, JSON.stringify(h1 && { toasts: h1.toasts, note: h1.note, dstate: h1.dstate }));
+    var c0 = await t.eval(function () { var e = window.__mockEnv; e.hold = false; return { creates: e.creates, at: performance.now() }; });
+    await waitLive(t, 15000);
+    var b1 = await rowState(t), back1 = await t.eval(function (at) { return performance.now() - at; }, c0.at);
+    s.check('HANG: a new engine after 2 s takes the sand back ("On"), one canvas, the stopped engine gone; the glass runs on',
+            b1.live && b1.dstate === 'on' && b1.creates === c0.creates + 1 && b1.gpus === 1 && back1 >= 1700 && b1.run === 'running' && b1.watchdog === 1 && b1.hangLog === 1,
+            JSON.stringify({ b: b1, backMs: back1 }));
+    // 2: again, not final
+    await sleep(1500);
+    var h2 = await hangNow(t);
+    await t.eval(function () { window.__mockEnv.hold = false; });
+    await waitLive(t, 15000);
+    var b2 = await rowState(t);
+    s.check('HANG: a second time: the CPU sand again, not final, and a new engine again',
+            hangOk(h2) && h2.dstate === 'lost' && b2.live && b2.creates === c0.creates + 2 && b2.watchdog === 2, JSON.stringify({ h: h2 && { ms: h2.ms, dstate: h2.dstate }, b: b2 }));
+    // 3: within ten minutes: final
+    await sleep(1500);
+    var h3 = await hangNow(t);
+    await t.eval(function () { window.__mockEnv.hold = false; });
+    await sleep(3500);
+    var b3 = await rowState(t), st3 = await state(t);
+    s.check('HANG: a third time within ten minutes is final: the CPU sand for the session, the note and toast say so, no new engine',
+            hangOk(h3) && h3.dstate === 'paused' && h3.note === HANG_FINAL && h3.toasts.indexOf(HANG_FINAL) >= 0 &&
+            b3.cpu && !b3.engine && b3.gpus === 0 && b3.creates === c0.creates + 2 && b3.dstate === 'paused' && b3.run === 'running' && b3.grainShown,
+            JSON.stringify({ h: h3 && { ms: h3.ms, dstate: h3.dstate, note: h3.note }, b: b3 }));
+    s.check('HANG: ... the setting kept, nothing counted; the report says the watchdog fired 3 times',
+            st3.setting === true && !st3.fails && !st3.na && b3.watchdog === 3 && b3.hangLog === 3, JSON.stringify({ setting: st3.setting, fails: st3.fails, watchdog: b3.watchdog, log: b3.hangLog }));
+    await H.invariants(s, t, 'HANG');
+  } finally { await t.close(); }
+
+  // the glass still ends on time after a watchdog swap and the new engine's takeover
+  var t2 = await openMock(env, { seed: 63 }, { durationMs: 14000 });
+  try {
+    await waitLive(t2);
+    await watchToasts(t2);
+    await record(t2);
+    await t2.eval(function () { window.Hourglass.start(); });
+    await sleep(2000);
+    var h = await hangNow(t2);
+    await t2.eval(function () { window.__mockEnv.hold = false; });
+    var e = await runToEnd(t2, 30000);
+    var back = await rowState(t2);
+    s.check('HANG (END): a 14 s glass with a watchdog swap at 6 s: the new engine took over and the glass ends on time on the GPU sand: last point within 30 ms of 00:00.0, nTop 0 within 3 frames after, never before',
+            hangOk(h) && back.live && e.done && e.d >= -5 && e.d <= 30 && e.frames >= 0 && e.frames <= 3 && e.early === 0, fmtEnd(e) + '; swap after ' + (h ? h.ms.toFixed(0) : '-') + ' ms');
+    await H.invariants(s, t2, 'HANG (END)');
+  } finally { await t2.close(); }
+
+  // controls: the watchdog never fires on a glass that sleeps (idle, paused, finished) with its
+  // readbacks held 8 s, on a running glass in view whose readbacks come (calm, every other frame),
+  // or on one hidden 10 s with its readbacks held, then shown and let go within a second
+  var t3 = await openMock(env, { seed: 67 }, { durationMs: 60000 });
+  try {
+    await waitLive(t3);
+    await watchToasts(t3);
+    var quiet = async function (label, ms) {
+      var a = await rowState(t3);
+      await t3.eval(function () { window.__mockEnv.hold = true; });
+      await sleep(ms);
+      var b = await rowState(t3);
+      await t3.eval(function () { window.__mockEnv.hold = false; });
+      await sleep(400);
+      var c = await rowState(t3);
+      s.check('HANG (control, ' + label + '): readbacks held ' + ms / 1000 + ' s: the watchdog does not fire (the GPU sand stays the sim, no new engine, no toast)',
+              a.live && b.live && c.live && c.watchdog === 0 && c.creates === a.creates && c.toasts.length === 0 && c.dstate === 'on',
+              JSON.stringify({ mode: a.mode, before: { live: a.live, creates: a.creates }, held: { live: b.live, mode: b.mode }, after: { live: c.live, watchdog: c.watchdog, creates: c.creates, toasts: c.toasts } }));
+    };
+    var asleep = function () { return waitFor(t3, function () { var rs = window.Hourglass.realSand; return !!rs && rs.stats().mode === 'asleep'; }, 15000); };
+    // an idle glass
+    await asleep();
+    await quiet('an idle glass, asleep', 8000);
+    // a running glass, its readbacks coming
+    await t3.eval(function () { window.Hourglass.start(); });
+    await sleep(3000);
+    var modes = await t3.eval(function () {
+      var rs = window.Hourglass.realSand, out = [], t0 = performance.now(), r0 = rs.stats().ledger.readbacks;
+      return new Promise(function (res) {
+        (function w() {
+          out.push(rs.stats().mode);
+          if (performance.now() - t0 > 8000) { res({ modes: out, reads: rs.stats().ledger.readbacks - r0 }); return; }
+          setTimeout(w, 250);
+        })();
+      });
+    });
+    var r = await rowState(t3), calm = modes.modes.filter(function (m) { return m === 'calm'; }).length;
+    s.check('HANG (control, a running glass in view, ' + calm + ' of ' + modes.modes.length + ' samples calm): 8 s, its readbacks coming: the watchdog does not fire',
+            r.live && r.watchdog === 0 && r.toasts.length === 0 && modes.reads > 100 && calm > 0, JSON.stringify({ reads: modes.reads, calm: calm, live: r.live, watchdog: r.watchdog }));
+    // hidden 10 s with its readbacks held, then shown, and let go within a second
+    var h0 = await rowState(t3);
+    await t3.eval(function () { window.__mockEnv.hold = true; window.__hide(true); });
+    await sleep(10000);
+    await t3.eval(function () { window.__hide(false); });
+    await sleep(600);
+    await t3.eval(function () { window.__mockEnv.hold = false; });
+    await sleep(5000);
+    var h1c = await rowState(t3);
+    s.check('HANG (control, hidden): hidden 10 s with its readbacks held, shown, and let go within a second: the watchdog does not fire',
+            h1c.live && h1c.watchdog === 0 && h1c.creates === h0.creates && h1c.toasts.length === 0 && h1c.run === 'running', JSON.stringify(h1c));
+    // a paused glass
+    await t3.eval(function () { window.Hourglass.pause(); });
+    await asleep();
+    await quiet('a paused glass, asleep', 8000);
+    // a finished glass
+    await t3.eval(function () { window.Hourglass.reset(); });
+    await waitFor(t3, function () { return !document.getElementById('app').classList.contains('sweep'); }, 5000);
+    await t3.eval(function () { window.Hourglass.setDuration(10000); });
+    await sleep(1500);
+    await t3.eval(function () { window.Hourglass.start(); });
+    await waitFor(t3, function () { return window.Hourglass.timer.state === 'done' && window.Hourglass.sim.nTop === 0; }, 25000);
+    await asleep();
+    await quiet('a finished glass, asleep', 8000);
+    await H.invariants(s, t3, 'HANG (controls)');
+  } finally { await t3.close(); }
+}
+
 async function main() {
   var s = new H.Suite('app-realsand');
   var env = await H.start();
@@ -1480,7 +1658,7 @@ async function main() {
     var only = env.args.only;
     var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp, again: testAgain,
       slow: testSlow, wake: testWake, life: testLife, norebuild: testNoRebuild, crash: testCrash, residue: testResidue, asleep: testAsleep,
-      quiet: testQuiet, defaultna: testDefaultNa, defaultmock: testDefaultMock, migrate: testMigrate, build: testBuild };
+      quiet: testQuiet, defaultna: testDefaultNa, defaultmock: testDefaultMock, migrate: testMigrate, build: testBuild, hang: testHang };
     for (var k in cases) {
       if (only && only !== k) continue;
       try { await cases[k](s, env); } catch (e) {

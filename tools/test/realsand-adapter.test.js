@@ -482,7 +482,7 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     tests: ['census', 'tones'],                                    // page-init.js's census, app-layers' tones
     // (b) RealSand's own
     real: ['feel', 'points', 'setSweep', 'submit'],
-    realEng: ['ready', 'takeOver', 'destroy', 'destroyed', 'stats', 'layout', 'setHidden', 'setPalette'],
+    realEng: ['ready', 'takeOver', 'destroy', 'destroyed', 'stats', 'layout', 'setHidden', 'setPalette', 'syncCpu'],   // (syncCpu: the watchdog)
     eng: ['start', 'adopt'],
     realCls: ['create']
   };

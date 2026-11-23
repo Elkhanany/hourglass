@@ -1352,6 +1352,7 @@
       drawMs = performance.now() - s1;
       dirty = false;
     }
+    if (real) watchReal(dtMs);                  // Real sand: a graphics chip that no longer answers (the watchdog)
 
     back = false;
     drainDamage(now);
@@ -2891,6 +2892,7 @@
   document.addEventListener('visibilitychange', function () {
     if (realEng) realEng.setHidden(document.hidden);   // Real sand: no GPU work while hidden (catch-up on return)
     if (document.hidden) realAway = true;              // (a start that fails meanwhile is tried again in view)
+    else realWatchFrom(performance.now());             // (the watchdog counts only time in view)
     if (document.hidden) endSweep();     // (a glass being made new is made at once)
     if (!document.hidden) back = true;   // before tickClock: an end found on return is not held
     tickClock();
@@ -3052,7 +3054,10 @@
    *    - the graphics chip lost while running: the engine has brought the
    *      CPU Sim to its counts; the CPU sand takes over in this frame, and
    *      the engine comes back on its own (onBack) unless it was the second
-   *      such loss within ten minutes.
+   *      such loss within ten minutes;
+   *    - the graphics chip no longer answering while the sand runs in view
+   *      (the watchdog, below): the same, done by this script, with a new
+   *      engine after 2 s, and a third time within ten minutes is final.
    *  ?offscreen=1 is for the tests only: the engine draws into a texture
    *  shown on a 2-D canvas and takes a software adapter (a headless
    *  browser's WebGPU canvas cannot be read back). ?debug=sand shows the
@@ -3071,7 +3076,8 @@
     fallback: 'This device\'s graphics are too slow for Real sand',
     device: 'the graphics chip could not be opened', load: 'the sand engine could not be loaded',
     compile: 'the sand engine could not be built on this device', selftest: 'its self-test failed',
-    lost: 'the graphics chip was reset', hidden: 'the app was put away as it started'
+    lost: 'the graphics chip was reset', hidden: 'the app was put away as it started',
+    hang: 'the graphics chip stopped answering'
   };
   function realLog(s) {
     realLogLines.push(Math.round(performance.now()) + ' ' + s);
@@ -3211,7 +3217,7 @@
       if (!eng || eng === realEng) realFail(e);
     });
   }
-  /** A start again (after a start cut short), once nothing of the last one is left. */
+  /** A start again (after a start cut short, or the watchdog), once nothing of the last one is left. */
   function startAgain() {
     if (realEng || real || !settings.realSand || !realCls) return;
     realAway = document.hidden;
@@ -3274,6 +3280,7 @@
       real = sim = realEng;
       app.classList.add('real');     // #c-gpu fades in over the CPU sand's canvas (styles.css)
       if (settings.realSandFails || settings.realSandWhy) { settings.realSandFails = 0; settings.realSandWhy = ''; save(); }
+      realWatchFrom(performance.now());
       showReal('on');
     } else {
       if (!real) return;
@@ -3283,7 +3290,7 @@
     }
     dirty = true;
   }
-  /** The graphics chip is gone (design 7.9). */
+  /** The graphics chip is gone (design 7.9), or no longer answers (the watchdog: info.why). */
   function onRealLost(info) {
     info = info || {};
     var was = !!real;
@@ -3291,11 +3298,57 @@
     handover('cpu');
     if (info.final) showReal('paused', info.message || REAL_WHY.lost);
     else if (info.lifecycle) showReal('starting');
-    else showReal('lost');
+    else showReal('lost', info.why);
     if (was && !info.lifecycle && info.message && !document.hidden) toast(info.message, 3200);
   }
   function onRealBack() { realDue = true; dirty = true; }
 
+  /*
+   * The watchdog (settings design 5.4, kept in this script: the engine's files are not changed).
+   * A graphics chip that stops answering without losing its device leaves every readback slot
+   * waiting: every frame is then skipped and the picture freezes while the clock runs on, and
+   * nothing in the engine sees it (its own rule counts runs, and none is made then). So, while
+   * the GPU sand is the sim, the page in view and drawing, and the engine awake (an idle, paused
+   * or finished glass whose sand is still sleeps and reads nothing back), no readback for 4 s of
+   * wall-clock time is taken as the chip being lost: the engine's ledger to the CPU Sim, the CPU
+   * sand in this frame with the clock untouched, the toast, and a new engine after 2 s. A third
+   * time within ten minutes, the CPU sand for the rest of the session.
+   */
+  var REAL_HANG_MS = 4000, REAL_HANG_FINAL = 3, REAL_HANG_WINDOW_MS = 600000;
+  var realWatch = { at: 0, reads: -1, since: 0 }, realHangs = [];
+  /** The watchdog's clock from now (a handover, the page back in view, frames not drawn). */
+  function realWatchFrom(now) { realWatch.at = now; realWatch.since = now; realWatch.reads = -1; }
+  /** Every frame while the GPU sand is the sim (dtMs: since the frame before). */
+  function watchReal(dtMs) {
+    var now = performance.now(), W = realWatch;
+    if (!real || real !== realEng) return;
+    if (document.hidden || dtMs > 1000 || now - W.at > 1000) { realWatchFrom(now); return; }
+    if (now - W.at < 250) return;
+    W.at = now;
+    var st = null;
+    try { st = realEng.stats(); } catch (e) { realWatchFrom(now); return; }
+    var reads = st && st.ledger ? st.ledger.readbacks : null;
+    // (a count of readbacks it cannot read: nothing to judge by)
+    if (typeof reads !== 'number' || reads !== W.reads || st.mode === 'asleep') { W.reads = reads; W.since = now; return; }
+    if (now - W.since >= REAL_HANG_MS) realHang(now);
+  }
+  /** The GPU sand no longer answers: the CPU sand now, a new engine after 2 s (or not, a third time). */
+  function realHang(now) {
+    realHangs = realHangs.filter(function (t) { return now - t < REAL_HANG_WINDOW_MS; });
+    realHangs.push(now);
+    var final = realHangs.length >= REAL_HANG_FINAL;
+    realLog('Real sand: no readback for ' + REAL_HANG_MS / 1000 + ' s while it ran in view: the watchdog gives the sand to the CPU' +
+      (final ? ' (the third time in ten minutes: final)' : ''));
+    try { realEng.syncCpu(); } catch (e) { realLog('Real sand: ' + (e && e.message || e)); }   // the CPU Sim at the ledger's counts
+    onRealLost({ reason: 'watchdog', lifecycle: false, final: final, why: REAL_WHY.hang,
+      message: final ? 'Real sand paused: the graphics chip stopped answering three times; it will try again next launch'
+        : 'Real sand paused: the graphics chip stopped answering' });
+    // the stopped engine goes once the CPU sand's canvas has faded in over its picture
+    setTimeout(function () {
+      if (realEng && !real) { try { realEng.destroy(); } catch (e) {} realEng = null; }
+    }, 600);
+    if (!final) setTimeout(function () { whenVisible(startAgain); }, 2000);
+  }
   optReal.addEventListener('change', function (e) {
     // on or off, the page is built afresh, as for another grain; the running time is kept. Not
     // available ('na', the switch shown off): a tap is a try again, what was remembered forgotten.
@@ -3334,7 +3387,7 @@
       at: new Date().toISOString(), ua: navigator.userAgent, standalone: !!navigator.standalone ||
         !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches),
       build: REALSAND_BUILD, setting: settings.realSand, state: realState, note: realNote.textContent, live: !!real,
-      na: !!settings.realSandNa,
+      watchdog: realHangs.length, na: !!settings.realSandNa,
       timer: { state: T.state, rem: Math.round(T.rem), durationMs: T.durationMs, total: sim.total, top: sim.nTop },
       stats: st, log: realLogLines
     }, null, 1);
