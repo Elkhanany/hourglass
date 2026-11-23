@@ -21,6 +21,7 @@
     realSandFails: 0,                // launches in a row at which Real sand did not start (it stops trying at 3)
     realSandWhy: '',                 // ... and why the last one did not (or why this browser cannot have it)
     realSandNa: '',                  // the user agent of a browser that could not have it: while it is this one, "Needs WebGPU", nothing loaded
+    realSandNaAt: 0,                 // ... and when that was found (ms since 1970): after seven days it is tried again all the same
     realSandBuild: '',               // the engine build those three were found with: another build clears them, and it tries again
     v: 2                             // the settings' version: used once, to turn Real sand on for a save from before it was the default
   };

@@ -13,7 +13,7 @@
  *     storage and the same answer to "was a duration asked for"; and again on a second launch
  *     from what was saved. And so must app.js's Settings section of today, the few lines that
  *     call the store, run as they run in app.js (cut by its banners) over the store.
- *     The old section knows the 30 keys the app had before the store. They are the store's
+ *     The old section knows the 31 keys the app had before the store. They are the store's
  *     first records, in their order; a record added since comes after them, and is left out of
  *     this comparison (out of the values, and out of the saved JSON where a save was written),
  *     so a new setting needs no change here.
@@ -54,7 +54,7 @@ var REG = { themes: THEMES };
 var KEY = 'hourglass.settings.v1';
 
 // the kept section: pinned, so that a change to it is made on purpose
-var SECTION_SHA = 'e0757fdbaefe4390eecee9c8668c28e99e0c182c2721f7bbca573a8ef263d730';
+var SECTION_SHA = '32a9a4e87fed60ebc730bc46aed4185db1569d24c7c155f995596ea5d612dc6d';
 var rev = base.asked();
 if (rev && base.writing()) fs.writeFileSync(base.SECTION, base.section(base.show(rev, 'app.js'), 'Settings (persisted)'));
 var SECTION = fs.readFileSync(base.SECTION, 'utf8');
@@ -118,7 +118,7 @@ function runRef(text, search, mode) {
   out.ops = st.ops; out.reached = st.reached;
   return out;
 }
-// The keys the app had before the store (30): the old section's, which the store's first records
+// The keys the app had before the store (31): the old section's, which the store's first records
 // must be, in that order. A record added since comes after them.
 var OLD = runRef(null, '', 'ok').values.length;
 /**
@@ -231,13 +231,13 @@ function tableProblems(records) {
 }
 var fresh = runRef(null, '', 'ok'), table = tableProblems(S.RECORDS);
 var ids = S.RECORDS.map(function (r) { return r.id; });
-check(S.KEY === KEY && table.length === 0 && S.KEYS.join() === ids.join() && S.RECORDS.length >= 30,
+check(S.KEY === KEY && table.length === 0 && S.KEYS.join() === ids.join() && S.RECORDS.length >= 31,
   'the store has ' + S.RECORDS.length + ' records, well formed (an id, a default that is a string, a number or a boolean), under \'' + S.KEY + '\'', table.join('; '));
 var bad = tableProblems([{ id: 'a', default: 1 }, { id: 'a', default: null }, { id: 'b', default: 'x', valid: 1, to: 2 }, { default: 2 }, { id: 'c', default: 1 / 0 }]);
 check(bad.length === 6, '... and a table with an id twice, a default of null, a valid that is no function, an unknown field, no id and a default that is not finite fails that (control)', bad.join('; '));
 function firstRecords(records) { return records.slice(0, OLD).map(function (r) { return r.id + '=' + show(r.default); }).join(' '); }
 var was = fresh.values.map(function (e) { return e[0] + '=' + show(e[1]); }).join(' '), now = firstRecords(S.RECORDS);
-check(was === now && OLD === 30, 'the first ' + OLD + ' records are the old settings\', ids and defaults, in the same order (theme to v)' +
+check(was === now && OLD === 31, 'the first ' + OLD + ' records are the old settings\', ids and defaults, in the same order (theme to v)' +
   (S.RECORDS.length > OLD ? '; ' + (S.RECORDS.length - OLD) + ' added since come after them: ' + S.KEYS.slice(OLD).join(', ') : ''), was === now ? '' : now + '  for  ' + was);
 check(S.VERSION === 2 && S.STEPS.length === 1 && S.STEPS[0].v === 2, 'the settings\' version is 2, with one version step');
 
@@ -267,7 +267,7 @@ var GOOD = {
   motionSign: ['0', '1', '-1'], grain: ['0', '1', '2'],
   mendNotes: ['0', '1', '3'], hintZen: ['0', '2', '3'], hintMotion: ['0', '1', '3'],
   realSandFails: ['0', '1', '3'], realSandWhy: ['""', '"Needs WebGPU (iOS 26 or later)"'],
-  realSandNa: ['""', '"Mozilla/5.0 (iPhone)"'], realSandBuild: ['""', '"4"', '"5"'],
+  realSandNa: ['""', '"Mozilla/5.0 (iPhone)"'], realSandNaAt: ['0', '1795400000000'], realSandBuild: ['""', '"4"', '"5"'],
   v: ['1', '2']
 };
 var ODD = {
@@ -540,7 +540,7 @@ function nameProblems(src, records) {
   return out;
 }
 var usedNames = scan.members(APP_SRC, 'settings'), np = nameProblems(APP_SRC, S.RECORDS);
-check(np.length === 0 && usedNames.length >= 29, 'every settings.<name> in ' + APP_FILE + ' is a record of the store (' + usedNames.length + ' names; ' + boundKeys(APP_SRC).length +
+check(np.length === 0 && usedNames.length >= 30, 'every settings.<name> in ' + APP_FILE + ' is a record of the store (' + usedNames.length + ' names; ' + boundKeys(APP_SRC).length +
   ' bound with bindSwitch, each a switch), and every record but the version is named there', np.join('; '));
 var typo = APP_SRC.replace('settings.chime = e.target.checked;', 'settings.chmie = e.target.checked;');
 var MORE = S.RECORDS.concat([{ id: 'zzNeverNamed', default: 0 }, { id: 'zzBound', default: true }]);          // (names no record of the app has)
