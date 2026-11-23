@@ -1585,7 +1585,7 @@ export class RealSand {
     const F = this._fall;
     return {
       build: BUILD, live: this.live, ready: this._ready, mode: this.modes.mode, why: this.modes.why, guard: this.modes.guard,
-      hz: this.rate.hz, hzPeak: this.rate.peak, jolts: this.felt.opt.mode, steps: this._lastSteps, budget: this.pace.budget, msStep: this.pace.msStep, inflight: this.pace.inflight,
+      hz: this.rate.hz, hzPeak: this.rate.peak, held: this.rate.held, jolts: this.felt.opt.mode, steps: this._lastSteps, budget: this.pace.budget, msStep: this.pace.msStep, inflight: this.pace.inflight,
       ratio: this._ratio(now), display: this._displayMs(), behindS: this._behind, s: this.s, ppg: this.ppg,
       points: v.points, gpuCount: this.solver ? this.solver.count : 0,
       tally: t ? { points: t.points, above: t.above, below: t.below, queue: t.queue, refused: t.refused, crossings: t.crossings, nan: t.nan, outside: t.outside, moving: t.moving } : null,

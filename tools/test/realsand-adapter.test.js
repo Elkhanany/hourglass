@@ -804,13 +804,14 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     await J.run(1000);
     J.motionIn = null; J.env.recordFields = false;
     var th = rJ.angle + rJ.tilt, gx = J.env.solver.fields.map(function (f) { return along ? -f.gravity[1] / rJ.Gg - Math.cos(th) : f.gravity[0] / rJ.Gg - Math.sin(th); });
-    return { over: gx.filter(function (x) { return x > 0.1; }).length, peak: Math.max.apply(null, gx), n: gx.length, jolts: rJ.stats().jolts, tilt: rJ.tilt };
+    var st = rJ.stats();
+    return { over: gx.filter(function (x) { return x > 0.1; }).length, peak: Math.max.apply(null, gx), n: gx.length, jolts: st.jolts, tilt: rJ.tilt, rate: typeof st.hzPeak === 'number' && typeof st.held === 'number' };
   }
   var jF = await joltRun(0.5, 'film'), jL = await joltRun(0.5), jL15 = await joltRun(1.5), jP15 = await joltRun(1.5, null, true);
   check(jF.over > 2 * 24 && jF.peak > 0.35 && jF.peak <= 0.5 && jF.n > 400 && jF.jolts === 'film',
     'jolts \'film\' (as before): a 50 ms jolt of 0.5 g (24 substeps at 480 Hz) is felt by ' + jF.over + ' substeps, slowed like a film, at up to ' + jF.peak.toFixed(2) + ' g against the glass\'s gravity');
-  check(jL.jolts === 'live' && jL.over >= 20 && jL.over <= 40 && jL.peak > 0.35 && jL.peak <= 0.5 && jL15.peak > 1.5 && jL15.peak <= 2 + 1e-6,
-    'live, the default: the same jolt is felt by ' + jL.over + ' substeps (at once, not slowed), at up to ' + jL.peak.toFixed(2) + ' g (under the bed\'s friction: as it is); a 1.5 g jolt at up to ' + jL15.peak.toFixed(2) + ' g (beyond the friction at the film\'s speed, capped at 2 g)');
+  check(jL.jolts === 'live' && jL.over >= 20 && jL.over <= 40 && jL.peak > 0.35 && jL.peak <= 0.5 && jL15.peak > 1.5 && jL15.peak <= 2 + 1e-6 && jL.rate,
+    'live, the default: the same jolt is felt by ' + jL.over + ' substeps (at once, not slowed), at up to ' + jL.peak.toFixed(2) + ' g (under the bed\'s friction: as it is); a 1.5 g jolt at up to ' + jL15.peak.toFixed(2) + ' g (beyond the friction at the film\'s speed, capped at 2 g); the owner\'s report has the highest auto Hz and the rate the GPU\'s budget held back (' + (jL.rate ? 'hzPeak, held' : 'missing') + ')');
   check(jP15.jolts === 'plain' && jP15.peak > 1.3 && jP15.peak <= 1.5 && jP15.over <= 40,
     'under Reduce Motion the glass\'s motion is played plain: the 1.5 g jolt at up to ' + jP15.peak.toFixed(2) + ' g, by ' + jP15.over + ' substeps');
   // live takes its knees in the frame of the sand's gravity (on the page at angle + tilt - rho):
