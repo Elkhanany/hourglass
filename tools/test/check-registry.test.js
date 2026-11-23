@@ -13,7 +13,9 @@
  *  - a record the engine could not play is refused as the page loads, by name: a character with a
  *    number missing or a table of resonators that is not six rows of four numbers (the graph has
  *    six bands), an ambience with a layer it cannot make or more than 8 MB of PCM, a card without
- *    its id, name or icon, an id that is taken;
+ *    its id, name or icon, an id that is taken; and so is a record with a field nothing reads,
+ *    which is a field misspelt (`mode` for `modes` would be a character with the thin glass,
+ *    `layer` for `layers` an ambience that plays nothing, `offerd` a glass that is not offered);
  *  - the shapes of physics.js are whole: SHAPE_ORDER and SHAPES name the same glasses in the same
  *    order, the classic first; each says whether Tune offers it and has the half-turn symmetry
  *    both sand engines need; addShape refuses a record that is not whole; and checkShape finds
@@ -151,7 +153,10 @@ GROUPS.forEach(function (G) {
     ['seven rows of resonators', ch({ modes: six.concat([[8000, 9, 0.1, 0.01]]) }), /"x-new": modes has 7 rows/],
     ['a row of three', ch({ modes: six.slice(0, 5).concat([[6000, 9, 0.2]]) }), /"x-new": row 5 of modes is not \[Hz, Q, gain, shift\]/],
     ['a row that holds text', ch({ modes: six.slice(0, 2).concat([[1500, 'nine', 0.6, 0.1]], six.slice(3)) }), /"x-new": row 2 of modes holds nine, not a number/],
-    ['a resonator at 0 Hz', ch({ modes: [[0, 9, 1, 0.1]].concat(six.slice(1)) }), /"x-new": row 0 of modes needs a frequency and a Q above 0/]
+    ['a resonator at 0 Hz', ch({ modes: [[0, 9, 1, 0.1]].concat(six.slice(1)) }), /"x-new": row 0 of modes needs a frequency and a Q above 0/],
+    ['its resonators under `mode`', ch({ mode: six }), /"x-new": mode is no field of its record \(id, name, icon, whisper, .*, modes\)/],
+    ['a misspelt `shak`', ch({ shak: 0.03 }), /"x-new": shak is no field of its record/],
+    ['a field nothing reads', ch({ pitch: 1 }), /"x-new": pitch is no field of its record/]
   ];
   var missed = [];
   NO.forEach(function (c) {
@@ -190,7 +195,10 @@ GROUPS.forEach(function (G) {
     ['a cue that is no function', am({ layers: [{ make: mk, seconds: 10, sr: 24000, cue: 3 }] }), /"x-amb": the cue of layer 0 is not a function/],
     ['an audition of no length', am({ audition: 0 }), /"x-amb": audition is 0/],
     ['the waterfall one second longer', am({ layers: longer }), /"x-amb": 8\.19 MB of PCM, more than 8 /],
-    ['42 s at 48 kHz', am({ layers: [{ make: mk, seconds: 42, sr: 48000 }] }), /"x-amb": 16\.13 MB of PCM/]
+    ['42 s at 48 kHz', am({ layers: [{ make: mk, seconds: 42, sr: 48000 }] }), /"x-amb": 16\.13 MB of PCM/],
+    ['its loops under `layer`, which would be silence', am({ layers: undefined, layer: [{ make: mk, seconds: 10, sr: 24000 }] }), /"x-amb": layer is no field of its record \(id, name, icon, audition, layers\)/],
+    ['a misspelt `audtion`', am({ audtion: 9 }), /"x-amb": audtion is no field of its record/],
+    ['a layer\'s cue under `que`', am({ layers: [{ make: mk, seconds: 10, sr: 24000, que: function () { return 1; } }] }), /"x-amb", layer 0: que is no field of its record \(make, seconds, sr, cue\)/]
   ];
   missed = [];
   NOA.forEach(function (c) {
@@ -199,6 +207,15 @@ GROUPS.forEach(function (G) {
   });
   check(missed.length === 0 && bytes <= 8e6 && bytes > 7.9e6, 'defineAmbience refuses, by name and by rule, and adds nothing: ' + NOA.map(function (c) { return c[0]; }).join(', ') +
     ' (the waterfall itself holds ' + (bytes / 1e6).toFixed(2) + ' MB)', missed.join(' | '));
+  // the fields a record may hold are the fields today's records hold, no more: a field added to the
+  // list and read by nothing would be the silence this rule is there to end
+  function fieldsOf(list) { var seen = {}; list.forEach(function (r) { Object.keys(r).forEach(function (k) { seen[k] = true; }); }); return Object.keys(seen).sort().join(' '); }
+  function values(o) { return Object.keys(o).map(function (k) { return o[k]; }); }
+  var layersOf = [];
+  values(A.AMBIENCES).forEach(function (a) { (a.layers || []).forEach(function (L) { layersOf.push(L); }); });
+  var fc = fieldsOf(values(A.CHARACTERS)), fa = fieldsOf(values(A.AMBIENCES)), fl = fieldsOf(layersOf);
+  check(fc === 'bed beds body grain high icon id low lp modal modes name room send shake tick ticks vessel whisper' && fa === 'audition icon id layers name' && fl === 'cue make seconds sr',
+    '... and the fields the records of audio.js hold are the ones a record may: 19 for a character, 5 for an ambience, 4 for a layer', [fc, fa, fl].join(' | '));
   var a1 = am({}), a2 = am({ id: 'x-still', layers: undefined }), a3 = am({ id: 'x-full', audition: 8, layers: [{ make: mk, seconds: 20.8, sr: 48000, cue: function () { return 1; } }] });
   var ok2 = thrown(function () { E.defineAmbience(a1); E.defineAmbience(a2); E.defineAmbience(a3); });
   var la = E.ambiences(), eng = new E(), raw = eng._makeAmbience('x-amb', 1);
@@ -247,7 +264,10 @@ GROUPS.forEach(function (G) {
     ['no name', { id: 'x-new', kR: 1, kH: 1, f: f }, /"x-new": it has no name/],
     ['no f', { id: 'x-new', name: 'x', kR: 1, kH: 1 }, /"x-new": it has no f\(u\)/],
     ['an open neck', { id: 'x-new', name: 'x', kR: 1, kH: 1, f: function (u) { return 0.1 + 0.9 * f(u); } }, /"x-new": f\(0\) is 0\.1/],
-    ['a glass that is not the same after a half turn', { id: 'x-new', name: 'x', kR: 1, kH: 1, f: f, symmetry: 'none' }, /"x-new": symmetry "none"/]
+    ['a glass that is not the same after a half turn', { id: 'x-new', name: 'x', kR: 1, kH: 1, f: f, symmetry: 'none' }, /"x-new": symmetry "none"/],
+    ['a misspelt `offerd`', { id: 'x-new', name: 'x', kR: 1, kH: 1, f: f, offerd: true }, /"x-new": offerd is no field of its record \(id, name, kR, kH, f, classic, equator, symmetry, offered\)/],
+    ['a misspelt `symetry`', { id: 'x-new', name: 'x', kR: 1, kH: 1, f: f, symetry: 'none' }, /"x-new": symetry is no field of its record/],
+    ['an equator of its own, which is read off f', { id: 'x-new', name: 'x', kR: 1, kH: 1, f: f, equator: 0.5 }, /"x-new": its equator is read off f/]
   ];
   var missed = [];
   NO.forEach(function (c) {
@@ -259,6 +279,10 @@ GROUPS.forEach(function (G) {
   check(missed.length === 0 && okMsg === '' && P2.SHAPE_ORDER[n0] === 'x-new' && good.offered === false && after.length === 0 && why.length === 0,
     'addShape refuses, by name and by rule: ' + NO.map(function (c) { return c[0]; }).join(', ') + '; and takes a whole record, as the last, not offered (control)',
     missed.concat(okMsg ? [okMsg] : [], after, why).join(' | '));
+  var seenFields = {};
+  IDS.forEach(function (id) { Object.keys(P.SHAPES[id]).forEach(function (k) { seenFields[k] = true; }); });
+  var fs9 = Object.keys(seenFields).sort().join(' ');
+  check(fs9 === 'classic equator f id kH kR name offered symmetry', '... and the fields the records of physics.js hold are the ones a record may: 9 for a shape', fs9);
   // checkShape on a glass the sand cannot use: wider than its R, and two bulges
   P2.SHAPES['x-fat'] = { id: 'x-fat', name: 'too wide', kR: 1, kH: 1, f: function (u) { return 1.05 * f(u); } };
   P2.SHAPES['x-two'] = { id: 'x-two', name: 'two bulges', kR: 1, kH: 1, f: function (u) { return f(u) * (1 - 0.4 * Math.exp(-Math.pow((u - 0.3) / 0.05, 2))); } };

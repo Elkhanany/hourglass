@@ -161,23 +161,29 @@
   }
 
   var SHAPES = {}, SHAPE_ORDER = [];
+  var SHAPE_FIELDS = ['id', 'name', 'kR', 'kH', 'f', 'classic', 'equator', 'symmetry', 'offered'];
 
   /**
    * Register a glass shape. The record is kept as it is given (and completed:
    * `symmetry` 'point' and `offered` false where it says neither), by its id,
    * after the shapes already there. What costs nothing to see is checked here,
    * as the page loads, and refused by name: an id and a name, kR and kH, an f
-   * that is 0 at the neck, the symmetry both sand engines need. What takes a
-   * walk along the curve or a lattice is left to checkShape: a curve made by
-   * shUnit is walked 20,000 times the first time it is asked for, and a page
-   * that never shows the glass never pays for it.
+   * that is 0 at the neck, the symmetry both sand engines need, and a field
+   * that is none of a shape's (`offerd: true` would leave a glass not
+   * offered, without a word). What takes a walk along the curve or a lattice
+   * is left to checkShape: a curve made by shUnit is walked 20,000 times the
+   * first time it is asked for, and a page that never shows the glass never
+   * pays for it.
    */
   function addShape(rec) {
-    var what = 'addShape';
+    var what = 'addShape', k;
     if (!rec || typeof rec !== 'object') throw new Error(what + ': a record is needed');
     if (typeof rec.id !== 'string' || !rec.id) throw new Error(what + ': the record has no id');
     what += ' "' + rec.id + '"';
     if (rec.id in SHAPES) throw new Error(what + ': that id is taken');
+    for (k in rec) {
+      if (SHAPE_FIELDS.indexOf(k) < 0) throw new Error(what + ': ' + k + ' is no field of its record (' + SHAPE_FIELDS.join(', ') + ')');
+    }
     if (typeof rec.name !== 'string' || !rec.name) throw new Error(what + ': it has no name');
     if (rec.symmetry !== undefined && rec.symmetry !== 'point') {
       throw new Error(what + ': symmetry "' + rec.symmetry + '": both sand engines turn the glass by a half turn, so it must be the same after one (\'point\')');
@@ -187,9 +193,11 @@
     if (rec.classic) {
       // the teardrop: profile() holds its curve, and only it may say so
       if (rec.id !== 'classic' || rec.f !== undefined) throw new Error(what + ': only the teardrop, which has no f, is the classic glass');
+      if (!(rec.equator > 0 && rec.equator < 1)) throw new Error(what + ': its equator is ' + rec.equator + ' (the u of its widest point, between 0 and 1)');
     } else {
       if (typeof rec.f !== 'function') throw new Error(what + ': it has no f(u)');
       if (rec.f(0) !== 0) throw new Error(what + ': f(0) is ' + rec.f(0) + ' (the neck is the classic glass\'s own: f must be 0 there)');
+      if (rec.equator !== undefined) throw new Error(what + ': its equator is read off f, so the record names none (only the classic glass, which has no f, says its own)');
       Object.defineProperty(rec, 'equator', { enumerable: true, configurable: true, get: function () { return shapeEquator(rec); } });
     }
     if (rec.symmetry === undefined) rec.symmetry = 'point';

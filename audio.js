@@ -116,8 +116,20 @@
   var CHARACTERS = {}, CHARACTER_ORDER = [];
   var CHARACTER_NUMBERS = ['whisper', 'beds', 'ticks', 'grain', 'body', 'modal', 'room', 'low', 'high', 'lp', 'send', 'vessel'];
   var CHARACTER_OPTIONAL = ['shake', 'tick', 'bed'];
+  var CARD_FIELDS = ['id', 'name', 'icon'];
+  var CHARACTER_FIELDS = CARD_FIELDS.concat(CHARACTER_NUMBERS, CHARACTER_OPTIONAL, ['modes']);
 
   function isNumber(v) { return typeof v === 'number' && v - v === 0; }
+  /**
+   * A record says only what is read: a field nothing knows is a field
+   * misspelt (`mode` for `modes` would leave a character the thin glass, and
+   * `layer` for `layers` an ambience silent). Throws, naming it.
+   */
+  function checkFields(what, rec, known) {
+    for (var k in rec) {
+      if (known.indexOf(k) < 0) throw new Error(what + ': ' + k + ' is no field of its record (' + known.join(', ') + ')');
+    }
+  }
   /** What every card needs of a record: an id nothing else has, a name and an icon. Throws, naming `what`. */
   function checkCard(what, rec, taken) {
     if (!rec || typeof rec !== 'object') throw new Error(what + ': a record is needed');
@@ -129,13 +141,15 @@
   /**
    * Register an acoustic character (the record is kept as it is given, and
    * is what the engine reads). A record the graph could not play is refused
-   * here, when the page loads, by name: a number missing or not a number, or
-   * a `modes` table that is not six rows of four numbers.
+   * here, when the page loads, by name: a number missing or not a number, a
+   * `modes` table that is not six rows of four numbers, or a field that is
+   * none of a character's.
    */
   function defineCharacter(rec) {
     var what = 'defineCharacter', k, i, j, m;
     checkCard(what, rec, CHARACTERS);
     what += ' "' + rec.id + '"';
+    checkFields(what, rec, CHARACTER_FIELDS);
     for (k = 0; k < CHARACTER_NUMBERS.length; k++) {
       if (!isNumber(rec[CHARACTER_NUMBERS[k]])) throw new Error(what + ': ' + CHARACTER_NUMBERS[k] + ' is ' + rec[CHARACTER_NUMBERS[k]] + ', not a number');
     }
@@ -1868,6 +1882,7 @@
    */
   var AMBIENCES = {}, AMBIENCE_ORDER = [];
   var AMB_BYTES = 8e6;
+  var AMBIENCE_FIELDS = CARD_FIELDS.concat(['audition', 'layers']), LAYER_FIELDS = ['make', 'seconds', 'sr', 'cue'];
 
   /** The PCM an ambience holds once it is made, in bytes: two channels of 32-bit samples per layer. */
   function ambienceBytes(d) {
@@ -1879,18 +1894,21 @@
    * Register an ambience (the record is kept as it is given, and is what the
    * engine reads). One the engine could not make or hold is refused here,
    * when the page loads, by name: a layer without its `make`, its length or
-   * its rate, or more than 8 MB of PCM in all.
+   * its rate, more than 8 MB of PCM in all, or a field that is none of an
+   * ambience's or of a layer's.
    */
   function defineAmbience(rec) {
     var what = 'defineAmbience', i, L;
     checkCard(what, rec, AMBIENCES);
     what += ' "' + rec.id + '"';
+    checkFields(what, rec, AMBIENCE_FIELDS);
     if (rec.audition !== undefined && !(isNumber(rec.audition) && rec.audition > 0)) throw new Error(what + ': audition is ' + rec.audition + ', not a number of seconds');
     if (rec.layers !== undefined) {
       if (!rec.layers || !(rec.layers.length > 0)) throw new Error(what + ': layers is empty (leave it out for silence)');
       for (i = 0; i < rec.layers.length; i++) {
         L = rec.layers[i];
         if (!L || typeof L.make !== 'function') throw new Error(what + ': layer ' + i + ' has no make(sr, seconds, ch, seed)');
+        checkFields(what + ', layer ' + i, L, LAYER_FIELDS);
         if (!(isNumber(L.seconds) && L.seconds > 0)) throw new Error(what + ': layer ' + i + ' is ' + L.seconds + ' seconds long');
         if (!(isNumber(L.sr) && L.sr > 0)) throw new Error(what + ': layer ' + i + ' has the sample rate ' + L.sr);
         if (L.cue !== undefined && typeof L.cue !== 'function') throw new Error(what + ': the cue of layer ' + i + ' is not a function');
