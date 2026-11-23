@@ -12,12 +12,16 @@
  *                              (app-tune-trace); the new Tune is compared with this file too
  * Each suite, run with --base <commit> (or HOURGLASS_BASE=<commit>), makes its file again from
  * that commit and fails if it differs from the one kept; with --write as well, it writes it.
- * They were made from BASE.
+ * They were made from BASE. The two traces, run with --write and no --base, are written from
+ * the tree just run: that is how a setting or a control added on purpose gets into them, in a
+ * commit of its own whose diff is read (the new key, the new control's lines, nothing else).
+ * The kept section is the app before the store and is never made again.
  *
  *   var base = require('./lib/base.js');
  *   base.BASE                    the commit the kept files were made from
  *   base.asked()                 the commit named by --base or HOURGLASS_BASE, else null
  *   base.writing()               whether --write was given
+ *   base.here(root)              what a trace written from the tree just run says it is from
  *   base.SECTION, .BOOT, .TUNE   the kept files' paths
  *   base.section(src, title)     a banner's section of app.js: from the line that opens its
  *                                banner to the line before the next banner
@@ -42,6 +46,12 @@ function flag(name) {
 }
 function asked() { return flag('--base') || process.env.HOURGLASS_BASE || null; }
 function writing() { return process.argv.indexOf('--write') > 0; }
+/** Where a trace written from the tree just run is from: the checkout's commit, and whether the tree has more than it. */
+function here(root) {
+  if (path.resolve(root) !== path.resolve(paths.ROOT)) return 'a tree given with --root';
+  var dirty = git(['status', '--porcelain', '--', '.', ':(exclude)tools/test/base']).trim() !== '';
+  return git(['rev-parse', 'HEAD']).trim() + (dirty ? ', with the changes not yet committed' : '');
+}
 
 /**
  * The section of app.js under the banner titled `title`: from the line that opens the banner
@@ -79,5 +89,5 @@ module.exports = {
   SECTION: path.join(DIR, 'app-settings-section.txt'),
   BOOT: path.join(DIR, 'boot-trace.json'),
   TUNE: path.join(DIR, 'tune-trace.json'),
-  asked: asked, writing: writing, section: section, show: show, tree: tree, git: git
+  asked: asked, writing: writing, here: here, section: section, show: show, tree: tree, git: git
 };

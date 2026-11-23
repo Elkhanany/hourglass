@@ -13,14 +13,19 @@
  * tools/test/base/tune-trace.json, made from the commit before it (lib/base.js). The controls
  * are named for what they set, not for the page's markup, so that a new Tune can be driven by
  * its own selectors and compared with the same file.
+ * A control of Tune that the driver has no line for would not be traced at all, so every
+ * switch, choice and slider of Tune's sheet must be one the driver reaches (lib/trace.js, DRIVE).
  * The controls of this check: a copy of app.js whose completion bowl tells the sound engine
- * before it saves, and whose Haptics switch no longer buzzes, must fail at those two.
+ * before it saves, and whose Haptics switch no longer buzzes, must fail at those two; and a
+ * copy of the page with one switch more must be found to have a control nothing drives.
  *
  *   node tools/test/app-tune-trace.test.js [--port <n>] [--root <dir>] [--base <commit>] [--write]
  *
  * --base <commit> (or HOURGLASS_BASE): the kept trace must be that commit's (its tree, from
- * git, is run too); with --write it is written from it. Ports: <n>, and <n>+1 and <n>+2 for
- * the control's and the commit's trees.
+ * git, is run too); with --write it is written from it. --write alone: the kept trace is
+ * written from the tree just run, which is how a setting or a control added on purpose gets
+ * into it (in a commit of its own: read the diff). Ports: <n>, and <n>+1 and <n>+2 for the
+ * control's and the commit's trees.
  */
 'use strict';
 var H = require('./stubs/harness.js');
@@ -54,11 +59,19 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
               off.length === 0 && !!kept && kept.controls.length === made.controls.length && kept.saved === made.saved && made.errors.length === 0,
               off.slice(0, 3).join(' | ') + ' ' + made.errors.slice(0, 2).join(' | '));
     }
-    if (!kept) throw new Error('no kept trace (tools/test/base/tune-trace.json): make it with --base <commit> --write');
+    var fromHere = base.writing() && !rev;
+    if (!kept && !fromHere) throw new Error('no kept trace (tools/test/base/tune-trace.json): make it with --write');
 
     /* ---- this tree ---- */
     env = await H.start();
     var mine = await trace.tune(env);
+    if (fromHere) {
+      trace.write(base.TUNE, { from: base.here(env.root), what: WHAT, controls: mine.controls, saved: mine.saved });
+      kept = trace.read(base.TUNE);
+      s.note('written', 'tools/test/base/tune-trace.json, from the tree just run: read its diff before it is committed');
+    }
+    s.check('every switch, choice and slider of Tune\'s sheet is one the driver reaches (' + trace.CONTROLS.length + ' lines in lib/trace.js): none is left untraced',
+            mine.undriven.length === 0, mine.undriven.length ? 'no line drives ' + mine.undriven.join(', ') : '');
     s.check('the controls driven are the kept trace\'s, in its order (' + kept.controls.length + ')',
             trace.CONTROLS.join('|') === kept.controls.map(function (c) { return c.name; }).join('|') && mine.controls.length === kept.controls.length);
     kept.controls.forEach(function (k) {
@@ -90,10 +103,12 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
             names(real.now).join() === 'audio.unlock,save,remove,buzz' && first(real.now, 'save')[1].realSand === true && names(real.later).indexOf('new Sim') > 0,
             JSON.stringify(grain.now) + ' ' + JSON.stringify(real.now));
 
-    /* ---- control: a copy that changes the order in two handlers ---- */
+    /* ---- control: a copy that changes the order in two handlers, and has a switch more in Tune ---- */
+    var AWAKE = '<input id="opt-awake" class="switch" type="checkbox" role="switch" checked>';
     var dir = trace.patched(env.root, [
       ['    settings.chime = e.target.checked; save();\n    audio.setChimeEnabled(settings.chime);\n', '    settings.chime = e.target.checked;\n    audio.setChimeEnabled(settings.chime); save();\n'],
-      ['    settings.haptics = e.target.checked; save();\n    buzz(12);\n', '    settings.haptics = e.target.checked; save();\n']
+      ['    settings.haptics = e.target.checked; save();\n    buzz(12);\n', '    settings.haptics = e.target.checked; save();\n'],
+      [AWAKE, AWAKE + '<input id="opt-extra" class="switch" type="checkbox" role="switch">', 'index.html']
     ]);
     var envC = await H.start({ root: dir, port: env.port + 1 }), c;
     var ONLY = ['open Tune', 'completion bowl: off', 'completion bowl: on', 'haptics: off', 'haptics: on', 'full Zen: on'];
@@ -101,6 +116,7 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
     var failed = ONLY.filter(function (n) { return trace.differ(byName(kept, n), byName(c, n)).length > 0; });
     s.check('CONTROL: a copy of app.js whose completion bowl tells the sound engine before it saves, and whose Haptics switch has lost its buzz, fails at those (and only there)',
             failed.join() === 'completion bowl: off,completion bowl: on,haptics: on', failed.join());
+    s.check('CONTROL: a copy of the page with one switch more in Tune is found to have a control that no line drives', c.undriven.join() === '#opt-extra', c.undriven.join(', ') || 'none found');
   } catch (e) {
     s.check('the suite ran', false, String(e && e.stack || e).split('\n').slice(0, 3).join(' '));
   } finally {

@@ -16,8 +16,10 @@
  *   node tools/test/app-boot-trace.test.js [--port <n>] [--root <dir>] [--base <commit>] [--write]
  *
  * --base <commit> (or HOURGLASS_BASE): the kept trace must be that commit's (its tree, from
- * git, is run too); with --write it is written from it. Ports: <n>, and <n>+1 and <n>+2 for
- * the control's and the commit's trees.
+ * git, is run too); with --write it is written from it. --write alone: the kept trace is
+ * written from the tree just run, which is how a setting added on purpose gets into it (in a
+ * commit of its own: read the diff). Ports: <n>, and <n>+1 and <n>+2 for the control's and
+ * the commit's trees.
  */
 'use strict';
 var H = require('./stubs/harness.js');
@@ -51,18 +53,24 @@ function inOrder(list, wanted) {
         s.check('BASE ' + m.name + ': the kept trace is ' + rev + '\'s (' + m.trace.length + ' events)', d.length === 0 && kept.boots[i].name === m.name, d.join('; '));
       });
     }
-    if (!kept) throw new Error('no kept trace (tools/test/base/boot-trace.json): make it with --base <commit> --write');
+    var fromHere = base.writing() && !rev;
+    if (!kept && !fromHere) throw new Error('no kept trace (tools/test/base/boot-trace.json): make it with --write');
 
     /* ---- this tree ---- */
     env = await H.start();
     var mine = [];
-    for (var i = 0; i < trace.STORAGES.length; i++) {
-      var m = await trace.boot(env, trace.STORAGES[i]), d = trace.differ(kept.boots[i], m);
-      mine.push(m);
+    for (var i = 0; i < trace.STORAGES.length; i++) mine.push(await trace.boot(env, trace.STORAGES[i]));
+    if (fromHere) {
+      trace.write(base.BOOT, { from: base.here(env.root), what: WHAT, boots: mine.map(function (m) { return { name: m.name, trace: m.trace, saved: m.saved }; }) });
+      kept = trace.read(base.BOOT);
+      s.note('written', 'tools/test/base/boot-trace.json, from the tree just run: read its diff before it is committed');
+    }
+    mine.forEach(function (m, i) {
+      var d = trace.differ(kept.boots[i], m);
       s.check('BOOT ' + m.name + ': the boot reads, saves and calls its engines as before the store (' + (m.trace || []).length + ' events, and the save)',
               d.length === 0 && kept.boots[i].name === m.name, d.join('; '));
       s.check('BOOT ' + m.name + ': no page or console errors', m.errors.length === 0, m.errors.slice(0, 3).join(' | '));
-    }
+    });
     // what the trace sees: the order the plan names, in the state that sets everything
     var all = kept.boots[1].trace, ORDER = ['get', 'Sim.setPace', 'new Sim', 'new Renderer', 'renderer.setFrame', 'sim.setLayers', 'renderer.setLayers', 'new Audio',
       'audio.volume =', 'audio.muted =', 'audio.character =', 'audio.chimeEnabled =', 'audio.ambience =', 'audio.ambLevel =', 'new Motion', 'sim.reset', 'save'];

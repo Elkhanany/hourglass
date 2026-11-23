@@ -25,11 +25,13 @@
  *   var trace = require('./lib/trace.js');
  *   trace.STORAGES                       the five saved states of the boot trace
  *   await trace.boot(env, storage)    -> { name, trace: [...], saved: '<json>' }
- *   await trace.tune(env, [only])     -> { controls: [{ name, now: [...], later: [...] }], saved }
+ *   await trace.tune(env, [only])     -> { controls: [{ name, now: [...], later: [...] }], saved,
+ *                                           undriven: [the controls of Tune that DRIVE has no line for] }
  *   trace.CONTROLS                       the controls' names, in order
  *   trace.differ(a, b)                -> what differs: [] when two traces are the same
  *   trace.write(file, data), trace.read(file)
- *   trace.patched(root, edits)        -> a copy of a tree with app.js changed (for the controls)
+ *   trace.patched(root, edits)        -> a copy of a tree with app.js (or the file an edit names)
+ *                                           changed (for the controls)
  */
 'use strict';
 var fs = require('fs'), os = require('os'), path = require('path');
@@ -224,7 +226,9 @@ function slide(sel, v) { return { slide: sel, value: v }; }
 // Every control of Tune, and the three of the top bar and the pills that save too. `wait`:
 // what must have happened before the next one (default: the cross-fade, the sweep and a
 // reload over). The names are the settings', not the page's: a new Tune is driven by its own
-// selectors and compared by these names.
+// selectors and compared by these names. A control of Tune that has no line here is not
+// traced, so tune() lists them (undriven) and app-tune-trace fails on any: a new switch gets
+// two lines, on and off, where it stands in Tune.
 var DRIVE = [
   ['open Tune', click('#btn-settings')],
   ['material: volcanic', click('#themes [data-theme-id="volcanic"]')],
@@ -276,6 +280,8 @@ var DRIVE = [
   ['Real sand: on', click('#opt-realsand'), 'reload']
 ];
 var CONTROLS = DRIVE.map(function (d) { return d[0]; });
+// what holds a setting in Tune's sheet: every switch, every choice of a group, every slider
+var HOLDERS = '.switch, [role="switch"], [role="radio"], input[type="checkbox"], input[type="range"], select';
 
 function state(page) {
   return page.evaluate(function () {
@@ -307,6 +313,16 @@ async function tune(env, only) {
   try {
     await until(page, function (s) { return s.booted; }, 20000, 'the page, loaded');
     await page.evaluate(function () { window.__trace.take(); });
+    // the controls of Tune that no line of DRIVE reaches (each line drives the first element its selector finds)
+    var undriven = await page.evaluate(function (a) {
+      var sheet = document.getElementById('sheet-settings'), driven = a.selectors.map(function (q) { return document.querySelector(q); });
+      if (!sheet) return ['(the page has no #sheet-settings)'];
+      return Array.prototype.filter.call(sheet.querySelectorAll(a.holders), function (el) { return driven.indexOf(el) < 0; }).map(function (el) {
+        return el.id ? '#' + el.id : el.tagName.toLowerCase() + Array.prototype.map.call(el.attributes, function (t) {
+          return /^data-/.test(t.name) ? '[' + t.name + '="' + t.value + '"]' : '';
+        }).join('');
+      });
+    }, { selectors: DRIVE.map(function (d) { return d[1].click || d[1].slide; }), holders: HOLDERS });
     for (var i = 0; i < DRIVE.length; i++) {
       var d = DRIVE[i];
       if (only && only.indexOf(d[0]) < 0) continue;
@@ -340,7 +356,7 @@ async function tune(env, only) {
       return { rest: reloaded ? [] : T.take(), saved: reloaded ? T.bootSaved : T.saved() };
     }, !!(cur && DRIVE.filter(function (d) { return d[0] === cur.name; })[0][2] === 'reload'));
     if (cur) cur.later = cur.later.concat(end.rest);
-    return { controls: out, saved: end.saved, errors: t.errors.slice() };
+    return { controls: out, saved: end.saved, undriven: undriven, errors: t.errors.slice() };
   } finally {
     await t.close();
   }
@@ -399,20 +415,20 @@ function write(file, data) { fs.writeFileSync(file, format(data)); }
 function read(file) { return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null; }
 
 /**
- * A copy of a tree (without git, packages, tests and documents) whose app.js has each of
- * `edits` ([from, to]) made once; an edit that finds nothing to change throws.
+ * A copy of a tree (without git, packages, tests and documents) with each of `edits` made
+ * once: [from, to] in app.js, or [from, to, file] in another file of the tree; an edit whose
+ * text is not there exactly once throws.
  */
 function patched(root, edits) {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hourglass-trace-'));
   fs.cpSync(root, dir, { recursive: true, filter: function (f) {
     return !/^(\.git|node_modules|tools|docs)(\/|$)/.test(path.relative(root, f));
   } });
-  var file = path.join(dir, 'app.js'), src = fs.readFileSync(file, 'utf8');
   edits.forEach(function (e) {
-    if (src.split(e[0]).length !== 2) throw new Error('trace: the edit\'s text is in app.js ' + (src.split(e[0]).length - 1) + ' times: ' + e[0].slice(0, 60));
-    src = src.replace(e[0], function () { return e[1]; });
+    var name = e[2] || 'app.js', file = path.join(dir, name), src = fs.readFileSync(file, 'utf8');
+    if (src.split(e[0]).length !== 2) throw new Error('trace: the edit\'s text is in ' + name + ' ' + (src.split(e[0]).length - 1) + ' times: ' + e[0].slice(0, 60));
+    fs.writeFileSync(file, src.replace(e[0], function () { return e[1]; }));
   });
-  fs.writeFileSync(file, src);
   process.on('exit', function () { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (x) {} });
   return dir;
 }
