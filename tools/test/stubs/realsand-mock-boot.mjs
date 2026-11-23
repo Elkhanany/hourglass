@@ -13,6 +13,9 @@
  *   window.__mock            { seed, plant, build (a stamp other than the engine's),
  *                              failStart (a start() error code), failCapability,
  *                              failTimes (only the first n starts fail),
+ *                              failPlan (the n-th start fails with failPlan[n - 1], a
+ *                              { code, capability }, if there is one: a start that fails
+ *                              after one that went well, or two different failures in a row),
  *                              startDelay (ms of wall time before start() begins: a slow
  *                              cold start, as the pipelines' 2.8 s in a home-screen web app) }
  * and reads window.__mockEnv: { V.frame, solver (its plant, runs, uploads, flips), device
@@ -172,7 +175,14 @@ class MockSand extends RealSand {
   }
   async start() {
     env.starts++;
+    const n = env.starts;
     if (M.startDelay > 0) await new Promise(r => setTimeout(r, M.startDelay));
+    const planned = M.failPlan && M.failPlan[n - 1];
+    if (planned) {
+      const e = new Error('mock start failure: ' + planned.code);
+      e.code = planned.code; e.capability = !!planned.capability;
+      throw e;
+    }
     if (M.failStart && !(M.failTimes > 0 && env.starts > M.failTimes)) {
       const e = new Error('mock start failure: ' + M.failStart);
       e.code = M.failStart; e.capability = !!M.failCapability;

@@ -27,6 +27,7 @@ docs/                       the guide, how it works, the architecture, the tests
 docs/images/                the pictures in the README and the install screenshots
 tools/icons.html            regenerates the icons from one SVG
 tools/test/                 development-only tests (not part of the app)
+.github/                    the quick checks on every pull request, and the pull request template
 ```
 
 The app is plain files with no build step: whatever is in the repository is
@@ -102,8 +103,14 @@ keeps its place above the controls.
 
 Offline first. An installed copy is a snapshot of one release: the app's
 files (`SHELL`) come only from the cache named by `VERSION`, and only an
-install writes that cache, all of the files or none (`cache.addAll`), so a
-launch never runs files of two releases. Nothing refreshes them in the
+install writes that cache, all of the files or none (`cache.addAll`). When
+the last file is in, the install reads the server's `sw.js` once more and
+fails unless it still names the same `VERSION`: a deploy that came during
+the download would leave files of two releases in the cache, and such a
+copy is not kept. So an installed copy holds one release. Lookups ignore
+the server's `Vary` header (`ignoreVary`): the entries are this release's
+own files, and a lookup that missed would miss at every launch. Nothing
+refreshes them in the
 background: a new release reaches a phone only as a new `VERSION`, whose
 install fills a cache of its own; the old one is deleted when the new
 worker takes over. An install that fails (a file that would not download)
@@ -111,11 +118,15 @@ deletes the cache it made and leaves the installed release as it was.
 Should a file be missing from the cache all the same (a hole), it comes
 from the network, and the worker fills its cache again, whole, but only if
 the server's `sw.js` still names the same `VERSION`; if it names another,
-the worker looks for that release, whose install fills its own cache.
+the worker looks for that release, whose install fills its own cache (that
+one launch can run a file of the newer release beside the installed ones:
+the one case left in which two releases meet).
 Offline, a hole cannot be filled: the page then finds a script missing and
 says "Hourglass is updating. Open it again with a connection." instead of
-building anything (`app.js`'s pre-flight check), and the next launch with a
-connection repairs the copy. Other paths under the scope (the launch
+building anything (`app.js`'s pre-flight check; when `app.js` itself or the
+style sheet is the hole, the last lines of `index.html` say it), and the
+next launch with a connection repairs the copy. Other paths under the scope
+(the launch
 screens, the install screenshots) are answered from the cache and refreshed
 in the background, as before; offline, a navigation that is not cached gets
 the app's page.
@@ -126,7 +137,9 @@ release in `<meta name="hourglass-version">`, equal to `VERSION`
 (`check-release`). The last line of Tune shows both, made by `app.js`:
 "Version 1.10.0" when they agree; "· offline copy not installed yet" with
 no worker or no answer within a second; "· update 1.11.0 ready: close and
-reopen" when a newer release was installed while the page ran.
+reopen" when a newer release was installed while the page ran; "· offline
+copy 1.9.1" when the installed copy is another release than the page and
+not a newer one.
 
 Every path is relative (`./`), including `start_url` and `scope`, so the
 app works from a sub-directory such as `/hourglass/`. The shell includes
@@ -183,7 +196,7 @@ the tests, the lab) needs none of this. For every change to a shipped file:
 1. **`VERSION` goes up.** Any change to `sw.js` or to a file in its `SHELL`
    raises `VERSION` in `sw.js`, as a version number greater than both
    `origin/main`'s and the one the branch started from, and `index.html`'s
-   version, where the page has one, equal to it. Without it, installed
+   `hourglass-version` meta equal to it. Without it, installed
    copies never see the change. `check-release` holds a branch to this.
 2. **A new, moved or removed file** has its `<script>` tag in `index.html`
    (if the page loads it), its line in `SHELL` (one path that does not exist
@@ -223,7 +236,8 @@ These hold until a change says otherwise, with its reason.
   `app.js` stays classic and appends `realsand/boot.mjs`, the only module
   the app loads, and only with the Real sand switch on where `navigator.gpu`
   exists. `check-shell` checks every classic script for module syntax,
-  `import()` and anything newer than ES5. The
+  `import()` and the kinds of syntax newer than ES5 that it lists
+  ([Tests](testing.md)). The
   Node suites load `physics.js` as a classic script into isolated contexts,
   two versions side by side, which ES modules would not allow without a
   flag.
@@ -256,7 +270,8 @@ These hold until a change says otherwise, with its reason.
 - **Real sand is the default, and its switch is the owner's alone** (1.10.0,
   [settings design 5](design/settings.md)): the app never writes it off. A
   browser that cannot have it is remembered by its user agent and tried
-  again after an iOS update, a new engine build or a tap; the classic sand
+  again after seven days, an iOS update that changes the user agent, a new
+  engine build or a tap; the classic sand
   is always there to run instead. The test harness seeds every page with
   Real sand off (`tools/test/lib/seed.js`) unless the test asks for it.
 - **What an iPhone allows a web app** decides a good deal: motion

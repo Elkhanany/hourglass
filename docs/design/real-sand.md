@@ -4,9 +4,10 @@ Real sand is the sand of the sand lab (`lab/sand/`) running inside the app:
 every grain a material point of a continuum, simulated on the graphics chip
 by a position-based MPM solver (EA's PB-MPM, by way of the Smoosh solver) on
 WebGPU, in the glass the app draws, keeping the app's exact time. The engine
-is `realsand/`; the app turns it on with the **Real sand** switch in Tune.
+is `realsand/`; the app runs it by default where WebGPU works, and the
+**Real sand** switch in Tune turns it off and on.
 
-This document is the design as it is built (engine build 4), written from the
+This document is the design as it is built (engine build 5), written from the
 code. The code cites it by section: a comment that says "(design 7.4)" means
 section 7.4 below, and the section numbers are kept so that those citations
 stay true. Where this document and the code disagree, the code is right and
@@ -320,6 +321,7 @@ takeOver()     the app now uses it as its sim (between two frames); throws if th
 submit(now)    once an active frame, in place of renderer.drawSand(): the frame's substeps and picture (5.1)
 feel(tS, fx, fy, air, rho)    the glass's felt acceleration at the app's step time (5.2)
 setHidden, layout, setPalette, setSweep, points, stats(), audit(), destroy(), destroyed
+jolts          how a jolt is played to the sand at app speed: 'live', 'slowmo', 'film' or 'plain' (5.2)
 syncCpu()      the CPU Sim to the ledger's counts (the loss path's first step; app.js's watchdog calls it too)
 onLost({ reason, lifecycle, final, message }), onBack()       (7.9)
 ```
@@ -402,12 +404,18 @@ them) and gives each GPU substep the newest sample at or before its own time.
   before it, does.
 - `feel` takes the glass's own acceleration as the sand feels it (`fx`, `fy`
   in g, in the page's frame, before the free-fall term and the rotation) and
-  plays it through `GlassFelt` (`realsand/felt.mjs`): at app speed the world
-  runs slowed, so a jolt is recorded and played back slowed like a film
-  (quiet stretches under 0.04 g skipped, never more than 0.5 s behind),
-  which gives the sand the speed a real jolt would. Then it is turned into
-  the glass by `rho`, the free fall is added as it is, and all of it is
-  scaled by the sand's gravity `G`.
+  plays it through `GlassFelt` (`realsand/felt.mjs`) in the mode
+  `real.jolts`. At app speed the world runs slowed. `live`, the default from
+  build 5: the part of a push along the sand's floor beyond the bed's
+  friction (0.6 g) is played at once, at the speed a slowed film of it would
+  give, capped at 2 g with the rest paid out within 0.15 s; anything gentler,
+  and every push off or into the floor, is felt as it is; the floor is where
+  the sand's gravity points. `slowmo` plays a lone jolt as a slowed film and
+  goes live while the hand keeps moving; `film` is the slowed film throughout
+  (the playback until build 5: quiet stretches under 0.04 g skipped, half a
+  second late under shaking); `plain`, as it is, under Reduce Motion. Then it
+  is turned into the glass by `rho`, the free fall is added as it is, and all
+  of it is scaled by the sand's gravity `G`.
 - Gravity in the glass's frame comes from `angle + tilt`; the turning
   glass's terms from `w`, `al` and the app's `lam`.
 
@@ -609,9 +617,9 @@ A lost device, readbacks that stopped for 60 runs, or an error in a frame:
   handed the sand back (`onBack`). It does not count toward the limit below.
 - **otherwise:** the CPU sand takes over in the same frame, with the toast
   "Real sand paused: the graphics chip was reset", and the same rebuild after
-  2 s. A second such loss within 10 minutes is final: the current sand for
+  2 s. A second such loss within 10 minutes is final: the classic sand for
   the rest of the session, and Tune says so.
-- A rebuild that cannot open a device leaves the current sand until the next
+- A rebuild that cannot open a device leaves the classic sand until the next
   launch, and says so.
 
 ---
@@ -804,6 +812,9 @@ haptic is the app's own, tied to its own events.
   from 0.5 rad/s or 5 rad/s², held for 0.3 s; or a lean that changes by 3°
   within 0.5 s. A phone held still in the hand passes the CPU sand's own idle
   thresholds every frame; these are coarser, so a held phone runs calm.
+- A jolt counts at once: 0.3 g at any moment since the last frame wakes a
+  sleeping glass in the frame it comes; the hand's jitter (0.28 g and less)
+  does not.
 - Asleep, the glass also wakes once its lean has changed by more than 1°
   since it fell asleep, however slowly (the app's `wakeAll`).
 - Calm is entered only while auto Hz is at the base rate, so a change of mode
@@ -935,7 +946,9 @@ Every suite is described in [Tests](../testing.md); these are Real sand's.
   clock's own while supplied and never back, the last point within one
   substep of `00:00.0`; the first bookkeeping kept as its control.
 - `realsand-fill`: the fills' exact counts, inside the glass; the colour
-  seeds; the felt jolts against the lab's code.
+  seeds; the felt jolts' film against the lab's code.
+- `realsand-felt`: the live playback against the film, the cap, the floor's
+  frame, and the real `motion.js` on the replay streams.
 - `realsand-adapter`: RealSand on a mock solver whose neck is the valve
   test's model, inside a copy of the app's frame: the contract (section 4),
   every clock site (3.6), the start's failures, the heat guard, sleep, losses,

@@ -14,7 +14,7 @@
  * leaves lab/ to the network, answers this page's requests for realsand/
  * from the network too, and stores none of them.
  *
- * Part of the Hourglass project. License: GPL-3.0. The solver
+ * Part of the Hourglass project. License: GPL-3.0-or-later. The solver
  * (../../realsand/solver.mjs, shaders/) derives from Smoosh (MIT) and EA's
  * PB-MPM (BSD-3-Clause): see ../../realsand/LICENSES.md.
  */

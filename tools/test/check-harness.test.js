@@ -12,6 +12,13 @@
  *    naming it, before it starts a server or a browser; and its one stand-in, the motion stub,
  *    is served at the path index.html gives motion.js, wherever that is.
  * (app-regression checks in the browser that the page gets every script as the tree has it.)
+ * And the runs that are meant to run something must:
+ *  - the runner (run-all.js) fails when its filter matches no suite, so a mistyped filter or a
+ *    renamed file is not a green run of nothing;
+ *  - GitHub's workflow (.github/workflows/checks.yml) runs the check group and then a list of
+ *    Node suites by name. Every suite that needs no browser (none of the files it requires asks
+ *    for Playwright) is either in that list or in LEFT_OUT below, with its reason, and every name
+ *    in the two lists is such a suite: a new suite cannot be left out by forgetting it.
  * Each rule has its control: a tree or a suite that breaks it must fail.
  *
  *   node tools/test/check-harness.test.js
@@ -35,6 +42,60 @@ function tree(name, files) {
     fs.writeFileSync(path.join(dir, f), files[f]);
   });
   return dir;
+}
+/**
+ * The Node suites GitHub does not run, by name, with the reason. They run by hand with the
+ * browser suites (docs/testing.md). A suite that needs no browser and is not here must be in
+ * the workflow's SUITES.
+ */
+var LEFT_OUT_WHY = {
+  'replay-phone': '1.5 to 2 minutes', 'sim-conservation': '1.5 to 2 minutes', 'sim-fracture': '1.5 to 2 minutes', 'sim-shape': '1.5 to 2 minutes',
+  'sim-grain': '25 to 40 s', 'sim-repose': '25 to 40 s', 'sim-tone': '25 to 40 s',
+  'sim-perf': 'timings, which a shared machine cannot judge'
+};
+var LEFT_OUT = Object.keys(LEFT_OUT_WHY);
+/** Does this file, or a file of this folder it requires (however deep), ask for Playwright? */
+function loadsBrowser(file, seen) {
+  seen = seen || {};
+  if (seen[file]) return false;
+  seen[file] = true;
+  var src = fs.readFileSync(file, 'utf8'), m, re = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
+  while ((m = re.exec(src))) {
+    if (m[1] === 'playwright' || /^playwright[-/]/.test(m[1])) return true;
+    if (m[1][0] !== '.') continue;
+    var dep = path.resolve(path.dirname(file), m[1]);
+    if (!/\.js$/.test(dep)) dep += '.js';
+    if (fs.existsSync(dep) && loadsBrowser(dep, seen)) return true;       // (a path in a comment's example may not be a file)
+  }
+  return false;
+}
+/** The names in the workflow's SUITES (a folded YAML scalar: the indented lines after "SUITES: >-"). */
+function workflowSuites(yml) {
+  var lines = yml.split('\n'), at = -1, out = [];
+  lines.forEach(function (l, k) { if (/^\s*SUITES:\s*>-\s*$/.test(l)) at = k; });
+  if (at < 0) return out;
+  var indent = /^\s*/.exec(lines[at])[0].length;
+  for (var k = at + 1; k < lines.length && (/^\s*$/.test(lines[k]) || /^\s*/.exec(lines[k])[0].length > indent); k++) {
+    lines[k].trim().split(/\s+/).filter(Boolean).forEach(function (n) { out.push(n); });
+  }
+  return out;
+}
+/** kinds: { suite name: 'node' | 'browser' } for every *.test.js; listed: the workflow's; left: LEFT_OUT. */
+function workflowProblems(kinds, listed, left) {
+  var out = [];
+  Object.keys(kinds).sort().forEach(function (n) {
+    if (kinds[n] !== 'node' || /^check-/.test(n)) return;                 // the check group is the workflow's first step
+    if (listed.indexOf(n) < 0 && left.indexOf(n) < 0) out.push(n + ' needs no browser but is neither in the workflow\'s SUITES nor in LEFT_OUT');
+    if (listed.indexOf(n) >= 0 && left.indexOf(n) >= 0) out.push(n + ' is in both lists');
+  });
+  listed.concat(left).forEach(function (n, k) {
+    var where = k < listed.length ? 'the workflow\'s SUITES' : 'LEFT_OUT';
+    if (!kinds[n]) out.push(n + ' (' + where + '): no such suite');
+    else if (kinds[n] !== 'node') out.push(n + ' (' + where + ') needs a browser, which GitHub\'s run has not');
+    else if (/^check-/.test(n)) out.push(n + ' (' + where + ') is in the check group already');
+  });
+  listed.forEach(function (n, k) { if (listed.indexOf(n) !== k) out.push(n + ' is in the workflow\'s SUITES twice'); });
+  return out;
 }
 function page(tags) { return '<!doctype html><html><head><meta charset="utf-8"></head><body>\n' + tags.join('\n') + '\n</body></html>\n'; }
 
@@ -109,6 +170,29 @@ function page(tags) { return '<!doctype html><html><head><meta charset="utf-8"><
     var si = H.standInPaths(paths.ROOT), siCut = H.standInPaths(cutDir), stub = path.join(__dirname, 'stubs', 'motion-stub.js');
     check(Object.keys(si).join() === '/' + gone && si['/' + gone] === stub && Object.keys(siCut).join() === '/motion/motion.js' && siCut['/motion/motion.js'] === stub,
       'the motion stub is served at motion.js\'s own path (/' + gone + '), and follows it when it moves (/motion/motion.js) (control)', JSON.stringify(Object.keys(siCut)));
+
+    /* ---- the runner and GitHub's list of suites ---- */
+    var runner = path.join(__dirname, 'run-all.js');
+    var rr = cp.spawnSync(process.execPath, [runner, 'no-such-suite-'], { encoding: 'utf8' });
+    check(rr.status === 1 && /no suite matches "no-such-suite-"/.test(rr.stdout),
+      'run-all.js fails when its filter matches no suite', 'exit ' + rr.status + ': ' + rr.stdout.trim().split('\n').pop());
+    var wf = fs.readFileSync(path.join(paths.ROOT, '.github', 'workflows', 'checks.yml'), 'utf8');
+    var listed = workflowSuites(wf), tests = fs.readdirSync(__dirname).filter(function (f) { return /\.test\.js$/.test(f); }).sort();
+    var kinds = {};
+    tests.forEach(function (f) { kinds[f.replace('.test.js', '')] = loadsBrowser(path.join(__dirname, f)) ? 'browser' : 'node'; });
+    var nodeOnes = Object.keys(kinds).filter(function (n) { return kinds[n] === 'node'; });
+    check(/run-all\.js check-\s*$/m.test(wf) && listed.length >= 20 && nodeOnes.length >= 30 && kinds['app-regression'] === 'browser' && kinds['e2e-permission'] === 'browser' && kinds['replay-finger'] === 'browser',
+      'the workflow runs the check group, then ' + listed.length + ' suites by name; of the ' + tests.length + ' suites here ' + nodeOnes.length +
+      ' need no browser (e2e-permission and replay-finger do, through a file they require)');
+    var wp = workflowProblems(kinds, listed, LEFT_OUT);
+    check(wp.length === 0, 'every suite that needs no browser is in the workflow\'s list or in LEFT_OUT (' + LEFT_OUT.length + ', each with its reason), and every name in them is such a suite', wp.join('; '));
+    var kinds2 = Object.assign({}, kinds, { 'sim-madeup': 'node' });
+    var w1 = workflowProblems(kinds2, listed, LEFT_OUT), w2 = workflowProblems(kinds, listed.concat(['sim-nofile', 'app-regression']), LEFT_OUT),
+        w3 = workflowProblems(kinds, listed.filter(function (n) { return n !== 'realsand-felt'; }), LEFT_OUT), w4 = workflowProblems(kinds, listed.concat(['sim-perf']), LEFT_OUT);
+    check(w1.length === wp.length + 1 && /sim-madeup/.test(w1.join()) && w2.length === wp.length + 2 && /sim-nofile.*no such suite/.test(w2.join()) && /app-regression.*browser/.test(w2.join()) &&
+          w3.length === wp.length + 1 && /realsand-felt/.test(w3.join()) && w4.length === wp.length + 1 && /sim-perf.*both/.test(w4.join()),
+      '... and that check finds a new suite in neither list, realsand-felt left out of the workflow, a listed name with no file, a listed browser suite, and a name in both lists (control)',
+      [w1, w2, w3, w4].map(function (w) { return w.join('; '); }).join(' | '));
   } catch (e) {
     check(false, 'no exception', e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

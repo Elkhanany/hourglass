@@ -38,13 +38,14 @@ jobs:
       # The Node suites that run in seconds (about 2.5 minutes together). Left to a run by hand
       # with the browser suites: replay-phone, sim-conservation, sim-fracture, sim-shape
       # (each 1.5 to 2 minutes), sim-grain, sim-repose, sim-tone (25 to 40 s), and sim-perf
-      # (timings, which a shared machine cannot judge).
+      # (timings, which a shared machine cannot judge). check-harness holds this list whole: a
+      # Node suite that is neither here nor in its left-out list fails the check group.
       - name: Node suites
         env:
           SUITES: >-
             sim-identity sim-p0 sim-determinism sim-clock sim-flip sim-flight sim-knock
             sim-leak sim-persistence sim-sanity sim-spin sim-valve
-            realsand-shell realsand-adapter realsand-valve realsand-fill
+            realsand-shell realsand-adapter realsand-valve realsand-fill realsand-felt
             lab-pace lab-timer motion-sensors render-unit
         run: |
           failed=""

@@ -1,15 +1,23 @@
 #!/usr/bin/env node
 /*
- * The upgrade suite (release R1): what an installed copy of the app does when a release comes,
+ * The upgrade suite (the snapshot worker, release 1.10.0): what an installed copy of the app
+ * does when a release comes,
  * in Chromium with the service worker on, the app served from a scratch copy that is swapped
  * under the same address, and "offline" meaning the server stopped and the page offline.
  *
  *  1. UPGRADE: origin/main (git archive) is served and installed; then this tree in its place:
- *     two launches with a connection, then one offline. Offline: no page or console error, no
+ *     two launches with a connection (the first, the old page that the new worker takes over,
+ *     checked like the others), then one offline. Offline: no page or console error, no
  *     failed or 504 response, Hourglass.sim, one cache (this tree's VERSION), and Tune's last
  *     line "Version X.Y.Z" with nothing after the number. Then a newer release is served and
  *     installed while the page is open: the line says "update ... ready: close and reopen", and
  *     the next launch runs the newer release, under one cache.
+ *     OVERTAKEN: this tree installed; a deploy lands while the next release's install is
+ *     downloading (from the sixth file on, the server has the release after it): no copy of
+ *     the overtaken release is kept, the installed release runs on whole offline, and the next
+ *     launches with a connection end on the release after, whole.
+ *     VARY: the server sends "Vary: Accept": a launch of the installed copy asks the server for
+ *     nothing, and it starts offline.
  *  2. FAILED INSTALL: this tree installed, a next release whose SHELL names a file that is not
  *     there (its scripts, page and style sheet marked) is served: its install fails and leaves
  *     no cache of its own, and a launch with a connection, then one offline, run the installed
@@ -17,20 +25,25 @@
  *  3. HOLE: one script taken out of the cache. Offline the page says "Hourglass is updating.
  *     Open it again with a connection." and builds nothing, with no page error; a launch with a
  *     connection fills the cache again from the same release, and offline after it the app
- *     starts. A hole while the server has another release is not filled from it.
+ *     starts. A hole while the server has another release is not filled from it. The same
+ *     words when app.js itself is the hole, or the style sheet (index.html's own last lines).
  *  4. LAB: a lab page that meets an engine of another build leaves the app's cache whole, and
  *     the app then starts offline.
  * The controls, each a check above that must fail: a page with no worker (the version line says
  * more than the number); the offline launch with the hole (a 504, no Hourglass.sim); the failed
- * install under 13a9772's worker, v1.9.0, the last release before R1 (an empty cache of the
+ * install under 13a9772's worker, v1.9.0, a release before the snapshot worker (an empty cache of the
  * failed release left behind, and the next release's files on the page, fetched into the
  * installed copy in the background); 13a9772's lab page (it dropped the engine from the app's
- * caches).
+ * caches). Three are this tree with one thing undone (without()): the worker without its look
+ * at the server after the download (it keeps a copy of two releases), the worker without
+ * ignoreVary (the page and the style sheet miss, and the shell is downloaded again), and the
+ * page without its last lines (no words for a hole in app.js or the style sheet).
  *
  * HOURGLASS_MAIN=<ref> installs another ref than origin/main first. Without that ref, or without
  * 13a9772 (a shallow clone), the suite fails and says how to fetch it.
  *
- *   node tools/test/app-upgrade.test.js [--port <n>]       (default: $PORT, else 8711)
+ *   node tools/test/app-upgrade.test.js [--port <n>] [--only <case>]    (default port: $PORT, else 8711;
+ *   cases: upgrade overtaken vary "failed install" hole lab)
  */
 'use strict';
 var fs = require('fs'), os = require('os'), path = require('path'), vm = require('vm'), cp = require('child_process');
@@ -110,6 +123,25 @@ function nextRelease(src, name, bad) {
   fs.appendFileSync(path.join(dir, 'styles.css'), '\n:root { --upgrade-test: next; }\n');
   return { dir: dir, version: v };
 }
+/** A copy of a tree under another VERSION (and its page's own release with it), nothing else changed. */
+function release(src, name, v) {
+  var dir = copyTree(src, name);
+  write(dir, 'sw.js', read(dir, 'sw.js').replace(/var VERSION = '[^']+'/, "var VERSION = '" + v + "'"));
+  write(dir, 'index.html', read(dir, 'index.html').replace(/(<meta\s+name=["']hourglass-version["']\s+content=["'])[^"']+/i, '$1' + v.replace(/^hourglass-v/, '')));
+  return { dir: dir, version: v };
+}
+/**
+ * A copy of a tree with one thing undone in file `f` (a control: what that thing answers must
+ * fail on it): every `from` (a string or a RegExp) replaced by `to`. .found: how many there were.
+ */
+function without(src, name, f, from, to) {
+  var dir = copyTree(src, name), text = read(dir, f), n = 0;
+  var out = typeof from === 'string' ? text.split(from) : null;
+  if (out) { n = out.length - 1; text = out.join(to); }
+  else text = text.replace(from, function () { n++; return to; });
+  write(dir, f, text);
+  return { dir: dir, found: n };
+}
 /** A copy of a tree whose lab page was written for another engine build than the engine's. */
 function labOtherBuild(dir) {
   var f = path.join('lab', 'sand', 'main.mjs');
@@ -119,14 +151,27 @@ function labOtherBuild(dir) {
 
 /* ---- the server --------------------------------------------------------------------------- */
 var server = null;
+/** Serve another tree from now on (the link is replaced in one step: a request never finds none). */
 function serve(dir) {
-  try { fs.unlinkSync(LINK); } catch (e) {}
-  fs.symlinkSync(dir, LINK);
+  var next = LINK + '.next';
+  try { fs.unlinkSync(next); } catch (e) {}
+  fs.symlinkSync(dir, next);
+  fs.renameSync(next, LINK);
 }
+// A case's own look at every request, before it is answered: it may serve another tree from this
+// request on, or set a header of the answer. q: { path, reload (a request made with cache:
+// 'reload' or 'no-store': an install's downloads, the worker's look at sw.js), worker (the
+// browser's own fetch of the worker's script) }.
+var onRequest = null;
 function up() {
   return new Promise(function (res, rej) {
     if (server) return res();
     var s = staticServer.start(PORT, LINK, function () { server = s; res(); });
+    s.prependListener('request', function (req, answer) {
+      if (!onRequest) return;
+      onRequest({ path: req.url.split('?')[0], reload: /no-cache/.test(req.headers['cache-control'] || ''),
+        worker: req.headers['service-worker'] === 'script' }, answer);
+    });
     s.on('error', rej);
   });
 }
@@ -154,8 +199,8 @@ async function until(fn, ms, every) {
 }
 function short(u) { return u.indexOf(ORIGIN) === 0 ? u.slice(ORIGIN.length) : u; }
 
-/** A launch: the context's pages closed, the app opened afresh, until it is built or says it is updating. */
-async function launch(ctx) {
+/** A launch: the context's pages closed, the app opened afresh, until it is built or says it is updating (or `wait` ms). */
+async function launch(ctx, wait) {
   var old = ctx.pages();
   for (var i = 0; i < old.length; i++) await old[i].close();
   var page = await ctx.newPage(), L = { page: page, errors: [], bad: [], app: null };
@@ -169,15 +214,27 @@ async function launch(ctx) {
     L.errors.push('goto: ' + String(e && e.message).split('\n')[0]);
     return L;
   }
-  var r = await until(function () {
+  var look = function () {
     return page.evaluate(function () {
       var u = document.getElementById('updating');
       return { ok: !!(window.Hourglass && window.Hourglass.sim) || !!u, sim: !!(window.Hourglass && window.Hourglass.sim), updating: u ? u.textContent : null };
     }).catch(function (e) { return { ok: false, error: String(e && e.message) }; });
-  }, 20000);
-  await sleep(300);                         // (a moment for late requests and errors)
-  L.app = r;
+  };
+  var r = await until(look, wait || 20000);
+  await sleep(300);                         // (a moment for late requests and errors, and for the page's load event)
+  var late = await look();
+  L.app = late.error ? r : late;
   return L;
+}
+/** The words over the page (#updating), waited for up to `ms`; null without them. */
+async function updatingNote(page, ms) {
+  var r = await until(function () {
+    return page.evaluate(function () {
+      var u = document.getElementById('updating');
+      return { ok: !!u, text: u ? u.textContent : null, sim: !!(window.Hourglass && window.Hourglass.sim) };
+    }).catch(function () { return { ok: false, text: null, sim: false }; });
+  }, ms, 100);
+  return r;
 }
 /** What is wrong with a launch that should have started the app: [] when nothing. */
 function problems(L) {
@@ -185,6 +242,7 @@ function problems(L) {
   if (L.errors.length) out.push(L.errors.slice(0, 2).join(' | '));
   if (L.bad.length) out.push('responses: ' + L.bad.slice(0, 4).join(', '));
   if (!L.app || !L.app.sim) out.push('no Hourglass.sim' + (L.app && L.app.updating ? ' (the page says: ' + L.app.updating + ')' : ''));
+  else if (L.app.updating) out.push('the app runs, and the page says over it: ' + L.app.updating);
   return out;
 }
 /** The worker's registration and the caches, as the page sees them. */
@@ -292,13 +350,14 @@ async function caseUpgrade(s, browser, T) {
     serve(T.tree);
     L = await launch(ctx);
     await update(L.page);
+    var p1 = problems(L);                   // (the old page, under the old worker, then taken over by the new one)
     L = await launch(ctx);
     var p2 = problems(L);
     await offline(ctx);
     L = await launch(ctx);
     var st = await state(L.page), line = await versionLine(L.page), said = await ask(L.page);
-    s.check('UPGRADE: offline, after two launches with a connection: the app starts (Hourglass.sim), no page or console error, no failed or 504 response',
-            problems(L).length === 0 && p2.length === 0, problems(L).concat(p2).join('; '));
+    s.check('UPGRADE: offline, after two launches with a connection: the app starts (Hourglass.sim), no page or console error, no failed or 504 response, in any of the three launches',
+            problems(L).length === 0 && p1.length === 0 && p2.length === 0, problems(L).concat(p1, p2).join('; '));
     s.check('UPGRADE: ... one cache, this tree\'s (' + T.worker.version + '), and the worker answers it', JSON.stringify(st.keys) === JSON.stringify([T.worker.version]) && said === T.worker.version,
             JSON.stringify(st.keys) + ', answer ' + said);
     s.check('UPGRADE: ... and Tune\'s last line reads "Version ' + T.release + '", nothing after the number', lineSaysOnly(line, T.release), JSON.stringify(line));
@@ -332,6 +391,142 @@ async function caseUpgrade(s, browser, T) {
   } finally {
     await c2.close();
   }
+}
+
+/* ---- 1b. OVERTAKEN: a deploy lands while the install is downloading ------------------------- */
+/** Which of the page's marked files in the cache `name` are the next release's, and which are not. */
+function cacheMix(page, name, files) {
+  return page.evaluate(function (a) {
+    return caches.has(a.name).then(function (has) {
+      if (!has) return null;
+      return caches.open(a.name).then(function (c) {
+        return Promise.all(a.files.map(function (f) {
+          return c.match(f).then(function (r) { return r ? r.text() : null; }).then(function (t) {
+            return { f: f, next: t === null ? null : /__upgradeNext|upgrade-test/.test(t) };
+          });
+        }));
+      }).then(function (list) {
+        return { next: list.filter(function (x) { return x.next === true; }).map(function (x) { return x.f; }),
+          own: list.filter(function (x) { return x.next === false; }).map(function (x) { return x.f; }) };
+      });
+    });
+  }, { name: name, files: files });
+}
+/**
+ * This tree installed; then `dir` (the next release, or it with one thing undone) is served, and
+ * from the request after the `k`-th of its install's downloads on, the server has the release
+ * after it (T.after: this tree again, two patches up, unmarked). `rest`: a tree the server goes
+ * back to once the last download is answered (the control's, so that no later look of the
+ * browser replaces the copy before it is read). What the checks read.
+ */
+async function overtaken(browser, T, dir, k, rest) {
+  var ctx = await newContext(browser), out = { looks: 0 }, n = 0, done = 0, V = T.next.version, N = T.worker.shell.length;
+  var marked = ['./', './index.html', './styles.css'].concat(T.scripts.map(function (f) { return './' + f; }));
+  try {
+    serve(T.tree);
+    await online(ctx);
+    var L = await install(ctx, T.worker.version);
+    out.installed = L.installed.ok;
+    serve(dir);
+    onRequest = function (q, answer) {
+      if (q.worker) out.looks++;            // (the browser may look once more after the first install: it then finds the release after)
+      if (!q.reload || q.path === '/sw.js') return;
+      if (++n === k + 1) serve(T.after.dir);
+      if (rest) answer.on('finish', function () { if (++done === N) serve(rest); });
+    };
+    await update(L.page);                   // the install, overtaken on its way
+    out.downloads = n;
+    out.keys = (await state(L.page)).keys;
+    out.mix = await cacheMix(L.page, V, marked);
+    await offline(ctx);
+    onRequest = null;
+    L = await launch(ctx);
+    out.keysOffline = (await state(L.page)).keys;
+    out.marksOffline = await marks(L.page);
+    out.problemsOffline = problems(L);
+    out.line = await versionLine(L.page);
+    if (rest) return out;
+    // with a connection again: the server has the release after, whole
+    serve(T.after.dir);
+    await online(ctx);
+    L = await launch(ctx);
+    await update(L.page);
+    L = await launch(ctx);
+    out.keysAfter = (await state(L.page)).keys;
+    out.marksAfter = await marks(L.page);
+    out.problemsAfter = problems(L);
+    out.lineAfter = await versionLine(L.page);
+  } finally {
+    onRequest = null;
+    await ctx.close();
+    await up();
+  }
+  return out;
+}
+async function caseOvertaken(s, browser, T) {
+  var K = 5, V = T.next.version, afterRel = T.after.version.replace(/^hourglass-v/, ''), nextRel = V.replace(/^hourglass-v/, '');
+  var r = await overtaken(browser, T, T.next.dir, K, null);
+  // (the browser may have looked again by itself after the install that failed: it then has the release after, whole)
+  var ran = r.marksOffline.release === afterRel ? { rel: afterRel, v: T.after.version } : { rel: T.release, v: T.worker.version };
+  s.check('OVERTAKEN: the server has the release after from the ' + (K + 1) + 'th file of an install\'s downloads on: no copy of that release (' + V + ') is kept (it would hold files of two)',
+          r.installed && r.downloads >= T.worker.shell.length && r.keys.indexOf(V) < 0 && r.mix === null && r.keysOffline.indexOf(V) < 0,
+          JSON.stringify({ installed: r.installed, downloads: r.downloads, looks: r.looks, keys: r.keys, mix: r.mix, keysOffline: r.keysOffline }));
+  s.check('OVERTAKEN: ... offline, the app runs one release, whole, under one cache: the one that was installed (' + T.release + '), or the release after (' + afterRel +
+          ') if the browser has looked again by itself (here ' + r.looks + ' look' + (r.looks === 1 ? '' : 's') + ': ' + ran.rel + ')',
+          r.problemsOffline.length === 0 && whole(r.marksOffline, ran.rel) && lineSaysOnly(r.line, ran.rel) && JSON.stringify(r.keysOffline) === JSON.stringify([ran.v]),
+          JSON.stringify({ marks: r.marksOffline, problems: r.problemsOffline, line: r.line, keys: r.keysOffline }));
+  s.check('OVERTAKEN: ... and with a connection the next launches end on the release after, whole ("Version ' + afterRel + '"), under one cache',
+          r.problemsAfter.length === 0 && JSON.stringify(r.keysAfter) === JSON.stringify([T.after.version]) && whole(r.marksAfter, afterRel) && lineSaysOnly(r.lineAfter, afterRel),
+          JSON.stringify({ keys: r.keysAfter, marks: r.marksAfter, problems: r.problemsAfter, line: r.lineAfter }));
+  // control: the same worker without its look at the server after the download (the server is
+  // back at its release once the last file is answered, so that the copy stays to be read)
+  var c = await overtaken(browser, T, T.unchecked.dir, K, T.unchecked.dir);
+  var m = c.marksOffline, mixed = !!c.mix && c.mix.next.length > 0 && c.mix.own.length > 0;
+  var wholeNext = m.release === nextRel && m.scripts.length === T.scripts.length && m.page && m.css === 'next';
+  s.check('OVERTAKEN: control: the same worker without its look at the server after the download fails the first two checks: it keeps ' + V +
+          ' with files of two releases, and offline runs them under "Version ' + nextRel + '"',
+          T.unchecked.found === 1 && c.installed && c.keys.indexOf(V) >= 0 && mixed && JSON.stringify(c.keysOffline) === JSON.stringify([V]) &&
+          !whole(m) && !wholeNext && lineSaysOnly(c.line, nextRel),
+          JSON.stringify({ undone: T.unchecked.found, looks: c.looks, keys: c.keys, keysOffline: c.keysOffline, mix: c.mix, marks: m, line: c.line }));
+}
+
+/* ---- 1c. VARY: the server's Vary header --------------------------------------------------- */
+/** `dir` installed from a server that sends "Vary: Accept"; one more launch, then one offline. */
+async function varying(browser, dir, version) {
+  var ctx = await newContext(browser), out = {}, log = [];
+  try {
+    serve(dir);
+    onRequest = function (q, answer) { answer.setHeader('Vary', 'Accept'); if (!q.worker) log.push(q.path); };
+    await online(ctx);
+    var L = await install(ctx, version);
+    out.installed = L.installed.ok;
+    await sleep(500);
+    var from = log.length;
+    L = await launch(ctx);
+    await sleep(1500);                      // (anything the worker does in the background, done)
+    out.asked = log.slice(from);
+    out.problems = problems(L);
+    await offline(ctx);
+    L = await launch(ctx);
+    out.problemsOffline = problems(L);
+  } finally {
+    onRequest = null;
+    await ctx.close();
+    await up();
+  }
+  return out;
+}
+async function caseVary(s, browser, T) {
+  var r = await varying(browser, T.tree, T.worker.version);
+  s.check('VARY: the server sends "Vary: Accept" (the page, the style sheet and the icons are then asked for with other Accept headers than the install\'s): ' +
+          'a launch of the installed copy asks the server for nothing, and it starts offline',
+          r.installed && r.asked.length === 0 && r.problems.length === 0 && r.problemsOffline.length === 0,
+          JSON.stringify({ installed: r.installed, asked: r.asked.length, first: r.asked.slice(0, 4), problems: r.problems, offline: r.problemsOffline }));
+  // control: this tree's worker without ignoreVary
+  var c = await varying(browser, T.varied.dir, T.worker.version);
+  s.check('VARY: control: the same worker without ignoreVary fails the check: the page is asked of the server at every launch, and the whole shell downloaded again',
+          T.varied.found === 2 && c.installed && c.asked.indexOf('/') >= 0 && c.asked.length >= T.worker.shell.length,
+          JSON.stringify({ undone: T.varied.found, asked: c.asked.length, first: c.asked.slice(0, 4) }));
 }
 
 /* ---- 2. FAILED INSTALL -------------------------------------------------------------------- */
@@ -430,6 +625,49 @@ async function caseHole(s, browser, T) {
   }
 }
 
+/**
+ * `dir` installed; then, one after the other, each of `files` taken out of the cache and the app
+ * launched offline (and the cache filled again by a launch with a connection). What the page
+ * said each time.
+ */
+async function holes(browser, dir, V, files, n) {
+  var ctx = await newContext(browser), out = {};
+  try {
+    serve(dir);
+    await online(ctx);
+    var L = await install(ctx, V);
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      var took = await L.page.evaluate(function (a) { return caches.open(a.v).then(function (c) { return c.delete('./' + a.f); }); }, { v: V, f: f });
+      await offline(ctx);
+      L = await launch(ctx, 3000);
+      var note = await updatingNote(L.page, 3000);
+      out[f] = { took: took, note: note.text, sim: note.sim, bad: L.bad.slice(0, 3), pageErrors: L.errors.filter(function (e) { return e.indexOf('pageerror') === 0; }).length };
+      await online(ctx);
+      L = await launch(ctx);
+      out[f].filled = (await until(async function () { var list = await cached(L.page, V); return { ok: list.length === n, n: list.length }; }, 10000)).n;
+    }
+  } finally {
+    await ctx.close();
+    await up();
+  }
+  return out;
+}
+async function caseHoleOwn(s, browser, T) {
+  var app = T.scripts[T.scripts.length - 1], css = 'styles.css', n = T.worker.shell.length;
+  var r = await holes(browser, T.tree, T.worker.version, [app, css], n);
+  s.check('HOLE: ' + app + ' itself taken out of the cache (its pre-flight cannot say so): offline, the page says "' + UPDATING + '", with no page error; a launch with a connection fills the cache again',
+          r[app].took && r[app].note === UPDATING && !r[app].sim && r[app].pageErrors === 0 && r[app].filled === n, JSON.stringify(r[app]));
+  s.check('HOLE: ' + css + ' taken out of the cache: offline, the page says the same over the unstyled app',
+          r[css].took && r[css].note === UPDATING && r[css].pageErrors === 0 && r[css].filled === n, JSON.stringify(r[css]));
+  // control: the page without its own last lines
+  var c = await holes(browser, T.plain.dir, T.worker.version, [app, css], n);
+  s.check('HOLE: control: the page without its last lines fails both checks: no words for a hole in ' + app + ' (a 504, no Hourglass.sim: the page looks ready and is dead) or in ' + css + ' (the app runs unstyled)',
+          T.plain.found === 1 && c[app].took && c[app].note === null && !c[app].sim && c[app].bad.indexOf('504 /' + app) >= 0 &&
+          c[css].took && c[css].note === null && c[css].sim && c[css].bad.indexOf('504 /' + css) >= 0,
+          JSON.stringify({ undone: T.plain.found, app: c[app], css: c[css] }));
+}
+
 /* ---- 4. LAB ------------------------------------------------------------------------------- */
 /** The app installed from `dir`, then a lab page; what the checks read. */
 async function labVisit(browser, dir, version) {
@@ -492,6 +730,11 @@ async function main() {
     T.scripts = paths.classicScripts(T.tree);
     T.next = nextRelease(T.tree, 'next', false);
     T.bad = nextRelease(T.tree, 'bad', true);
+    // this tree with one thing undone, for three controls
+    T.unchecked = without(T.next.dir, 'unchecked', 'sw.js', '.then(fill).then(sameRelease)', '.then(fill)');
+    T.after = release(T.tree, 'after', nextVersion(T.next.version));
+    T.varied = without(T.tree, 'varied', 'sw.js', ', ignoreVary: true', '');
+    T.plain = without(T.tree, 'plain', 'index.html', /<script>(?:(?!<\/script>)[\s\S])*id = 'updating'(?:(?!<\/script>)[\s\S])*<\/script>/, '');
     T.old = archive(BEFORE_R1, 'old');
     T.oldWorker = worker(T.old);
     T.oldBad = nextRelease(T.old, 'old-bad', true);
@@ -505,8 +748,11 @@ async function main() {
     serve(T.tree);
     await up();
     browser = await require('playwright').chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required', '--disable-webgl'] });
-    var cases = [['UPGRADE', caseUpgrade], ['FAILED INSTALL', caseFailedInstall], ['HOLE', caseHole], ['LAB', caseLab]];
+    var cases = [['UPGRADE', caseUpgrade], ['OVERTAKEN', caseOvertaken], ['VARY', caseVary], ['FAILED INSTALL', caseFailedInstall],
+      ['HOLE', caseHole], ['HOLE', caseHoleOwn], ['LAB', caseLab]];
+    var only = process.argv.indexOf('--only') > 0 ? process.argv[process.argv.indexOf('--only') + 1].toUpperCase() : null;
     for (var i = 0; i < cases.length; i++) {
+      if (only && cases[i][0] !== only) continue;
       try { await cases[i][1](s, browser, T); } catch (e) {
         s.check(cases[i][0] + ': no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
       }

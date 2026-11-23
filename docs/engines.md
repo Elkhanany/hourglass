@@ -636,7 +636,7 @@ itself: with the switch on, and where `navigator.gpu` exists, it appends
 adapter (`realsand/app-sand.mjs`, `RealSand`) and hands its class and the
 engine's build stamp to `Hourglass.attachRealSand`. A stamp other than the
 one `app.js` was written for (`REALSAND_BUILD`) means a mix of old and new
-files in the cache: the current sand this launch, and the note says Real
+files in the cache: the classic sand this launch, and the note says Real
 sand is updating. The shaders carry the stamp too (the line "Engine build"
 in `shaders/common.inc.wgsl`), checked against the modules' at the start,
 and a page fetches its shaders once: a rebuild after a lost device or a
@@ -664,9 +664,16 @@ note under the switch says why; the row's `data-state` holds the bare state
 `paused`). Without `navigator.gpu` the row says *Needs WebGPU*, found at
 every launch for nothing, and nothing is stored. With it, but no adapter or
 only a software one (found by loading the engine), the same, and the
-browser's user agent is kept (`realSandNa`): while it is the same, a launch
-says so without loading anything; an iOS update changes it, and the launch
-after tries again. Such a failure in a page that was put away since the
+browser's user agent is kept (`realSandNa`, with the time in
+`realSandNaAt`): while it is the same, and for seven days, a launch
+says so without loading anything; after that, or once an iOS update has
+changed it (whether one does in a home-screen app is not known), the launch
+tries again. The same failure from a start made again in a session that saw
+the chip reset, lost or not answering (the watchdog's new engine, the retry
+of a start the reset cut short) may only be the chip on its way back: it is
+neither kept nor counted, the note says *Real sand could not restart; it
+will try again next launch*, and the classic sand runs for the session.
+Such a failure in a page that was put away since the
 start began is not believed (iOS may refuse an adapter to a page in the
 background): it is retried once in view. The switch is never disabled: in
 that state it shows off, and a tap clears what was kept and reloads. Any
@@ -678,7 +685,7 @@ again once it is in view. All of this was found with one engine build:
 `realSandWhy` and `realSandNa`. If the graphics chip is reset while the sand
 runs, the CPU sand takes over in the same frame at the GPU sand's counts,
 with a toast (none around a lock or an app switch), and the GPU sand comes
-back when it can; a second reset within ten minutes leaves the current sand
+back when it can; a second reset within ten minutes leaves the classic sand
 for the rest of the session.
 
 The watchdog (`watchReal` in `app.js`, settings design 5.4). A chip that
@@ -704,31 +711,31 @@ boot takes the key and does not wait.
 What the GPU sand looks like. Each simulated point is drawn as one grain in
 the colour of the CPU sand's grain at its place (its seed, carried into every
 fill), from the Renderer's own colour table, so the theme, the sand presets
-and layered sand's second tone are the same as the current sand's and change
+and layered sand's second tone are the same as the classic sand's and change
 with them at once. The solver's neck is a little wider than the drawn one, so
 each grain is drawn pulled in toward the axis near the neck (by the drawn
 width over the simulated one, row by row) and the sand lies inside the glass
 the app draws. The grains are lit from the upper left of the room: the canvas
 turns with the glass, so the light is turned back by the glass's angle on
 screen. Grains in flight are drawn as their streaks, a bed moving as a whole
-sharp (the lab's rule). Reset is drawn as the current sand draws it, in about
+sharp (the lab's rule). Reset is drawn as the classic sand draws it, in about
 a second: the old sand drawn into the neck (every grain's squared distance
 from the neck falling by the same amount, the sand frozen), then the new bed
 shown from the neck up under a rising heap, with the thread that pours it.
 
 Layered sand on the GPU. A grain keeps its colour while it falls; when it
 first comes to rest below the neck it takes the tone the layer schedule
-gives it, so the lower heap grows in strata as the current sand's does
+gives it, so the lower heap grows in strata as the classic sand's does
 (layers of a style's depth across the heap, one tone under the other,
 changing from layer to layer, poured sand in layers of its own). The tones
 given keep pace with the tones of the grains that came (within about a
 stratum's worth: a stratum ends early when the sand for it runs out), so
-each tone keeps its count, as the current sand's sifting does. After every
+each tone keeps its count, as the classic sand's sifting does. After every
 turn (a Flip, a turn by hand or by real motion) the grains that moved take a
 fresh pattern as they come to rest, a pattern drawn anew for each bulb and
-turn (the current sand's own drawing of it); they trade tones in equal
+turn (the classic sand's own drawing of it); they trade tones in equal
 numbers, so each bulb keeps its count of each tone. Turning layered sand on
-or off re-tones every grain from the current sand's strata, by its depth in
+or off re-tones every grain from the classic sand's strata, by its depth in
 its column, behind the usual slow cross-fade.
 
 What it sounds like. The stream is the grains the GPU sand lets through the
@@ -793,8 +800,8 @@ classic sand; every other buzz is the app's own.
 
 With Real sand on the glass does not crack: a blow thumps and clacks, cracks
 the glass already has stay and can be mended, and Reset makes it whole. The
-glow, rim light and depth shading of the CPU sand are not drawn. Grain still
-sets the current sand's grain; the GPU sand keeps its own. With the switch
+glow, rim light and depth shading of the CPU sand are not drawn. Grain is
+the classic sand's and is hidden meanwhile; the GPU sand keeps its own. With the switch
 on, the row's **Copy a report** copies the engine's figures (its power mode,
 rate, counts, the stream's first fall, the start-up times, the heat guard's
 trips, its log) for the owner's notes, also from a home-screen web app;
@@ -878,7 +885,7 @@ Any change to the engine raises the stamp in `realsand/build.mjs`,
 together (`realsand-shell` checks that they match), and `VERSION` in
 `sw.js`; a new module or shader goes into the worker's `SHELL` too
 (`realsand-shell` finds one that is missing). The tests of Real sand:
-`realsand-valve`, `-fill`, `-adapter` and `-shell` in Node, in seconds;
+`realsand-valve`, `-fill`, `-felt`, `-adapter` and `-shell` in Node, in seconds;
 `app-realsand` in the browser harness on a mock graphics chip;
 `realsand-gpu` on WebGPU in software, only when named; and
 `app-regression`'s service worker check (see [Tests](testing.md)).

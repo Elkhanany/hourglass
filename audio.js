@@ -19,7 +19,7 @@
  *
  *   → micro-room convolution → compressor → soft clipper → master
  *
- * License: GPL-3.0.
+ * License: GPL-3.0-or-later.
  * ---------------------------------------------------------------------------
  */
 (function (root) {

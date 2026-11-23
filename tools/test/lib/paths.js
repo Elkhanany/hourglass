@@ -9,7 +9,9 @@
  *   var paths = require('./lib/paths.js');
  *   paths.ROOT, .INDEX, .SW, .MANIFEST, .APP     absolute paths in this checkout
  *   paths.classicScripts([root])   the classic scripts index.html loads, in document order,
- *                                  relative to the root ('physics.js', ..., 'app.js')
+ *                                  relative to the root ('physics.js', ..., 'app.js'); a src
+ *                                  without quotes is read too
+ *   paths.attr(attrs, name)        one attribute of a tag's text, quoted or not
  *   paths.script(name, [root])     the one of them whose file name is `name`
  *                                  ('motion.js' → 'motion.js', or wherever it lives)
  *   paths.physicsParts([root])     the classic scripts that make HourglassPhysics
@@ -27,15 +29,21 @@ var path = require('path');
 
 var ROOT = path.resolve(__dirname, '..', '..', '..');
 
+/** The value of one attribute in a tag's text, quoted or not (src=./a.js is valid HTML); null without it. */
+function attr(attrs, name) {
+  var m = new RegExp('(?:^|\\s)' + name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s"\'>]+))', 'i').exec(attrs);
+  return m ? (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]) : null;
+}
+
 /** index.html's script tags without type="module", their src in document order ('./' dropped). */
 function classicScripts(root) {
   var html = fs.readFileSync(path.join(root || ROOT, 'index.html'), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
   var out = [], re = /<script\b([^>]*)>/gi, m;
   while ((m = re.exec(html))) {
-    var attrs = m[1], src = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(attrs), type = /\btype\s*=\s*["']([^"']+)["']/i.exec(attrs);
+    var src = attr(m[1], 'src'), type = attr(m[1], 'type');
     if (!src) continue;
-    if (type && !/^(text|application)\/(java|ecma)script$/i.test(type[1])) continue;
-    out.push(src[1].replace(/^\.\//, '').split(/[?#]/)[0]);
+    if (type && !/^(text|application)\/(java|ecma)script$/i.test(type)) continue;
+    out.push(src.replace(/^\.\//, '').split(/[?#]/)[0]);
   }
   return out;
 }
@@ -75,6 +83,7 @@ module.exports = {
   SW: path.join(ROOT, 'sw.js'),
   MANIFEST: path.join(ROOT, 'manifest.json'),
   APP: path.join(ROOT, 'app.js'),
+  attr: attr,
   classicScripts: classicScripts,
   script: script,
   physicsParts: physicsParts,

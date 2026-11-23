@@ -15,6 +15,11 @@
  * first column a name with a / is under realsand/ unless it begins with lab/, and a bare name
  * is in the folder of the name before it in the cell (realsand/ at first). In the second
  * column a bare name is the app's (the repository's root) or else the lab's (lab/sand/).
+ * And the project's own licence is stated one way: GPL-3.0-or-later (package.json, the README).
+ * A file of the page or the lab that states it (a header's "License: GPL-3.0...") says
+ * GPL-3.0-or-later, not the bare GPL-3.0. The engine's files (realsand/) still say GPL-3.0:
+ * they change with the next engine build (docs/architecture.md, "Releasing", rule 3), the
+ * README says what they mean until then, and this check counts them without failing.
  * Each rule has its control: the same check on a table or a tree that breaks it must fail.
  *
  *   node tools/test/check-licences.test.js
@@ -114,6 +119,32 @@ check(c4.sources.some(function (s) { return /^main\.mjs /.test(s); }) && c4.miss
   '... a bare name in the second column is looked for in lab/sand/ too (the lab page\'s main.mjs) (control)', c4.sources.concat(c4.missing).join(', '));
 var smoosh = P.rows.some(function (r) { return /src\/smoosh\.mjs/.test(r.cells[1]); }) && !P.rows.some(function (r) { return r.sources.indexOf('src/smoosh.mjs') >= 0; });
 check(smoosh, '... and Smoosh\'s and EA\'s own files (src/smoosh.mjs, density.wgsl) are not looked for here');
+
+/* ---- the project's own licence, stated one way ---- */
+var OURS = 'GPL-3.0-or-later';
+/** The lines of a text that state the GPL-3.0 without "-or-later": ['line N: ...', ...]. */
+function bare(text) {
+  var out = [];
+  text.split('\n').forEach(function (l, k) { if (/GPL-3\.0(?!-or-later)/.test(l)) out.push('line ' + (k + 1) + ': ' + l.trim().slice(0, 70)); });
+  return out;
+}
+var pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')), readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+var OWN = fs.readdirSync(ROOT).filter(function (f) { return /\.(?:js|mjs|css|html|json)$/.test(f); }).concat(walk('lab/sand')).sort();
+var stated = [], bareOnes = [];
+OWN.forEach(function (f) {
+  var text = fs.readFileSync(path.join(ROOT, f), 'utf8');
+  if (/GPL-3\.0/.test(text)) stated.push(f);
+  bare(text).forEach(function (b) { bareOnes.push(f + ' ' + b); });
+});
+var engineBare = walk('realsand').filter(function (f) { return bare(fs.readFileSync(path.join(ROOT, f), 'utf8')).length; });
+check(pkg.license === OURS && /^## License\n+GPL-3\.0-or-later\./m.test(readme) && stated.length >= 10 && bareOnes.length === 0 &&
+      (engineBare.length === 0 || /Where a file's header says GPL-3\.0, it\s+means this licence/.test(readme)),
+  'the licence is ' + OURS + ' in package.json, the README and each of the ' + stated.length + ' files of the page and the lab that state it (' +
+  engineBare.length + ' files under realsand/ say GPL-3.0 until the next engine build; the README says what that means)', bareOnes.join('; '));
+var c5 = bare(' * Zero dependencies. License: GPL-3.0.\n * second line\n  Part of the Hourglass project (GPL-3.0); the solver\n'),
+    c6 = bare(' * License: GPL-3.0-or-later.\n  (GPL-3.0-or-later); "license": "GPL-3.0-or-later"\n');
+check(c5.length === 2 && /^line 1: /.test(c5[0]) && /^line 3: /.test(c5[1]) && c6.length === 0,
+  '... and that check finds a header with the bare GPL-3.0, and none in one that says ' + OURS + ' (control)', c5.join('; '));
 
 console.log('check-licences: ' + (count - failures) + '/' + count + ' passed');
 if (failures) process.exitCode = 1;

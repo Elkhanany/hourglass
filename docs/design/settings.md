@@ -44,7 +44,16 @@ and the app says why; the switch is the owner's alone.
   failure stores the browser's user agent in `realSandNa` (and the reason in
   `realSandWhy`). While `navigator.userAgent` is that one, a launch shows
   the row as not available without requesting anything under `realsand/`.
-  An iOS update changes the user agent, so the launch after it tries again.
+  An iOS update that changes the user agent ends it at the next launch; so
+  do seven days (`realSandNaAt` holds when it was found), since whether an
+  update changes a home-screen app's user agent has not been seen on a
+  phone.
+- **A restart is not a verdict.** The same failure from a start made again
+  in a session that saw the chip reset, lost or not answering (the
+  watchdog's new engine, the retry of a start that a reset cut short) may
+  only be the chip on its way back. Nothing is stored or counted: the row
+  says *Real sand could not restart; it will try again next launch*, the
+  classic sand runs for the session, and the next launch tries again.
 - **A failure in a page that was put away is not believed.** iOS may refuse
   an adapter to a page in the background. A capability failure in a start
   during which the page was hidden at any time is treated as a start cut

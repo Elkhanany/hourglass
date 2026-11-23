@@ -8,7 +8,9 @@
  *   scan.members(src, name) -> ['nTop', ...] the members read or called on `name.` in code
  *
  * No parser: a scan that knows where a regular expression can begin (after an operator, an
- * opening bracket or a keyword such as return), and nothing else of the grammar.
+ * opening bracket or a keyword such as return), and nothing else of the grammar. So a regular
+ * expression straight after a closing bracket, as in `if (x) /re/.test(y)`, is read as a
+ * division, and what follows on that line may be misread: write such a test in brackets.
  */
 'use strict';
 

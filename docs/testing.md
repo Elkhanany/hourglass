@@ -15,27 +15,38 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
 ```
 
 - `check-*`: the check group, in Node, in seconds, each rule with a control
-  that must fail. `check-shell`: every file `index.html` and the manifest
-  name is in the service worker's `SHELL` (the launch screens and the
-  install screenshots excepted), every `SHELL` path exists, once, and no
-  classic script (the page's and `sw.js`) has module syntax, `import()` or
-  anything newer than ES5. `check-licences`: every file under `realsand/`
-  and `lab/sand/` is in `realsand/LICENSES.md`, and every file the table
-  names exists. `check-release`: a branch that changes a shipped file
+  that must fail. `check-shell`: every file `index.html` (a name without
+  quotes too), its stylesheet (`url()`, `@import`) and the manifest name
+  exists and is in the service worker's `SHELL` (the launch screens and the
+  install screenshots excepted from `SHELL`), the page's one inline script (the
+  "Hourglass is updating" note) is held to the same syntax rule as the files,
+  every `SHELL` path exists, once, and no classic script (the page's and
+  `sw.js`) has module syntax, `import()` or any of the kinds of syntax newer
+  than ES5 that the check lists (`=>`, `let`, `const`, template strings,
+  `class`, `?.`, `??`, `async`, `await`, for-of, `...`, `**`, generators,
+  default and destructured parameters, shorthand methods). It scans line by
+  line and is not a parser: shorthand properties, computed keys and a
+  destructuring assignment are not seen. `check-licences`: every file under `realsand/`
+  and `lab/sand/` is in `realsand/LICENSES.md`, every file the table
+  names exists, and a file of the page or the lab that states the project's
+  licence says GPL-3.0-or-later. `check-release`: a branch that changes a shipped file
   (`sw.js` or a path of its `SHELL`) raises `VERSION` above both the
-  merge-base's and `origin/main`'s, as a version number, and `index.html`'s
-  version, where the page has one, equals it; it needs `origin/main`
+  merge-base's and `origin/main`'s, as a version number, and `index.html`
+  has its `hourglass-version` meta, equal to it; it needs `origin/main`
   (`HOURGLASS_MAIN=<ref>` names another). `check-harness`: the test guards
   themselves: `tools/test/lib/paths.js` reads the page's scripts from
-  `index.html`, a suite that still reads one `physics.js` fails at once, and
-  the browser harness refuses a tree that lacks a script the page loads,
-  naming it.
+  `index.html`, a suite that still reads one `physics.js` fails at once, the
+  browser harness refuses a tree that lacks a script the page loads, naming
+  it, `run-all.js` fails when its filter matches no suite, and every suite
+  that needs no browser is either in GitHub's list or in the check's own
+  list of the eight left to a run by hand.
 - On GitHub, every pull request and every push to `main` runs the check
   group and the Node suites that take seconds (`.github/workflows/checks.yml`
   lists them; about three minutes, no browser and no `npm install`). The
-  browser suites, the longer Node suites and `realsand-gpu` are run by hand,
-  as above, and their results go in the pull request
-  (`.github/pull_request_template.md`).
+  browser suites, the longer Node suites (`replay-phone`, `sim-conservation`,
+  `sim-fracture`, `sim-shape`, `sim-grain`, `sim-repose`, `sim-tone`,
+  `sim-perf`) and `realsand-gpu` are run by hand, as above, and their
+  results go in the pull request (`.github/pull_request_template.md`).
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
   nothing moving, every grain lands exactly as before. `sim-tone` covers
@@ -186,8 +197,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   and stopped by the glass, and the real adapter's slides, agitation and
   one landing, at the energy of that fall, reach `audio.update` and are
   played (the same bed at rest in the records gives nothing); a start
-  that fails keeps the setting
-  and stops after three launches; a stale build stamp says it is updating;
+  that fails keeps the setting and stops after three launches (an engine
+  file that cannot be had with no connection is not counted); a start made
+  again in the same session that finds no adapter keeps nothing, "Needs
+  WebGPU" is believed for seven days, and a start that took over gives the
+  retries back; a stale build stamp says it is updating;
   a start held 4 s, as slow as an iPhone's home-screen web app opened cold
   (the CPU sand shown and running meanwhile, the boot veil held 1 s and no longer, the
   canvases cross-faded only once the engine has drawn, the clock's end not
@@ -223,14 +237,19 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `origin/main` installed, then this tree, two launches with a connection
   and one offline (no error, no 504, one cache, and Tune's last line
   "Version X.Y.Z" with nothing after it), then a newer release installed
-  while the page is open (the line says the update is ready); a release
+  while the page is open (the line says the update is ready); a deploy
+  that lands while an install is downloading (no copy of two releases is
+  kept, and the next launches end on the newer one, whole); a server that
+  sends `Vary: Accept` (a launch of the installed copy asks it for
+  nothing); `app.js` itself or the style sheet missing from the cache (the
+  page still says it is updating); a release
   whose `SHELL` names a missing file (its install fails, leaves no cache,
   and the installed release runs whole, online and offline); a script taken
   out of the cache (offline the page says it is updating; one launch with a
   connection fills the cache again, from the same release only); and a lab
   page that meets another build (the app's cache stays whole). Its controls
-  run 13a9772's worker and lab (v1.9.0, the last release before the
-  snapshot worker), which fail the same checks: an empty cache left by the
+  run 13a9772's worker and lab (v1.9.0, a release before the snapshot
+  worker), which fail the same checks: an empty cache left by the
   failed install, the next release's files on the page, the engine dropped
   from the cache. It needs `origin/main` and 13a9772 from git
   (`HOURGLASS_MAIN=<ref>` names another first release).
@@ -427,7 +446,7 @@ later, which has WebGPU). The phone's motion (**Real motion**), a finger on
 the glass, **Flip** and **Reset** move the sand; the buttons choose the
 material (coarse and fine sand, water, syrup), the speed (the app's slow
 motion, or true gravity for a glass 11 cm tall), the amount and the grid.
-It opens on the coarse grid with the 1-minute amount: on the owner's iPhone
+It opens on the coarse grid with the 1-minute amount: on an iPhone
 (iOS 26.5) the 1-minute amounts held real time at app speed, coarse the only
 one that also held real speed, while the medium grid with a quarter glass
 ran 8 frames a second at 0.39 of real time, 350 to 730 ms behind. The
