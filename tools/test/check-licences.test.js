@@ -162,7 +162,7 @@ check(c5.length === 2 && /^line 1: /.test(c5[0]) && /^line 3: /.test(c5[1]) && c
 var inFolder = PAGE.filter(function (f) { return f.indexOf('/') >= 0; });
 var c7 = licenceIn(ownFiles(PAGE.concat(['control-only/piece.js'])), function (f) { return f === 'control-only/piece.js' ? '/*\n * License: GPL-3.0.\n */\n' : textOf(f); });
 check(PAGE.every(function (f) { return OWN.indexOf(f) >= 0; }) && added(c7.bare, bareOnes).length === 1 && /^control-only\/piece\.js line 2: /.test(added(c7.bare, bareOnes)[0]) &&
-      ownFiles([]).indexOf('control-only/piece.js') < 0,
+      inFolder.every(function (f) { return ownFiles([]).indexOf(f) < 0; }),            // (the root's files and the lab's alone would leave them unread)
   '... the scripts index.html loads are among those files wherever they live (' + (inFolder.join(', ') || 'none in a folder now') +
   '), and one in a folder whose header has the bare GPL-3.0 is found (control)', added(c7.bare, bareOnes).join('; '));
 
