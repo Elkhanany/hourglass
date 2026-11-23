@@ -1607,6 +1607,11 @@
       }
       sim.nev = keep;
     }
+    // The bed is heard wherever its sand moved: this asks only whether the frame was stepped,
+    // never whether the glass runs, so an idle, paused or finished glass that is leaned, carried
+    // or shaken sounds as a running one does (the stream and the ambience are the running
+    // glass's: AU.flow, AU.ambient). Real sand fills the same record from what its sand did
+    // (inside real.submit, before this), and leaves it empty, its agitation 0, while it sleeps.
     AU.sim = active ? sim : null;
     AU.thump = active ? f.thump : null;  // beds landing [E0, x0, E1, x1]
     AU.slam = active ? f.slam : null;    // beds slammed into the far end [E, x]

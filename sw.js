@@ -10,7 +10,7 @@
 'use strict';
 
 // Bump on every release: a new name retires the previous cache.
-var VERSION = 'hourglass-v1.10.0';
+var VERSION = 'hourglass-v1.11.0';
 
 // The app's files: what an install caches, whole, and what the app is answered from. index.html's
 // <meta name="hourglass-version"> says the same release as VERSION (check-release); every file the
