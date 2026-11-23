@@ -5,8 +5,9 @@
  * The sounds and the glass shapes are registries: one record each, in one list, which the engine
  * reads and which Tune's pickers show. So:
  *  - the sound cards of index.html and the registry of audio.js say the same. Tune's cards are
- *    still written by hand (#characters and #ambiences: a button per sound, its id in
- *    data-character or data-ambience, its icon inside its <svg>, its name in its <span>), and
+ *    still written by hand (#characters and #ambiences: a button per sound, type="button"
+ *    role="radio" aria-checked, its id in data-character or data-ambience, its icon inside its
+ *    <svg>, its name in its <span>), and
  *    HourglassAudio.characters() and .ambiences() are what a picker drawn from the registry would
  *    show: the same ids, names and icons, in the same order, and every card's <svg> opens alike;
  *  - CHARACTERS and AMBIENCES, which the engine reads, hold those records and no others;
@@ -52,11 +53,15 @@ function cardsOf(html, id, attr) {
   var g = new RegExp('<div\\b[^>]*\\bid="' + id + '"[^>]*>([\\s\\S]*?)</div>').exec(html.replace(/<!--[\s\S]*?-->/g, ''));
   if (!g) { out.faults.push('index.html has no #' + id); return out; }
   var buttons = g[1].match(/<button\b[\s\S]*?<\/button>/g) || [];
-  var card = new RegExp('^<button\\b[^>]*\\bdata-' + attr + '="([^"]*)"[^>]*>\\s*<svg\\b([^>]*)>([\\s\\S]*?)</svg>\\s*<span>([^<]*)</span>\\s*</button>$');
+  var card = new RegExp('^(<button\\b[^>]*\\bdata-' + attr + '="([^"]*)"[^>]*>)\\s*<svg\\b([^>]*)>([\\s\\S]*?)</svg>\\s*<span>([^<]*)</span>\\s*</button>$');
   buttons.forEach(function (b, k) {
     var m = card.exec(b);
-    if (!m) out.faults.push('card ' + (k + 1) + ' of #' + id + ' is not a button with data-' + attr + ', an <svg> and a <span>');
-    else out.cards.push({ id: m[1], svg: m[2].trim(), icon: m[3], name: m[4] });
+    if (!m) { out.faults.push('card ' + (k + 1) + ' of #' + id + ' is not a button with data-' + attr + ', an <svg> and a <span>'); return; }
+    // the group's handler and a screen reader take a card for a choice by these three
+    if (!/\stype="button"/.test(m[1]) || !/\srole="radio"/.test(m[1]) || !/\saria-checked="(true|false)"/.test(m[1])) {
+      out.faults.push('card ' + (k + 1) + ' of #' + id + ' (' + m[2] + ') is not a type="button" with role="radio" and aria-checked');
+    }
+    out.cards.push({ id: m[2], svg: m[3].trim(), icon: m[4], name: m[5] });
   });
   if (g[1].replace(/<button\b[\s\S]*?<\/button>/g, '').trim()) out.faults.push('#' + id + ' holds something that is not a card');
   return out;
@@ -112,6 +117,7 @@ GROUPS.forEach(function (G) {
     ['a card more', HTML.replace(c2, c2 + c2.replace('data-' + G.attr + '="' + second.id + '"', 'data-' + G.attr + '="extra"')), /cards are .*extra.*; the registry has/],
     ['an <svg> that opens otherwise', HTML.replace(c2, c2.replace('viewBox="0 0 24 24"', 'viewBox="0 0 32 32"')), new RegExp(second.id + ': its <svg')],
     ['a card that is no card', HTML.replace(c2, c2.replace(/<span>[^<]*<\/span>/, '')), /is not a button with data-/],
+    ['a card that is no choice (its role left out)', HTML.replace(c2, c2.replace(' role="radio"', '')), new RegExp('\\(' + second.id + '\\) is not a type="button" with role="radio" and aria-checked')],
     ['a heading among the cards', HTML.replace(c2, c2 + '<h4>More</h4>'), /holds something that is not a card/]
   ];
   var missed = [];
