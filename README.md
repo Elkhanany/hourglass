@@ -323,6 +323,34 @@ picture: on the owner's iPhone that took 0.6 s in Chrome and 3.4 s in a
 home-screen web app opened cold. A slow start is never counted as a
 failure.
 
+Moving the glass. The sand answers the phone at once: a flick, a shake,
+the hand's jitter. The new sand lives in a slowed world (a fall takes about
+3.5 times longer than real), and until build 5 it played your motion back
+as a slowed film of it, which under any shaking or handling ran half a
+second behind the phone, and softly. Now the part of a push along the
+sand's floor that would slide a resting bed (beyond its friction, about
+0.6 g) is played at once, as fast as the film made it, and anything
+gentler is felt just as it is, as is every push up or down against the
+floor (so a shake up and down heaps the bed, as the film did, and does not
+throw it up in a column); the floor is where the sand's gravity points,
+however you hold the phone (upright, on its side, upside down). The
+sharpest peaks are held to 2 g and paid out over the next few hundredths
+of a second, so a jerk moves the bed without tearing it. Measured in the
+sand lab: a flick moves the bed 42 ms after the hand, where it took 108,
+and the sand stops sloshing about 0.1 s after you stop shaking, where it
+went on for half a second. What this trades: a lone jerk of a glass at
+rest moves its bed at once and as fast as the film did, but about a third
+as far, and the stop ends the slide; in the film (and in the sand's own
+physics at real speed) the bed is thrown against the far wall and the stop
+throws it on to the other one. A glass asleep (paused or finished, the
+sand at rest) wakes in the frame a jolt comes, where a flick never woke
+it. With Reduce Motion on, the glass's motion is felt as it is. The engine
+also keeps the slow-motion playback for a Tune choice later, "Moving the
+glass: Live | Slow motion", Slow motion reading: "A bump to a glass held
+still replays slowly, like a high-speed film; once you shake or handle it,
+the sand moves at once." (The sand lab's "jolts" button tries them both
+now.)
+
 Battery and heat. Nothing runs on the graphics chip while nothing moves (a
 glass paused or finished and at rest, or the page hidden). While the glass
 is turned, handled or shaken, as a glass starts and in its last seconds,
@@ -1165,7 +1193,7 @@ imports the same files.
 | `layers.mjs`, `shaders/tone.wgsl` | layered sand on the GPU: the layer schedule, fresh tones as grains come to rest, the pattern after a turn |
 | `modes.mjs` | the power modes: asleep, full, calm and the heat guard |
 | `rate.mjs`, `pace.mjs` | auto Hz (480 to 1,440 substeps a second), and the GPU's pace (two frames in flight at most, the budget) |
-| `felt.mjs` | the glass's jolts played back slowed, as a slowed film of them |
+| `felt.mjs` | the glass's motion as the sand feels it (`GlassFelt`): `live` by default (the part of a push along the sand's floor beyond the bed's friction at the film's speed, at once, capped at 2 g; the rest, and every push off or into the floor, as it is; the floor taken from the sand's gravity), `slowmo` (a lone jolt as a slowed film, live while shaken), `film` (the slowed film, half a second late under shaking: before build 5), `plain`; `RealSand.jolts` picks one, plain under Reduce Motion |
 | `palette.mjs` | the lab's palettes (the app's come from its Renderer) |
 | `build.mjs` | the build stamp |
 | `LICENSES.md` | the solver's MIT and BSD-3-Clause notices |
@@ -1459,8 +1487,18 @@ node tools/test/run-all.js realsand-gpu  # Real sand on WebGPU in software (only
   `realsand-fill` checks the fills (exactly the points asked for on every
   grid and amount, all inside the glass; a target that is not a number is
   refused), the grains' colour seeds against the grain shader's own hash, and
-  the felt jolts against the lab's code from before they moved to
+  the felt jolts' film against the lab's code from before they moved to
   `realsand/`.
+  `realsand-felt` checks how the glass's motion reaches the sand
+  (`GlassFelt`) at a phone's lambda: live answers a flick in the substep the
+  hand moves and is over 25 ms after the hand stops, gives a sliding bed the
+  film's impulse (a lone push 91 %, a shake 2.6 times what the film held
+  half a second behind gave), passes jitter and every push off or into the
+  floor exactly (a shake up and down is not turned into a lift), keeps what
+  the cap holds back, gives the bed the same push however the phone is held
+  (upright, leaning, on its side, upside down), and is not late through the
+  real `motion.js` on the replay streams; its control is the film, 0.5 s
+  behind under a shake.
   `realsand-adapter` checks `RealSand` (`realsand/app-sand.mjs`), the
   adapter through which the app runs the GPU sand as its `sim`, on a mock
   engine whose neck is the valve test's model, inside a copy of the app's
@@ -1594,9 +1632,13 @@ so a falling stream or a thrown bed is not held to the solver's one cell a
 substep, but only as far as the GPU's budget allows (HELD in the HUD); at
 real speed true g wants more substeps than a phone gives, so there the
 fastest grains are held to a cell a substep and fall slower than real, and
-the HUD says so; at app speed the glass's jolts (the finger's, the phone's) reach
-the slowed sand slowed too, as in a slowed film of them, so a jerk throws
-it as far as at real speed. A grain in flight is drawn as the streak it
+the HUD says so; at app speed the glass's motion (the finger's, the phone's)
+reaches the slowed sand live: the part of a push along the sand's floor
+beyond its friction is made as fast as a slowed film of it would make it, at
+once, so a jerk moves the bed toward the trailing wall at once (about a third
+as far as the slowed film), and a push off or into the floor is felt as it is
+(More, "jolts", plays it as slow motion, as the slowed film the lab used
+before, or plain). A grain in flight is drawn as the streak it
 makes in one display frame, as the eye sees a falling grain, so the stream
 through the neck reads as a thread (More, "blur", shortens it or turns it
 off); a grain with sand crowded around it is drawn sharp, because the eye
@@ -1689,9 +1731,13 @@ sand back exactly); case 21 the modes on a resting bed (calm and full
 alternated ten times move it less than half a cell, and in auto a still bed
 sleeps until touched, leaned 5 degrees or turned); case 22 the Rotor probe (the sand always in
 the bulb the ledger says, and the canvas turned exactly in the frames whose
-run was skipped since a swap). `node tools/test/lab-timer.test.js` checks
+run was skipped since a swap); case 23 the glass shaken through its own path,
+as the phone's motion comes, live against the slowed film (along the floor
+the sand is still 0.15 s after the hand stops, where the film still
+sloshes; up and down the bed heaps and is not thrown up in a column). `node tools/test/lab-timer.test.js` checks
 the Timer's arithmetic in Node in a second: the amounts, the clock, the
-modes and the heat guard. Cases 12, 13 and 18 hold the sand to no worse
+modes (a jolt of 0.3 g wakes a sleeping glass in its own frame) and the
+heat guard. Cases 12, 13 and 18 hold the sand to no worse
 than 5cc11b3 and say real sand's target beside it: passing them is not
 realism. `node tools/test/lab-pace.test.js` checks the pace in Node in a
 second, against models of a phone's GPU. The tests step the sand with auto

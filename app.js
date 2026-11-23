@@ -985,7 +985,8 @@
     // a blow pushes it for a moment more (bodyHit), and while the glass falls
     // freely its sand falls with it, all but weightless
     var fx = mx - K_DRAG * KPX * body.ax + body.jx, fy = my - K_DRAG * KPX * body.ay + body.jy;
-    // (Real sand plays jolts back slowed, as the lab does: it takes them before the free fall, unturned)
+    // (Real sand plays the glass's motion to its sand itself, as the lab does (realsand/felt.mjs:
+    // live by default): it takes it before the free fall, unturned, with the turn rho)
     if (real) real.feel(tS, fx, fy, body.air, rho);
     if (body.air) fy -= 0.9;
     var G = sim.G;
@@ -2998,7 +2999,7 @@
    *  browser's WebGPU canvas cannot be read back). ?debug=sand shows the
    *  engine's figures for the owner's reports.
    * ==================================================================== */
-  var REALSAND_BUILD = '4';          // the engine's stamp this script was written for (realsand/build.mjs)
+  var REALSAND_BUILD = '5';          // the engine's stamp this script was written for (realsand/build.mjs)
   var REAL_TEST = /[?&]offscreen=1(?:&|$)/.test(location.search);
   var realEng = null;                // the engine: starting, live (then real === realEng), lost or rebuilding
   var realCls = null, realAttached = false, realDue = false, realRetries = 0, realState = 'off';

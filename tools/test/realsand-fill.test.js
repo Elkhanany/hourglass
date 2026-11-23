@@ -129,7 +129,7 @@ async function main() {
   }
   var feltOk = true, diffs = 0, peak = [0, 0];
   [[true, 0.08], [false, 1]].forEach(function (mode, k) {
-    var ref = originalFelt(), now = new Felt.GlassFelt(), dt = 1 / 480;
+    var ref = originalFelt(), now = new Felt.GlassFelt({ mode: 'film' }), dt = 1 / 480;
     now.reset(0);
     for (var s = 0, t = 0; s < 480 * 4; s++, t += dt) {
       var a = jolt(t), r = ref.feel(a[0], a[1], dt, t, mode[0], mode[1]), q = now.feel(a[0], a[1], dt, t, mode[0], mode[1]);
