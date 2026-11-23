@@ -11,6 +11,43 @@
 (function () {
   'use strict';
 
+  /* ======================================================================
+   *  Pre-flight
+   *
+   *  The page's files come from one release (sw.js: an installed copy is a
+   *  snapshot). Should one be missing from the copy all the same, an
+   *  offline launch gets an error for it and its engine is not there: then
+   *  nothing is built, the page says so, and the next launch with a
+   *  connection fills the copy again.
+   * ==================================================================== */
+  var missing = missingParts();
+  if (missing.length) { updating(missing); return; }
+
+  /** The engines this script needs from the other scripts, by name: [] when all are there. */
+  function missingParts() {
+    var w = window, P0 = w.HourglassPhysics || {}, out = [];
+    ['Sim', 'Renderer', 'Spill'].forEach(function (k) {
+      if (typeof P0[k] !== 'function') out.push('HourglassPhysics.' + k);
+    });
+    if (typeof w.HourglassAudio !== 'function') out.push('HourglassAudio');
+    if (typeof w.HourglassMotion !== 'function') out.push('HourglassMotion');
+    return out;
+  }
+  /** Say that the app is updating, over the whole page (it touches nothing of the page's own). */
+  function updating(what) {
+    try {
+      var note = document.createElement('p');
+      note.id = 'updating';
+      note.setAttribute('role', 'alert');
+      note.textContent = 'Hourglass is updating. Open it again with a connection.';
+      note.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;margin:0;padding:24px;' +
+        'display:flex;align-items:center;justify-content:center;text-align:center;background:#0b0c0e;' +
+        'color:#d8d2c8;font:16px/1.5 -apple-system,system-ui,sans-serif';
+      (document.body || document.documentElement).appendChild(note);
+    } catch (e) { /* nothing more to do */ }
+    try { console.warn('Hourglass: not started; missing ' + what.join(', ')); } catch (e) {}
+  }
+
   var P = window.HourglassPhysics;
   var $ = function (id) { return document.getElementById(id); };
 
@@ -3269,6 +3306,69 @@
   }
 
   /* ======================================================================
+   *  The version line
+   *
+   *  The last line of Tune: the release this page is (index.html's
+   *  hourglass-version) and the one installed for offline use, which the
+   *  service worker answers by message. "Version 1.10.0" when the two are
+   *  the same; "· offline copy not installed yet" with no worker or no
+   *  answer within a second; "· update 1.11.0 ready: close and reopen" when
+   *  a newer release is installed. Made by script (no markup of its own),
+   *  and only where Tune's sheet is; its state is in data-state.
+   * ==================================================================== */
+  function versionLine() {
+    var body = sheetSettings && sheetSettings.querySelector('.sheet-body');
+    if (!body) return;
+    var meta = document.querySelector('meta[name="hourglass-version"]');
+    var mine = (meta && meta.getAttribute('content')) || 'unknown';
+    var line = document.createElement('p');
+    line.id = 'version-line';
+    line.className = 'colophon version';
+    line.textContent = 'Version ' + mine;
+    line.setAttribute('data-state', 'asking');
+    body.appendChild(line);
+    var sw = null, asked = 0;
+    try { sw = navigator.serviceWorker || null; } catch (e) { /* (a browser that forbids it here) */ }
+    /** [major, minor, patch] of '1.10.0', or null. */
+    function parts(v) {
+      var m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v);
+      return m ? [+m[1], +m[2], +m[3]] : null;
+    }
+    function newer(a, b) {
+      var x = parts(a), y = parts(b);
+      if (!x || !y) return false;
+      for (var i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+      return false;
+    }
+    function show(theirs) {
+      var state, text = 'Version ' + mine;
+      if (!theirs) { state = 'none'; text += ' · offline copy not installed yet'; }
+      else if (theirs === mine) state = 'same';
+      else if (newer(theirs, mine)) { state = 'update'; text += ' · update ' + theirs + ' ready: close and reopen'; }
+      else { state = 'other'; text += ' · offline copy ' + theirs; }
+      line.textContent = text;
+      line.setAttribute('data-state', state);
+    }
+    function ask() {
+      var ctl = sw && sw.controller, n = ++asked;
+      if (!ctl || typeof MessageChannel !== 'function') { show(null); return; }
+      var ch = new MessageChannel();
+      var timer = setTimeout(function () { if (n === asked) show(null); }, 1000);
+      ch.port1.onmessage = function (e) {
+        clearTimeout(timer);
+        var v = e.data && e.data.version;
+        if (n === asked) show(typeof v === 'string' ? v.replace(/^hourglass-v/, '') : null);
+      };
+      try { ctl.postMessage({ type: 'version' }, [ch.port2]); } catch (err) { clearTimeout(timer); show(null); }
+    }
+    ask();
+    // a worker that takes over meanwhile (the first install, or an update) is asked again, and so
+    // is the worker each time Tune is opened
+    if (sw && sw.addEventListener) sw.addEventListener('controllerchange', ask);
+    if (btnSettings) btnSettings.addEventListener('click', ask);
+  }
+
+  /* ======================================================================
    *  Boot
    * ==================================================================== */
   sim.reset(grainsFor(T.durationMs));
@@ -3320,6 +3420,7 @@
       navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function () {});
     });
   }
+  versionLine();
 
   // A small handle for the curious (and for automated tests).
   window.Hourglass = {
