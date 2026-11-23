@@ -110,13 +110,16 @@ const EV_CAP = 48;                         // landings a frame for the audio (ph
 // The bed's sounds (design 8), on the classic Sim's scale (physics.js _landing, _stepMotion):
 //  E_MIN: a landing under this energy is not heard (audio.js thump: 1.3 sqrt(E) under 0.05);
 //  FALL_RUNS: a bed that lands has lost half its speed within this many runs of its fastest;
-//  SLIDE_K: the share of the bed's motion within itself that counts as the classic sand's slides
-//  (calibrated: the classic sand on the same motions, design 8); TAU_T: the agitation's memory, s
+//  SLIDE_K: the bed's motion within itself counts as the classic sand's slides at SLIDE_K over
+//  the square root of the bed's grains: the classic sand slides at its surface, the GPU bed
+//  shears through its depth, and a bed of n grains has a surface of about sqrt(n) (calibrated on
+//  two glasses against the classic sand on the same motion, design 8: 0.47 of it for the 1,155
+//  grains of a 10 s glass, 0.30 for the 2,830 of a minute); TAU_T: the agitation's memory, s
 //  (physics.js MOT.tauT), IDLE_T: under this, with the bed at rest, it is 0 (MOT.idleT);
 //  HOLD_MS: a readback's slides are fed until the next comes, this long at most; MUTE_MS: a fresh
 //  bed (a fill, a transfer) settles unheard this long; TURN_W: turned faster than this (rad/s), a
 //  bed neither lands nor heats (as the classic sand's, which a turn leaves calm)
-const SND = Object.freeze({ E_MIN: 0.0015, FALL_RUNS: 6, SLIDE_K: 0.45, TAU_T: 0.25, IDLE_T: 0.02, HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5 });
+const SND = Object.freeze({ E_MIN: 0.0015, FALL_RUNS: 6, SLIDE_K: 16, TAU_T: 0.25, IDLE_T: 0.02, HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5 });
 const SELF_TEST_POINTS = 500;
 
 const ENGINE = { createDevice, Solver, GrainRenderer, ShaderLibrary, Toner };
@@ -1651,9 +1654,11 @@ export class RealSand {
    *    landing at u (its kinetic energy a grain over G times the bulb's height). On the side
    *    gravity holds the sand to, a thump; on the far end, a slam; its place, the bed's centre
    *    across the bulb. A bed stopped sideways lands nothing, as the classic sand's slip does not.
-   *  - slides: the bed's motion within itself, the summed speed of its moving points beyond their
-   *    share of the bed's own speed (a bed flying or sliding as one body slides nothing), in the
-   *    CPU Sim's grains and cells a second, times SLIDE_K;
+   *  - slides: the bed's motion within itself, the summed speed of its moving points beyond the
+   *    bed's own speed (a bed flying or sliding as one body slides nothing) and beyond the speed a
+   *    point moves from (a bed that only creeps slides nothing), in the CPU Sim's grains and cells
+   *    a second, times SLIDE_K over the square root of the bed's grains (the classic sand slides
+   *    at its surface);
    *  - agitation: each bed's granular temperature follows its own acceleration over the glass (in
    *    g, the classic's measure of the field's change) with the classic's memory, and a landing
    *    heats it as the classic's does (E HB / 3); 0 once the bed is at rest.
@@ -1667,14 +1672,16 @@ export class RealSand {
     // (a readback of a run from before a swap: its bulbs are the other way up now)
     const flipped = parity !== this.valve.parity, g = this.glass, GH = this.Gg * g.HBc, HB = this.cpu.geo.HB;
     const am = Math.hypot(q.ax, q.ay) || 1, kT = 1 - Math.exp(-q.dt / SND.TAU_T), uMin = Math.sqrt(2 * SND.E_MIN * GH);
+    // (tally.wgsl: a point moves when it is faster than 2 % of a free fall over the glass in the run's field)
+    const still = 0.02 * Math.sqrt(2 * Math.max(am, 1) * g.H);
     let rate = 0;
     for (let gb = 0; gb < 2; gb++) {
       const bed = beds[gb], b = flipped ? 1 - gb : gb;         // b: the app's bulb, 0 the one above now
       if (!bed || !(bed.n > 0)) { S.prev[gb] = null; S.fall[gb] = null; this.agit[b] *= 1 - kT; continue; }
       const vx = bed.vx, vy = bed.vy, sp = Math.hypot(vx, vy);
       const moving = bed.sliding > Math.max(3, 0.01 * bed.n);
-      // slides: the moving points' speed beyond the bed's own
-      if (bed.sliding > 3) rate += Math.max(0, bed.slide - bed.sliding * sp);
+      // slides: the moving points' speed beyond the bed's own, and beyond the speed a point moves from
+      if (bed.sliding > 3) rate += Math.max(0, bed.slide - bed.sliding * Math.max(sp, still)) / Math.sqrt(Math.max(1, bed.n / this.ppg));
       // a landing
       let E = 0, F = S.fall[gb];
       if (q.turn) F = null;

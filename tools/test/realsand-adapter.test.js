@@ -985,7 +985,7 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     f0 = app.V.frame + 1;
     await framesOf(app, pre + n, function (a) {
       var f = a.cpu.frame;
-      rec.push({ k: a.V.frame - f0 - pre, th0: f.thump[0], x0: f.thump[1], th1: f.thump[2], slam: f.slam[0], slides: f.slides, agit: real.agitation(), mode: real.modes.mode, active: real.isActive() });
+      rec.push({ k: a.V.frame - f0 - pre, th0: f.thump[0], x0: f.thump[1], th1: f.thump[2], slam: f.slam[0], x: f.slam[1], slides: f.slides, agit: real.agitation(), mode: real.modes.mode, active: real.isActive() });
     });
     app.env.beds = null; app.motionIn = null;
     return rec;
@@ -1021,14 +1021,20 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     'a bed stopped sideways lands nothing, and one that the field slows (the glass pulled away under it) has not landed: no thump, no slam (' +
     (fed(s2, 'th0').length + fed(s2, 'slam').length) + ', ' + (fed(s3, 'th0').length + fed(s3, 'slam').length) + ')');
   // thrown to the far end: the field upward (the glass pulled down at 2 g), the bed rising at 80 and stopped there
-  var far = [40, 80, 80, 80, 40, 0, 0, 0].map(function (v) { return B.bed([{ n: rSO.points, v: [0, v] }], [12, 60]); });
+  var far = [40, 80, 80, 80, 40, 0, 0, 0].map(function (v) { return B.bed([{ n: rSO.points, v: [0, v] }], 12); });
   var s4 = await scene(SO, rSO, far, { motion: function (k) { return k >= -2 && k <= 6 ? { fx: 0, fy: -2, w: 0 } : null; } }), sl4 = fed(s4, 'slam');
   var Eslam = 80 * 80 / (2 * GH);
-  check(sl4.length === 1 && Math.abs(sl4[0].slam / Eslam - 1) < 1e-3 && fed(s4, 'th0').length === 0 && Math.abs(SO.cpu.frame.slam[1]) <= 1 && sl4[0].k === 5,
-    'a bed thrown at the far end of its bulb (the field upward, 80 cells/s) and stopped there feeds one slam of ' + Eslam.toFixed(4) + ' (' + sl4.map(function (r) { return r.slam.toFixed(4) + ' in frame ' + r.k; }).join(', ') + ') and no thump');
+  check(sl4.length === 1 && Math.abs(sl4[0].slam / Eslam - 1) < 1e-3 && fed(s4, 'th0').length === 0 && Math.abs(sl4[0].x - 12 / rSO.glass.Rc) < 1e-6 && sl4[0].k === 5,
+    'a bed thrown at the far end of its bulb (the field upward, 80 cells/s) and stopped there feeds one slam of ' + Eslam.toFixed(4) + ' (' + sl4.map(function (r) { return r.slam.toFixed(4) + ' in frame ' + r.k; }).join(', ') +
+    '), at the bed\'s place across the bulb (' + (sl4[0] ? sl4[0].x.toFixed(2) : '-') + '), and no thump');
   // slides: 200 of the bed's points sliding at 60 cells/s, the rest at rest; the classic's count at the calibrated share
-  var N = rSO.points, slideBed = B.bed([{ n: N - 200 }, { n: 200, v: [60, 0] }]), sp = 200 * 60 / N;
-  var rateWant = 0.45 * (200 * 60 - 200 * sp) / (rSO.s * rSO.ppg);
+  // (their speed beyond the bed's own and beyond the speed a point moves from: 2 % of a free fall over the glass)
+  var N = rSO.points, slideBed = B.bed([{ n: N - 200 }, { n: 200, v: [60, 0] }]), still = 0.02 * Math.sqrt(2 * rSO.Gg * rSO.glass.H);
+  // (... as the classic sand's slides: 16 over the square root of the bed's grains of it, the calibrated share)
+  var share = 16 / Math.sqrt(N / rSO.ppg), rateWant = share * 200 * (60 - Math.max(200 * 60 / N, still)) / (rSO.s * rSO.ppg);
+  // (a bed that only creeps, 300 of its points just over that speed, slides next to nothing: under 1,000 a second)
+  var creepBed = B.bed([{ n: N - 300 }, { n: 300, v: [0, 24.2] }]);
+  var s5k = await scene(SO, rSO, [creepBed], { hold: true, after: 60 }), creep = sum(s5k.filter(function (r) { return r.k >= 5; }), 'slides') / s5k.filter(function (r) { return r.k >= 5; }).length * 60;
   var s5 = await scene(SO, rSO, [slideBed], { hold: true, after: 240 });
   // (full for 2 s after the jolt, calm after: the same slides a frame in both)
   var full5 = s5.filter(function (r) { return r.k >= 5 && r.mode === 'full'; }), calm5 = s5.filter(function (r) { return r.mode === 'calm'; });
@@ -1036,9 +1042,9 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   var body = B.bed([{ n: N, v: [60, 0] }]);
   var s5c = await scene(SO, rSO, [body], { hold: true, after: 60 });
   check(full5.length > 60 && calm5.length > 60 && Math.abs(perF(full5) / rateWant - 1) < 0.02 && Math.abs(perF(calm5) / rateWant - 1) < 0.02 &&
-    calm5.every(function (r) { return r.slides > 0; }) && sum(s5c.filter(function (r) { return r.k >= 2; }), 'slides') === 0 && fed(s5, 'th0').length === 0,
-    'sand sliding within the bed (200 points at 60 cells/s) feeds the classic\'s slides at the calibrated share, ' + Math.round(rateWant) + ' a second (full: ' + Math.round(perF(full5)) + ', calm, a run every other frame: ' + Math.round(perF(calm5)) +
-    ', in every frame); the whole bed moving as one body at that speed slides nothing (control: ' + sum(s5c.filter(function (r) { return r.k >= 2; }), 'slides') + ')');
+    calm5.every(function (r) { return r.slides > 0; }) && sum(s5c.filter(function (r) { return r.k >= 2; }), 'slides') === 0 && fed(s5, 'th0').length === 0 && Math.abs(B.STILL - still) < 0.1 && creep < 300,
+    'sand sliding within the bed (200 points at 60 cells/s) feeds the classic\'s slides at the calibrated share (' + share.toFixed(2) + ' for this bed of ' + Math.round(N / rSO.ppg) + ' grains), ' + Math.round(rateWant) + ' a second (full: ' + Math.round(perF(full5)) + ', calm, a run every other frame: ' + Math.round(perF(calm5)) +
+    ', in every frame); the whole bed moving as one body at that speed slides nothing (control: ' + sum(s5c.filter(function (r) { return r.k >= 2; }), 'slides') + '), and one that only creeps next to nothing (' + Math.round(creep) + ' a second)');
   // agitation: the bed thrown from side to side at +-100 cells/s, 5 Hz (its acceleration 0.93 g on average); then at rest
   var shake = [];
   for (var qk = 0; qk < 90; qk++) shake.push(B.bed([{ n: N, v: [100 * Math.sin(2 * Math.PI * 5 * qk / 60), 0] }]));

@@ -46,25 +46,24 @@ const BUCKET = 6;
 // [5] upward crossings refused this run, [6] the substep of the run's last crossing (its frame
 // number + 1; 0: none); [7] unused
 const COUNTER_WORDS = 8;
-// the tally (tally.wgsl), summed afresh by each run: 16 words of counts and speeds, then 8 for
-// each bulb's bed (BED_WORDS: its momentum, kinetic energy, count, place and what of it moves)
-const TALLY_WORDS = 32;
-const BED_AT = 16, BED_WORDS = 8;
+// the tally (tally.wgsl), summed afresh by each run: 16 words of counts and speeds, then 6 for
+// each bulb's bed (BED_WORDS: its momentum, count, place across the glass and what of it moves)
+const TALLY_WORDS = 28;
+const BED_AT = 16, BED_WORDS = 6;
 const POST_WORDS = 8;
 // a readback slot: the counters, then the tally, then the post pass's 8 words (Solver.post)
 const READBACK_BYTES = (COUNTER_WORDS + TALLY_WORDS + POST_WORDS) * 4;
 
 /**
  * One bulb's bed from the tally's words (u unsigned, s signed, at o): its points in a bed (n: not
- * the falling stream, not spray), their mean velocity (vx, vy: cells/s, the grid's frame, y up)
- * and mean squared speed (v2), their centre from the neck's (x, y: cells), and of those that move
- * (faster than 2 % of a free fall over the glass) the number (sliding) and the summed speed
- * (slide, cells/s). What the sound is made from (app-sand.mjs, design 8).
+ * the falling stream, not spray), their mean velocity (vx, vy: cells/s, the grid's frame, y up),
+ * their centre across the glass from the neck's (x: cells), and of those that move (faster than
+ * 2 % of a free fall over the glass) the number (sliding) and the summed speed (slide, cells/s).
+ * What the sound is made from (app-sand.mjs, design 8).
  */
 function bedOf(u, s, o) {
-  const n = u[o + 3];
-  return { n, vx: n ? s[o] / 4 / n : 0, vy: n ? s[o + 1] / 4 / n : 0, v2: n ? u[o + 2] * 64 / n : 0,
-    x: n ? s[o + 4] / 16 / n : 0, y: n ? s[o + 5] / 16 / n : 0, sliding: u[o + 7], slide: u[o + 6] / 4 };
+  const n = u[o + 2];
+  return { n, vx: n ? s[o] / 4 / n : 0, vy: n ? s[o + 1] / 4 / n : 0, x: n ? s[o + 3] / 16 / n : 0, sliding: u[o + 5], slide: u[o + 4] / 4 };
 }
 
 export async function createDevice() {
