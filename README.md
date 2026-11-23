@@ -91,7 +91,7 @@ deep-water teal.
 <p>
   <img src="docs/images/kintsugi.jpg" width="210" alt="A rose quartz glass mended with a seam of gold along its shoulder">
   &nbsp;
-  <img src="docs/images/tune.jpg" width="210" alt="The Tune sheet: materials, frame, sound, ambience and switches">
+  <img src="docs/images/tune.jpg" width="210" alt="Tune open on its Sound tab under the running glass: the tabs Sand, Glass, Sound and Time, the volume, the ambience cards with Rain chosen, and its level">
 </p>
 
 <p>
@@ -117,7 +117,7 @@ deep-water teal.
 | Zen: the glass fills the screen | Spread two fingers, or the moon icon | |
 | Back from Zen | Pinch two fingers together | `Esc` |
 | Mute | Speaker icon | `M` |
-| Material, frame, sound, motion, breathing, screen | **Tune** | |
+| Sand, glass, sound and time: material, frame, ambience, motion, breathing, screen | **Tune** (four tabs) | arrow keys between the tabs |
 
 ## Documents
 
