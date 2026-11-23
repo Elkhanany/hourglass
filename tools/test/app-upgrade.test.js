@@ -43,10 +43,11 @@
  * failed release left behind, and the next release's files on the page, fetched into the
  * installed copy in the background); 13a9772's lab page (it dropped the engine from the app's
  * caches); the interrupted update with a copy of app.js that does not ask for the settings
- * store before it starts (it throws, and says nothing). Three are this tree with one thing
- * undone (without()): the worker without its look at the server after the download (it keeps a
- * copy of two releases), the worker without ignoreVary (the page and the style sheet miss, and
- * the shell is downloaded again), and the page without its last lines (no words for a hole in
+ * store before it starts (it throws; the words then come from the page's last lines, and with
+ * those taken out as well it says nothing). Three are this tree with one thing undone
+ * (without()): the worker without its look at the server after the download (it keeps a copy
+ * of two releases), the worker without ignoreVary (the page and the style sheet miss, and the
+ * shell is downloaded again), and the page without its last lines (no words for a hole in
  * app.js or the style sheet).
  *
  * HOURGLASS_MAIN=<ref> installs another ref than origin/main first. Without that ref, or without
@@ -69,6 +70,8 @@ var PORT = (function () {
 })();
 var ORIGIN = 'http://127.0.0.1:' + PORT, HOME = ORIGIN + '/';
 var UPDATING = 'Hourglass is updating. Open it again with a connection.';
+// index.html's own last lines: the inline script that says so when app.js never started
+var LAST_LINES = /<script>(?:(?!<\/script>)[\s\S])*id = 'updating'(?:(?!<\/script>)[\s\S])*<\/script>/;
 var sleep = H.sleep;
 
 /* ---- the trees ---------------------------------------------------------------------------- */
@@ -723,9 +726,10 @@ async function caseLab(s, browser, T) {
 /**
  * The release before R1 installed; then `dir` (a tree without its worker, so that no install
  * happens) served: a launch with a connection, one offline once the old worker has fetched the
- * new page and app.js into its copy, and one with a connection again.
+ * new page and app.js into its copy (it waits `wait` ms for the app or the words: a page that
+ * neither starts nor says anything is waited for to the end), and one with a connection again.
  */
-async function interrupted(browser, T, dir, store) {
+async function interrupted(browser, T, dir, store, wait) {
   var ctx = await newContext(browser);
   try {
     serve(T.old);
@@ -746,7 +750,7 @@ async function interrupted(browser, T, dir, store) {
       }, { v: T.oldWorker.version, store: store });
     }, 10000);
     await offline(ctx);
-    r.off = await launch(ctx);
+    r.off = await launch(ctx, wait);
     r.release = r.off.app ? (await marks(r.off.page)).release : null;
     await online(ctx);
     r.back = await launch(ctx);
@@ -773,14 +777,21 @@ async function caseInterrupted(s, browser, T) {
   s.check('INTERRUPTED: with a connection again, the app starts',
           !!r.back.app && r.back.app.sim && !r.back.app.updating && pageErrors(r.back).length === 0 && !r.back.bad.some(function (b) { return /^504 /.test(b); }),
           JSON.stringify({ app: r.back.app, errors: r.back.errors.slice(0, 2), bad: r.back.bad.slice(0, 3) }));
-  // control: app.js without the pre-flight's line for the settings store
+  // control: app.js without the pre-flight's line for the settings store. It throws there. The
+  // words come all the same, at the page's load event, from index.html's own last lines (they
+  // speak whenever app.js has not started); with those taken out as well, the page says nothing.
   var bare = copyTree(dir, 'no-preflight'), line = "    if (!w.HourglassSettings || typeof w.HourglassSettings.load !== 'function') out.push('HourglassSettings');\n";
   var app = read(bare, 'app.js');
   write(bare, 'app.js', app.replace(line, ''));
   var c = await interrupted(browser, T, bare, store);
-  s.check('INTERRUPTED: control: a copy of app.js that does not ask for the settings store before it starts throws there, and says nothing',
-          app.indexOf(line) > 0 && c.mixed.ok && !!c.off.app && c.off.app.updating !== UPDATING && pageErrors(c.off).length > 0,
+  s.check('INTERRUPTED: control: a copy of app.js that does not ask for the settings store before it starts throws there (the words then come from the page\'s own last lines)',
+          app.indexOf(line) > 0 && c.mixed.ok && !!c.off.app && !c.off.app.sim && c.off.app.updating === UPDATING && pageErrors(c.off).length > 0,
           JSON.stringify({ line: app.indexOf(line) > 0, mixed: c.mixed, app: c.off.app, errors: c.off.errors.slice(0, 2) }));
+  var mute = without(bare, 'no-preflight-plain', 'index.html', LAST_LINES, '');
+  var c2 = await interrupted(browser, T, mute.dir, store, 5000);
+  s.check('INTERRUPTED: control: ... and with those lines taken out of the page as well, it throws and says nothing',
+          mute.found === 1 && c2.mixed.ok && !!c2.off.app && !c2.off.app.sim && c2.off.app.updating !== UPDATING && pageErrors(c2.off).length > 0,
+          JSON.stringify({ undone: mute.found, mixed: c2.mixed, app: c2.off.app, errors: c2.off.errors.slice(0, 2) }));
 }
 
 /* ---- the run ------------------------------------------------------------------------------ */
@@ -808,7 +819,7 @@ async function main() {
     T.unchecked = without(T.next.dir, 'unchecked', 'sw.js', '.then(fill).then(sameRelease)', '.then(fill)');
     T.after = release(T.tree, 'after', nextVersion(T.next.version));
     T.varied = without(T.tree, 'varied', 'sw.js', ', ignoreVary: true', '');
-    T.plain = without(T.tree, 'plain', 'index.html', /<script>(?:(?!<\/script>)[\s\S])*id = 'updating'(?:(?!<\/script>)[\s\S])*<\/script>/, '');
+    T.plain = without(T.tree, 'plain', 'index.html', LAST_LINES, '');
     T.old = archive(BEFORE_R1, 'old');
     T.oldWorker = worker(T.old);
     T.oldBad = nextRelease(T.old, 'old-bad', true);
