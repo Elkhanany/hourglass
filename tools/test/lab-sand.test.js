@@ -43,9 +43,10 @@
  *               sign conventions); the turning rate is read from the axis
  *               that carries it (alpha by the spec, gamma on iOS), and a
  *               pitch of the phone adds no turning; a 2 g jerk of the glass
- *               at app speed, played live, throws the bed 4 cells or more
- *               against the trailing wall within 0.15 s and it comes back no
- *               more than 1 cell past the middle; as the slowed film (jolts
+ *               at app speed, played live, moves the bed toward the trailing
+ *               wall at once (2 cells or more at 0.05 s, twice the slowed
+ *               film's) and as fast (its centre's peak speed at least half
+ *               the film's), about a third as far; as the slowed film (jolts
  *               'film', as before), over 8 cells at 0.2 s
  *   8 tools     a short benchmark gives its rows; the report has the user
  *               agent, the adapter, the rows and the flow numbers; the
@@ -130,6 +131,14 @@
  *               with its turn) the sand lies at the ledger's end in every
  *               frame (control: without the turn it does not), both WebGL
  *               canvases are made, no page errors
+ *  23 shakes    a 1-minute bed shaken 1.5 g at 5 Hz for 1.5 s through the
+ *               glass (the phone's path), live against the slowed film: along the
+ *               floor the sand is still 0.15 s after the hand stops (mean
+ *               speed <= 15 cells/s, <= 25 from +0.3 to +0.5 s; the film still
+ *               sloshes, >= 50), holes <= 10 %, no node clamped; up and down
+ *               the bed heaps as the film does, not thrown up in a column (its
+ *               top <= 20 cells up and no more than the film's + 2, holes
+ *               <= 15 % on average), no node clamped
  *
  * Screenshots of the key moments go to --shots (a phone-like 390 x 844
  * viewport, device scale 1).
@@ -475,14 +484,17 @@ async function main() {
     log('  finger flick 300 px in 40 ms (1.5 g at the glass): glass at x ' + f1(fr7.x) + ' px after 0.1 s, sand centre moved ' + f2(fr7.dx) + ' cells at ' + f2(fr7.at) + ' s (' + f2(fr7.dx01) + ' at 0.1 s); flick left (control): glass at ' + f1(fl7.x) + ', sand ' + f2(fl7.dx));
     check(fr7.x > 20 && fr7.dx < -0.5 && fl7.dx > 0.5, 'a flick of the glass to the right throws its sand to the left, a flick to the left throws it right');
     // A jerk of the glass (2 g for 50 ms, then -2 g for 50 ms), through the same path as the
-    // finger's and the phone's: while the glass speeds up, it throws the bed against the
-    // trailing wall. At app speed, played live (the default): thrown at least 4 cells within
-    // 0.15 s, and back no more than 1 cell past the middle by 0.6 s (the stop comes as the
-    // hand's does). Played as the slowed film (jolts 'film', as before), checked as it was:
-    // 0.2 s after the jerk began (in the slowed world, the first 0.06 s of it) the bed is
-    // against the trailing wall (before the slowed playback, app speed gave it a 3-cell
-    // wobble). Real speed is logged: there the whole jerk is over in 0.1 s, and the stop throws
-    // the bed back. The bed's centre every 0.05 s from 0.05 to 0.6 s.
+    // finger's and the phone's: while the glass speeds up, it throws the bed toward the
+    // trailing wall. At real speed (true g, the engine's own physics; logged) the bed is thrown
+    // against the trailing wall, and the stop throws it on to the leading one. The slowed film
+    // (jolts 'film', as before) keeps that path, slowed: checked as it was, 0.2 s after the jerk
+    // began (in the slowed world, the first 0.06 s of it) the bed is against the trailing wall
+    // (before the slowed playback, app speed gave it a 3-cell wobble). Live (the default) gives
+    // the bed the film's speed in the jerk's own time, so it moves at once but about a third as
+    // far, and the stop, as prompt as the hand's, ends its slide short of either wall: checked,
+    // that it moves at once (2 cells or more toward the trailing wall at 0.05 s, twice the
+    // film's or more) and as fast (its centre's peak speed toward that wall at least half the
+    // film's). The bed's centre every 0.05 s from 0.05 to 0.6 s.
     var jerk = async function (speed, jolts) {
       await L(function (o) { return window.__lab.settings({ speed: o.speed, jolts: o.jolts }); }, { speed: speed, jolts: jolts || 'live' });
       var b = await bed(), track = [];
@@ -500,8 +512,12 @@ async function main() {
     await L(function () { return window.__lab.settings({ speed: 'app', jolts: 'live' }); });
     var trk = function (t) { return t.map(function (x) { return f1(x); }).join(' '); };
     log('  2 g jerk of the glass to the right, 50 ms each way, sand centre every 0.05 s from 0.05 to 0.6 s: app speed, live ' + trk(jApp) + '; as the slowed film ' + trk(jFilm) + '; real speed (logged) ' + trk(jReal));
-    var thrown = Math.min(jApp[0], jApp[1], jApp[2]), back = Math.max.apply(null, jApp);
-    check(thrown <= -4 && back <= 1, 'at app speed, live, a jerk of the glass throws the bed against the trailing wall within 0.15 s (centre ' + f1(thrown) + ' cells, 4 or more) and it comes back no more than 1 cell past the middle by 0.6 s (' + f1(back) + ')');
+    // (the centre's speed toward the trailing wall, cells/s, over each 0.05 s from the jerk's start)
+    var toward = function (t) { var v = 0; for (var q = 0; q < t.length; q++) v = Math.max(v, -(t[q] - (q ? t[q - 1] : 0)) / 0.05); return v; };
+    var vApp = toward(jApp), vFilm = toward(jFilm);
+    log('  the centre\'s peak speed toward the trailing wall: live ' + f1(vApp) + ' cells/s, the film ' + f1(vFilm) + ', real speed ' + f1(toward(jReal)) + ' (logged); live\'s furthest ' + f1(Math.min.apply(null, jApp)) + ' cells, the film\'s ' + f1(Math.min.apply(null, jFilm)));
+    check(jApp[0] <= -2 && jApp[0] <= 2 * jFilm[0] && vApp >= 0.5 * vFilm,
+      'at app speed, live, a jerk of the glass moves the bed toward the trailing wall at once (' + f1(jApp[0]) + ' cells at 0.05 s, 2 or more and twice the film\'s ' + f1(jFilm[0]) + ' or more), about a third as far as the slowed film, and as fast: its centre\'s peak speed ' + f1(vApp) + ' cells/s, at least half the film\'s (' + f1(vFilm) + ')');
     check(jFilm[3] < -8, 'played as the slowed film (as before), the jerk throws the bed against the trailing wall (centre ' + f1(jFilm[3]) + ' cells at 0.2 s, over 8)');
     await sec(1.5);
     // a real pointer drag moves the glass (live loop, a few frames)
@@ -1192,6 +1208,59 @@ async function main() {
       'as drawn and shown, the sand lies at the end of the glass that holds the ledger\'s top bulb in every frame (' + pics22.length + ' pictures, ' + wrongSeen22 + ' wrong); control, the same pictures without the canvas\'s half turn: wrong in ' + wrongBare22 + ' frames (those skipped since a swap)');
     check(err22.length === 0, 'no page errors on the Rotor probe' + (err22.length ? ': ' + err22.slice(0, 3).join(' | ') : ''));
     await p22.close();
+  }
+
+  if (run(23)) {
+    log('23 the glass shaken (a 1-minute bed, 1.5 g at 5 Hz for 1.5 s through the glass, the phone\'s path: along the floor and up and down; live, the default, against the slowed film)');
+    var M23 = require('./lib/sand-measures.js');
+    // the bed's top: the 98th centile of the grains' height (cells; a few flying grains aside)
+    var top23 = function (p) { var ys = []; for (var i = 1; i < p.length; i += 2) ys.push(p[i]); ys.sort(function (a, b) { return a - b; }); return ys[Math.floor(0.98 * (ys.length - 1))]; };
+    var shake23 = async function (axis, jolts) {
+      await L(function (o) { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.settings({ speed: 'app', override: null, jolts: o }); }, jolts);
+      await L(function () { return window.__lab.reset({ fill: 'lower', material: 'coarse', amount: 'minute' }); });
+      await sec(0.5);
+      var s0 = await L(function () { return window.__lab.stats(); }), t0 = top23(await L(function () { return window.__lab.positions(); }));
+      var r = { holes: [], top: [], speed: [] };
+      var look = async function (after) {
+        var p = await L(function () { return window.__lab.positions(); }), st = await L(function () { return window.__lab.stats(); });
+        r.holes.push(M23.voids(p).holes); r.top.push(top23(p) - t0);
+        if (after) r.speed.push(st.meanSpeed);
+        r.clamp = st.clamped - s0.clamped;
+      };
+      // the shake in pieces of 0.1 s, one phase throughout, looked at after each
+      for (var k = 0; k < 15; k++) {
+        await L(async function (o) {
+          for (var i = o.i0; i < o.i0 + 12; i++) {
+            var a = 1.5 * Math.sin(2 * Math.PI * 5 * (i + 0.5) / 120);
+            window.__lab.setInput({ mode: 'manual', gravity: [0, 1], glass: [a * o.axis[0], a * o.axis[1]] });
+            await window.__lab.advance(1 / 120);
+          }
+        }, { i0: 12 * k, axis: axis });
+        await look(false);
+      }
+      await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); });
+      for (k = 1; k <= 10; k++) { await sec(0.05); await look(true); }
+      if (jolts === 'live') await shot('23-' + (axis[0] ? 'along' : 'updown') + '-live');
+      r.worst = Math.max.apply(null, r.holes);
+      r.mean = r.holes.reduce(function (a, x) { return a + x; }, 0) / r.holes.length;
+      r.topMax = Math.max.apply(null, r.top);
+      r.late = Math.max.apply(null, r.speed.slice(5));
+      return r;
+    };
+    var aL = await shake23([1, 0], 'live'), aF = await shake23([1, 0], 'film');
+    var f23 = function (r) { return 'holes worst ' + f2(100 * r.worst) + ' %, mean ' + f2(100 * r.mean) + ' %; mean speed +0.15 s ' + f1(r.speed[2]) + ' cells/s, the most from +0.3 to +0.5 s ' + f1(r.late) + '; the top up ' + f1(r.topMax) + ' cells at most; clamp hits ' + r.clamp; };
+    log('  along the floor: live ' + f23(aL) + '; the film ' + f23(aF));
+    check(aL.speed[2] <= 15 && aL.late <= 25 && aF.late >= 50,
+      'shaken along the floor, live, the sand is still 0.15 s after the hand stops (mean speed ' + f1(aL.speed[2]) + ' cells/s, <= 15) and stays so (' + f1(aL.late) + ' at most from +0.3 to +0.5 s, <= 25); the slowed film (control) still sloshes then (' + f1(aF.late) + ', >= 50)');
+    check(aL.worst <= 0.1 && aL.clamp === 0, 'shaken along the floor, live, the bed does not tear (holes ' + f2(100 * aL.worst) + ' % at worst, <= 10; the film ' + f2(100 * aF.worst) + ') and no node is clamped (' + aL.clamp + ')');
+    var vL = await shake23([0, 1], 'live'), vF = await shake23([0, 1], 'film');
+    log('  up and down: live ' + f23(vL) + '; the film ' + f23(vF));
+    // (a knee for lift at 1 g, as first built, threw the bed up in a column: its top 34.1 cells up,
+    // holes 20.7 % on average and 52.5 % at worst; the probe's live 13.7 / 9.3 / 26.9, the film
+    // 15.6 / 5.0 / 21.9)
+    check(vL.topMax <= 20 && vL.topMax <= vF.topMax + 2 && vL.mean <= 0.15 && vL.clamp === 0,
+      'shaken up and down, live, the bed heaps as the film does and is not thrown up in a column: its top rises ' + f1(vL.topMax) + ' cells at most (<= 20, and no more than the film\'s ' + f1(vF.topMax) + ' + 2; the column: 34.1), holes ' + f2(100 * vL.mean) + ' % on average (<= 15; the column 20.7; the film ' + f2(100 * vF.mean) + ', worst ' + f2(100 * vF.worst) + '), no node clamped');
+    await L(function () { return window.__lab.settings({ speed: 'app', jolts: 'live' }); });
   }
 
   check(errors.length === 0, 'no page errors through the run' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));
