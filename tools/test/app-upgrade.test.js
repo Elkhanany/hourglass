@@ -20,12 +20,21 @@
  *     starts. A hole while the server has another release is not filled from it.
  *  4. LAB: a lab page that meets an engine of another build leaves the app's cache whole, and
  *     the app then starts offline.
+ *  5. INTERRUPTED: an update that never finishes, over a copy installed before R1 (13a9772,
+ *     v1.9.0, whose worker fetches each file it answers into its copy): this tree is served
+ *     without its worker, so nothing installs. The launch with a connection runs the old page;
+ *     offline after it the copy is mixed: this tree's page and scripts, but not a file the old
+ *     page never asked for (the settings store, app/settings.js). The page then says "Hourglass
+ *     is updating. Open it again with a connection.", builds nothing and throws no error, and
+ *     with a connection again it runs. (From a snapshot worker, R1 and later, a copy is never
+ *     mixed: that is UPGRADE and FAILED INSTALL.)
  * The controls, each a check above that must fail: a page with no worker (the version line says
  * more than the number); the offline launch with the hole (a 504, no Hourglass.sim); the failed
  * install under 13a9772's worker, v1.9.0, the last release before R1 (an empty cache of the
  * failed release left behind, and the next release's files on the page, fetched into the
  * installed copy in the background); 13a9772's lab page (it dropped the engine from the app's
- * caches).
+ * caches); the interrupted update with a copy of app.js that does not ask for the settings
+ * store before it starts (it throws, and says nothing).
  *
  * HOURGLASS_MAIN=<ref> installs another ref than origin/main first. Without that ref, or without
  * 13a9772 (a shallow clone), the suite fails and says how to fetch it.
@@ -471,6 +480,69 @@ async function caseLab(s, browser, T) {
           c.before === n && c.after < n && c.loads === 2, JSON.stringify({ before: c.before, after: c.after, loads: c.loads }));
 }
 
+/* ---- 5. INTERRUPTED ----------------------------------------------------------------------- */
+/**
+ * The release before R1 installed; then `dir` (a tree without its worker, so that no install
+ * happens) served: a launch with a connection, one offline once the old worker has fetched the
+ * new page and app.js into its copy, and one with a connection again.
+ */
+async function interrupted(browser, T, dir) {
+  var ctx = await newContext(browser);
+  try {
+    serve(T.old);
+    await online(ctx);
+    var L = await install(ctx, T.oldWorker.version), r = { installed: L.installed.ok && problems(L).length === 0 };
+    serve(dir);
+    r.first = await launch(ctx);
+    // the old worker answers from its copy and fetches each file it answered behind the answer
+    r.mixed = await until(function () {
+      return r.first.page.evaluate(function (v) {
+        function text(c, u) { return c.match(u).then(function (x) { return x ? x.text() : ''; }); }
+        return caches.open(v).then(function (c) {
+          return Promise.all([text(c, './'), text(c, './index.html'), text(c, './app.js'), c.match('./app/settings.js')]);
+        }).then(function (t) {
+          return { ok: (t[0] + t[1]).indexOf('app/settings.js') > 0 && t[2].indexOf('Store.load(') > 0, page: (t[0] + t[1]).indexOf('app/settings.js') > 0, store: !!t[3] };
+        });
+      }, T.oldWorker.version);
+    }, 10000);
+    await offline(ctx);
+    r.off = await launch(ctx);
+    r.release = r.off.app ? (await marks(r.off.page)).release : null;
+    await online(ctx);
+    r.back = await launch(ctx);
+    r.keys = (await state(r.back.page)).keys;
+    return r;
+  } finally {
+    await ctx.close();
+    await up();
+  }
+}
+function pageErrors(L) { return L.errors.filter(function (e) { return e.indexOf('pageerror') === 0; }); }
+async function caseInterrupted(s, browser, T) {
+  var store = paths.script('settings.js', T.tree);
+  var dir = copyTree(T.tree, 'no-worker');
+  fs.rmSync(path.join(dir, 'sw.js'));
+  var r = await interrupted(browser, T, dir);
+  s.check('INTERRUPTED: ' + BEFORE_R1 + ' (' + T.oldWorker.version + ') installed, this tree served without its worker: the launch with a connection runs, and nothing installs',
+          r.installed && !!r.first.app && r.first.app.sim && pageErrors(r.first).length === 0 && JSON.stringify(r.keys) === JSON.stringify([T.oldWorker.version]),
+          JSON.stringify({ installed: r.installed, app: r.first.app, errors: r.first.errors.slice(0, 2), keys: r.keys }));
+  s.check('INTERRUPTED: offline then, the copy is mixed (this tree\'s page, no ' + store + '): the page says "' + UPDATING + '", builds nothing, and throws no error',
+          r.mixed.ok && !r.mixed.store && r.release === T.release && !!r.off.app && r.off.app.updating === UPDATING && !r.off.app.sim && pageErrors(r.off).length === 0 &&
+          r.off.bad.some(function (b) { return b === '504 /' + store; }),
+          JSON.stringify({ mixed: r.mixed, release: r.release, app: r.off.app, errors: r.off.errors.slice(0, 3), bad: r.off.bad.slice(0, 3) }));
+  s.check('INTERRUPTED: with a connection again, the app starts',
+          !!r.back.app && r.back.app.sim && !r.back.app.updating && pageErrors(r.back).length === 0 && !r.back.bad.some(function (b) { return /^504 /.test(b); }),
+          JSON.stringify({ app: r.back.app, errors: r.back.errors.slice(0, 2), bad: r.back.bad.slice(0, 3) }));
+  // control: app.js without the pre-flight's line for the settings store
+  var bare = copyTree(dir, 'no-preflight'), line = "    if (!w.HourglassSettings || typeof w.HourglassSettings.load !== 'function') out.push('HourglassSettings');\n";
+  var app = read(bare, 'app.js');
+  write(bare, 'app.js', app.replace(line, ''));
+  var c = await interrupted(browser, T, bare);
+  s.check('INTERRUPTED: control: a copy of app.js that does not ask for the settings store before it starts throws there, and says nothing',
+          app.indexOf(line) > 0 && c.mixed.ok && !!c.off.app && c.off.app.updating !== UPDATING && pageErrors(c.off).length > 0,
+          JSON.stringify({ line: app.indexOf(line) > 0, mixed: c.mixed, app: c.off.app, errors: c.off.errors.slice(0, 2) }));
+}
+
 /* ---- the run ------------------------------------------------------------------------------ */
 async function main() {
   var s = new H.Suite('app-upgrade'), browser = null, T = null, why = null;
@@ -505,7 +577,7 @@ async function main() {
     serve(T.tree);
     await up();
     browser = await require('playwright').chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required', '--disable-webgl'] });
-    var cases = [['UPGRADE', caseUpgrade], ['FAILED INSTALL', caseFailedInstall], ['HOLE', caseHole], ['LAB', caseLab]];
+    var cases = [['UPGRADE', caseUpgrade], ['FAILED INSTALL', caseFailedInstall], ['HOLE', caseHole], ['LAB', caseLab], ['INTERRUPTED', caseInterrupted]];
     for (var i = 0; i < cases.length; i++) {
       try { await cases[i][1](s, browser, T); } catch (e) {
         s.check(cases[i][0] + ': no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
