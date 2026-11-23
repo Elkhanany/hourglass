@@ -2559,7 +2559,8 @@
    *    tail      1 … 0 across the final handful of grains
    *    fill      0 … 1 how full the lower bulb is
    *    bottom    grains resting in the lower bulb
-   *    slides    surface-slide moves / s (avalanche & tumble activity)
+   *    slides    surface-slide moves / s (avalanche & tumble activity): the rush, from 24,000;
+   *              from 1,000 in a glass with no stream (not running, pouring or flipping)
    *    pouring   true while fresh sand is being added
    *    flipping  true while the vessel is turning
    *    spin      how fast it is turning (rad/s)
