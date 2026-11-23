@@ -89,7 +89,8 @@
  *        reporting sound until then, and nothing more is given (the control: sand that moves keeps
  *        it awake and heard); a jolt wakes it and the sound comes within 3 frames. HIDDEN: no
  *        update at all, the rush and the shimmer let go (the control: back in view, heard again).
- *        MUTED: the feeds come, the output is silent (the control: unmuted, it is not).
+ *        MUTED: the feeds come, the output is silent, and so with the volume at 0 (the
+ *        control: unmuted, it is not).
  *
  *  DEFAULT-NA nothing saved, the real engine: loaded once, "na" with "Tap to try again", the
  *        setting on and saved with v 2, the user agent kept; the next launch says so and loads
@@ -1891,6 +1892,19 @@ async function testSounds(s, env) {
     await sleep(1500);
     var un = await bedRead(t);
     s.check('MUTED (control): unmuted, the same feeds are heard (peak over 0.01)', !un.muted && un.master > 0 && un.thumps >= 1 && un.peak > 0.01, 'peak ' + un.peak.toFixed(4) + ' ' + bedBrief(un));
+    // the volume slider at nothing (Tune's own control, moved as a finger moves it)
+    var setVolume = function (v) {
+      return t.eval(function (v) { var el = document.getElementById('volume'); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+    };
+    await setVolume(0);
+    await sleep(800);
+    await t.eval(function () { window.__out.peak = 0; });
+    await bedWatch(t);
+    await sleep(1500);
+    var v0 = await bedRead(t);
+    await setVolume(80);
+    s.check('MUTED: the volume at 0: the same feeds, silence at the output (the unmuted peak above is its control)',
+            !v0.muted && v0.master === 0 && v0.thumps >= 1 && v0.peak >= 0 && v0.peak < 0.001, 'peak ' + v0.peak.toExponential(2) + ' ' + bedBrief(v0));
     await bedSay(t, false);
     await bedShake(t, false);
     await sleep(300);
