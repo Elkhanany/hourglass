@@ -292,7 +292,8 @@ async function main() {
         quarter: function (t) { return { slides: 11500, agit: 0.27, rushPan: 0.6 * Math.sin(31 * t) }; }
       };
       var LEAN = [4, 12, 13, 12, 11, 10, 10, 8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 3, 2, 0];    // thousands of slides a second, each sixth of a second
-      MOVED.lean = function (t) { return { slides: 1000 * (LEAN[Math.floor(t * 6)] || 0), rushPan: -0.41 }; };
+      // (leaned with the right edge low: the sand runs to the right, and app.js says so: +0.41)
+      MOVED.lean = function (t) { return { slides: 1000 * (LEAN[Math.floor(t * 6)] || 0), rushPan: 0.41 }; };
       var k = 0;
       MOVED.upDown = function () { return { slides: 15000, agit: 3, thump: (k++ % 13) === 0 ? new Float32Array([0.1, 0.1, 0, 0]) : zero }; };
       out.shake = await moved(MOVED.shake, {}, 3);
@@ -302,6 +303,44 @@ async function main() {
       out.leanBelow = await moved(MOVED.lean, { below: true }, 3);
       out.upDown = await moved(MOVED.upDown, {}, 3);
       out.leanRunning = await moved(MOVED.lean, { below: true, running: true }, 1);
+      /**
+       * A half turn of 2.6 s (the Flip button's) from 1 s on, the sand sliding through it and for
+       * 2.4 s after, as the classic sand's does: up to 60,000 slides a second mid-turn, 20,000 as
+       * the glass comes to rest, then down to nothing. What the rush is asked for, update by
+       * update. o.state: the glass's own while it turns ('running': a running glass turned).
+       */
+      async function turned(o) {
+        var asked = [];
+        await R(A, 7, function (a, off) {
+          a._cushion = 0;
+          every(off, a, 0.1, 6.8, 1 / 60, function (a2, t) {
+            var u = t - 1, f = { bottom: 0, fill: 0 };
+            if (o.running) { f.ambient = true; if (u < 0 || u >= 2.6) { f.running = true; f.flow = 57; f.impacts = 57; } }
+            if (u >= 0 && u < 2.6) {
+              var p = u / 2.6;
+              f.flipping = true; f.angle = Math.PI * p * p * (3 - 2 * p); f.spin = Math.PI * 6 * p * (1 - p) / 2.6;
+              f.slides = 1000 * (p < 0.5 ? 120 * p : 60 - 80 * (p - 0.5));
+            } else if (u >= 2.6) f.slides = Math.max(0, 20000 * (1 - (u - 2.6) / 2.4));
+            base(a2, f);
+            if (u >= 0) asked.push({ u: u, rush: a2._last.rush || 0, turning: !!f.flipping });
+          });
+        });
+        var peak = 0, at = 0, i, r = { peak: 0, lowest: 1, rise: 0, end: 0, after: 0, late: 0 };
+        for (i = 0; i < asked.length; i++) if (asked[i].rush > peak) { peak = asked[i].rush; at = i; }
+        r.peak = +peak.toFixed(3);
+        for (i = at; i < asked.length; i++) {
+          var x = asked[i];
+          // (from the peak until a second after the turn the sand slides at 12,000 a second and more)
+          if (x.u <= 3.6 && x.rush < r.lowest) r.lowest = x.rush;
+          if (i > at && x.rush - asked[i - 1].rush > r.rise) r.rise = x.rush - asked[i - 1].rush;
+          if (x.turning) r.end = x.rush; else if (asked[i - 1].turning) r.after = x.rush;
+          if (x.u >= 5.2 && x.rush > r.late) r.late = x.rush;
+        }
+        r.lowest = +r.lowest.toFixed(3); r.rise = +r.rise.toFixed(3); r.end = +r.end.toFixed(3); r.after = +r.after.toFixed(3);
+        return r;
+      }
+      out.flipIdle = await turned({});
+      out.flipRunning = await turned({ running: true });
       return out;
     });
     // the levels these were built at (dBFS RMS at the default volume, the mean of several renders)
@@ -315,11 +354,18 @@ async function main() {
            ['shake', 'shakeBelow', 'upDown'].map(bshow).join('; '));
     report(BUILT.shake - bed.quarter.rms > 3, 'control: a sand that reported a quarter of the shake\'s feeds fails that check (more than 3 dB under the level the shake was built at)',
            'a quarter of the feeds ' + bed.quarter.rms + ' dBFS, ' + (BUILT.shake - bed.quarter.rms).toFixed(1) + ' dB under');
-    report(near('lean') && near('leanBelow') && bed.lean.left >= 2 && bed.lean.rush > 0.05,
-           'a lean past the slope with no stream is heard, softly, toward the low side (within 3 dB of the level it was built at; louder in the left ear)',
-           ['lean', 'leanBelow'].map(bshow).join('; ') + '; left over right ' + bed.lean.left + ' dB; the rush asked for ' + bed.lean.rush);
+    report(near('lean') && near('leanBelow') && bed.lean.left <= -2 && bed.lean.rush > 0.05,
+           'a lean past the slope with no stream is heard, softly, toward the low side (within 3 dB of the level it was built at; leaned with the right edge low, louder in the right ear)',
+           ['lean', 'leanBelow'].map(bshow).join('; ') + '; right over left ' + (-bed.lean.left).toFixed(1) + ' dB; the rush asked for ' + bed.lean.rush);
     report(bed.leanRunning.rush === 0, 'control: the same slides under a running stream leave the rush at nothing, as they always did',
            'the rush asked for ' + bed.leanRunning.rush + ' (with no stream ' + bed.lean.rush + ')');
+    var fI = bed.flipIdle, fR = bed.flipRunning;
+    report(fI.peak > 0.2 && fI.lowest >= 0.05 && fI.rise <= 0.004 && fI.after <= fI.end + 0.004 && fI.late <= 0.001,
+           'a glass that stands, turned over (the Flip button before the start, or paused): the sand sliding through the turn and after it is heard without a gap: after its peak the rush only falls, it does not drop out at the turn\'s end and come back',
+           'the rush asked for: peak ' + fI.peak + ', never under ' + fI.lowest + ' until a second after the turn, ' + fI.end + ' on the turn\'s last frame and ' + fI.after + ' on the next, its largest rise after the peak ' + fI.rise + '; ' + fI.late + ' once the sand rests');
+    report(fR.end <= 0.02 && fR.after <= 0.004 && fR.peak > 0.2 && fR.lowest <= 0.004,
+           'control: a running glass turned over keeps the turn\'s own rush alone, as it always did: down to nothing as the turn ends, and nothing after under the stream',
+           'the rush asked for: peak ' + fR.peak + ', ' + fR.end + ' on the turn\'s last frame, ' + fR.after + ' on the next');
 
     /* ---- the water ambiences ---------------------------------------------------- */
     var amb = await page.evaluate(async function () {
