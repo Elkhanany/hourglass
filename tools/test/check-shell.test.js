@@ -119,25 +119,25 @@ var c1 = added(notInShell(NAMED, cut, MAN), out);
 check(c1.length === 2 && /motion\.js/.test(c1[0] + c1[1]) && /icon-512/.test(c1[0] + c1[1]), '... and that check finds a script and an icon left out of SHELL (control)', c1.join(', '));
 var c2 = added(notInShell(named(HTML.replace('</body>', '<script src="./glass/new-piece.js" defer></script></body>'), MAN), SHELL, MAN), out);
 check(c2.length === 1 && c2[0].indexOf('glass/new-piece.js') === 0, '... and a script tag whose file SHELL does not name (control)', c2.join(', '));
-var c2b = added(notInShell(named(HTML.replace('</body>', '<script src=./extra.js defer></script><link rel=preload href=icons/extra.png></body>'), MAN), SHELL, MAN), out);
+var c2b = added(notInShell(named(HTML.replace('</body>', '<script src=./control-only/extra.js defer></script><link rel=preload href=control-only/extra.png></body>'), MAN), SHELL, MAN), out);
 var tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'hourglass-shell-'));
 fs.writeFileSync(path.join(tmp, 'index.html'), '<script src=./extra.js defer></script>\n<script type=module src=./m.mjs></script>\n<script src=\'./app.js\'></script>');
 var c2c = paths.classicScripts(tmp);
 fs.rmSync(tmp, { recursive: true, force: true });
-check(c2b.length === 2 && /^extra\.js /.test(c2b[0]) && /^icons\/extra\.png /.test(c2b[1]) && c2c.join() === 'extra.js,app.js',
+check(c2b.length === 2 && /^control-only\/extra\.js /.test(c2b[0]) && /^control-only\/extra\.png /.test(c2b[1]) && c2c.join() === 'extra.js,app.js',
   '... and a src and an href without quotes, which lib/paths.js reads as scripts too (control)', c2b.join(', ') + '; ' + c2c.join(', '));
 var CSS = read('styles.css');
 var c2d = added(notInShell(named(HTML, MAN, function () {
-  return CSS + '\n@font-face { src: url("./fonts/serif.woff2"), url(data:font/woff2;base64,AAAA); }\n@import \'./extra.css\';\n.a { background: url(icons/paper.png) }\n/* url(./commented.png) */\n';
+  return CSS + '\n@font-face { src: url("./control-only/serif.woff2"), url(data:font/woff2;base64,AAAA); }\n@import \'./control-only/extra.css\';\n.a { background: url(control-only/paper.png) }\n/* url(./commented.png) */\n';
 }), SHELL, MAN), out);
-check(c2d.length === 3 && /^fonts\/serif\.woff2 \(styles\.css\)/.test(c2d[0]) && /^extra\.css /.test(c2d[1]) && /^icons\/paper\.png /.test(c2d[2]),
+check(c2d.length === 3 && /^control-only\/serif\.woff2 \(styles\.css\)/.test(c2d[0]) && /^control-only\/extra\.css /.test(c2d[1]) && /^control-only\/paper\.png /.test(c2d[2]),
   '... and a url() and an @import of the stylesheet that SHELL does not name, but not a data: URL or one in a comment (control)', c2d.join(', '));
 // every file the page, its stylesheet and the manifest name exists, the exceptions to SHELL included
 function notThere(list) { return list.filter(function (n) { return absent([n.f]).length; }).map(function (n) { return n.f + ' (' + n.from + ')'; }); }
 var gone = notThere(NAMED);
 check(gone.length === 0, 'every file they name exists, the launch screens and the screenshots included', gone.join(', '));
-var c2e = added(notThere(named(HTML.replace(/splash-1320x2868\.png/, 'splash-1320x9999.png'), MAN)), gone);
-check(c2e.length === 1 && /^icons\/splash\/splash-1320x9999\.png/.test(c2e[0]) && /splash-1320x2868\.png/.test(HTML),
+var c2e = added(notThere(named(HTML.replace('</head>', '<link rel="apple-touch-startup-image" href="./icons/splash/splash-1x9999.png"></head>'), MAN)), gone);
+check(c2e.length === 1 && /^icons\/splash\/splash-1x9999\.png/.test(c2e[0]) && EXCEPT[0].test('icons/splash/splash-1x9999.png', MAN),
   '... and that check finds a launch screen the page names that is not in the tree (control)', c2e.join(', '));
 var inline = inlineScripts(HTML);
 check(inline.length === 0, 'index.html has no inline script (every script is a file, which the checks below read)', inline.join(', '));
