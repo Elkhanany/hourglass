@@ -138,7 +138,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   stream's flow from the grains released, landings after their fall, events
   in range, poured sand landing in the top bulb, nothing for the thumps,
   slams and slides, no landing buzz); a start that fails keeps the setting
-  and stops after three launches; a stale build stamp says it is updating;
+  and stops after three launches (an engine file that cannot be had with no
+  connection is not counted); a start made again in the same session that
+  finds no adapter keeps nothing, "Needs WebGPU" is believed for seven
+  days, and a start that took over gives the retries back; a stale build
+  stamp says it is updating;
   a start held 4 s, as slow as an iPhone's home-screen web app opened cold
   (the CPU sand shown and running meanwhile, the boot veil held 1 s and no longer, the
   canvases cross-faded only once the engine has drawn, the clock's end not
@@ -174,7 +178,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `origin/main` installed, then this tree, two launches with a connection
   and one offline (no error, no 504, one cache, and Tune's last line
   "Version X.Y.Z" with nothing after it), then a newer release installed
-  while the page is open (the line says the update is ready); a release
+  while the page is open (the line says the update is ready); a deploy
+  that lands while an install is downloading (no copy of two releases is
+  kept, and the next launches end on the newer one, whole); a server that
+  sends `Vary: Accept` (a launch of the installed copy asks it for
+  nothing); `app.js` itself or the style sheet missing from the cache (the
+  page still says it is updating); a release
   whose `SHELL` names a missing file (its install fails, leaves no cache,
   and the installed release runs whole, online and offline); a script taken
   out of the cache (offline the page says it is updating; one launch with a
