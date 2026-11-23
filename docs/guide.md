@@ -245,9 +245,12 @@ on the side it runs to, and stirred sand shimmers, about as loud as the
 classic sand for the same motion, before the start, paused and finished as
 while it runs. A phone that moves without moving its sand makes no sound of
 sand: walked with, the sand on the chip lies still, and is silent, where
-the classic sand shimmers a little. A glass asleep (its sand at rest) is
-silent, and the sound never keeps it awake; a jolt wakes it and is heard as
-the sand moves.
+the classic sand shimmers a little. And leaned, its heaps stand steeper
+than the classic sand's and hardly slide (one of the lab's known faults,
+below), so a lean alone is all but silent with Real sand for now, where the
+classic sand's avalanche hisses; a shake, a jolt, a flick or a turn is
+heard. A glass asleep (its sand at rest) is silent, and the sound never
+keeps it awake; a jolt wakes it and is heard as the sand moves.
 
 What it needs: WebGPU, which Safari has from iOS 26, also in a web app on
 the home screen. Without it the switch shows off and says *Needs WebGPU (iOS
