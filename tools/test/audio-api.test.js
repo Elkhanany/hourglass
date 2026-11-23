@@ -37,6 +37,7 @@ var chromium = require('playwright').chromium;
 var Server = require('./lib/static-server.js');
 
 var paths = require('./lib/paths.js');
+var seed = require('./lib/seed.js');
 var ROOT = paths.ROOT, AUDIO = '/' + paths.script('audio.js');
 var PORT_AT = process.argv.indexOf('--port');
 var PORT = +((PORT_AT > 0 ? process.argv[PORT_AT + 1] : process.argv[2]) || process.env.PORT || 8803);
@@ -79,6 +80,7 @@ async function main() {
   var browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
   try {
     var ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+    await ctx.addInitScript(seed.seedOnce, seed.storageFor({}));   // the classic sand (lib/seed.js)
     var page = await ctx.newPage();
     var errors = [];
     page.on('pageerror', function (e) { errors.push(e.message); });

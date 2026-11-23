@@ -10,6 +10,11 @@
  *   ... t.page, t.touch, t.errors ...
  *   await env.close();
  *
+ * Every page starts from a version-2 save with Real sand off, merged under what
+ * the test seeds (lib/seed.js): Real sand is the app's default, and a page
+ * seeds realSand: true to have it. opts.rawStorage seeds exactly what it is
+ * given ({}: nothing saved, a first launch on a new phone).
+ *
  * Each page is an iPhone 12 (390×844, DPR 3, mobile, touch) in Chromium.
  * Before any page script it gets tools/test/lib/profiles.js and page-init.js
  * (permission stubs, the motion driver, the invariant monitor).
@@ -28,6 +33,7 @@ var path = require('path');
 var playwright = null;              // loaded by start(), so the Node checks can read this file without it
 var staticServer = require('../lib/static-server.js');
 var paths = require('../lib/paths.js');
+var seed = require('../lib/seed.js');
 
 var REPO = paths.ROOT;
 var PROFILES = path.join(REPO, 'tools', 'test', 'lib', 'profiles.js');
@@ -220,14 +226,9 @@ async function open(env, o) {
   });
   await context.addInitScript({ path: PROFILES });
   await context.addInitScript({ path: PAGE_INIT });
-  if (o.storage) {
-    // seeded once per test page, so a reload sees what the app saved itself
-    await context.addInitScript(function (st) {
-      if (sessionStorage.getItem('__seeded')) return;
-      sessionStorage.setItem('__seeded', '1');
-      for (var k in st) localStorage.setItem(k, typeof st[k] === 'string' ? st[k] : JSON.stringify(st[k]));
-    }, o.storage);
-  }
+  // every page: { v: 2, realSand: false } under what the test seeds (Real sand only when it asks
+  // for it), or o.rawStorage as it is; once per test page, so a reload sees what the app saved
+  await context.addInitScript(seed.seedOnce, seed.storageFor(o));
   if (o.init) await context.addInitScript(o.init, o.initArg);
   // routes of the test's own, set before the page first loads: [{ url, handler }] (page.route's)
   for (var ri = 0; ri < (o.routes || []).length; ri++) await context.route(o.routes[ri].url, o.routes[ri].handler);
