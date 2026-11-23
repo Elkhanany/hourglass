@@ -1923,7 +1923,7 @@ async function testSounds(s, env) {
         e.feeds = null;
         e.tally = !how ? null : function () {
           k++;
-          var fall = how === 'moved' && k > 60 && k <= 63, stop = how === 'moved' && k > 63 && k <= 67;
+          var fall = how === 'moved' && k > 20 && k <= 23, stop = how === 'moved' && k > 23 && k <= 27;
           // moved: a quarter of its points sliding at 30 cells a second, its own velocity swinging; then 3 readbacks falling at 160, and stopped
           var vx = how === 'moved' ? 6 * Math.sin(k / 3) : 0, vy = fall ? -160 : (stop ? -8 : 0), sl = how === 'moved' ? 5000 : 0;
           return { moving: 5000, beds: [
@@ -1944,7 +1944,9 @@ async function testSounds(s, env) {
             bedBrief(br));
     await bedWatch(t);
     await bedsSay('moved');
-    await sleep(3500);
+    // (27 readbacks hold the slide, the fall and the stop: a second at a calm glass's 30 a second, longer on a busy machine)
+    await t.page.waitForFunction(function () { return window.__bed.thumps >= 1; }, null, { timeout: 12000, polling: 100 }).catch(function () {});
+    await sleep(1500);
     var bm = await bedRead(t);
     await bedsSay(null);
     var eng = await t.eval(function () { var rs = window.Hourglass.realSand, st = rs.stats(); return { G: rs.Gg, HB: rs.glass.HBc, sound: st.sound || null }; });
