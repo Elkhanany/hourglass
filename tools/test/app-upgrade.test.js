@@ -486,7 +486,7 @@ async function caseLab(s, browser, T) {
  * happens) served: a launch with a connection, one offline once the old worker has fetched the
  * new page and app.js into its copy, and one with a connection again.
  */
-async function interrupted(browser, T, dir) {
+async function interrupted(browser, T, dir, store) {
   var ctx = await newContext(browser);
   try {
     serve(T.old);
@@ -496,14 +496,15 @@ async function interrupted(browser, T, dir) {
     r.first = await launch(ctx);
     // the old worker answers from its copy and fetches each file it answered behind the answer
     r.mixed = await until(function () {
-      return r.first.page.evaluate(function (v) {
+      return r.first.page.evaluate(function (a) {
         function text(c, u) { return c.match(u).then(function (x) { return x ? x.text() : ''; }); }
-        return caches.open(v).then(function (c) {
-          return Promise.all([text(c, './'), text(c, './index.html'), text(c, './app.js'), c.match('./app/settings.js')]);
+        return caches.open(a.v).then(function (c) {
+          return Promise.all([text(c, './'), text(c, './index.html'), text(c, './app.js'), c.match('./' + a.store)]);
         }).then(function (t) {
-          return { ok: (t[0] + t[1]).indexOf('app/settings.js') > 0 && t[2].indexOf('Store.load(') > 0, page: (t[0] + t[1]).indexOf('app/settings.js') > 0, store: !!t[3] };
+          var page = (t[0] + t[1]).indexOf(a.store) > 0;                 // (the new page asks for the store's file)
+          return { ok: page && t[2].indexOf('HourglassSettings') > 0, page: page, store: !!t[3] };
         });
-      }, T.oldWorker.version);
+      }, { v: T.oldWorker.version, store: store });
     }, 10000);
     await offline(ctx);
     r.off = await launch(ctx);
@@ -522,7 +523,7 @@ async function caseInterrupted(s, browser, T) {
   var store = paths.script('settings.js', T.tree);
   var dir = copyTree(T.tree, 'no-worker');
   fs.rmSync(path.join(dir, 'sw.js'));
-  var r = await interrupted(browser, T, dir);
+  var r = await interrupted(browser, T, dir, store);
   s.check('INTERRUPTED: ' + BEFORE_R1 + ' (' + T.oldWorker.version + ') installed, this tree served without its worker: the launch with a connection runs, and nothing installs',
           r.installed && !!r.first.app && r.first.app.sim && pageErrors(r.first).length === 0 && JSON.stringify(r.keys) === JSON.stringify([T.oldWorker.version]),
           JSON.stringify({ installed: r.installed, app: r.first.app, errors: r.first.errors.slice(0, 2), keys: r.keys }));
@@ -537,7 +538,7 @@ async function caseInterrupted(s, browser, T) {
   var bare = copyTree(dir, 'no-preflight'), line = "    if (!w.HourglassSettings || typeof w.HourglassSettings.load !== 'function') out.push('HourglassSettings');\n";
   var app = read(bare, 'app.js');
   write(bare, 'app.js', app.replace(line, ''));
-  var c = await interrupted(browser, T, bare);
+  var c = await interrupted(browser, T, bare, store);
   s.check('INTERRUPTED: control: a copy of app.js that does not ask for the settings store before it starts throws there, and says nothing',
           app.indexOf(line) > 0 && c.mixed.ok && !!c.off.app && c.off.app.updating !== UPDATING && pageErrors(c.off).length > 0,
           JSON.stringify({ line: app.indexOf(line) > 0, mixed: c.mixed, app: c.off.app, errors: c.off.errors.slice(0, 2) }));
