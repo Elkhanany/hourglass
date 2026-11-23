@@ -373,7 +373,7 @@ var SECTION_CONTROLS = [
   ['the preset asked without the query', /Store\.preset\(location\.search\)/, 'Store.preset()',
     function (d) { return d.length === tally.query && d.every(function (x) { return /duration asked null/.test(x.how); }); }],
   ['the settings loaded without the query', /(Store\.load\([^\n]*?)location\.search/, '$1\'\'', function (d) { return d.length >= 60 && d.every(function (x) { return !!S.preset(x.search); }); }],
-  ['the settings loaded without the themes', /\{ themes: P\.THEMES \}/, '{}', function (d) { return d.length === 500; }],
+  ['the settings loaded without the themes', /\{ themes: P\.THEMES[^}]*\}/, '{}', function (d) { return d.length === 500; }],      // (whatever else the checks are handed by then)
   ['a save() that saves nothing', /function save\(\) \{ Store\.save\(settings\); \}/, 'function save() {}', function (d) { return d.length >= 400; }]
 ];
 var weakSection = [];
