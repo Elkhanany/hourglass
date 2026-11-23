@@ -26,7 +26,10 @@
  *   trace.STORAGES                       the five saved states of the boot trace
  *   await trace.boot(env, storage)    -> { name, trace: [...], saved: '<json>' }
  *   await trace.tune(env, [only])     -> { controls: [{ name, now: [...], later: [...] }], saved,
- *                                           undriven: [the controls of Tune that DRIVE has no line for] }
+ *                                           undriven: [the controls of Tune that DRIVE has no line for],
+ *                                           reaches: [{ for, did, now, later }] what the driver did to get
+ *                                           to a control (Tune opened again, a tab shown), each traced
+ *                                           like the control whose line drives the same element }
  *   trace.CONTROLS                       the controls' names, in order
  *   trace.differ(a, b)                -> what differs: [] when two traces are the same
  *   trace.write(file, data), trace.read(file)
@@ -229,8 +232,25 @@ function slide(sel, v) { return { slide: sel, value: v }; }
 // selectors and compared by these names. A control of Tune that has no line here is not
 // traced, so tune() lists them (undriven) and app-tune-trace fails on any: a new switch gets
 // two lines, on and off, where it stands in Tune.
+// Tune has tabs. No line says which tab a control is in: before each control the driver
+// reaches it as a person does, by the page's side of lib/tune.js (Tune opened if a reload
+// closed it, the control's tab clicked if another shows). A reach is traced like a control and
+// kept apart (reaches), so a control's entry holds what the control did and nothing of how it
+// was got to; app-tune-trace holds every reach to the kept entry of the line that drives the
+// same element (a tab's, or "open Tune"). The tabs and the reset link have lines of their own
+// at the start, where every setting is still at its default: there the reset has nothing to
+// put back, tells no engine, and leaves the rest of the walk as it was (what it does with
+// every setting changed is app-tune's). The second tap is 'slow': a person's second tap, at
+// least 0.4 s after the first (a quicker one is the second half of a double tap, which the
+// link takes for no answer; app-tune holds that).
 var DRIVE = [
   ['open Tune', click('#btn-settings')],
+  ['tab: glass', click('#tune-tabs [data-tab="glass"]')],
+  ['tab: sound', click('#tune-tabs [data-tab="sound"]')],
+  ['tab: time', click('#tune-tabs [data-tab="time"]')],
+  ['the look and sound put back: the first tap', click('#tune-reset')],
+  ['the look and sound put back: the second tap', click('#tune-reset'), 'slow'],
+  ['tab: sand', click('#tune-tabs [data-tab="sand"]')],
   ['material: volcanic', click('#themes [data-theme-id="volcanic"]')],
   ['material: moonstone', click('#themes [data-theme-id="moonstone"]')],
   ['material: lapis', click('#themes [data-theme-id="lapis"]')],
@@ -280,8 +300,9 @@ var DRIVE = [
   ['Real sand: on', click('#opt-realsand'), 'reload']
 ];
 var CONTROLS = DRIVE.map(function (d) { return d[0]; });
-// what holds a setting in Tune's sheet: every switch, every choice of a group, every slider
-var HOLDERS = '.switch, [role="switch"], [role="radio"], input[type="checkbox"], input[type="range"], select';
+// what holds or changes a setting in Tune's sheet: every switch, every choice of a group, every
+// slider, every tab, and every button but the one that closes the sheet (the reset link is one)
+var HOLDERS = '.switch, [role="switch"], [role="radio"], [role="tab"], input[type="checkbox"], input[type="range"], select, button:not(.sheet-close)';
 
 function state(page) {
   return page.evaluate(function () {
@@ -309,7 +330,42 @@ async function until(page, ok, ms, what) {
  * cross-fade's calls, an answer to the motion question, the boot after a reload).
  */
 async function tune(env, only) {
-  var t = await env.open({ motionStub: true, init: recorder }), page = t.page, out = [], cur = null;
+  var t = await env.open({ motionStub: true, init: recorder }), page = t.page, out = [], cur = null, reaches = [];
+  /** One traced click or slide: what was logged before it (the entry before's "later"), and in it. */
+  function act(a) {
+    return page.evaluate(function (act) {
+      var T = window.__trace, el = document.querySelector(act.click || act.slide), earlier = T.take();
+      if (!el) return { missing: true };
+      T.tap(function () {
+        if (act.click) el.click();
+        else { el.value = String(act.value); el.dispatchEvent(new Event('input', { bubbles: true })); }
+      });
+      return { earlier: earlier, now: T.take() };
+    }, a);
+  }
+  /**
+   * The next step toward a control, as a person takes it (the page's side of lib/tune.js): Tune
+   * opened when the control is in it and it is closed, else the control's tab clicked when its
+   * panel is hidden; null when the control can be tapped. `did` names the line of DRIVE that
+   * drives the same element, which is what the step is held to.
+   */
+  function nextStep(sel) {
+    return page.evaluate(function (a) {
+      var w = window.__tune.where(a.sel), q;
+      if (!w.found || !w.inTune) return null;
+      if (!w.open) q = a.opener;
+      else if (!w.shown) q = w.tab;
+      else return null;
+      if (!q) return { stuck: 'the panel that holds ' + a.sel + ' is hidden, and no tab shows it' };
+      var el = document.querySelector(q), did = null;
+      a.lines.forEach(function (l) { if (!did && el && document.querySelector(l[1]) === el) did = l[0]; });
+      return { click: q, did: did || '(' + q + ', which no line drives)' };
+    }, { sel: sel, opener: DRIVE[0][1].click, lines: DRIVE.map(function (d) { return [d[0], d[1].click || d[1].slide]; }) });
+  }
+  async function rest(before, what) {
+    await until(page, function (s) { return s.id === before.id && s.calm; }, 8000, 'the page at rest after ' + what);
+    await sleep(40);
+  }
   try {
     await until(page, function (s) { return s.booted; }, 20000, 'the page, loaded');
     await page.evaluate(function () { window.__trace.take(); });
@@ -326,16 +382,18 @@ async function tune(env, only) {
     for (var i = 0; i < DRIVE.length; i++) {
       var d = DRIVE[i];
       if (only && only.indexOf(d[0]) < 0) continue;
-      var before = await state(page);
-      var r = await page.evaluate(function (act) {
-        var T = window.__trace, el = document.querySelector(act.click || act.slide), earlier = T.take();
-        if (!el) return { missing: true };
-        T.tap(function () {
-          if (act.click) el.click();
-          else { el.value = String(act.value); el.dispatchEvent(new Event('input', { bubbles: true })); }
-        });
-        return { earlier: earlier, now: T.take() };
-      }, d[1]);
+      var before = await state(page), r, step, guard = 0;
+      // the way to it: at most Tune opened and a tab shown, each a click of its own
+      while ((step = await nextStep(d[1].click || d[1].slide))) {
+        if (step.stuck || ++guard > 3) throw new Error('trace: no way to "' + d[0] + '": ' + (step.stuck || 'still not reachable after ' + (guard - 1) + ' steps'));
+        r = await act({ click: step.click });
+        if (cur) cur.later = cur.later.concat(r.earlier);
+        cur = { for: d[0], did: step.did, now: r.now, later: [] };
+        reaches.push(cur);
+        await rest(before, 'the way to "' + d[0] + '" (' + step.did + ')');
+      }
+      if (d[2] === 'slow') await sleep(450);
+      r = await act(d[1]);
       if (r.missing) throw new Error('trace: no control for "' + d[0] + '" (' + (d[1].click || d[1].slide) + ')');
       if (cur) cur.later = cur.later.concat(r.earlier);
       cur = { name: d[0], now: r.now, later: [] };
@@ -346,8 +404,7 @@ async function tune(env, only) {
         if (i === DRIVE.length - 1) break;             // (what Real sand does once it has started is another suite's)
       } else {
         if (d[2] === 'motion') await until(page, function (s) { return s.starts > before.starts; }, 5000, 'the answer to the motion question');
-        await until(page, function (s) { return s.id === before.id && s.calm; }, 8000, 'the page at rest after "' + d[0] + '"');
-        await sleep(40);
+        await rest(before, '"' + d[0] + '"');
       }
     }
     // what the last control left: after a reload the boot's own save; else what followed it
@@ -356,7 +413,7 @@ async function tune(env, only) {
       return { rest: reloaded ? [] : T.take(), saved: reloaded ? T.bootSaved : T.saved() };
     }, !!(cur && DRIVE.filter(function (d) { return d[0] === cur.name; })[0][2] === 'reload'));
     if (cur) cur.later = cur.later.concat(end.rest);
-    return { controls: out, saved: end.saved, undriven: undriven, errors: t.errors.slice() };
+    return { controls: out, saved: end.saved, undriven: undriven, reaches: reaches, errors: t.errors.slice() };
   } finally {
     await t.close();
   }
@@ -417,7 +474,9 @@ function read(file) { return fs.existsSync(file) ? JSON.parse(fs.readFileSync(fi
 /**
  * A copy of a tree (without git, packages, tests and documents) with each of `edits` made
  * once: [from, to] in app.js, or [from, to, file] in another file of the tree; an edit whose
- * text is not there exactly once throws.
+ * text is not there exactly once throws. [null, text, file] adds text at the end of the file
+ * (a rule more in the style sheet, a listener more after app.js has run): a control that does
+ * not depend on how the app's own lines are written. A `from` that is a RegExp must match once.
  */
 function patched(root, edits) {
   var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hourglass-trace-'));
@@ -425,8 +484,10 @@ function patched(root, edits) {
     return !/^(\.git|node_modules|tools|docs)(\/|$)/.test(path.relative(root, f));
   } });
   edits.forEach(function (e) {
-    var name = e[2] || 'app.js', file = path.join(dir, name), src = fs.readFileSync(file, 'utf8');
-    if (src.split(e[0]).length !== 2) throw new Error('trace: the edit\'s text is in ' + name + ' ' + (src.split(e[0]).length - 1) + ' times: ' + e[0].slice(0, 60));
+    var name = e[2] || 'app.js', file = path.join(dir, name), src = fs.readFileSync(file, 'utf8'), n;
+    if (e[0] === null) { fs.writeFileSync(file, src + e[1]); return; }
+    n = e[0] instanceof RegExp ? (src.match(new RegExp(e[0].source, e[0].flags.replace('g', '') + 'g')) || []).length : src.split(e[0]).length - 1;
+    if (n !== 1) throw new Error('trace: the edit\'s text is in ' + name + ' ' + n + ' times: ' + String(e[0]).slice(0, 60));
     fs.writeFileSync(file, src.replace(e[0], function () { return e[1]; }));
   });
   process.on('exit', function () { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (x) {} });

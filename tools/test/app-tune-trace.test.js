@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /*
  * The Tune trace: what every control that changes a setting does, in order (lib/trace.js).
- * Every control of Tune (the six materials, Frame, Layered sand, the six characters, the
- * volume, the six ambiences and their level, the completion bowl, Keep screen awake, Real
- * motion, Full Zen, Breathing pace and its three patterns, Haptics, the three grains, Real
- * sand), and the mute button, the material chip and a duration pill, which save too.
+ * Every control of Tune (the four tabs, the reset link's two taps, the six materials, Frame,
+ * Layered sand, the six characters, the volume, the six ambiences and their level, the
+ * completion bowl, Keep screen awake, Real motion, Full Zen, Breathing pace and its three
+ * patterns, Haptics, the three grains, Real sand), and the mute button, the material chip and
+ * a duration pill, which save too.
  *
  * For each: what its own tap does before it returns (now: the save, the calls on the sound
  * engine, the Sim, the Renderer and the sensors, the buzz), and what follows (later: what the
@@ -14,10 +15,17 @@
  * are named for what they set, not for the page's markup, so that a new Tune can be driven by
  * its own selectors and compared with the same file.
  * A control of Tune that the driver has no line for would not be traced at all, so every
- * switch, choice and slider of Tune's sheet must be one the driver reaches (lib/trace.js, DRIVE).
+ * switch, choice, slider, tab and button of Tune's sheet (but the one that closes it) must be
+ * one the driver reaches (lib/trace.js, DRIVE).
+ * Tune has tabs, and the driver gets to each control as a person does (lib/tune.js finds its
+ * tab from the page): what getting there logs is kept out of the control's entry, and must be
+ * what the kept trace has for a tap on that tab (or on the Tune button, after a reload) and
+ * nothing more.
  * The controls of this check: a copy of app.js whose completion bowl tells the sound engine
- * before it saves, and whose Haptics switch no longer buzzes, must fail at those two; and a
- * copy of the page with one switch more must be found to have a control nothing drives.
+ * before it saves, and whose Haptics switch no longer buzzes, must fail at those two; a copy
+ * of the page with one switch more must be found to have a control nothing drives; and a copy
+ * whose tabs tell the sound engine something as they are shown must be found out on the way
+ * to a control.
  *
  *   node tools/test/app-tune-trace.test.js [--port <n>] [--root <dir>] [--base <commit>] [--write]
  *
@@ -79,6 +87,18 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
       s.check(k.name + ': saves, calls and buzzes as before the store (' + k.now.length + ' in its tap, ' + k.later.length + ' after)', d.length === 0, d.join('; '));
     });
     s.check('the settings saved at the end are the kept ones, byte for byte', mine.saved === kept.saved, mine.saved + ' for ' + kept.saved);
+    // the way to a control: Tune opened again after a reload, the control's tab shown. Each step is held to the kept entry of the line that drives the same element
+    var astray = function (made) {
+      return made.reaches.map(function (r) {
+        var d = trace.differ(byName(kept, r.did), { now: r.now, later: r.later });
+        return d.length ? 'on the way to "' + r.for + '", ' + r.did + ': ' + d[0] : '';
+      }).filter(Boolean);
+    };
+    var lost = astray(mine), did = mine.reaches.map(function (r) { return r.did; });
+    s.check('getting to a control does what a tap on its tab does (or on the Tune button, after a reload), and nothing more: each of the ' + mine.reaches.length +
+            ' steps the driver took is as the kept trace has that tab or button',
+            lost.length === 0 && did.indexOf('open Tune') >= 0 && did.some(function (n) { return /^tab: /.test(n); }),
+            lost.slice(0, 3).join(' | ') || did.filter(function (n, i) { return did.indexOf(n) === i; }).map(function (n) { return did.filter(function (m) { return m === n; }).length + ' × ' + n; }).join(', '));
     s.check('no page or console errors', mine.errors.length === 0, mine.errors.slice(0, 3).join(' | '));
 
     // what the trace sees: the places where the order matters most
@@ -118,6 +138,18 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
             failed.join() === 'completion bowl: off,completion bowl: on,haptics: on', failed.join());
     s.check('CONTROL: a copy of the page with one switch more in Tune is found to have a control that no line drives',
             c.undriven.indexOf('#opt-extra') >= 0 && c.undriven.length === mine.undriven.length + 1, c.undriven.join(', ') || 'none found');
+    s.check('CONTROL: ... and in that copy the way to those controls is still a plain tap on their tabs (' + c.reaches.length + ' steps)',
+            c.reaches.length >= 1 && astray(c).length === 0, astray(c).slice(0, 2).join(' | '));
+    // a copy whose tabs do more than show their panel: the way to a control is no longer a tab's kept tap
+    var dirT = trace.patched(env.root, [[null,
+      '\n;(function () {\n  var tabs = document.getElementById(\'tune-tabs\');\n' +
+      '  if (tabs) tabs.addEventListener(\'click\', function () { var a = window.Hourglass.audio; a.setVolume(a.volume); });\n})();\n']]);
+    var envT = await H.start({ root: dirT, port: env.port + 1 }), ct;
+    try { ct = await trace.tune(envT, ONLY); } finally { await envT.close(); }
+    var failedT = ONLY.filter(function (n) { return trace.differ(byName(kept, n), byName(ct, n)).length > 0; });
+    s.check('CONTROL: a copy whose tabs tell the sound engine its volume as they are shown is found out on the way to a control, and the controls themselves trace as kept',
+            astray(ct).length === ct.reaches.length && ct.reaches.length >= 1 && /audio\.setVolume/.test(astray(ct).join()) && failedT.length === 0,
+            (astray(ct)[0] || 'nothing found on the way') + (failedT.length ? '; and differs at ' + failedT.join() : ''));
   } catch (e) {
     s.check('the suite ran', false, String(e && e.stack || e).split('\n').slice(0, 3).join(' '));
   } finally {
