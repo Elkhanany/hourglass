@@ -11,7 +11,9 @@
  *  - the engine contract: every name app.js and audio.js bind to a sand engine (sim, cpuSim,
  *    real, realEng, eng, realCls; audio's sim), read from their code, equals the lists here
  *    (a member used and not listed, or listed and no longer used, fails; a copy of app.js
- *    with sim.foo and realEng.bar is the control); the CPU Sim has the Sim's members and RealSand
+ *    with sim.foo and realEng.bar is the control). It reads `name.member` on those six names
+ *    only: an engine held under another name (var e = realEng; e.foo()) or a member in
+ *    brackets (sim['foo']) is not seen. The CPU Sim has the Sim's members and RealSand
  *    has them with the CPU Sim's types, and its own; the shared ones are the CPU Sim's own
  *    objects (frame, geo, the event arrays, cracks);
  *  - the glass built from the app's geometry and the fills from the CPU lattice: exact point

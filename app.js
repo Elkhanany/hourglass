@@ -5,7 +5,7 @@
  * wall-clock timer, the glass as a body you can move, turn and spin, the
  * controls, the Zen HUD, settings, real motion, wake-lock and PWA
  * registration.
- * License: GPL-3.0.
+ * License: GPL-3.0-or-later.
  * ---------------------------------------------------------------------------
  */
 (function () {
@@ -3000,10 +3000,13 @@
    *    - WebGPU, but no adapter or only a software one (found by loading
    *      the engine): "Needs WebGPU" (or too slow), and this browser's user
    *      agent is kept (realSandNa); while it is the same, a launch says so
-   *      without loading anything. An iOS update changes the user agent, so
-   *      the launch after it tries again; so does a tap on the row. One
-   *      that came while the page was put away is not believed: it is tried
-   *      again once the page is in view;
+   *      without loading anything. Another user agent (an iOS update, if it
+   *      changes it), seven days gone by, or a tap on the row: tried again.
+   *      One that came while the page was put away is not believed: it is
+   *      tried again once the page is in view. One that comes after the
+   *      chip was reset, lost or stopped answering in this session is not
+   *      kept either (the chip may only be on its way back): the CPU sand
+   *      for the session, and the next launch tries again;
    *    - anything else at start: the CPU sand this session, the setting
    *      kept, the note says why; the next launch tries again, and after
    *      three launches in a row that failed it stops trying;
@@ -3031,6 +3034,9 @@
   var realEng = null;                // the engine: starting, live (then real === realEng), lost or rebuilding
   var realCls = null, realAttached = false, realDue = false, realRetries = 0, realState = 'off';
   var realAway = false;              // the page was put away since this start began
+  var realShaky = false;             // this session saw the chip reset, lost or not answering: "no adapter" may then be the chip on its way back
+  var realStopped = null;            // the engine the watchdog stopped, kept 600 ms for the cross-fade: nothing it still says is heard
+  var REAL_NA_MS = 7 * 86400000;     // how long "this browser cannot have it" is believed without another try
   var realLogLines = [];
   var optReal = $('opt-realsand'), realNote = $('realsand-note'), realRow = $('realsand-row');
   var grainRow = $('grain-row'), grainChoice = $('grains') && $('grains').parentNode, tiltCrack = $('tilt-crack');
@@ -3117,16 +3123,21 @@
     // another engine build: what this device was found unable to do with the last one is
     // forgotten, and it tries again (settings design 5.1)
     if (settings.realSandBuild !== REALSAND_BUILD) {
-      settings.realSandFails = 0; settings.realSandWhy = ''; settings.realSandNa = '';
+      settings.realSandFails = 0; settings.realSandWhy = ''; settings.realSandNa = ''; settings.realSandNaAt = 0;
       settings.realSandBuild = REALSAND_BUILD;
       save();
     }
     if (!('gpu' in navigator)) { showReal('na', REAL_WHY.nogpu); return; }   // (nothing stored: found again at no cost)
     if (!settings.realSand) { showReal('off'); return; }
     if (settings.realSandNa) {
-      if (settings.realSandNa === navigator.userAgent) { showReal('na', settings.realSandWhy || REAL_WHY.noadapter); return; }
-      // another browser than the one that could not have it (an iOS update): tried again
-      settings.realSandNa = ''; settings.realSandWhy = ''; save();
+      var naAge = Date.now() - settings.realSandNaAt;
+      if (settings.realSandNa === navigator.userAgent && naAge >= 0 && naAge < REAL_NA_MS) {
+        showReal('na', settings.realSandWhy || REAL_WHY.noadapter);
+        return;
+      }
+      // another browser than the one that could not have it (an iOS update, if it changes the
+      // user agent), or found seven days ago or more: tried again
+      settings.realSandNa = ''; settings.realSandNaAt = 0; settings.realSandWhy = ''; save();
     }
     if ((settings.realSandFails | 0) >= 3) { showReal('gaveup', settings.realSandWhy || REAL_WHY.load); return; }
     showReal('starting');
@@ -3165,7 +3176,11 @@
     Promise.resolve().then(function () {
       return realCls.create({
         P: P, cpuSim: cpuSim, renderer: renderer, rotor: rotor, cSand: $('c-sand'), timer: T,
-        offscreen: REAL_TEST, allowFallback: REAL_TEST, log: realLog, onLost: onRealLost, onBack: onRealBack
+        offscreen: REAL_TEST, allowFallback: REAL_TEST, log: realLog,
+        // (heard only from the engine in use: one the watchdog stopped still lives, to itself, until
+        // it is destroyed, and may lose its device meanwhile)
+        onLost: function (info) { if (eng && eng === realEng && eng !== realStopped) onRealLost(info); },
+        onBack: function () { if (eng && eng === realEng && eng !== realStopped) onRealBack(); }
       });
     }).then(function (e) {
       eng = realEng = e;
@@ -3199,16 +3214,29 @@
   function realFail(e) {
     var code = (e && e.code) || 'error', why = realReason(e);
     realLog('Real sand did not start (' + code + '): ' + (e && e.message || e));
+    if (code === 'lost') realShaky = true;
     if (realEng) { try { realEng.destroy(); } catch (x) {} realEng = null; }
     realDue = false;
     // the engine's shaders are of another build than its modules: an update is on its way (not counted)
     if (code === 'stamp') { showReal('updating'); return; }
+    // a file of the engine that could not be had with no connection (a hole in the offline copy)
+    // is not counted: three such launches would end the tries, and an app that no longer asks for
+    // the engine never lets the worker see the hole and fill it
+    if (code === 'load' && navigator.onLine === false) { showReal('failed', why); return; }
     // (a capability found missing while the page was put away is not believed: iOS may refuse an
     // adapter to a page in the background; it is tried again in view, as a start cut short)
     if (e && e.capability && realAway && realCls && realRetries < 3) code = 'hidden';
+    else if (e && e.capability && (realShaky || realAway)) {
+      // (found after the chip was reset, lost or stopped answering in this session, or in a page
+      // put away with its retries used up: the chip may only be on its way back, so it is neither
+      // remembered nor counted; the CPU sand for the session, and the next launch tries again)
+      showReal('paused', 'Real sand could not restart; it will try again next launch');
+      return;
+    }
     else if (e && e.capability) {
       // this browser cannot have it: remembered by its user agent, the switch left on (settings design 5.2)
-      settings.realSandNa = navigator.userAgent; settings.realSandWhy = why; settings.realSandFails = 0;
+      settings.realSandNa = navigator.userAgent; settings.realSandNaAt = Date.now();
+      settings.realSandWhy = why; settings.realSandFails = 0;
       save();
       showReal('na', why);
       return;
@@ -3243,6 +3271,7 @@
       real = sim = realEng;
       app.classList.add('real');     // #c-gpu fades in over the CPU sand's canvas (styles.css)
       if (settings.realSandFails || settings.realSandWhy) { settings.realSandFails = 0; settings.realSandWhy = ''; save(); }
+      realRetries = 0;               // (the retries are a start's own: a session can have many starts, days apart)
       realWatchFrom(performance.now());
       showReal('on');
     } else {
@@ -3257,6 +3286,7 @@
   function onRealLost(info) {
     info = info || {};
     var was = !!real;
+    realShaky = true;
     realDue = false;                 // (an adopt or a rebuild that finished before the loss hands nothing over)
     handover('cpu');
     if (info.final) showReal('paused', info.message || REAL_WHY.lost);
@@ -3303,12 +3333,14 @@
     realLog('Real sand: no readback for ' + REAL_HANG_MS / 1000 + ' s while it ran in view: the watchdog gives the sand to the CPU' +
       (final ? ' (the third time in ten minutes: final)' : ''));
     try { realEng.syncCpu(); } catch (e) { realLog('Real sand: ' + (e && e.message || e)); }   // the CPU Sim at the ledger's counts
+    var stopped = realStopped = realEng;
     onRealLost({ reason: 'watchdog', lifecycle: false, final: final, why: REAL_WHY.hang,
       message: final ? 'Real sand paused: the graphics chip stopped answering three times; it will try again next launch'
         : 'Real sand paused: the graphics chip stopped answering' });
     // the stopped engine goes once the CPU sand's canvas has faded in over its picture
     setTimeout(function () {
-      if (realEng && !real) { try { realEng.destroy(); } catch (e) {} realEng = null; }
+      if (realEng === stopped) { try { stopped.destroy(); } catch (e) {} realEng = null; }
+      if (realStopped === stopped) realStopped = null;
     }, 600);
     if (!final) setTimeout(function () { whenVisible(startAgain); }, 2000);
   }
@@ -3316,7 +3348,7 @@
     // on or off, the page is built afresh, as for another grain; the running time is kept. Not
     // available ('na', the switch shown off): a tap is a try again, what was remembered forgotten.
     settings.realSand = e.target.checked;
-    settings.realSandFails = 0; settings.realSandWhy = ''; settings.realSandNa = '';
+    settings.realSandFails = 0; settings.realSandWhy = ''; settings.realSandNa = ''; settings.realSandNaAt = 0;
     save();
     saveSession();
     app.classList.add('regrain');

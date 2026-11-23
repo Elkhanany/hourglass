@@ -16,7 +16,7 @@
  * 3. HourglassPhysics.Spill     Sand that has left the glass, falling in the
  *                               room and gathering in a dune on the desk.
  *
- * Zero dependencies. License: GPL-3.0.
+ * Zero dependencies. License: GPL-3.0-or-later.
  * ---------------------------------------------------------------------------
  */
 (function (root) {

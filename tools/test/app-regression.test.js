@@ -249,7 +249,7 @@ async function testServiceWorker(s, root) {
     // Should a lab page meet an engine of another build all the same (here: the lab written for
     // build C, the engine at B), it says so, with both stamps, and leaves the app's cache alone:
     // the app's installed copy is a snapshot only an install writes (sw.js), and a file taken out
-    // of it would come back only online. (Before R1 the lab dropped the engine from the app's
+    // of it would come back only online. (Before the snapshot worker the lab dropped the engine from the app's
     // caches and loaded once more; app-upgrade runs that lab, 13a9772's, as its control.)
     fs.writeFileSync(path.join(copy, 'lab', 'sand', 'main.mjs'), fs.readFileSync(path.join(copy, 'lab', 'sand', 'main.mjs'), 'utf8').replace(/const BUILD_EXPECTED = '[^']+'/, "const BUILD_EXPECTED = 'sw-test-C'"));
     var engineCached = function () {

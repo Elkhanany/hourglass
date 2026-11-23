@@ -2,9 +2,9 @@
 
 *A calm sand timer you can hold.* Every grain is simulated and every sound is
 synthesised as you listen. Turn the glass, flick it into a spin, tilt or shake
-your phone, and the sand answers. Drop the glass, knock on it, spin it hard or
-shake the phone hard and it creaks, then cracks; hold a finger on the crack
-and it mends with gold.
+your phone, and the sand answers. With the classic sand the glass can break:
+drop it, knock on it, spin it hard or shake the phone hard and it creaks, then
+cracks; hold a finger on the crack and it mends with gold.
 
 ![Three hourglasses on a phone: Sahara quartz with its controls, lapis lazuli dimmed in Zen, and sea glass](docs/images/hero.jpg)
 
@@ -24,7 +24,7 @@ loaded from anywhere else: no libraries, no fonts, no audio files.
   icon offers 5, 15 and 30 minute glasses.
 - **Desktop (Chrome, Edge, Safari):** it runs in the browser; Chrome and Edge
   also offer **Install** in the address bar. A burst of mouse clicks knocks
-  on the glass.
+  on the glass (classic sand).
 
 ## Six sands
 
@@ -54,7 +54,7 @@ deep-water teal.
   level or leaning, arched, waved or folded. As it runs, the two tones settle
   into strata on the heap below, and every turn of the glass lets the sand
   settle into a new pattern. No two are alike.
-- **Finer sand.** Choose the grain in **Tune**: Classic, Fine (twice the
+- **Finer sand** (classic sand). Choose the grain in **Tune**: Classic, Fine (twice the
   grains) or Finest (four times, about 40,000 for a one-minute glass on a
   phone). The finer sand flows, slumps, sounds and keeps time as the classic
   sand does; there is simply more of it, each grain smaller, and more work
@@ -64,7 +64,9 @@ deep-water teal.
   phone's graphics chip, in the same glass, keeping the same exact time. It
   needs WebGPU (iOS 26 or later); where that is missing its note says so and
   the classic sand runs, as it always has, and it tries again after an iOS
-  update or a tap on the switch. Turned off, the classic sand stays.
+  update or a tap on the switch. While it runs the glass does not crack and
+  **Grain** is hidden: turn Real sand off in **Tune** for the classic sand,
+  its finer grains and a glass you can break and mend.
 - **Real sound.** The soft hush of sand landing, made of thousands of tiny
   grains, the first grains ticking on bare glass, a singing bowl at the end,
   and optional water behind it (a brook, rain, the ocean, a waterfall, or
@@ -80,7 +82,7 @@ deep-water teal.
   glass.
 - **Real motion.** With the switch on, the sand follows how you hold the phone:
   lean it, turn it over, shake it.
-- **Break it, mend it.** The glass stands on a desk and can be picked up,
+- **Break it, mend it** (classic sand). The glass stands on a desk and can be picked up,
   dropped, thrown and banged down. A hard landing, eight quick knocks, three
   or four hard flicks or a few seconds of hard shaking creak the glass, then
   crack it, and sand trickles out into a small dune. Hold a finger still on
@@ -136,5 +138,7 @@ deep-water teal.
 
 ## License
 
-GPL-3.0-or-later. See `LICENSE`. The GPU sand's solver keeps the MIT and
-BSD-3-Clause notices of the work it is derived from (`realsand/LICENSES.md`).
+GPL-3.0-or-later. See `LICENSE`. Where a file's header says GPL-3.0, it
+means this licence: version 3 or, at your option, any later version. The GPU
+sand's solver keeps the MIT and BSD-3-Clause notices of the work it is
+derived from (`realsand/LICENSES.md`).
