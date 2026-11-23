@@ -10,6 +10,7 @@ sound work is in [How it works](engines.md).
 ```
 index.html  styles.css      the page and its look (one screen, two sheets)
 app.js                      the controller: clock, gestures, Zen, settings, sessions
+app/settings.js             the settings store: a record for every saved key, load and save
 physics.js                  the sand simulation, the glass, cracks and spilled sand
 audio.js                    the procedural sound engine
 motion.js                   the phone's motion sensors
@@ -98,6 +99,70 @@ between the title and the close button, placed from where the sheet really
 is, and it fades there when the sheet is closed. Said anywhere else, a toast
 keeps its place above the controls.
 
+## `app/settings.js`
+
+What the app keeps from one launch to the next is one JSON object in
+`localStorage`, under `hourglass.settings.v1`. The settings store holds it as
+a table of records, one for every saved key (30 today), in the order the
+keys are saved:
+
+- `id`, the key;
+- `default`, its value on a new install. Its type is the setting's type: a
+  saved value of another type is dropped;
+- `valid(value, reg)`, where a value must be checked: false puts the default
+  back (the material must be one of `HourglassPhysics.THEMES`, the grain 1 or
+  2, the accelerometer's sign 1 or -1);
+- `from(saved, reg)`, where a setting is made from older ones: the value for
+  a save that has no such key yet. A migration is keyed on its own key being
+  absent, never on a version, so that settings can ship in any order
+  ([settings design 5.1](design/settings.md)). No record needs one yet.
+
+`HourglassSettings.load(storage, search, reg)` gives the values: the
+defaults; over them the saved values of the right type; the version step
+(the settings carry `v`; a save of no version, or of version 1, comes up with
+Real sand on, once, and the values then say version 2); the checks; and the
+repairs that read two keys (`?t=300` sets the duration and ends a saved
+sequence; a rest out of range is no rest; without a rest there is one
+round). `save(values)` writes them back. Storage that throws, or cannot be
+reached at all (private mode, storage blocked), runs with the defaults and
+saves nothing. The file reads nothing when it loads, so the tests load it in
+Node as it is.
+
+`app.js` keeps the loaded values as `settings`, writes them and calls
+`save()`. Everything that applies a setting stays in `app.js`, in its order:
+the grain's pace before the Sim is built, layers before the glass is filled,
+the sound engine's fields before the saved character and ambience are checked
+against the engine's own, and every control's handler, which saves, tells the
+engine and buzzes inside its tap (an iPhone ticks, and asks for motion, only
+from inside one). The store draws nothing and binds none of today's
+controls. For the plain switches of a later Tune it has
+`bindSwitch(el, key, after)`: when the switch flips, the value is set, saved,
+and `after(value)` called, in that order, inside the event.
+
+To add a setting: one record at the end of the table, with a `from` if an
+older save should come up with something other than the default; then its
+control and its effect in `app.js`. `settings-unit` checks the table.
+
+Three checks hold the store, and whatever is built on it, to what the app
+did before it. Each compares with a file in `tools/test/base/`, made from
+the commit before the store (`tools/test/lib/base.js` names it; a suite run
+with `--base <commit>` makes its file again from that commit and compares):
+
+- the loader (`settings-unit`, in Node): the old Settings section of
+  `app.js`, kept byte for byte, and the store are run on the same 500 saved
+  states (keys missing, wrong types, values out of range, saves that are not
+  JSON, `?t=` queries, with and without a version, storage that throws) and
+  must give the same settings in the same order, the same saved JSON byte for
+  byte, and the same again on a second launch;
+- the boot (`app-boot-trace`, in the browser): for five saved states, what
+  the app reads and saves and what it calls on the Sim, the Renderer, the
+  sound engine and the motion sensors until it has started, in order;
+- Tune (`app-tune-trace`, in the browser): for every control that changes a
+  setting, what its tap saves, calls and buzzes, and what follows (the
+  cross-fade, the answer to the motion question, the reload a grain makes).
+  The controls are named for what they set, not for the page's markup, so a
+  new Tune is compared with the same file.
+
 ## `sw.js`, `manifest.json`
 
 Offline first. An installed copy is a snapshot of one release: the app's
@@ -114,8 +179,9 @@ the server's `sw.js` still names the same `VERSION`; if it names another,
 the worker looks for that release, whose install fills its own cache.
 Offline, a hole cannot be filled: the page then finds a script missing and
 says "Hourglass is updating. Open it again with a connection." instead of
-building anything (`app.js`'s pre-flight check), and the next launch with a
-connection repairs the copy. Other paths under the scope (the launch
+building anything (`app.js`'s pre-flight check; `check-shell` runs the page's
+scripts with each one left out), and the next launch with a connection
+repairs the copy. Other paths under the scope (the launch
 screens, the install screenshots) are answered from the cache and refreshed
 in the background, as before; offline, a navigation that is not cached gets
 the app's page.
@@ -218,8 +284,9 @@ These hold until a change says otherwise, with its reason.
   tests only.
 - **Classic scripts for every file the page loads; ES modules only behind
   the WebGPU switch.** `index.html` loads `physics.js`, `audio.js`,
-  `motion.js` and `app.js` as classic ES5 scripts. A syntax error stops a
-  whole file, and an old parser rejects a file that holds `import()`, so
+  `motion.js`, `app/settings.js` and `app.js` as classic ES5 scripts. A
+  syntax error stops a whole file, and an old parser rejects a file that
+  holds `import()`, so
   `app.js` stays classic and appends `realsand/boot.mjs`, the only module
   the app loads, and only with the Real sand switch on where `navigator.gpu`
   exists. `check-shell` checks every classic script for module syntax,
@@ -239,7 +306,11 @@ These hold until a change says otherwise, with its reason.
   sand's level), and 7f71786's colour table (`sim-tone`: layered sand off is
   the table it always was). A change that only moves code passes them with
   no change of baseline; a change to the drawing that must change pixels
-  ships its new baseline in a commit of its own, reviewed.
+  ships its new baseline in a commit of its own, reviewed. What the app
+  does with its settings is pinned the same way, to files kept in
+  `tools/test/base/` (above, under `app/settings.js`): a Tune that changes
+  what a control does, on purpose, ships its new trace in a commit of its
+  own.
 - **Every shipped change raises `VERSION`** (above).
 - **The service worker takes over at once** (`skipWaiting`,
   `clients.claim`): an app on an iPhone's home screen is suspended far more
