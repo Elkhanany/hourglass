@@ -41,7 +41,7 @@
  *       they are saved)
  *
  * Nothing is read when this file loads, so the tests load it in Node too.
- * License: GPL-3.0.
+ * License: GPL-3.0-or-later.
  * ---------------------------------------------------------------------------
  */
 (function (root) {
