@@ -183,7 +183,7 @@ the tests, the lab) needs none of this. For every change to a shipped file:
 1. **`VERSION` goes up.** Any change to `sw.js` or to a file in its `SHELL`
    raises `VERSION` in `sw.js`, as a version number greater than both
    `origin/main`'s and the one the branch started from, and `index.html`'s
-   version, where the page has one, equal to it. Without it, installed
+   `hourglass-version` meta equal to it. Without it, installed
    copies never see the change. `check-release` holds a branch to this.
 2. **A new, moved or removed file** has its `<script>` tag in `index.html`
    (if the page loads it), its line in `SHELL` (one path that does not exist
@@ -223,7 +223,8 @@ These hold until a change says otherwise, with its reason.
   `app.js` stays classic and appends `realsand/boot.mjs`, the only module
   the app loads, and only with the Real sand switch on where `navigator.gpu`
   exists. `check-shell` checks every classic script for module syntax,
-  `import()` and anything newer than ES5. The
+  `import()` and the kinds of syntax newer than ES5 that it lists
+  ([Tests](testing.md)). The
   Node suites load `physics.js` as a classic script into isolated contexts,
   two versions side by side, which ES modules would not allow without a
   flag.
