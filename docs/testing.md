@@ -142,8 +142,26 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   against its count (`audit()`). `app-regression`'s service worker check
   serves a new build of the engine midway: the app keeps its cached engine,
   a lab page gets the new one at once, and nothing a lab page fetched is
-  stored; a lab page written for yet another build drops the engine from
-  the app's caches and loads once more, once only.
+  stored; a lab page written for yet another build says so, with both
+  stamps, loads once and leaves the app's cache whole, and the app then
+  starts offline.
+  `app-upgrade` covers what an installed copy does when a release comes, in
+  Chromium with the service worker on, the app served from a scratch copy
+  swapped under the same address, and offline meaning the server stopped:
+  `origin/main` installed, then this tree, two launches with a connection
+  and one offline (no error, no 504, one cache, and Tune's last line
+  "Version X.Y.Z" with nothing after it), then a newer release installed
+  while the page is open (the line says the update is ready); a release
+  whose `SHELL` names a missing file (its install fails, leaves no cache,
+  and the installed release runs whole, online and offline); a script taken
+  out of the cache (offline the page says it is updating; one launch with a
+  connection fills the cache again, from the same release only); and a lab
+  page that meets another build (the app's cache stays whole). Its controls
+  run 13a9772's worker and lab (v1.9.0, the last release before the
+  snapshot worker), which fail the same checks: an empty cache left by the
+  failed install, the next release's files on the page, the engine dropped
+  from the cache. It needs `origin/main` and 13a9772 from git
+  (`HOURGLASS_MAIN=<ref>` names another first release).
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-ambience` covers the six
   ambience cards: the radio group as a screen reader meets it, two rows of
@@ -354,9 +372,11 @@ scope covers `lab/`) leaves everything under `lab/` to the network and never
 caches it, and answers the lab page's requests for the engine (`realsand/`,
 which the app caches for Real sand) from the network too, without storing
 them, so an update shows on the next load (`app-regression` checks this).
-Should a cached engine reach the lab all the same (a build stamp other than
-the page's), the lab drops the engine from the app's caches and loads once
-more, only once (`app-regression` checks this too). Its
+Should an engine of another build reach the lab all the same (a build stamp
+other than the page's), the lab says so in its status line, with both
+stamps, and asks for a reload with a connection; it leaves the app's caches
+alone, since the app's installed copy is a snapshot that only an install
+writes (`app-regression` and `app-upgrade` check this too). Its
 solver keeps Smoosh's MIT and EA's BSD-3-Clause notices
 (`realsand/LICENSES.md`).
 The engine, `realsand/`, is its own folder so that the lab and the app

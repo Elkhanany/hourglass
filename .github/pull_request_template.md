@@ -37,4 +37,4 @@
 
 ## After the merge, on the phone
 
-<!-- For a release: open the installed app online once, close it, open it again; then once in airplane mode: it opens and runs. -->
+<!-- For a release: open the installed app online once, close it, open it again: Tune's last line shows the new version and nothing after it; then once in airplane mode: it opens and runs. -->

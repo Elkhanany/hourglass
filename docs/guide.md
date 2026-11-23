@@ -84,10 +84,21 @@ be a pinch and every glass would run with the thin thread of the hour glass.)
   reset. It works in Zen and Full Zen; with *Reduce Motion* the glow only
   brightens and dims.
 - **Full Zen**, **Haptics**.
+- At the foot, the version: "Version 1.10.0" when the copy installed for
+  offline use is that same release. "Offline copy not installed yet" after it
+  means the app does not yet work offline (open it once more with a
+  connection); "update ... ready: close and reopen" means a newer release
+  has arrived, and the next launch runs it.
 
 The glass also remembers where it was: close or reload the page and a running
 timer carries on from the wall clock, a paused one comes back as it was left,
 cracks and gold seams included.
+
+An update arrives whole or not at all: the installed app keeps running the
+release it has until the new one is complete, so it always opens offline.
+Should it ever open offline and say *Hourglass is updating. Open it again
+with a connection.*, a file of its offline copy went missing; the next
+launch with a connection fills the copy again.
 
 ## Work and rest
 

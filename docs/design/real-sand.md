@@ -118,9 +118,12 @@ the sources the page started with, never a newer copy a new release's worker
 has put in the cache meanwhile. Shaders of another build than the modules
 fail the start with the code `stamp`: the note says Real sand is updating,
 and it is not counted as a failure. As belt and braces, the lab, which
-holds the stamp it expects, drops the engine from the app's caches and loads
-once more should a cached copy of another build reach it (once only), and its
-Copy results prints both stamps.
+holds the stamp it expects, says so in its status line, with both stamps,
+should an engine of another build reach it, and its Copy results prints both
+stamps. (Until 1.10.0 it also dropped the engine from the app's caches and
+loaded once more; since the app's installed copy became a snapshot that only
+an install writes, a file taken out of it would come back only online, so
+the lab leaves the app's caches alone.)
 
 ### 2.4 The seams in app.js, index.html and styles.css
 

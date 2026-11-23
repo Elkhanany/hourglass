@@ -100,15 +100,44 @@ keeps its place above the controls.
 
 ## `sw.js`, `manifest.json`
 
-Offline-first, stale-while-revalidate cache of the app shell. Every path is
-relative (`./`), including `start_url` and `scope`, so the app works from a
-sub-directory such as `/hourglass/`. The shell includes the GPU sand engine
-the app loads with Real sand on (`realsand/`: its modules, its shaders and
-its licences), so Real sand works offline. The sand lab's pages (`lab/`) are
-not the app: the worker leaves them to the network, and a lab page's own
-requests for the engine go to the network too and are never stored (the
-worker tells them by the request's client), so the lab shows a new engine
-on its next load.
+Offline first. An installed copy is a snapshot of one release: the app's
+files (`SHELL`) come only from the cache named by `VERSION`, and only an
+install writes that cache, all of the files or none (`cache.addAll`), so a
+launch never runs files of two releases. Nothing refreshes them in the
+background: a new release reaches a phone only as a new `VERSION`, whose
+install fills a cache of its own; the old one is deleted when the new
+worker takes over. An install that fails (a file that would not download)
+deletes the cache it made and leaves the installed release as it was.
+Should a file be missing from the cache all the same (a hole), it comes
+from the network, and the worker fills its cache again, whole, but only if
+the server's `sw.js` still names the same `VERSION`; if it names another,
+the worker looks for that release, whose install fills its own cache.
+Offline, a hole cannot be filled: the page then finds a script missing and
+says "Hourglass is updating. Open it again with a connection." instead of
+building anything (`app.js`'s pre-flight check), and the next launch with a
+connection repairs the copy. Other paths under the scope (the launch
+screens, the install screenshots) are answered from the cache and refreshed
+in the background, as before; offline, a navigation that is not cached gets
+the app's page.
+
+The worker answers which release it serves: a message `{ type: 'version' }`
+with a port gets `{ version: VERSION }`. `index.html` says the page's own
+release in `<meta name="hourglass-version">`, equal to `VERSION`
+(`check-release`). The last line of Tune shows both, made by `app.js`:
+"Version 1.10.0" when they agree; "· offline copy not installed yet" with
+no worker or no answer within a second; "· update 1.11.0 ready: close and
+reopen" when a newer release was installed while the page ran.
+
+Every path is relative (`./`), including `start_url` and `scope`, so the
+app works from a sub-directory such as `/hourglass/`. The shell includes
+the GPU sand engine the app loads with Real sand on (`realsand/`: its
+modules, its shaders and its licences), so Real sand works offline. The
+sand lab's pages (`lab/`, `NETWORK_ONLY` in `sw.js`) are not the app: the
+worker leaves them to the network, and a lab page's own requests for the
+engine (`realsand/`, `LAB_SHARED`) go to the network too and are never
+stored (the worker tells them by the request's client), so the lab shows a
+new engine on its next load. The lab never touches the app's cache: a lab
+page that meets an engine of another build says so, with both stamps.
 
 ## Icons and launch screens
 
@@ -139,9 +168,11 @@ Then open `http://localhost:8000/`.
 The empty `.nojekyll` file in the repository root tells Pages to serve the files
 as they are, without running Jekyll.
 
-When you change any shipped file, bump `VERSION` in `sw.js` so installed copies
-drop the old cache. An installed app picks up a new version on its second
-launch after the change (the first launch fetches it in the background).
+When you change any shipped file, raise `VERSION` in `sw.js` (see Releasing,
+below): an installed copy changes only with `VERSION`. An installed app picks
+up a new release on its second launch after the deploy: the first launch runs
+the release it has and installs the new one meanwhile (Tune's last line then
+says the update is ready), and the next one runs the new release.
 
 ## Releasing
 
@@ -164,13 +195,19 @@ the tests, the lab) needs none of this. For every change to a shipped file:
    `realsand/shaders/common.inc.wgsl`, `REALSAND_BUILD` in `app.js` and
    `BUILD_EXPECTED` in `lab/sand/main.mjs`. `realsand-shell` checks that they
    match, and that every module and shader the engine loads is in `SHELL`.
-4. **The check group, the suites the change touches, and every `app-*` and
-   `e2e-*` suite run** (see [Tests](testing.md)). Timing checks are judged
-   on a quiet machine: a failure under load is run again alone before it
-   counts.
-5. **After the merge, on a phone with the app installed:** open it once
-   with a connection, close it, and open it again; Tune shows the new
-   version. Then, in airplane mode, it opens and runs.
+4. **A new, moved or removed file the page loads ships only once the phone
+   runs release 1.10.0 or later**, the first with the snapshot worker: Tune's
+   last line shows its version with nothing after the number. Before it, an
+   update interrupted on its way could leave the installed copy unable to
+   start offline until one launch with a connection.
+5. **The check group, the suites the change touches, and every `app-*` and
+   `e2e-*` suite run**, `app-upgrade` among them (see [Tests](testing.md)).
+   Timing checks are judged on a quiet machine: a failure under load is run
+   again alone before it counts.
+6. **After the merge, on a phone with the app installed:** open it once
+   with a connection, close it, and open it again; Tune's last line shows
+   the new version and nothing after it. Then, in airplane mode, it opens
+   and runs.
 
 ## Standing decisions
 
@@ -207,9 +244,15 @@ These hold until a change says otherwise, with its reason.
 - **The service worker takes over at once** (`skipWaiting`,
   `clients.claim`): an app on an iPhone's home screen is suspended far more
   often than it is closed, and an update would otherwise wait for days.
-  Files a page loads later (the engine's modules and shaders) can then come
-  from a newer release; the build stamps catch that, and the page keeps the
-  classic sand until its next launch.
+  So the snapshot holds at load: the files a page loads as it starts come
+  from one release, but files it loads later (the engine's modules and
+  shaders) can come from a newer one; the build stamps catch that, and the
+  page keeps the classic sand until its next launch.
+- **Every release is installed whole or not at all** (the snapshot worker,
+  1.10.0): no file of the app is refreshed on its own, a failed install
+  leaves nothing behind, and a hole is filled only from the same release.
+  The cost: a change shipped without a new `VERSION` never reaches a phone,
+  which is why `check-release` runs on every pull request.
 - **What an iPhone allows a web app** decides a good deal: motion
   permission is forgotten when the app is closed, so it is asked for by a
   tap at each launch; there is no vibration API, so a tap is felt through a
