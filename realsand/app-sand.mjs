@@ -109,17 +109,30 @@ const SAMPLES = 64;                        // the app's field samples kept (half
 const EV_CAP = 48;                         // landings a frame for the audio (physics.js EV_CAP)
 // The bed's sounds (design 8), on the classic Sim's scale (physics.js _landing, _stepMotion):
 //  E_MIN: a landing under this energy is not heard (audio.js thump: 1.3 sqrt(E) under 0.05);
-//  FALL_RUNS: a bed that lands has lost half its speed within this many runs of its fastest;
+//  FALL_S: a bed that lands has lost half its speed within this long (simulated s) of its
+//  fastest, however many runs a second the display asks for;
+//  BED_MIN, BED_SHARE: a bed is heard from this many points and this share of the glass's: fewer
+//  are the plug of the stream under the neck, the first grains on the floor or the last above
+//  the neck, whose mean speed is no bed's (a 10 s glass's plug: 3 to 14 points at up to 59 cells/s);
 //  SLIDE_K: the bed's motion within itself counts as the classic sand's slides at SLIDE_K over
-//  the square root of the bed's grains: the classic sand slides at its surface, the GPU bed
-//  shears through its depth, and a bed of n grains has a surface of about sqrt(n) (calibrated on
-//  two glasses against the classic sand on the same motion, design 8: 0.47 of it for the 1,155
-//  grains of a 10 s glass, 0.30 for the 2,830 of a minute); TAU_T: the agitation's memory, s
-//  (physics.js MOT.tauT), IDLE_T: under this, with the bed at rest, it is 0 (MOT.idleT);
+//  the square root of the bed's grains (never more than all of it): the classic sand slides at
+//  its surface, the GPU bed shears through its depth, and a bed of n grains has a surface of
+//  about sqrt(n) (calibrated on two glasses against the classic sand on the same motion, design
+//  8: 0.47 of it for the 1,155 grains of a 10 s glass, 0.30 for the 2,830 of a minute); CAL_S:
+//  the lattice those grains were counted on (s at the classic grain on a phone, 0.702 / 1.08),
+//  so that the same GPU motion is the same sound at every grain and size of the app's lattice;
+//  PACK_LO, PACK_HI, PACK_T, AXIS: a bed thrown flies, it does not slide (the classic sand's bed
+//  in the air slides nothing): its slides count in full while it is packed (PACK_HI of its
+//  points crowded, against how packed it has lately been: a memory of PACK_T s), less as it
+//  loosens, and once it is under PACK_LO not at all until it has packed again; nor while it
+//  moves as a body along the glass's axis (AXIS of its speed) faster than a landing is heard
+//  from; TAU_T: the agitation's memory, s (physics.js MOT.tauT), IDLE_T: under this, with the
+//  bed at rest, it is 0 (MOT.idleT);
 //  HOLD_MS: a readback's slides are fed until the next comes, this long at most; MUTE_MS: a fresh
 //  bed (a fill, a transfer) settles unheard this long; TURN_W: turned faster than this (rad/s), a
 //  bed neither lands nor heats (as the classic sand's, which a turn leaves calm)
-const SND = Object.freeze({ E_MIN: 0.0015, FALL_RUNS: 6, SLIDE_K: 16, TAU_T: 0.25, IDLE_T: 0.02, HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5 });
+const SND = Object.freeze({ E_MIN: 0.0015, FALL_S: 0.15, BED_MIN: 40, BED_SHARE: 0.03, SLIDE_K: 16, CAL_S: 0.65, PACK_LO: 0.75, PACK_HI: 0.95, PACK_T: 1, AXIS: 0.9,
+  TAU_T: 0.25, IDLE_T: 0.02, HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5 });
 const SELF_TEST_POINTS = 500;
 
 const ENGINE = { createDevice, Solver, GrainRenderer, ShaderLibrary, Toner };
@@ -222,9 +235,10 @@ export class RealSand {
     this._land = []; this._r2 = [0, 0];
     // the bed's sounds: what the readbacks since the last frame said (thump, slam), the slides'
     // rate (grain-cell moves a second) of the newest, each grid bulb's bed at the last readback
-    // (prev) and its fall under way (fall), and the counts for the report
+    // (prev), how packed it has lately been (pack), whether it was thrown loose and has not packed
+    // again (loose) and its fall under way (fall), and the counts for the report
     this._snd = { thump: new Float32Array(4), slam: new Float32Array(2), rate: 0, rateAt: -Infinity, heardAt: -Infinity, fedAt: 0,
-      prev: [null, null], fall: [null, null], gen: -1, parity: -1, muteUntil: -Infinity, n: { thumps: 0, slams: 0 } };
+      prev: [null, null], fall: [null, null], pack: [0, 0], loose: [false, false], gen: -1, parity: -1, muteUntil: -Infinity, n: { thumps: 0, slams: 0 } };
     this._tally = null; this._gen = 0;
     this._fall = { from: null, wallFrom: null, s: NaN, wall: NaN, floor: this._floorDepth(), log: [] };
     this._losses = []; this._lostInfo = null;
@@ -1627,7 +1641,7 @@ export class RealSand {
   _quiet(fresh) {
     const S = this._snd;
     S.thump.fill(0); S.slam.fill(0); S.rate = 0; S.rateAt = -Infinity; S.heardAt = -Infinity;
-    S.prev[0] = S.prev[1] = null; S.fall[0] = S.fall[1] = null;
+    S.prev[0] = S.prev[1] = null; S.fall[0] = S.fall[1] = null; S.pack[0] = S.pack[1] = 0; S.loose[0] = S.loose[1] = false;
     this.agit[0] = this.agit[1] = 0;
     if (fresh) S.muteUntil = this._wall() + SND.MUTE_MS;
   }
@@ -1648,17 +1662,22 @@ export class RealSand {
   /**
    * A readback's beds, heard (t.beds: [the bulb above the line, the one below] in the run's
    * orientation, parity; w.snd: _runSound). On the classic sand's scale:
+   *  - a bed is its bulb's crowded points once they are BED_MIN and BED_SHARE of the glass's: the
+   *    few under the neck of a glass just started, or the last above it, are the stream's, and
+   *    nothing is heard of them.
    *  - a landing. A bed that falls with the field along the glass's axis, and is then stopped by
-   *    the glass (it loses half its speed within FALL_RUNS runs, the field not having slowed it),
-   *    has landed with the speed u it fell at: E = u^2 / (2 G HB), the classic's energy of a bed
-   *    landing at u (its kinetic energy a grain over G times the bulb's height). On the side
-   *    gravity holds the sand to, a thump; on the far end, a slam; its place, the bed's centre
-   *    across the bulb. A bed stopped sideways lands nothing, as the classic sand's slip does not.
+   *    the glass (it loses half its speed within FALL_S of its fastest, the field not having
+   *    slowed it), has landed with the speed u it fell at: E = u^2 / (2 G HB), the classic's
+   *    energy of a bed landing at u (its kinetic energy a grain over G times the bulb's height).
+   *    On the side gravity holds the sand to, a thump; on the far end, a slam; its place, the
+   *    bed's centre across the bulb. A bed stopped sideways lands nothing, as the classic sand's
+   *    slip does not.
    *  - slides: the bed's motion within itself, the summed speed of its moving points beyond the
    *    bed's own speed (a bed flying or sliding as one body slides nothing) and beyond the speed a
    *    point moves from (a bed that only creeps slides nothing), in the CPU Sim's grains and cells
    *    a second, times SLIDE_K over the square root of the bed's grains (the classic sand slides
-   *    at its surface);
+   *    at its surface), and only of a bed that is packed and not flying along the glass as a
+   *    body: thrown, it flies, and the classic sand's bed in the air slides nothing;
    *  - agitation: each bed's granular temperature follows its own acceleration over the glass (in
    *    g, the classic's measure of the field's change) with the classic's memory, and a landing
    *    heats it as the classic's does (E HB / 3); 0 once the bed is at rest.
@@ -1668,27 +1687,44 @@ export class RealSand {
     if (!beds || !q || !this._heard()) return;                // (a mock's tally with no beds; a run of no substeps; asleep)
     const perf = this.clock.perf();
     if (this._sweep || this._wall() < S.muteUntil) { S.prev[0] = S.prev[1] = null; S.fall[0] = S.fall[1] = null; return; }
-    if (S.gen !== this._gen || S.parity !== parity) { S.gen = this._gen; S.parity = parity; S.prev[0] = S.prev[1] = null; S.fall[0] = S.fall[1] = null; }
+    if (S.gen !== this._gen || S.parity !== parity) { S.gen = this._gen; S.parity = parity; S.prev[0] = S.prev[1] = null; S.fall[0] = S.fall[1] = null; S.pack[0] = S.pack[1] = 0; S.loose[0] = S.loose[1] = false; }
+    // (no readback for a while, a stall: what was stirred has faded by the clock meanwhile, as agitation() said)
+    const late = (perf - S.heardAt - SND.HOLD_MS) / 1000;
+    if (late > 0) { const k = Math.exp(-late / SND.TAU_T); this.agit[0] *= k; this.agit[1] *= k; }
     // (a readback of a run from before a swap: its bulbs are the other way up now)
     const flipped = parity !== this.valve.parity, g = this.glass, GH = this.Gg * g.HBc, HB = this.cpu.geo.HB;
     const am = Math.hypot(q.ax, q.ay) || 1, kT = 1 - Math.exp(-q.dt / SND.TAU_T), uMin = Math.sqrt(2 * SND.E_MIN * GH);
     // (tally.wgsl: a point moves when it is faster than 2 % of a free fall over the glass in the run's field)
     const still = 0.02 * Math.sqrt(2 * Math.max(am, 1) * g.H);
+    // (a few crowded points are no bed; the slides' share is of the bed's grains on the lattice it was calibrated on)
+    const nMin = Math.max(SND.BED_MIN, SND.BED_SHARE * ((t.above || 0) + (t.below || 0)));
+    const calPpg = PPC * PPC * SND.CAL_S * SND.CAL_S, kP = 1 - Math.exp(-q.dt / SND.PACK_T);
     let rate = 0;
     for (let gb = 0; gb < 2; gb++) {
       const bed = beds[gb], b = flipped ? 1 - gb : gb;         // b: the app's bulb, 0 the one above now
-      if (!bed || !(bed.n > 0)) { S.prev[gb] = null; S.fall[gb] = null; this.agit[b] *= 1 - kT; continue; }
+      if (!bed || !(bed.n >= nMin)) { S.prev[gb] = null; S.fall[gb] = null; S.pack[gb] = 0; S.loose[gb] = false; this.agit[b] *= 1 - kT; continue; }
       const vx = bed.vx, vy = bed.vy, sp = Math.hypot(vx, vy);
       const moving = bed.sliding > Math.max(3, 0.01 * bed.n);
+      // how packed the bed is (the share of its bulb's points that are crowded), against how packed
+      // it has lately been: the heap under a running stream is never all crowded, a bed thrown loose
+      // was packed a moment ago, and stays loose until it has packed again
+      const N = gb ? t.below : t.above, r = N > 0 ? bed.n / N : 1;
+      const ref = S.pack[gb] > r ? S.pack[gb] + (r - S.pack[gb]) * kP : r;
+      S.pack[gb] = ref;
+      if (r < SND.PACK_LO * ref) S.loose[gb] = true; else if (r >= SND.PACK_HI * ref) S.loose[gb] = false;
+      // (... or it flies along the glass as a body, as the classic sand's bed in the air)
+      const flies = S.loose[gb] || (sp > uMin && Math.abs(vy) >= SND.AXIS * sp);
+      const pk = flies ? 0 : Math.max(0, Math.min(1, (r / ref - SND.PACK_LO) / (SND.PACK_HI - SND.PACK_LO)));
       // slides: the moving points' speed beyond the bed's own, and beyond the speed a point moves from
-      if (bed.sliding > 3) rate += Math.max(0, bed.slide - bed.sliding * Math.max(sp, still)) / Math.sqrt(Math.max(1, bed.n / this.ppg));
+      if (bed.sliding > 3) rate += pk * Math.max(0, bed.slide - bed.sliding * Math.max(sp, still)) / Math.sqrt(Math.max(SND.SLIDE_K * SND.SLIDE_K, bed.n / calPpg));
       // a landing
       let E = 0, F = S.fall[gb];
       if (q.turn) F = null;
       else if (F && sp <= F.u) {
-        F.push += (q.ax * F.dx + q.ay * F.dy) * q.dt; F.runs++;
+        F.push += (q.ax * F.dx + q.ay * F.dy) * q.dt; F.t += q.dt;
         const u = vx * F.dx + vy * F.dy;
-        if (u <= 0.5 * F.u) {
+        if (F.t > SND.FALL_S + 1e-6) F = null;                 // (too late: it slowed, it did not land)
+        else if (u <= 0.5 * F.u) {
           // (stopped by the glass, not slowed by the field: what the glass took is 0.4 of its speed and more)
           if (F.u + F.push - u >= 0.4 * F.u) {
             E = 0.5 * F.u * F.u / GH;
@@ -1697,8 +1733,8 @@ export class RealSand {
             else { S.slam[0] += E; S.slam[1] = x; S.n.slams++; }
           }
           F = null;
-        } else if (F.runs > SND.FALL_RUNS) F = null;
-      } else if (sp >= uMin && vx * q.ax + vy * q.ay >= 0.5 * sp * am && Math.abs(vy) >= 0.707 * sp) F = { u: sp, dx: vx / sp, dy: vy / sp, push: 0, runs: 0 };
+        }
+      } else if (sp >= uMin && vx * q.ax + vy * q.ay >= 0.5 * sp * am && Math.abs(vy) >= 0.707 * sp) F = { u: sp, dx: vx / sp, dy: vy / sp, push: 0, t: 0 };
       else if (F) F = null;
       S.fall[gb] = F;
       // the granular temperature
@@ -1711,7 +1747,7 @@ export class RealSand {
       this.agit[b] = T;
       S.prev[gb] = [vx, vy];
     }
-    S.rate = SND.SLIDE_K * rate / (this.s * this.ppg);
+    S.rate = SND.SLIDE_K * rate / (this.s * this.ppg);        // (in the app's grains and cells a second)
     S.rateAt = S.heardAt = perf;
   }
 

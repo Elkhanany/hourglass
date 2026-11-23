@@ -53,7 +53,11 @@
  *    classic's slides at the calibrated share, every frame also when calm draws every other, and
  *    a bed moving as one body none; a shaken bed's agitation follows its own acceleration and is
  *    0 again at rest; at rest, hidden and asleep nothing is fed, and the sound never keeps the
- *    glass awake; each with its control (the same motion on an engine that hears nothing).
+ *    glass awake; each with its control (the same motion on an engine that hears nothing). A few
+ *    crowded points (the plug of the stream under the neck of a glass just started) are no bed
+ *    and feed nothing; a bed thrown loose, or flying along the glass as a body, slides nothing;
+ *    the landing's window is time, the same at 60, 120 and 180 runs a second; after a stall the
+ *    faded agitation stays faded; and the same GPU motion is the same sound at every lattice.
  *
  *   node tools/test/realsand-adapter.test.js
  */
@@ -1113,6 +1117,107 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   var s11 = await scene(SD, rSD, tossD.list, { lower: true }), th11 = fed(s11, 'th1');
   check(SD.T.state === 'done' && rSD.nTop === 0 && th11.length === 1 && Math.abs(th11[0].th1 / Ewant - 1) < 1e-3 && fed(s11, 'th0').length === 0,
     'finished (all the sand below), the lower bed\'s landing feeds the lower bulb\'s thump (' + th11.map(function (r) { return r.th1.toFixed(4) + ' in frame ' + r.k; }).join(', ') + '), none for the upper');
+
+  // a few crowded points are no bed: a 10 s glass just started, the plug of the stream under its neck (as the
+  // real engine's readbacks gave it: 5 points slowing from 59 to 27 cells/s) lands nothing and stirs nothing
+  var PL = makeApp({ ms: 10000, seed: 307, lag: one });
+  var rPL = await PL.attach(); PL.calibrate(); PL.T.rem = PL.T.durationMs;
+  await framesOf(PL, 60);
+  PL.start();
+  var plugV = [-58.9, -47.1, -35.3, -26.8, -26, -19.7, -24.4, -23.5], GHp = rPL.Gg * rPL.glass.HBc, Eplug = 58.9 * 58.9 / (2 * GHp);
+  var plugOf = function (n) { return plugV.map(function (v) { return B.bed([{ n: n, v: [0, v] }]); }); };
+  var s12 = await scene(PL, rPL, plugOf(5), { lower: true });
+  // (control: the same speeds of a bed, 5 % of the glass's points, are a landing)
+  var nBed = Math.ceil(0.05 * rPL.points), s12c = await scene(PL, rPL, plugOf(nBed), { lower: true }), th12c = fed(s12c, 'th1');
+  var a12 = Math.max.apply(null, s12.map(function (r) { return r.agit; })), a12c = Math.max.apply(null, s12c.map(function (r) { return r.agit; }));
+  check(PL.T.state === 'running' && fed(s12, 'th0').length + fed(s12, 'th1').length + fed(s12, 'slam').length === 0 && sum(s12, 'slides') === 0 && a12 === 0 &&
+    th12c.length === 1 && Math.abs(th12c[0].th1 / Eplug - 1) < 1e-3 && a12c > 0.3,
+    'a few crowded points are no bed: the plug of the stream under the neck of a glass just started (5 points slowing from 59 to 27 cells/s) feeds no thump, slam, slide or agitation (' +
+    (fed(s12, 'th0').length + fed(s12, 'th1').length + fed(s12, 'slam').length) + ', ' + sum(s12, 'slides') + ', ' + a12 + '); the same speeds of a bed of ' + nBed + ' points (5 % of the glass\'s ' + rPL.points +
+    ') land a thump of ' + (th12c[0] ? th12c[0].th1.toFixed(4) : '-') + ' and stir it to ' + a12c.toFixed(2) + ' (control)');
+
+  /* The same rules one readback at a time: the adapter's own _hear, _bedSound and agitation() on a glass
+   * of its own, awake, the clock moved by hand (the mock's runs and frames left out). */
+  function hearer(app, real) {
+    real.modes.mode = 'full'; real._quiet(false); real._snd.muteUntil = -Infinity;
+    var N = real.points;
+    /** One readback dtMs after the last (o.none: none came): what the next frame is fed, and the agitation. */
+    return function (dtMs, up, lo, o) {
+      o = o || {};
+      app.V.perf += dtMs; app.V.wall += dtMs;
+      if (!o.none) real._hear({ snd: { dt: dtMs / 1000, ax: 0, ay: -real.Gg, sx: 0, sy: -1, turn: false } },
+        { above: o.above === undefined ? N : o.above, below: o.below || 0, beds: B.beds(up, lo) }, real.valve.parity);
+      var f = { thump: new Float32Array(4), slam: new Float32Array(2), slides: 0, moved: 0 };
+      real._bedSound(f, app.V.perf);
+      return { th0: f.thump[0], th1: f.thump[2], slam: f.slam[0], slides: f.slides, rate: real._snd.rate, agit: real.agitation() };
+    };
+  }
+  var HR = makeApp({ ms: 60000, seed: 309, lag: one });
+  var rHR = await HR.attach(); HR.calibrate(); HR.T.rem = HR.T.durationMs;
+  var hear = hearer(HR, rHR), NH = rHR.points, GHh = rHR.Gg * rHR.glass.HBc, F60 = 1000 / 60, k13;
+  // a thrown bed flies, it does not slide. 300 of the bed's points sliding at 60 cells/s: heard while the bed is
+  // packed; thrown loose (60 % of its bulb's points still crowded) nothing, nor while it packs again (85 %),
+  // and heard again once packed
+  var within = function (n) { return B.bed([{ n: n - 300 }, { n: 300, v: [60, 0] }]); };
+  for (k13 = 0; k13 < 5; k13++) var packed13 = hear(F60, within(NH), null);
+  for (k13 = 0; k13 < 5; k13++) var loose13 = hear(F60, within(Math.round(0.6 * NH)), null);
+  for (k13 = 0; k13 < 5; k13++) var packing13 = hear(F60, within(Math.round(0.85 * NH)), null);
+  for (k13 = 0; k13 < 5; k13++) var again13 = hear(F60, within(NH), null);
+  // ... nor while it moves as a body along the glass (90 cells/s, the same 300 points 60 across it): the classic
+  // sand's bed in the air slides nothing; moving as fast across the glass it slides (control)
+  for (k13 = 0; k13 < 5; k13++) var along13 = hear(F60, B.bed([{ n: NH - 300, v: [0, 90] }, { n: 300, v: [60, 90] }]), null);
+  for (k13 = 0; k13 < 5; k13++) var across13 = hear(F60, B.bed([{ n: NH - 300, v: [90, 0] }, { n: 300, v: [90, 60] }]), null);
+  check(packed13.rate > 1000 && loose13.rate === 0 && packing13.rate === 0 && Math.abs(again13.rate / packed13.rate - 1) < 1e-9 && along13.rate === 0 && across13.rate > 300 &&
+    packed13.th0 + loose13.th0 + packing13.th0 + again13.th0 === 0,
+    'a thrown bed flies, it does not slide: sand sliding within a packed bed is heard (' + Math.round(packed13.rate) + ' slides a second); the same within a bed thrown loose (60 % of its bulb\'s points crowded) is not (' +
+    Math.round(loose13.rate) + '), nor while it packs again (85 %: ' + Math.round(packing13.rate) + '), and it is once packed (' + Math.round(again13.rate) + '); a packed bed moving along the glass as a body at 90 cells/s slides nothing (' +
+    Math.round(along13.rate) + '), across the glass it does (control: ' + Math.round(across13.rate) + ')');
+  // the landing's window is counted in time, not in runs: a bed falling at 86 cells/s that the glass slows
+  // to half that speed in 0.12 s and then stops lands the same thump whatever the display's rate
+  var Efall = 86 * 86 / (2 * GHh), landed = [], slow14 = [];
+  [60, 120, 180].forEach(function (hz) {
+    [0.12, 0.2].forEach(function (halfS) {
+      rHR._quiet(false);
+      var E = 0, n = 0;
+      hear(1000 / hz, B.rest(NH), null);
+      for (var q = 0; q / hz <= halfS + 0.1; q++) {
+        var tq = q / hz, r = hear(1000 / hz, B.bed([{ n: NH, v: [0, tq <= halfS + 1e-9 ? -86 * (1 - 0.5 * tq / halfS) : 0] }]), null);
+        if (r.th0 > 0) { E += r.th0; n++; }
+      }
+      (halfS === 0.12 ? landed : slow14).push({ hz: hz, n: n, E: E });
+    });
+  });
+  check(landed.every(function (l) { return l.n === 1 && Math.abs(l.E / Efall - 1) < 1e-6; }) && slow14.every(function (l) { return l.E < 0.5 * Efall; }),
+    'the landing\'s window is time, not runs: a bed falling at 86 cells/s that the glass slows to half in 0.12 s lands one thump of ' + Efall.toFixed(4) + ' at 60, 120 and 180 runs a second (' +
+    landed.map(function (l) { return l.hz + ': ' + l.n + ' of ' + l.E.toFixed(4); }).join(', ') + '); slowed to half only in 0.2 s it has not landed at that speed, only as fast as the glass then stopped it (control: ' +
+    slow14.map(function (l) { return l.E.toFixed(4); }).join(', ') + ')');
+  // a stall: no readback for a second while the sand was stirred. What was stirred has faded by the clock,
+  // and the next readback (the bed at rest) does not bring it back
+  rHR._quiet(false);
+  var shaken = function (q) { return B.bed([{ n: NH, v: [100 * Math.sin(2 * Math.PI * 5 * q / 60), 0] }]); };
+  for (k13 = 0; k13 < 60; k13++) var stirred15 = hear(F60, shaken(k13), null);
+  var stalled15 = hear(1000, null, null, { none: true }), back15 = hear(F60, B.rest(NH), null);
+  // (control: with no stall the readback after the shake still carries most of it: it fades with its memory, not at once)
+  rHR._quiet(false);
+  for (k13 = 0; k13 < 60; k13++) hear(F60, shaken(k13), null);
+  var next15 = hear(F60, B.rest(NH), null);
+  check(stirred15.agit > 0.4 && stalled15.agit < 0.05 && back15.agit < 0.05 && next15.agit > 0.7 * stirred15.agit,
+    'a stall does not bring a faded shimmer back: stirred to ' + stirred15.agit.toFixed(2) + ', then no readback for 1 s (agitation ' + stalled15.agit.toFixed(3) + '), the next readback, the bed at rest, reads ' +
+    back15.agit.toFixed(3) + '; with no stall the readback after the shake still reads ' + next15.agit.toFixed(2) + ' (control)');
+  // the same GPU motion is the same sound at every grain and size of the app's lattice: the app divides the
+  // slides by the lattice's grains and cells (app.js feedAudio: fine^3; a tablet's lattice is 1.3 / 1.08 finer)
+  var perEar = [];
+  for (var u16 of [{ q: 1.08, fine: 1, name: 'phone' }, { q: 1.08, fine: Math.SQRT2, name: 'Fine' }, { q: 1.08, fine: 2, name: 'Finest' }, { q: 1.3, fine: 1, name: 'tablet' }]) {
+    var U16 = makeApp({ ms: 10000, q: u16.q, fine: u16.fine, seed: 311, lag: one });
+    var rU16 = await U16.attach(), hear16 = hearer(U16, rU16), r16 = null, lat = u16.q * u16.fine / 1.08;
+    // (1,600 of the bed's points drifting at 30 cells/s, 300 at 30 and 80 across them: every one of them moving)
+    for (k13 = 0; k13 < 5; k13++) r16 = hear16(F60, B.bed([{ n: 1600, v: [30, 0] }, { n: 300, v: [30, 80] }]), null, { above: 1900 });
+    perEar.push({ name: u16.name, s: rU16.s, rate: r16.rate, ear: r16.rate / (lat * lat * lat) });
+    if (U16.restorePace) U16.restorePace();
+  }
+  check(perEar[0].ear > 1000 && perEar.every(function (e) { return Math.abs(e.ear / perEar[0].ear - 1) < 1e-6; }),
+    'the same motion of the same GPU bed is the same sound at every lattice of the app: its slides, divided by the lattice\'s grains and cells as the app divides them, are ' +
+    perEar.map(function (e) { return Math.round(e.ear) + ' a second (' + e.name + ', s ' + e.s.toFixed(3) + ')'; }).join(', '));
 
   // a device lost while hidden (a lock): the CPU takes over with the clock untouched, the GPU comes back on return
   var Z = makeApp({ ms: 10000, seed: 131 });
