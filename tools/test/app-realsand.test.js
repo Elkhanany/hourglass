@@ -90,7 +90,11 @@
  *        it awake and heard); a jolt wakes it and the sound comes within 3 frames. HIDDEN: no
  *        update at all, the rush and the shimmer let go (the control: back in view, heard again).
  *        MUTED: the feeds come, the output is silent, and so with the volume at 0 (the
- *        control: unmuted, it is not).
+ *        control: unmuted, it is not). BEDS: the engine's own ears, with nothing said for it:
+ *        the mock chip's readbacks carry each bulb's bed (solver.mjs bedOf), the upper one
+ *        sliding within itself, then falling and stopped by the glass; the real adapter makes
+ *        slides, agitation and one landing of it, and audio.update is given them and plays them
+ *        (the control: the same bed at rest in its records: nothing).
  *
  *  DEFAULT-NA nothing saved, the real engine: loaded once, "na" with "Tap to try again", the
  *        setting on and saved with v 2, the user agent kept; the next launch says so and loads
@@ -1907,6 +1911,48 @@ async function testSounds(s, env) {
             !v0.muted && v0.master === 0 && v0.thumps >= 1 && v0.peak >= 0 && v0.peak < 0.001, 'peak ' + v0.peak.toExponential(2) + ' ' + bedBrief(v0));
     await bedSay(t, false);
     await bedShake(t, false);
+
+    /* ---- BEDS: nothing said for the engine: its own ears on the chip's records --------------- */
+    await t.eval(function () { window.Hourglass.reset(); });
+    await waitFor(t, function () { return !document.getElementById('app').classList.contains('sweep') && window.Hourglass.timer.state === 'idle'; }, 8000);
+    await sleep(2500);                   // (a new bed settles unheard)
+    /** The chip's readbacks from now on: the upper bed (20,000 points) as fn(k) says, k the readback's number; the lower bulb empty. */
+    var bedsSay = function (how) {
+      return t.eval(function (how) {
+        var k = 0, e = window.__mockEnv;
+        e.feeds = null;
+        e.tally = !how ? null : function () {
+          k++;
+          var fall = how === 'moved' && k > 60 && k <= 63, stop = how === 'moved' && k > 63 && k <= 67;
+          // moved: a quarter of its points sliding at 30 cells a second, its own velocity swinging; then 3 readbacks falling at 160, and stopped
+          var vx = how === 'moved' ? 6 * Math.sin(k / 3) : 0, vy = fall ? -160 : (stop ? -8 : 0), sl = how === 'moved' ? 5000 : 0;
+          return { moving: 5000, beds: [
+            { n: 20000, vx: vx, vy: vy, v2: 900, x: 3, y: 30, sliding: sl, slide: sl * (30 + Math.sqrt(vx * vx + vy * vy)) },
+            { n: 0, vx: 0, vy: 0, v2: 0, x: 0, y: 0, sliding: 0, slide: 0 }] };
+        };
+      }, how);
+    };
+    await bedsSay('rest');
+    // (asleep, the chip reports nothing: a jolt of the phone wakes it, and its sand, reported moving, keeps it awake)
+    await t.eval(function () { window.__motion.x = 1; setTimeout(function () { window.__motion.x = 0; }, 250); });
+    await sleep(900);
+    await bedWatch(t);
+    await sleep(2000);
+    var br = await bedRead(t);
+    s.check('BEDS (control): the chip reports its sand awake but the beds at rest (no point sliding): the engine gives the sound nothing',
+            br.state === 'idle' && br.mode !== 'asleep' && br.updates >= 10 && br.thumps === 0 && br.slams === 0 && br.slides < 1 && br.agit === 0 && br.played === 0 && br.rush === 0,
+            bedBrief(br));
+    await bedWatch(t);
+    await bedsSay('moved');
+    await sleep(3500);
+    var bm = await bedRead(t);
+    await bedsSay(null);
+    var eng = await t.eval(function () { var rs = window.Hourglass.realSand, st = rs.stats(); return { G: rs.Gg, HB: rs.glass.HBc, sound: st.sound || null }; });
+    var landing = 160 * 160 / (2 * eng.G * eng.HB);
+    s.check('BEDS: the upper bed sliding within itself in the chip\'s records, idle: the real adapter gives slides and agitation, audio.update gets them, the rush sounds',
+            bm.state === 'idle' && bm.fed === 0 && bm.slides > 3000 && bm.agit > 0 && bm.rush > 0.05, bedBrief(bm) + ' engine ' + JSON.stringify(eng.sound));
+    s.check('BEDS: ... and the bed that fell at 160 cells a second and was stopped by the glass lands once, at the energy of that fall (' + landing.toFixed(4) + ' within a fifth), and is played',
+            bm.thumps === 1 && bm.played === 1 && bm.slams === 0 && Math.abs(bm.thumpE / landing - 1) < 0.2, bedBrief(bm));
     await sleep(300);
     await H.invariants(s, t, 'SOUNDS');
   } finally { await t.close(); }

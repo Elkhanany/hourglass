@@ -234,8 +234,20 @@ run), the glass and its frame, the six sands and layered sand, Flip,
 turning and spinning the glass, **Sand**, **Reset** with its one-second
 transition, work and rest, Real motion with the phone lying still or in the
 hand, the glass carrying on across reloads, the sound of the stream, the
-landings, the tail and the fill, the bowl, and every haptic but the landing
-buzz.
+landings, the tail and the fill, the bowl, and every haptic.
+
+What you hear of the sand itself, from version 1.11.0 (until then Real
+sand's bed was silent). What "Playing with the glass" says of the sound
+holds for Real sand too, and it is made from what the sand on the graphics
+chip did, a few frames after it did it: a bed that falls and lands thumps,
+one thrown against the far end clacks, sand sliding within its bed hisses
+on the side it runs to, and stirred sand shimmers, about as loud as the
+classic sand for the same motion, before the start, paused and finished as
+while it runs. A phone that moves without moving its sand makes no sound of
+sand: walked with, the sand on the chip lies still, and is silent, where
+the classic sand shimmers a little. A glass asleep (its sand at rest) is
+silent, and the sound never keeps it awake; a jolt wakes it and is heard as
+the sand moves.
 
 What it needs: WebGPU, which Safari has from iOS 26, also in a web app on
 the home screen. Without it the switch shows off and says *Needs WebGPU (iOS
@@ -320,8 +332,6 @@ What it leaves out for now:
 - The glass does not crack. A hard landing or a blow thumps and clacks;
   knocks, flicks and shaking do nothing to it. Cracks the glass already had
   stay, leak nothing and can be mended; Reset makes it whole.
-- The bed's landing thumps, the avalanche hiss and the bed's slams are
-  silent, and so is the landing buzz (Android).
 - The current sand's glow, rim light and depth shading are not drawn; the
   grains are lit as in the sand lab.
 - **Grain** sets the current sand only, so it is hidden while the new sand

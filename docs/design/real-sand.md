@@ -61,8 +61,8 @@ the lab's sand inside; the time exact to the substep; the six sands and
 layered sand in their own colours; Flip, turning and spinning the glass,
 **Sand**, **Reset** with its one-second transition, work and rest, Real
 motion, sessions across reloads; the sound of the stream, the landings, the
-tail and the fill, the bowl, blows on the desk, mending; every haptic but the
-landing buzz. What it leaves out is in section 12.
+tail and the fill, the bed when the glass is moved (section 8), the bowl,
+blows on the desk, mending; every haptic. What it leaves out is in section 12.
 
 ---
 
