@@ -227,9 +227,11 @@ the home screen. Without it the switch shows off and says *Needs WebGPU (iOS
 26 or later). Tap to try again*, and the classic sand runs; where the only
 graphics adapter is a software one, it says the device's graphics are too
 slow. The switch is never greyed: a tap on it tries again. A browser with
-WebGPU but no usable adapter is remembered by its user agent, so later
-launches say so without loading the engine; an iOS update changes the user
-agent, and the first launch after it tries again. So does an app update
+WebGPU but no usable adapter is remembered by its user agent for seven
+days, so later launches say so without loading the engine; after that, or
+once an iOS update has changed the user agent, a launch tries again (and one
+that finds no adapter right after the graphics chip was reset or stopped
+answering is not remembered at all). So does an app update
 that brings a new engine, which also forgets three failed starts. A start
 that fails this way while the app is put away is not believed: it is tried
 again once the app is in view.

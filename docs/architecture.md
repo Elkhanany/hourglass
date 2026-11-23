@@ -266,7 +266,8 @@ These hold until a change says otherwise, with its reason.
 - **Real sand is the default, and its switch is the owner's alone** (1.10.0,
   [settings design 5](design/settings.md)): the app never writes it off. A
   browser that cannot have it is remembered by its user agent and tried
-  again after an iOS update, a new engine build or a tap; the classic sand
+  again after seven days, an iOS update that changes the user agent, a new
+  engine build or a tap; the classic sand
   is always there to run instead. The test harness seeds every page with
   Real sand off (`tools/test/lib/seed.js`) unless the test asks for it.
 - **What an iPhone allows a web app** decides a good deal: motion

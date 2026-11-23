@@ -644,9 +644,16 @@ note under the switch says why; the row's `data-state` holds the bare state
 `paused`). Without `navigator.gpu` the row says *Needs WebGPU*, found at
 every launch for nothing, and nothing is stored. With it, but no adapter or
 only a software one (found by loading the engine), the same, and the
-browser's user agent is kept (`realSandNa`): while it is the same, a launch
-says so without loading anything; an iOS update changes it, and the launch
-after tries again. Such a failure in a page that was put away since the
+browser's user agent is kept (`realSandNa`, with the time in
+`realSandNaAt`): while it is the same, and for seven days, a launch
+says so without loading anything; after that, or once an iOS update has
+changed it (whether one does in a home-screen app is not known), the launch
+tries again. The same failure from a start made again in a session that saw
+the chip reset, lost or not answering (the watchdog's new engine, the retry
+of a start the reset cut short) may only be the chip on its way back: it is
+neither kept nor counted, the note says *Real sand could not restart; it
+will try again next launch*, and the classic sand runs for the session.
+Such a failure in a page that was put away since the
 start began is not believed (iOS may refuse an adapter to a page in the
 background): it is retried once in view. The switch is never disabled: in
 that state it shows off, and a tap clears what was kept and reloads. Any
