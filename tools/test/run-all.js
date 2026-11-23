@@ -10,7 +10,7 @@
  *                                             "lab-" runs the lab pages' suites,
  *                                             lab-sand's browser run included;
  *                                             "realsand-" the sand engine's (Node,
- *                                             seconds: realsand-valve, -fill, -adapter,
+ *                                             seconds: realsand-valve, -fill, -felt, -adapter,
  *                                             -shell); "app-realsand" the Real sand
  *                                             switch in the app on a mock graphics chip
  *                                             (about 2 minutes); "realsand-gpu" the app's

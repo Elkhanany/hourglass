@@ -37,7 +37,9 @@
  *    the device opened fails the start with 'hidden'; asleep, the picture is drawn again after a
  *    palette, a new size and back from hidden, and a layout that changes nothing touches nothing;
  *    one shader library a page (a rebuild fetches no shader) and the shaders' build checked
- *    ('stamp'); the heat guard's trip is logged.
+ *    ('stamp'); the heat guard's trip is logged;
+ *  - the glass's motion (felt.mjs) as RealSand's jolts say: live by default (a 0.5 g jolt at once
+ *    and as it is, 1.5 g capped at 2 g), 'film' slowed as before, plain under Reduce Motion.
  *
  *   node tools/test/realsand-adapter.test.js
  */
@@ -782,19 +784,30 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     'held still in the hand (0.01 g of tremor, 0.08 rad/s): calm ' + Math.round(100 * calmShare) + ' % of frames once the run\'s start is over, and motionActive never set (the catch-up stays allowed); a 0.3 g jolt held 0.6 s: full, and motion');
   Y.onFrame = null; Y.motionIn = null;
 
-  // feel(): a 50 ms jolt of 0.5 g reaches the GPU's substeps played back slowed, as a slowed film (5.2)
-  var J = makeApp({ ms: 60000, seed: 171 });
-  var rJ = await J.attach(); J.calibrate(); J.T.rem = J.T.durationMs; J.start();
-  await J.run(3000);
-  J.env.recordFields = true; J.env.solver.fields = [];
-  var joltUntil = J.V.wall + 50;
-  J.motionIn = function (a) { return a.V.wall <= joltUntil ? { fx: 0.5, fy: 0, w: 0 } : null; };
-  await J.run(1000);
-  J.motionIn = null; J.env.recordFields = false;
-  var fs2 = J.env.solver.fields, gx = fs2.map(function (f) { return f.gravity[0] / rJ.Gg; });
-  var over = gx.filter(function (x) { return x > 0.1; }).length, peak = Math.max.apply(null, gx);
-  check(over > 2 * 24 && peak > 0.35 && peak <= 0.5 && fs2.length > 400,
-    'a 50 ms jolt of 0.5 g (24 substeps at 480 Hz) is felt by ' + over + ' substeps, slowed like a film, at up to ' + peak.toFixed(2) + ' g against the glass\'s gravity');
+  // feel(): a 50 ms jolt reaches the GPU's substeps (5.2), as RealSand's jolts say (felt.mjs):
+  // live, the default, at once (0.5 g, under the bed's friction, as it is; 1.5 g, beyond it, at the
+  // film's speed, capped at 2 g); 'film' (as before) slowed like a film; plain under Reduce Motion
+  async function joltRun(g, mode, reduced) {
+    var J = makeApp({ ms: 60000, seed: 171 });
+    var rJ = await J.attach(); J.calibrate(); J.T.rem = J.T.durationMs; J.start();
+    if (mode) rJ.jolts = mode;
+    rJ.reduced = !!reduced;
+    await J.run(3000);
+    J.env.recordFields = true; J.env.solver.fields = [];
+    var joltUntil = J.V.wall + 50;
+    J.motionIn = function (a) { return a.V.wall <= joltUntil ? { fx: g, fy: 0, w: 0 } : null; };
+    await J.run(1000);
+    J.motionIn = null; J.env.recordFields = false;
+    var gx = J.env.solver.fields.map(function (f) { return f.gravity[0] / rJ.Gg; });
+    return { over: gx.filter(function (x) { return x > 0.1; }).length, peak: Math.max.apply(null, gx), n: gx.length, jolts: rJ.stats().jolts };
+  }
+  var jF = await joltRun(0.5, 'film'), jL = await joltRun(0.5), jL15 = await joltRun(1.5), jP15 = await joltRun(1.5, null, true);
+  check(jF.over > 2 * 24 && jF.peak > 0.35 && jF.peak <= 0.5 && jF.n > 400 && jF.jolts === 'film',
+    'jolts \'film\' (as before): a 50 ms jolt of 0.5 g (24 substeps at 480 Hz) is felt by ' + jF.over + ' substeps, slowed like a film, at up to ' + jF.peak.toFixed(2) + ' g against the glass\'s gravity');
+  check(jL.jolts === 'live' && jL.over >= 20 && jL.over <= 40 && jL.peak > 0.35 && jL.peak <= 0.5 && jL15.peak > 1.5 && jL15.peak <= 2 + 1e-6,
+    'live, the default: the same jolt is felt by ' + jL.over + ' substeps (at once, not slowed), at up to ' + jL.peak.toFixed(2) + ' g (under the bed\'s friction: as it is); a 1.5 g jolt at up to ' + jL15.peak.toFixed(2) + ' g (beyond the friction at the film\'s speed, capped at 2 g)');
+  check(jP15.jolts === 'plain' && jP15.peak > 1.3 && jP15.peak <= 1.5 && jP15.over <= 40,
+    'under Reduce Motion the glass\'s motion is played plain: the 1.5 g jolt at up to ' + jP15.peak.toFixed(2) + ' g, by ' + jP15.over + ' substeps');
 
   // the heat guard: full (a hand shaking the glass) and slower than 0.6 of real time for 20 s: calm
   var K = makeApp({ ms: 120000, seed: 161 });

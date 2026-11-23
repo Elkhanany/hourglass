@@ -24,7 +24,7 @@ import { newPace, paceReset as paceForget, paceSkip, paceBudget, paceFrame, pace
 import { PPC, makeFill, packParticles } from '../../realsand/fill.mjs';
 import { GrainRenderer, FLIGHT, flightOf, exposure } from '../../realsand/grains.mjs';
 import * as Rate from '../../realsand/rate.mjs';
-import { GlassFelt } from '../../realsand/felt.mjs';
+import { GlassFelt, JOLT_MODES, kneeOf } from '../../realsand/felt.mjs';
 import { Valve, ALLOW_SHUT, NECK_ON } from '../../realsand/valve.mjs';
 import { BUILD } from '../../realsand/build.mjs';
 import { TIMERS, timerById, grainsFor, makeClock, targetAt, MODES, newModes, modesReset, chooseMode, frameMsFor, median, burstCost, gpuShare } from './timer.mjs';
@@ -35,7 +35,7 @@ const OFFSCREEN = QUERY.has('offscreen');
 // the Rotor probe (?rotor=1): the grains' canvas in a turning div between two WebGL canvases
 const ROTOR = QUERY.get('rotor') === '1';
 // the engine's build stamp this page was written for (realsand/build.mjs; Copy results prints both)
-const BUILD_EXPECTED = '4';
+const BUILD_EXPECTED = '5';
 // the lifecycle log: visibility, device loss, start-up times (ms since the page began)
 const lifeLog = [];
 let lastVisibleAt = 0;
@@ -94,7 +94,7 @@ const CYCLE = {
   maxStep: [1, 1.5, 2],
   coriolis: [true, false],
   auto: [true, false],
-  impulse: [true, false],
+  jolts: JOLT_MODES,
   blur: [1, 0.5, 0],
   spread: [true, false],
   yieldIn: [false, true],
@@ -102,6 +102,10 @@ const CYCLE = {
   budget: [true, false],
   mode: ['full', 'auto', 'calm']
 };
+// the jolts button's names, and what the report says of each
+const JOLT_LABEL = { live: 'live', slowmo: 'slow motion', film: 'film (as before)', plain: 'plain' };
+const JOLT_SAYS = { live: 'live (beyond the friction at the film\'s speed, at once)', slowmo: 'a lone jolt played slowed like a film, live while shaken',
+  film: 'played slowed like a film (as before: up to 0.5 s late)', plain: 'plain' };
 const FLIP_S = 1.2;
 const GATE_S = 0.5;                                    // the neck stays closed this long after a Reset
 const BODY = { fw: 30, fz: 0.85, hw: 7, hz: 0.6 };     // app.js: the finger's hold, and home
@@ -125,7 +129,10 @@ const GPU_SHARE = 0.75;
 const DEFAULT_SETUP = { res: 'S', amount: 'minute' };
 const S = {
   res: DEFAULT_SETUP.res, amount: DEFAULT_SETUP.amount, material: 'coarse', speed: 'app', input: 'upright', hud: true,
-  hz: 480, iterations: 5, cap: 24, maxStep: 1, coriolis: true, neckMin: 5.5, auto: true, impulse: true,
+  hz: 480, iterations: 5, cap: 24, maxStep: 1, coriolis: true, neckMin: 5.5, auto: true,
+  // how the glass's motion is played to the sand at app speed (felt.mjs): 'live' (the default),
+  // 'slowmo' (a lone jolt as a slowed film), 'film' (the slowed film throughout, as before), 'plain'
+  jolts: JOLT_MODES[0],
   // motion blur: a grain is drawn as the streak it makes in this many display frames; 0: off
   blur: 1,
   // true: every grain streaks, a bed moving as a whole too (the drawing before the crowding rule)
@@ -151,8 +158,8 @@ const rate = Rate.newRate(480);
 // frames' substeps and submit-to-done times (for the HUD and the report only)
 const pace = newPace();
 function paceReset() { paceForget(pace); }
-// the glass's linear acceleration as the sand feels it: smoothed, and at app speed its jolts
-// recorded each substep and played back slowed (felt.mjs)
+// the glass's linear acceleration as the sand feels it: smoothed, and at app speed played to the
+// sand as S.jolts says (felt.mjs; live by default), with the knee of the material
 const felt = new GlassFelt();
 let gpu = null, solver = null, renderer = null, glass = null;
 const glassCache = new Map();
@@ -450,10 +457,11 @@ function fieldAt() {
   const dt = 1 / rate.hz;
   stepPose(dt);
   let { gx, gy, w, a, lax, lay } = feltSample();
-  // the glass's own acceleration as the sand feels it (felt.mjs): at app speed its jolts are
-  // played back slowed, as in a slowed film of them
-  const [fax, fay] = felt.feel(lax, lay, dt, simTime, S.speed === 'app' && S.impulse, lamNow());
-  gx -= fax; gy -= fay;
+  // the glass's own acceleration as the sand feels it (felt.mjs): reversed (the glass accelerating
+  // one way pushes its sand the other; y < 0 lifts the bed), at app speed played as S.jolts says
+  felt.opt.mode = S.jolts; felt.opt.knee = kneeOf(MATERIALS[S.material]);
+  const [fax, fay] = felt.feel(-lax, -lay, dt, simTime, S.speed === 'app', lamNow());
+  gx += fax; gy += fay;
   const c = Math.cos(pose.theta), s = Math.sin(pose.theta);
   const lx = c * gx + s * gy, ly = -s * gx + c * gy;      // into the glass (still y down)
   const G = gCells();
@@ -1633,7 +1641,7 @@ function reportText() {
   L.push(`Screen: ${screen.width}x${screen.height} CSS px, devicePixelRatio ${window.devicePixelRatio}, window ${innerWidth}x${innerHeight}, screen angle ${screenAngle()}, standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`);
   L.push(`Errors: start ${startError || 'none'}; GPU lost ${lostReason || 'no'}; WebGPU ${solver?.errors?.length ? solver.errors.join(' | ') : 'none'}; live readbacks ${readbackOk} ok, ${readbackFails} failed${readbackErr ? ' (' + readbackErr + ')' : ''}`);
   L.push(`Engine build: ${BUILD} (realsand/build.mjs); this page was written for ${BUILD_EXPECTED}${BUILD === BUILD_EXPECTED ? '' : ': A MIX OF OLD AND NEW FILES'}`);
-  L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations (auto Hz ${S.auto ? 'on, up to ' + hzTop() + ' Hz; highest since reset ' + rate.peak : 'off'}), cap ${S.cap}/frame at the base rate, clamp ${S.maxStep} cell; jolts at app speed ${S.impulse ? 'played slowed like a film (x' + (1 / Math.sqrt(lamNow())).toFixed(1) + ' longer)' : 'plain'}; spread ${S.spread ? 'on' : 'off'}; yield ${S.yieldIn ? 'in loop' : 'at end'}; blur ${S.blur ? S.blur + ' frame' : 'off'}`);
+  L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations (auto Hz ${S.auto ? 'on, up to ' + hzTop() + ' Hz; highest since reset ' + rate.peak : 'off'}), cap ${S.cap}/frame at the base rate, clamp ${S.maxStep} cell; jolts at app speed ${JOLT_SAYS[S.jolts] || S.jolts}${S.jolts === 'slowmo' || S.jolts === 'film' ? ' (x' + (1 / Math.sqrt(lamNow())).toFixed(1) + ' longer)' : ''}; spread ${S.spread ? 'on' : 'off'}; yield ${S.yieldIn ? 'in loop' : 'at end'}; blur ${S.blur ? S.blur + ' frame' : 'off'}`);
   L.push(`Motion: input ${S.input}, readings ${motion.seen ? 'yes' : 'no'}, sign ${motion.sign || 'not learnt'}, units ${motion.unit ? (motion.unit > 1 ? 'g' : 'm/s²') : '?'}, turn axis ${motion.rAxis || '?'} sign ${motion.rSign} (${motion.rLearnt ? 'learnt' : 'assumed'})`);
   const f = frameStats();
   L.push(`Setup: ${setupInfo.text || (setupInfo.state === 'none' ? 'from the address (no timing)' : setupInfo.state)}`);
@@ -1723,7 +1731,7 @@ function syncUI() {
   }
   for (const b of document.querySelectorAll('.cyc')) {
     const k = b.dataset.key, v = S[k];
-    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'impulse' ? `jolts ${v ? 'slowed' : 'plain'}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : k === 'spread' ? `spread ${v ? 'on' : 'off'}` : k === 'yieldIn' ? `yield ${v ? 'in loop' : 'at end'}` : k === 'queue' ? `${v} in flight` : k === 'budget' ? `GPU budget ${v ? 'on' : 'off'}` : k === 'mode' ? `mode ${v}` : `Coriolis ${v ? 'on' : 'off'}`;
+    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'jolts' ? `jolts ${JOLT_LABEL[v] || v}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : k === 'spread' ? `spread ${v ? 'on' : 'off'}` : k === 'yieldIn' ? `yield ${v ? 'in loop' : 'at end'}` : k === 'queue' ? `${v} in flight` : k === 'budget' ? `GPU budget ${v ? 'on' : 'off'}` : k === 'mode' ? `mode ${v}` : `Coriolis ${v ? 'on' : 'off'}`;
   }
   if ($('b-spin')) $('b-spin').textContent = `spin ${rotor.w} rad/s`;
   if ($('b-skip3')) $('b-skip3').textContent = `skip every 3rd run: ${rotor.skip3 ? 'on' : 'off'}`;
@@ -2079,7 +2087,10 @@ window.__lab = {
     // a speed brings its defaults first; hz, iterations and cap given with it then override them
     const capWas = S.cap;
     if (o.speed) { S.speed = o.speed; Object.assign(S, SPEED_DEFAULTS[o.speed]); }
-    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'impulse', 'neckMin', 'gScale', 'override', 'blur', 'blurAll', 'spread', 'yieldIn', 'queue', 'budget', 'hzMax']) if (o[k] !== undefined) S[k] = o[k];
+    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'neckMin', 'gScale', 'override', 'blur', 'blurAll', 'spread', 'yieldIn', 'queue', 'budget', 'hzMax']) if (o[k] !== undefined) S[k] = o[k];
+    // jolts: 'live', 'slowmo', 'film' or 'plain' (the old impulse: true, slowed, is slow motion now; false, plain)
+    if (o.impulse !== undefined) S.jolts = o.impulse ? 'slowmo' : 'plain';
+    if (JOLT_MODES.includes(o.jolts)) S.jolts = o.jolts;
     if (solver.cap !== capAlloc()) solver.allocUniforms(capAlloc());
     resetRate();
     syncUI(); return { ...S };

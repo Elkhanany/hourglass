@@ -46,6 +46,11 @@
  *  follows the clock at the first step of the frame and moves to the frame's count over its
  *  steps; the GPU's run for the frame is encoded in submit.
  *  real.setHidden(hidden)   from visibilitychange: no GPU work while hidden.
+ *  real.jolts               how the glass's motion is played to the sand at app speed (felt.mjs):
+ *                           'live' (the default: at once), 'slowmo' (a lone jolt as a slowed film),
+ *                           'film' (as before 2026-11: half a second late under any shaking) or
+ *                           'plain'; also opts.jolts at create. Under Reduce Motion (real.reduced)
+ *                           it is played plain.
  *  real.layout()            after renderer.layout(); real.setPalette() after a theme or layers
  *                           change; real.setSweep(kind, p) beside renderer.setSweep.
  *  onLost({ reason, lifecycle, final, message }): the GPU sand is gone (a lost device, readbacks
@@ -74,7 +79,7 @@ import { newPace, paceReset, paceSkip, paceBudget, paceFrame, paceSubmit, paceDo
 import { PPC, lattice, packParticles, fromLattice, rand32 } from './fill.mjs';
 import { GrainRenderer, FLIGHT, exposure } from './grains.mjs';
 import * as Rate from './rate.mjs';
-import { GlassFelt } from './felt.mjs';
+import { GlassFelt, JOLT_MODES, kneeOf } from './felt.mjs';
 import { Toner, LayerPlan, markSides, retone as retoneAll, toneWords, TONE_FRESH, TONE_TRACK, TONE_LAY, LAY_S } from './layers.mjs';
 import { Valve, ALLOW_SHUT, NECK_ON } from './valve.mjs';
 import { MODES, newModes, modesReset, chooseMode, frameMsFor } from './modes.mjs';
@@ -181,7 +186,10 @@ export class RealSand {
     // the frame's state
     this.pace = newPace();
     this.rate = Rate.newRate(SET.hz);
-    this.felt = new GlassFelt();
+    // how the glass's motion is played to the sand at app speed (felt.mjs): 'live' (the default),
+    // 'slowmo', 'film' or 'plain'; the app may set it later (a Tune row); Reduce Motion plays it plain
+    this.jolts = JOLT_MODES.includes(opts.jolts) ? opts.jolts : JOLT_MODES[0];
+    this.felt = new GlassFelt({ mode: this.jolts, knee: kneeOf(MATERIAL) });
     this.modes = newModes();
     this.modeSetting = 'auto';
     this.simTime = 0;
@@ -698,13 +706,15 @@ export class RealSand {
   }
 
   /**
-   * The glass's linear acceleration the sand feels (g, page frame, before the free fall and the
-   * rotation: composeField's fx, fy), at the app's step time tS (ms). Played through the lab's
-   * slowed playback of jolts (felt.mjs), turned into the glass by rho, the free fall added
-   * unplayed, scaled by G: the field's felt part for the GPU's substeps near tS (design 5.2).
+   * The glass's linear acceleration the sand feels (g, page frame, y down, before the free fall
+   * and the rotation: composeField's fx, fy), at the app's step time tS (ms). Played to the sand
+   * in the mode this.jolts (felt.mjs: live by default; plain under Reduce Motion), turned into the
+   * glass by rho, the free fall added unplayed, scaled by G: the field's felt part for the GPU's
+   * substeps near tS (design 5.2).
    */
   feel(tS, fx, fy, air, rho) {
     fx = fin(fx); fy = fin(fy);
+    this.felt.opt.mode = this.reduced ? 'plain' : (JOLT_MODES.includes(this.jolts) ? this.jolts : JOLT_MODES[0]);
     const j = this.felt.feel(fx, fy, DT, fin(tS) / 1000, true, this._lam > 0 ? this._lam : LAM0);
     const c = Math.cos(rho), s = Math.sin(rho), G = this.cpu.G;
     const px = j[0], py = j[1] - (air ? 0.9 : 0);
@@ -1551,7 +1561,7 @@ export class RealSand {
     const F = this._fall;
     return {
       build: BUILD, live: this.live, ready: this._ready, mode: this.modes.mode, why: this.modes.why, guard: this.modes.guard,
-      hz: this.rate.hz, steps: this._lastSteps, budget: this.pace.budget, msStep: this.pace.msStep, inflight: this.pace.inflight,
+      hz: this.rate.hz, hzPeak: this.rate.peak, jolts: this.felt.opt.mode, steps: this._lastSteps, budget: this.pace.budget, msStep: this.pace.msStep, inflight: this.pace.inflight,
       ratio: this._ratio(now), display: this._displayMs(), behindS: this._behind, s: this.s, ppg: this.ppg,
       points: v.points, gpuCount: this.solver ? this.solver.count : 0,
       tally: t ? { points: t.points, above: t.above, below: t.below, queue: t.queue, refused: t.refused, crossings: t.crossings, nan: t.nan, outside: t.outside, moving: t.moving } : null,
