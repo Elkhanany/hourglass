@@ -166,7 +166,7 @@ sand surges on, piles against the glass and runs back to its slope.
 
 All of this is the classic sand's glass. While Real sand runs (the default
 where the phone has WebGPU) the glass does not crack: see *What it leaves out
-for now* under [Real sand](#real-sand-on-the-graphics-chip).
+for now* under [Real sand](#real-sand).
 
 Everything that strikes the glass strikes it at some speed, and the speed
 decides what happens (on an iPhone; px are CSS pixels on screen):
