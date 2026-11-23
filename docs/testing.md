@@ -106,8 +106,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   just run: that is how a setting or a control added on purpose gets its new
   trace, in a commit of its own whose diff is read (the new key in the
   saves, the new control's lines, and nothing else). The kept Settings
-  section is the app before the store (release 1.10.0's, with its 31 keys): a
-  setting added to the store is not added to it, and it is not made again.
+  section is the app before the store (release 1.10.0's, with its 31 keys,
+  which release 1.11.0 kept byte for byte): a setting added to the store is
+  not added to it, and it is not made again. The two traces were last made
+  from release 1.11.0, whose new engine build (6) is in their saves.
   The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with

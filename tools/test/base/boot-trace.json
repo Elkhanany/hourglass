@@ -1,5 +1,5 @@
 {
-  "from": "5911e242ff2e22f2814cc73f7390791bdd9a2878",
+  "from": "8a546eea183a61a95970c1b62a77f42360180575",
   "what": "What the app reads, saves and calls on its engines as it starts, in order, for five saved states (tools/test/lib/trace.js)",
   "boots": [
     {
@@ -31,9 +31,9 @@
         ["save",{}],
         ["renderer.setTheme","sahara"],
         ["remove","hourglass.session.v1"],
-        ["save",{"realSandBuild":"5"}]
+        ["save",{"realSandBuild":"6"}]
       ],
-      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":300000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"5\",\"v\":2}"
+      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":300000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"6\",\"v\":2}"
     },
     {
       "name": "a save from before version 2, everything changed",
@@ -65,9 +65,9 @@
         ["save",{}],
         ["renderer.setTheme","lapis"],
         ["remove","hourglass.session.v1"],
-        ["save",{"realSandFails":0,"realSandWhy":"","realSandBuild":"5"}]
+        ["save",{"realSandFails":0,"realSandWhy":"","realSandBuild":"6"}]
       ],
-      "saved": "{\"theme\":\"lapis\",\"character\":\"bamboo\",\"volume\":0.35,\"muted\":true,\"chime\":false,\"tilt\":false,\"zenFull\":true,\"haptics\":false,\"keepAwake\":false,\"frame\":false,\"layers\":true,\"ambience\":\"rain\",\"ambienceLevel\":0.7,\"breath\":true,\"breathPattern\":\"box\",\"durationMs\":1500000,\"restMs\":300000,\"rounds\":4,\"motionSign\":-1,\"mendNotes\":2,\"hintCrack\":true,\"hintZen\":3,\"grain\":1,\"hintMotion\":3,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"5\",\"v\":2}"
+      "saved": "{\"theme\":\"lapis\",\"character\":\"bamboo\",\"volume\":0.35,\"muted\":true,\"chime\":false,\"tilt\":false,\"zenFull\":true,\"haptics\":false,\"keepAwake\":false,\"frame\":false,\"layers\":true,\"ambience\":\"rain\",\"ambienceLevel\":0.7,\"breath\":true,\"breathPattern\":\"box\",\"durationMs\":1500000,\"restMs\":300000,\"rounds\":4,\"motionSign\":-1,\"mendNotes\":2,\"hintCrack\":true,\"hintZen\":3,\"grain\":1,\"hintMotion\":3,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"6\",\"v\":2}"
     },
     {
       "name": "a version-2 save, Real sand off, Real motion left on",
@@ -99,9 +99,10 @@
         ["renderer.setTheme","seaglass"],
         ["remove","hourglass.session.v1"],
         ["motion.start"],
-        ["save",{}]
+        ["save",{}],
+        ["save",{"realSandBuild":"6"}]
       ],
-      "saved": "{\"theme\":\"seaglass\",\"character\":\"dune\",\"volume\":1,\"muted\":false,\"chime\":true,\"tilt\":true,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"drips\",\"ambienceLevel\":0.2,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":300000,\"restMs\":0,\"rounds\":1,\"motionSign\":1,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":3,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"5\",\"v\":2}"
+      "saved": "{\"theme\":\"seaglass\",\"character\":\"dune\",\"volume\":1,\"muted\":false,\"chime\":true,\"tilt\":true,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"drips\",\"ambienceLevel\":0.2,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":300000,\"restMs\":0,\"rounds\":1,\"motionSign\":1,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":3,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"6\",\"v\":2}"
     },
     {
       "name": "a damaged save: wrong types, unknown names, values out of range",
@@ -132,9 +133,9 @@
         ["save",{}],
         ["renderer.setTheme","sahara"],
         ["remove","hourglass.session.v1"],
-        ["save",{"realSandBuild":"5"}]
+        ["save",{"realSandBuild":"6"}]
       ],
-      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":2.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":10000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"5\",\"v\":2}"
+      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":2.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":10000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"6\",\"v\":2}"
     },
     {
       "name": "\"?t=45\" over a saved sequence, the finest grain",
@@ -165,9 +166,10 @@
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setTheme","sahara"],
-        ["remove","hourglass.session.v1"]
+        ["remove","hourglass.session.v1"],
+        ["save",{"realSandBuild":"6"}]
       ],
-      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":45000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":2,\"hintMotion\":0,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"5\",\"v\":2}"
+      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":45000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":2,\"hintMotion\":0,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"6\",\"v\":2}"
     }
   ]
 }

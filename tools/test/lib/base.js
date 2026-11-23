@@ -12,10 +12,12 @@
  *                              (app-tune-trace); the new Tune is compared with this file too
  * Each suite, run with --base <commit> (or HOURGLASS_BASE=<commit>), makes its file again from
  * that commit and fails if it differs from the one kept; with --write as well, it writes it.
- * They were made from BASE: release 1.10.0, the last app.js with a Settings section of its own.
- * (The store was cut from an earlier commit of that release, 5b9bb5a, which had 30 settings;
- * the release gained a 31st, realSandNaAt, before the two were merged, and the three files
- * were made again from it then.) The two traces, run with --write and no --base, are written
+ * They were made from BASE: release 1.11.0, the last app.js with a Settings section of its own.
+ * (The store was cut from an earlier commit of release 1.10.0, 5b9bb5a, which had 30 settings;
+ * that release gained a 31st, realSandNaAt, before the two were merged, and the three files
+ * were made again from it then. Release 1.11.0 kept its Settings section byte for byte but
+ * moved the engine's build stamp from 5 to 6, which the app saves at the boot and with Tune's
+ * last save, so the two traces were made again from it, changed in those saves alone.) The two traces, run with --write and no --base, are written
  * from the tree just run: that is how a setting or a control added on purpose gets into them,
  * in a commit of its own whose diff is read (the new key, the new control's lines, nothing
  * else). The kept section is the app before the store: a setting added to the store is not
@@ -36,7 +38,7 @@
 var fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
 var paths = require('./paths.js');
 
-var BASE = '5911e242ff2e22f2814cc73f7390791bdd9a2878';
+var BASE = '8a546eea183a61a95970c1b62a77f42360180575';
 var DIR = path.join(paths.ROOT, 'tools', 'test', 'base');
 
 function git(args) {
