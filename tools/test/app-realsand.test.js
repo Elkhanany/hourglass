@@ -1413,7 +1413,7 @@ async function testMigrate(s, env) {
   // a save of version 1 (no v: every launch before 1.10.0 wrote realSand: false)
   var t = await open1({ theme: 'lapis', durationMs: 10000, realSand: false, realSandFails: 0, realSandWhy: '', grain: 1 });
   try {
-    await waitLive(t);
+    await waitLive(t).catch(function () {});
     await sleep(400);
     var st = await state(t), keep = await t.eval(function () { var o = JSON.parse(localStorage.getItem('hourglass.settings.v1')); return { theme: o.theme, durationMs: o.durationMs, grain: o.grain }; });
     s.check('MIGRATE: a save without a version, with realSand false: Real sand comes up on and takes over; saved with v 2 and realSand true; the rest kept',
@@ -1432,7 +1432,7 @@ async function testMigrate(s, env) {
   // a save of version 1 that says so
   var t2 = await open1({ v: 1, realSand: false, durationMs: 10000 });
   try {
-    await waitLive(t2);
+    await waitLive(t2).catch(function () {});
     var st2 = await state(t2);
     s.check('MIGRATE: a save of version 1 with realSand false: on, saved with v 2', st2.live && st2.setting === true && st2.v === 2, JSON.stringify({ dstate: st2.dstate, setting: st2.setting, v: st2.v }));
   } finally { await t2.close(); }
@@ -1458,7 +1458,7 @@ async function testBuild(s, env) {
   // gave up (3 failed launches) with an older engine build: tried again
   var t = await open1({ realSandFails: 3, realSandWhy: 'its self-test failed', realSandBuild: older });
   try {
-    await waitLive(t);
+    await waitLive(t).catch(function () {});
     await sleep(300);
     var st = await state(t);
     ua = st.ua;
@@ -1468,7 +1468,7 @@ async function testBuild(s, env) {
   // "Needs WebGPU" kept for this user agent with an older engine build: tried again too
   var t2 = await open1({ realSandNa: ua, realSandWhy: 'Needs WebGPU (iOS 26 or later)', realSandBuild: older });
   try {
-    await waitLive(t2);
+    await waitLive(t2).catch(function () {});
     var st2 = await state(t2);
     s.check('BUILD: "Needs WebGPU" kept for this user agent with an older engine build: forgotten, tried again, taken over',
             st2.live && st2.dstate === 'on' && !st2.na && st2.build === ENGINE_BUILD, JSON.stringify({ dstate: st2.dstate, na: st2.na, build: st2.build }));
@@ -1623,16 +1623,19 @@ async function testHang(s, env) {
     var r = await rowState(t3), calm = modes.modes.filter(function (m) { return m === 'calm'; }).length;
     s.check('HANG (control, a running glass in view, ' + calm + ' of ' + modes.modes.length + ' samples calm): 8 s, its readbacks coming: the watchdog does not fire',
             r.live && r.watchdog === 0 && r.toasts.length === 0 && modes.reads > 100 && calm > 0, JSON.stringify({ reads: modes.reads, calm: calm, live: r.live, watchdog: r.watchdog }));
-    // hidden 10 s with its readbacks held, then shown, and let go within a second
+    // its readbacks held from 1 s before the page is hidden for 10 s, then shown, and let go within
+    // a second: no readback came in view for 1.6 s, but for 11.6 s of wall-clock time
     var h0 = await rowState(t3);
-    await t3.eval(function () { window.__mockEnv.hold = true; window.__hide(true); });
+    await t3.eval(function () { window.__mockEnv.hold = true; });
+    await sleep(1000);
+    await t3.eval(function () { window.__hide(true); });
     await sleep(10000);
     await t3.eval(function () { window.__hide(false); });
     await sleep(600);
     await t3.eval(function () { window.__mockEnv.hold = false; });
     await sleep(5000);
     var h1c = await rowState(t3);
-    s.check('HANG (control, hidden): hidden 10 s with its readbacks held, shown, and let go within a second: the watchdog does not fire',
+    s.check('HANG (control, hidden): readbacks held from 1 s before the page was hidden 10 s, shown, and let go within a second: the watchdog does not fire (it counts time in view only)',
             h1c.live && h1c.watchdog === 0 && h1c.creates === h0.creates && h1c.toasts.length === 0 && h1c.run === 'running', JSON.stringify(h1c));
     // a paused glass
     await t3.eval(function () { window.Hourglass.pause(); });
