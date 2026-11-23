@@ -23,7 +23,7 @@
   var missing = missingParts();
   if (missing.length) { updating(missing); return; }
 
-  /** The engines this script needs from the other scripts, by name: [] when all are there. */
+  /** The engines and the settings store this script needs from the other scripts, by name: [] when all are there. */
   function missingParts() {
     var w = window, P0 = w.HourglassPhysics || {}, out = [];
     ['Sim', 'Renderer', 'Spill'].forEach(function (k) {
@@ -31,6 +31,7 @@
     });
     if (typeof w.HourglassAudio !== 'function') out.push('HourglassAudio');
     if (typeof w.HourglassMotion !== 'function') out.push('HourglassMotion');
+    if (!w.HourglassSettings || typeof w.HourglassSettings.load !== 'function') out.push('HourglassSettings');
     return out;
   }
   /** Say that the app is updating, over the whole page (it touches nothing of the page's own). */
