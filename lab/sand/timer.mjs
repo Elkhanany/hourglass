@@ -34,7 +34,7 @@
  *    20 s in a row while full (any other frame starts the count again), the glass runs calm until
  *    the run ends or the mode is set again.
  *
- * Part of the Hourglass project. License: GPL-3.0.
+ * Part of the Hourglass project. License: GPL-3.0-or-later.
  */
 
 export const APP_CAPACITY = 28099;   // grains one bulb of the app's phone glass holds (scale 1.08)

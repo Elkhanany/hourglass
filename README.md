@@ -138,5 +138,7 @@ deep-water teal.
 
 ## License
 
-GPL-3.0-or-later. See `LICENSE`. The GPU sand's solver keeps the MIT and
-BSD-3-Clause notices of the work it is derived from (`realsand/LICENSES.md`).
+GPL-3.0-or-later. See `LICENSE`. Where a file's header says GPL-3.0, it
+means this licence: version 3 or, at your option, any later version. The GPU
+sand's solver keeps the MIT and BSD-3-Clause notices of the work it is
+derived from (`realsand/LICENSES.md`).

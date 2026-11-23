@@ -5,7 +5,7 @@
  * wall-clock timer, the glass as a body you can move, turn and spin, the
  * controls, the Zen HUD, settings, real motion, wake-lock and PWA
  * registration.
- * License: GPL-3.0.
+ * License: GPL-3.0-or-later.
  * ---------------------------------------------------------------------------
  */
 (function () {

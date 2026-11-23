@@ -5,7 +5,7 @@
  * answered from them alone, so a launch never runs files of two releases.
  * Every URL is relative to the worker's own location, so the app installs and
  * runs from any sub-path (for example https://<user>.github.io/hourglass/).
- * License: GPL-3.0.
+ * License: GPL-3.0-or-later.
  */
 'use strict';
 
