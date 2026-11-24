@@ -1,5 +1,5 @@
 {
-  "from": "a1a6d69c75afe39067f5909da04b54d1c55a4b1f",
+  "from": "20afd9f3b6c285da115d729858e9243b987766ab, with the changes not yet committed",
   "what": "What every control that changes a setting saves, calls on the engines and buzzes, in order: in its own tap (now) and after it (later) (tools/test/lib/trace.js)",
   "controls": [
     {
@@ -497,6 +497,142 @@
       ]
     },
     {
+      "name": "shape: lozenge, looked at",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "shape: ampoule, looked at",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "shape: onion, looked at",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "shape: bell, looked at",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "shape: gourd, looked at",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "shape: delta, looked at",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "shape: delta, used",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"shape":"delta"}],
+        ["buzz",8],
+        ["remove","hourglass.session.v1"],
+        ["set","hourglass.openNow"]
+      ],
+      "later": [
+        ["(the page is loaded again)"],
+        ["get","hourglass.settings.v1"],
+        ["new Sim",{"scale":1.08,"seed":"(a seed)","shape":"delta"}],
+        ["new Renderer"],
+        ["renderer.setFrame",true],
+        ["sim.setLayers",false],
+        ["renderer.setLayers",false],
+        ["new Audio"],
+        ["audio.volume =",0.55],
+        ["audio.muted =",false],
+        ["audio.character =","asmr"],
+        ["audio.chimeEnabled =",true],
+        ["audio.ambience =","none"],
+        ["audio.ambLevel =",0.7],
+        ["new Motion",{"sign":0}],
+        ["get","hourglass.openNow"],
+        ["remove","hourglass.openNow"],
+        ["sim.reset",7020],
+        ["get","hourglass.session.v1"],
+        ["audio.setCracked","intact"],
+        ["save",{}],
+        ["audio.setMuted",false],
+        ["save",{}],
+        ["audio.setCharacter","asmr"],
+        ["renderer.layout"],
+        ["save",{}],
+        ["renderer.setTheme","volcanic"],
+        ["remove","hourglass.session.v1"]
+      ]
+    },
+    {
+      "name": "shape: classic, looked at",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "shape: classic, used",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"shape":"classic"}],
+        ["buzz",8],
+        ["remove","hourglass.session.v1"],
+        ["set","hourglass.openNow"]
+      ],
+      "later": [
+        ["(the page is loaded again)"],
+        ["get","hourglass.settings.v1"],
+        ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
+        ["new Renderer"],
+        ["renderer.setFrame",true],
+        ["sim.setLayers",false],
+        ["renderer.setLayers",false],
+        ["new Audio"],
+        ["audio.volume =",0.55],
+        ["audio.muted =",false],
+        ["audio.character =","asmr"],
+        ["audio.chimeEnabled =",true],
+        ["audio.ambience =","none"],
+        ["audio.ambLevel =",0.7],
+        ["new Motion",{"sign":0}],
+        ["get","hourglass.openNow"],
+        ["remove","hourglass.openNow"],
+        ["sim.reset",8948],
+        ["get","hourglass.session.v1"],
+        ["audio.setCracked","intact"],
+        ["save",{}],
+        ["audio.setMuted",false],
+        ["save",{}],
+        ["audio.setCharacter","asmr"],
+        ["renderer.layout"],
+        ["save",{}],
+        ["renderer.setTheme","volcanic"],
+        ["remove","hourglass.session.v1"]
+      ]
+    },
+    {
       "name": "grain: fine",
       "now": [
         ["audio.unlock"],
@@ -651,5 +787,5 @@
       ]
     }
   ],
-  "saved": "{\"theme\":\"volcanic\",\"character\":\"asmr\",\"volume\":0.55,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.7,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"6\",\"v\":2,\"tuneTab\":\"sand\"}"
+  "saved": "{\"theme\":\"volcanic\",\"character\":\"asmr\",\"volume\":0.55,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.7,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"shape\":\"classic\"}"
 }

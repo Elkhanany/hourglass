@@ -35,7 +35,8 @@
  *             sheet, and loads nothing again
  *   HINT      at 393 × 852: a tab with more below shows it (its rows fade into the sheet's lower
  *             edge, a small chevron under them) from the moment it is shown at its top, and not
- *             once it is scrolled to its end; Glass, which does not scroll, never; a tab scrolled
+ *             once it is scrolled to its end (since 1.15.0 every tab has more below at its top,
+ *             Glass too, with its shapes above the frame); a tab scrolled
  *             from its top fades its rows out under the tab row; neither edge takes a tap (a
  *             finger on the hint reaches the row under it) or is read out, and neither moves the
  *             sheet, the tab row or any row from where they were at 122a7fd; rows that appear or
@@ -779,8 +780,11 @@ function resetOk(m, save) {
 var HINT_SIZE = [393, 852];
 var BEFORE = {
   sheet: [0, 459, 393, 852], tabs: [16, 479, 329, 521], body: [16, 527, 377, 836],
-  row: { sand: [16, 555, 131, 668], glass: [16, 555, 377, 609.25], sound: [20, 541, 373, 571], time: [16, 558, 377, 616] }
+  row: { sand: [16, 555, 131, 668], glass: [16, 555, 377, 801], sound: [20, 541, 373, 571], time: [16, 558, 377, 616] }
 };
+// (1.15.0: the Glass tab's first row is its shape picker, .shape-pick, in the place where the
+// frame's row stood at 122a7fd: [16, 555, 377, 609.25] then; it is taller, and the frame's row is
+// now under it)
 /** The edges as they are now: shown or not (their opacity, once a transition is done), where, and what they are. */
 function edges(t) {
   return t.eval(function () {
@@ -792,7 +796,7 @@ function edges(t) {
       var cs = getComputedStyle(el);
       return { box: R(el), opacity: +cs.opacity, events: cs.pointerEvents, hidden: el.getAttribute('aria-hidden'), fade: cs.transitionDuration, kids: el.querySelectorAll('*').length };
     }
-    var row = p ? p.querySelector('.card, .row, .slider-row') : null;
+    var row = p ? p.querySelector('.card, .row, .slider-row, .shape-pick') : null;
     return {
       tab: p ? p.getAttribute('data-tab') : null, scrolled: b.scrollTop, left: b.scrollHeight - b.clientHeight - b.scrollTop, length: b.scrollHeight, view: b.clientHeight,
       sheet: R(s), tabs: R(document.getElementById('tune-tabs')), body: R(b), row: row ? R(row) : null,
@@ -926,11 +930,11 @@ function hintOk(m) {
   });
   var tap = m.tap || {}, b = tap.before || {}, a = tap.after || {};
   return {
-    tabs: { ok: scrolls.join() === 'sand,sound,time' && scrolls.every(function (k) { return showsHint(at[k]) && op(at[k], 'top') <= 0.01; }) && noHint(at.glass) && op(at.glass, 'top') <= 0.01,
+    tabs: { ok: scrolls.join() === 'sand,glass,sound,time' && scrolls.every(function (k) { return showsHint(at[k]) && op(at[k], 'top') <= 0.01; }),
             detail: TABS.map(function (k) { return edgeSays(at[k]); }).join('; ') },
-    middle: { ok: Object.keys(m.middle).join() === 'sand,sound,time' && Object.keys(m.middle).every(function (k) { var e = m.middle[k]; return showsHint(e) && op(e, 'top') >= 0.99 && e.scrolled > 2; }),
+    middle: { ok: Object.keys(m.middle).join() === 'sand,glass,sound,time' && Object.keys(m.middle).every(function (k) { var e = m.middle[k]; return showsHint(e) && op(e, 'top') >= 0.99 && e.scrolled > 2; }),
               detail: Object.keys(m.middle).map(function (k) { return edgeSays(m.middle[k]); }).join('; ') || 'no tab scrolled' },
-    end: { ok: Object.keys(m.end).join() === 'sand,sound,time' && Object.keys(m.end).every(function (k) { var e = m.end[k]; return noHint(e) && e.left <= 2 && op(e, 'top') >= 0.99; }),
+    end: { ok: Object.keys(m.end).join() === 'sand,glass,sound,time' && Object.keys(m.end).every(function (k) { var e = m.end[k]; return noHint(e) && e.left <= 2 && op(e, 'top') >= 0.99; }),
            detail: Object.keys(m.end).map(function (k) { return edgeSays(m.end[k]); }).join('; ') || 'no tab scrolled' },
     what: { ok: more.hidden === 'true' && top.hidden === 'true' && more.events === 'none' && top.events === 'none' && e0.markEvents === 'none' && top.kids === 0 &&
                 !!e0.mark && near(more.box[3], e0.body[3], 0.5) && near(top.box[1], e0.body[1], 0.5) && more.box[3] - more.box[1] >= 24 && top.box[3] - top.box[1] <= 24 &&
@@ -960,7 +964,7 @@ function hintRowsOk(m) {
 }
 function hintReducedOk(m) {
   var s = m.at.sand || {}, g = m.at.glass || {}, mid = m.middle.sand || {};
-  return { ok: s.more && s.more.fade === '0s' && s.top.fade === '0s' && showsHint(s) && noHint(g) && op(mid, 'top') >= 0.99 && showsHint(mid),
+  return { ok: s.more && s.more.fade === '0s' && s.top.fade === '0s' && showsHint(s) && showsHint(g) && op(g, 'top') <= 0.01 && op(mid, 'top') >= 0.99 && showsHint(mid),
            detail: 'fades ' + (s.more ? s.more.fade + ' and ' + s.top.fade : 'not read') + '; read at once: ' + [s, g, mid].map(edgeSays).join('; ') };
 }
 
@@ -1247,7 +1251,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
 
     if (wanted('hint')) {
       var hn = hintOk(await hint(env));
-      s.check('HINT: at 393 x 852 Sand, Sound and Time, shown at their top, show that there is more below, with no top edge; Glass, which does not scroll, shows neither', hn.tabs.ok, hn.tabs.detail);
+      s.check('HINT: at 393 x 852 every tab (Sand, Glass, Sound and Time), shown at its top, shows that there is more below, with no top edge', hn.tabs.ok, hn.tabs.detail);
       s.check('HINT: scrolled to the middle, the rows fade out under the tab row and the hint still shows', hn.middle.ok, hn.middle.detail);
       s.check('HINT: scrolled to the end (within 2 px), the hint is gone and the top edge stays', hn.end.ok, hn.end.detail);
       s.check('HINT: the hint lies over the rows\' lower edge, its chevron under them; both edges are hidden from a screen reader and take no pointer', hn.what.ok, hn.what.detail);
@@ -1259,8 +1263,8 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       var hd = hintReducedOk(await hint(env, { reduced: true, open: { reducedMotion: true } }));
       s.check('HINT: with reduced motion the edges appear and go at once, without a fade', hd.ok, hd.detail);
       var css = function (rule) { return function () { return hint(env, { open: { routes: [broken(env, 'styles.css', add(rule))] } }); }; };
-      await control('HINT: a hint drawn always (a style sheet that never hides it) shows on Glass and at the end', 'tabs', css('#sheet-settings .edge-more { opacity: 1 !important; }'), hintOk);
-      await control('HINT: ... and the same copy, scrolled to the end', 'end', css('#sheet-settings .edge-more { opacity: 1 !important; }'), hintOk);
+      await control('HINT: a hint never drawn (a style sheet that always hides it) is missing on every tab at its top', 'tabs', css('#sheet-settings .edge-more { opacity: 0 !important; }'), hintOk);
+      await control('HINT: a hint drawn always (a style sheet that never hides it) shows at the end', 'end', css('#sheet-settings .edge-more { opacity: 1 !important; }'), hintOk);
       await control('HINT: a style sheet with no top edge cuts the rows hard under the tab row', 'middle', css('#sheet-settings .edge-top { opacity: 0 !important; }'), hintOk);
       await control('HINT: a hint that takes taps (pointer-events put back to auto) stops the finger', 'tap', css('#sheet-settings .edge-more { pointer-events: auto !important; }'), hintOk);
       await control('HINT: a page whose hint a screen reader would read (aria-hidden taken off it) is found out', 'what', function () {

@@ -2111,6 +2111,12 @@
             : (state === 'paused' ? Math.min(sim.nTop, s.top | 0) : Math.ceil(topAt(rem)));
     if (sim.nTop > top) sim.fastForward(sim.nTop - top);
     for (var i = 0; i < 240 && sim.isActive(); i++) { sim.beginFrame(); sim.step(); }   // settle
+    // (a fast-forward stops short when the spot under the neck it lands on is taken: the rest,
+    // once that has settled, so that the glass starts with the sand its clock asks for)
+    for (var k = 0; k < 3 && sim.nTop > top; k++) {
+      sim.fastForward(sim.nTop - top);
+      for (i = 0; i < 240 && sim.isActive(); i++) { sim.beginFrame(); sim.step(); }
+    }
     T.state = state;
     return true;
   }
@@ -2584,11 +2590,16 @@
   scrim.addEventListener('click', function () { closeSheet(); });
   var closers = document.querySelectorAll('.sheet-close');
   for (var ci = 0; ci < closers.length; ci++) closers[ci].addEventListener('click', function () { closeSheet(); });
-  btnSettings.addEventListener('click', function () {
+  /** Tune as it opens: the counts under the Sand tab, the shape in use on the Glass tab. */
+  function tuneOpening() {
     // (Real sand: the material points the graphics chip simulates)
     $('grain-count').textContent = (real ? real.points : sim.total).toLocaleString();
     $('sim-where').textContent = real ? ' on the graphics chip' : '';
     $('spilled').textContent = sim.lost > 0 ? ' · ' + sim.lost.toLocaleString() + ' spilled' : '';
+    lookAtShapeInUse();
+  }
+  btnSettings.addEventListener('click', function () {
+    tuneOpening();
     openSheet(sheetSettings, btnSettings);
     if (tuneBody) tuneBody.scrollTop = 0;              // on the tab last used, from its top
     tuneEdges();
@@ -2779,6 +2790,107 @@
     app.classList.add('regrain');                    // the glass fades, and comes back made anew
     setTimeout(function () { location.reload(); }, 320);
   });
+  /*
+   * Shape (the Glass tab): the shapes Tune offers, each drawn small at one scale (a wide glass
+   * shows wide, a small one small), and the one looked at drawn large beside them. A tap on a
+   * shape only shows it there: nothing is saved and the glass behind stays as it is, so the
+   * shapes can be compared one after another. "Use this shape" keeps it: another shape is
+   * another lattice, so, as for another grain, the session is saved (with this glass's shape
+   * and what it holds when full, so that the time left is kept in the new glass), the glass
+   * fades and the page is built afresh; Tune comes back open on this tab.
+   */
+  var shapesEl = $('shapes'), shapeUse = $('shape-use'), shapeLooked = 'classic', SHAPE_IDS = [], shapeBox = null;
+  if (shapesEl && P.SHAPE_ORDER) {
+    for (var si = 0; si < P.SHAPE_ORDER.length; si++) if (P.SHAPES[P.SHAPE_ORDER[si]].offered) SHAPE_IDS.push(P.SHAPE_ORDER[si]);
+  }
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  /** A shape drawn into an <svg>: the glass's bore as a line, sand in the lower bulb and a little above the neck. */
+  function drawShape(svg, id) {
+    var g = P.makeGeometry(1, id), HB = g.HB, i, u, y, x, n = 48, right = [], sand = [], top = [], lvl = 0.42, up = 0.3;
+    if (!shapeBox) {                                    // one box for all: every shape at the same scale
+      shapeBox = { w: 0, h: 0 };
+      for (i = 0; i < SHAPE_IDS.length; i++) {
+        var gi = P.makeGeometry(1, SHAPE_IDS[i]);
+        shapeBox.w = Math.max(shapeBox.w, gi.R + 6); shapeBox.h = Math.max(shapeBox.h, gi.HB + 6);
+      }
+    }
+    function pt(xx, yy) { return xx.toFixed(1) + ' ' + yy.toFixed(1); }
+    function wid(uu) { return P.profile(Math.min(1, Math.max(0, uu)), g); }
+    // the right side, from the top's far end down through the neck to the lower bulb's far end
+    for (i = 0; i <= n; i++) { u = 1 - i / n; u = u * u * (3 - 2 * u); right.push([wid(u), -u * HB]); }
+    for (i = 1; i <= n; i++) { u = i / n; u = u * u * (3 - 2 * u); right.push([wid(u), u * HB]); }
+    var d = 'M' + right.map(function (p) { return pt(p[0], p[1]); }).join(' L');
+    for (i = right.length - 1; i >= 0; i--) d += ' L' + pt(-right[i][0], right[i][1]);
+    // the lower bulb's sand, from its level down to the far end; the upper bulb's, on the neck
+    for (i = 0; i <= n; i++) { u = 1 - lvl + lvl * i / n; sand.push([wid(u), u * HB]); }
+    for (i = 0; i <= n; i++) { u = up - up * i / n; top.push([wid(u), -u * HB]); }
+    function fill(list) {
+      var f = 'M' + list.map(function (p) { return pt(p[0], p[1]); }).join(' L');
+      for (var k = list.length - 1; k >= 0; k--) f += ' L' + pt(-list[k][0], list[k][1]);
+      return f + ' Z';
+    }
+    y = (1 - lvl) * HB; x = g.RN * 0.35;
+    svg.setAttribute('viewBox', (-shapeBox.w) + ' ' + (-shapeBox.h) + ' ' + (2 * shapeBox.w) + ' ' + (2 * shapeBox.h));
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    [['path', { d: fill(sand), 'class': 'sand' }], ['path', { d: fill(top), 'class': 'sand' }],
+     ['rect', { x: -x, y: 0, width: 2 * x, height: y, 'class': 'sand' }],
+     ['path', { d: d + ' Z', 'class': 'bore', 'vector-effect': 'non-scaling-stroke' }]].forEach(function (e) {
+      var el = document.createElementNS(SVG_NS, e[0]);
+      for (var a in e[1]) el.setAttribute(a, e[1][a]);
+      svg.appendChild(el);
+    });
+  }
+  /** The shapes' buttons, one a shape Tune offers (made before the page is labelled for the iPhone's tick). */
+  function makeShapes() {
+    for (var i = 0; i < SHAPE_IDS.length; i++) {
+      var id = SHAPE_IDS[i], b = document.createElement('button'), svg = document.createElementNS(SVG_NS, 'svg'), name = document.createElement('b');
+      b.type = 'button'; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', 'false'); b.dataset.shape = id;
+      svg.setAttribute('class', 'shape-art'); svg.setAttribute('aria-hidden', 'true');
+      drawShape(svg, id);
+      name.textContent = P.SHAPES[id].name;
+      b.appendChild(svg); b.appendChild(name);
+      shapesEl.appendChild(b);
+    }
+  }
+  /** The shape looked at, the one in use, and the button that keeps it, as they stand. */
+  function showShapes() {
+    if (!shapesEl) return;
+    var inUse = glassShape(), bs = shapesEl.querySelectorAll('[data-shape]'), sd = P.THEMES[settings.theme] && P.THEMES[settings.theme].sand;
+    if (sd) $('panel-glass').style.setProperty('--shape-sand', 'hsl(' + sd.h + ', ' + Math.round(sd.s * 100) + '%, ' + Math.round(sd.l * 100) + '%)');
+    for (var i = 0; i < bs.length; i++) {
+      var id = bs[i].dataset.shape;
+      bs[i].setAttribute('aria-checked', id === shapeLooked ? 'true' : 'false');
+      bs[i].classList.toggle('in-use', id === inUse);
+      bs[i].setAttribute('aria-label', P.SHAPES[id].name + (id === inUse ? ', in use' : ''));
+    }
+    if ($('shape-big').getAttribute('data-shape') !== shapeLooked) { drawShape($('shape-big'), shapeLooked); $('shape-big').setAttribute('data-shape', shapeLooked); }
+    $('shape-name').textContent = P.SHAPES[shapeLooked].name;
+    var used = shapeLooked === inUse;
+    shapeUse.dataset.state = used ? 'in-use' : 'use';
+    shapeUse.textContent = used ? 'In use' : 'Use this shape';
+    shapeUse.setAttribute('aria-disabled', used ? 'true' : 'false');
+  }
+  /** Tune opened: it shows the glass in use. */
+  function lookAtShapeInUse() { shapeLooked = glassShape(); showShapes(); }
+  if (shapesEl) {
+    makeShapes();
+    shapesEl.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-shape]') : null;
+      if (!b) return;
+      shapeLooked = b.dataset.shape;
+      showShapes();
+      buzz(8);
+    });
+    shapeUse.addEventListener('click', function () {
+      if (shapeLooked === glassShape()) return;       // (in use already: nothing to do)
+      settings.shape = shapeLooked; save();
+      buzz(8);
+      saveSession();
+      try { sessionStorage.setItem('hourglass.openNow', 'glass'); } catch (e) {}   // (open at once, and on Tune's Glass tab)
+      app.classList.add('regrain');
+      setTimeout(function () { location.reload(); }, 320);
+    });
+  }
   $('opt-haptics').addEventListener('change', function (e) {
     settings.haptics = e.target.checked; save();
     buzz(12);
@@ -3687,9 +3799,9 @@
    *  Boot
    * ==================================================================== */
   var VEIL_HOLD_MS = 1000;           // the dark opening waits this long at most for Real sand's first frame
-  var veilHold = true;
+  var veilHold = true, reopen = null;
   try {
-    if (sessionStorage.getItem('hourglass.openNow')) { sessionStorage.removeItem('hourglass.openNow'); veilHold = false; }
+    if ((reopen = sessionStorage.getItem('hourglass.openNow'))) { sessionStorage.removeItem('hourglass.openNow'); veilHold = false; }
   } catch (e) { /* (no session storage: held as ever) */ }
   sim.reset(grainsFor(T.durationMs));
   calibrate();
@@ -3718,6 +3830,16 @@
   void zoom.offsetWidth;
   setTheme(settings.theme);
   setState(restored ? T.state : 'idle');
+  // Back from "Use this shape" (its 'hourglass.openNow' names the tab): Tune is open again on the
+  // Glass tab at once, with no slide.
+  if (reopen === 'glass') {
+    showTab('glass');
+    tuneOpening();
+    sheetSettings.style.transition = 'none'; scrim.style.transition = 'none';
+    openSheet(sheetSettings, btnSettings);
+    tuneEdges();
+    requestAnimationFrame(function () { requestAnimationFrame(function () { sheetSettings.style.transition = ''; scrim.style.transition = ''; }); });
+  }
   if (settings.tilt) setMotion(true, false);
   showTime(T.rem);
   requestAnimationFrame(function (t) {
