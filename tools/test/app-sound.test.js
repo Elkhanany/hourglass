@@ -229,7 +229,7 @@ async function layout(env, routes) {
 function layoutOk(list) {
   var ok = {}, all = function (f) { return list.every(f); }, say = function (f) { return list.map(function (m) { return m.size + ': ' + f(m); }).join('; '); };
   ok.order = { ok: all(function (m) { return m.inOrder && m.rows.join('|') === 'Fade out before the end|Sound in silent mode' &&
-                                       m.names.join('|') === 'Once|Three times|Until a tap|Last minute|Last 5 min|Last 10 min' &&
+                                       m.names.join('|') === 'Last minute|Last 5 min|Last 10 min|Once|Three times|Until a tap' &&
                                        m.words.sand === 'Sand 100' && m.words.bowl === 'Bowl 50'; }),
                detail: say(function (m) { return (m.inOrder ? 'in order' : 'OUT OF ORDER') + ', ' + m.words.sand + ', ' + m.words.bowl + ', ' + m.names.join('/'); }) };
   ok.fit = { ok: all(function (m) { return m.wide.length === 0 && m.cut.length === 0 && m.sideways.every(function (x) { return x <= 0; }); }),
@@ -506,9 +506,9 @@ async function fade(env, routes) {
       return out;
     });
     // a running glass in its last stretch: paused it holds; turned over it comes back up, and the engine glides there
-    await t.eval(function () { window.__setFade(60000); window.Hourglass.audio.unlock(); window.Hourglass.start(); });
+    await t.eval(function () { window.__setFade(600000); window.Hourglass.audio.unlock(); window.Hourglass.start(); });
     await sleep(300);
-    await t.eval(function () { var T = window.Hourglass.timer; window.__jump(T.rem - 20000); });   // 20 s left of the last minute
+    await t.eval(function () { var T = window.Hourglass.timer; window.__jump(T.rem - 120000); });   // 2 minutes left of the last 10
     await sleep(800);
     var pz = await t.eval(function () { window.Hourglass.pause(); var Hg = window.Hourglass; return { share: Hg.debug.ambFadeShare(), rem: Hg.timer.rem }; });
     await sleep(1200);
