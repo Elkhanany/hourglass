@@ -60,7 +60,8 @@
  * With --shots <dir> it saves pictures of the app with Real sand on: at rest, the stream, the
  * layers after a Flip, the Reset's two halves, the glass turned over by real motion, the CPU
  * sand after the loss. It runs only when named (run-all.js realsand-gpu): the whole suite took
- * about 47 minutes on a four-core machine shared with other jobs; never two SwiftShader
+ * about 47 minutes with seven shapes on a four-core machine shared with other jobs (SHAPES
+ * takes about 5 minutes more for each shape Tune offers); never two SwiftShader
  * browsers at once.
  *
  * --only <case>[,<case>...] runs those cases alone (the names above, any letter case; they run
@@ -814,8 +815,8 @@ function installWatch() {
       shapeRun.push(sid + ' ' + (lt === lt ? lt.toFixed(1) : lt) + ' ms' + (okR ? '' : ' (WRONG: ' + JSON.stringify(rn).slice(0, 300) + ')'));
     }
     if (!SHAPE_LIST) {
-      check(SHAPE_IDS.length >= 7 && fillOk, 'SHAPES: in each shape Tune offers, a 60-minute glass is filled to its cap with exactly the ledger\'s points on the GPU, all above, none outside, the GPU\'s glass the shape\'s own: ' + shapeFill.join('; '));
-      check(SHAPE_IDS.length >= 7 && runOk, 'SHAPES: ... and a 10 s glass in it runs to its end, the last point crossing within one frame after 00:00.0, every readback agreeing with the ledger: ' + shapeRun.join('; '));
+      check(SHAPE_IDS.length >= 9 && fillOk, 'SHAPES: in each shape Tune offers, a 60-minute glass is filled to its cap with exactly the ledger\'s points on the GPU, all above, none outside, the GPU\'s glass the shape\'s own: ' + shapeFill.join('; '));
+      check(SHAPE_IDS.length >= 9 && runOk, 'SHAPES: ... and a 10 s glass in it runs to its end, the last point crossing within one frame after 00:00.0, every readback agreeing with the ledger: ' + shapeRun.join('; '));
     } else {
       var named = SHAPE_LIST.join(', ') + (SHAPE_HELD.length ? ' (held back from Tune, offered for this run: ' + SHAPE_HELD.join(', ') + ')' : '');
       check(shapeFill.length === SHAPE_LIST.length && fillOk, 'SHAPES: in each shape named by --shapes, ' + named + ', a 60-minute glass is filled to its cap with exactly the ledger\'s points on the GPU, all above, none outside, the GPU\'s glass the shape\'s own: ' + shapeFill.join('; '));

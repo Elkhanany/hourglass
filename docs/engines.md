@@ -1055,8 +1055,10 @@ the wall has opened at `u`, from 0 at the neck to 1 at the widest: a
 function of `u` alone, written out or drawn with the curve helpers above
 the records (`shUnit`, `shFlask`, `shMin` and the others). `offered` says
 whether Tune may show the glass, and is false, also when left out, until
-the glass has shown on a phone that its sand keeps time (the trumpet and
-the Florence flask wait for that). `symmetry` is `'point'`, the half turn
+the glass has shown that its sand flows and keeps time in both sands (all
+nine shapes are offered: the trumpet and the Florence flask, with their
+long narrow tubes above the neck, since both sands were run through them
+frame by frame). `symmetry` is `'point'`, the half turn
 both sand engines turn a glass by, and no other value is taken. The classic
 teardrop is the first record and the only one without an `f` (`classic:
 true`): its curve stays in `profile()`, so its numbers never move.
@@ -1101,8 +1103,8 @@ true`): its curve stays in `profile()`, so its numbers never move.
   `app-shape` takes each offered shape through the app (filled to its cap,
   a glass run out on time, the picker, the time kept when the shape
   changes), and `realsand-fill`, `realsand-adapter` and `realsand-gpu` take
-  every shape through Real sand. Offering Trumpet or Florence waits for the
-  lab's flow test on a phone: both have a long narrow tube above the neck.
+  every shape through Real sand (`realsand-gpu --only shapes --shapes <id>`
+  runs one shape, offered or not, on the GPU frame by frame).
 
 **A sound character.** One `defineCharacter` in `audio.js`, after the
 others, and its card in Tune. The record: `id` (what the settings keep),

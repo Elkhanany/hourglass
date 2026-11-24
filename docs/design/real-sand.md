@@ -970,7 +970,7 @@ the engine's figures and its log, also from a home-screen app, where
 | Bloom, rim light, depth shading, gloss | not drawn; the lab's lit grains |
 | Fine and Finest | no effect on the GPU sand; they set the CPU sand's grain |
 | The lab's known faults | a turned bed slides round the glass as a block before it breaks up, a bed at rest creeps, heaps stand steep |
-| Glass shapes other than the classic | the GPU's glass is built from the app's own geometry, but no other shape is offered or checked for flow yet |
+| Glass shapes other than the classic | the GPU's glass is built from the app's own geometry; every shape Tune offers is filled and run out on time by `realsand-gpu`'s SHAPES case |
 
 ---
 

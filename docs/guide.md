@@ -112,17 +112,17 @@ keys move between the tabs.
 **Glass**
 
 - **Shape**: the glass itself. Classic is the teardrop the app has always
-  had; Lozenge, Delta, Ampoule, Onion, Bell and Gourd are the others. The
-  shape in use is drawn large on the left, and beside it every shape is
-  drawn small, all at the same scale, so a wide glass looks wide and a small
-  one small. A tap on a shape only shows it there: nothing changes yet, so
+  had; Lozenge, Delta, Ampoule, Trumpet, Florence, Onion, Bell and Gourd are
+  the others. The shape in use is drawn large on the left, and beside it
+  every shape is drawn small, all at the same scale, so a wide glass looks
+  wide and a small one small. A tap on a shape only shows it there: nothing changes yet, so
   you can look at them one after another. **Use this shape** builds the glass
   in that shape: the glass fades, comes back in its new shape, and Tune opens
   again on this tab. A running glass keeps its time: the sand is counted
   anew for the new glass, as the same share of what it holds when full, and
-  it runs out on time. Two more shapes, Trumpet and Florence, are made but
-  not offered yet: their long narrow necks must first be seen to flow on a
-  phone.
+  it runs out on time. Trumpet and Florence have a long narrow tube above
+  the neck: the last of the sand stands in it as a column that sinks as it
+  runs, and the glass runs out on time like the others.
 - **Show the frame**: the turned posts and caps around the glass. Off, only
   the glass remains, a little larger.
 - **Finish** (under it, while the frame is shown): what the caps and posts
