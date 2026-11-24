@@ -1,5 +1,5 @@
 {
-  "from": "9c28b1b297e76b4edd0c626b6abbb0f98c4e8ed6",
+  "from": "0b813bad3c04083557334c9744019a67cc4d802c",
   "what": "What every control that changes a setting saves, calls on the engines and buzzes, in order: in its own tap (now) and after it (later) (tools/test/lib/trace.js)",
   "controls": [
     {
@@ -629,6 +629,22 @@
     },
     {
       "name": "shape: ampoule, looked at",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "shape: trumpet, looked at",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "shape: florence, looked at",
       "now": [
         ["audio.unlock"],
         ["buzz",8]
