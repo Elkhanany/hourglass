@@ -248,19 +248,19 @@ function pick(sel, v) { return { slide: sel, value: v, change: true }; }
 // closed it, the control's tab clicked if another shows). A reach is traced like a control and
 // kept apart (reaches), so a control's entry holds what the control did and nothing of how it
 // was got to; app-tune-trace holds every reach to the kept entry of the line that drives the
-// same element (a tab's, or "open Tune"). The tabs and the reset link have lines of their own
-// at the start, where every setting is still at its default: there the reset has nothing to
-// put back, tells no engine, and leaves the rest of the walk as it was (what it does with
-// every setting changed is app-tune's). The second tap is 'slow': a person's second tap, at
-// least 0.4 s after the first (a quicker one is the second half of a double tap, which the
-// link takes for no answer; app-tune holds that).
+// same element (a tab's, or "open Tune"). The tabs have lines of their own at the start. The
+// reset link's two taps come after every control that changes the look and the sound, just
+// before Real sand (which must be last: what Real sand does once it has started is another
+// suite's): there it has a sand, a volume and an ambience level to put back, so its save, its
+// cross-fade and what it tells the sound engine are in the trace (what it does with every
+// setting changed is app-tune's). The second tap is
+// 'slow': a person's second tap, at least 0.4 s after the first (a quicker one is the second
+// half of a double tap, which the link takes for no answer; app-tune holds that).
 var DRIVE = [
   ['open Tune', click('#btn-settings')],
   ['tab: glass', click('#tune-tabs [data-tab="glass"]')],
   ['tab: sound', click('#tune-tabs [data-tab="sound"]')],
   ['tab: time', click('#tune-tabs [data-tab="time"]')],
-  ['the look and sound put back: the first tap', click('#tune-reset')],
-  ['the look and sound put back: the second tap', click('#tune-reset'), 'slow'],
   ['tab: sand', click('#tune-tabs [data-tab="sand"]')],
   ['sand: volcanic', click('#sands [data-sand="volcanic"]')],
   ['sand: moonstone', click('#sands [data-sand="moonstone"]')],
@@ -330,6 +330,8 @@ var DRIVE = [
   ['grain: fine', click('#grains [data-grain="1"]'), 'reload'],
   ['grain: finest', click('#grains [data-grain="2"]'), 'reload'],
   ['grain: classic', click('#grains [data-grain="0"]'), 'reload'],
+  ['the look and sound put back: the first tap', click('#tune-reset')],
+  ['the look and sound put back: the second tap', click('#tune-reset'), 'slow'],
   ['Real sand: on', click('#opt-realsand'), 'reload']
 ];
 var CONTROLS = DRIVE.map(function (d) { return d[0]; });

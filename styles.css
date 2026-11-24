@@ -495,6 +495,13 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   color: var(--ink-2);
   transition: background 0.22s var(--ease), color 0.22s;
 }
+/* Each tab takes a tap 4 px above and below what is drawn of it (44 px in all), out to the tab
+   row's edge and a little past it; nothing moves. Not to the sides: the next tab and the close
+   button stay where a finger finds them. On an iPhone the tap lands on the tab's haptic label
+   (app.js: hapticMount), so that reaches as far. */
+.tabs button { position: relative; }
+.tabs button::before { content: ""; position: absolute; left: 0; right: 0; top: -4px; bottom: -4px; }   /* (before: under the haptic label) */
+.tabs button > .haptic { top: -4px !important; bottom: -4px !important; }
 .tabs button[aria-selected="true"] {
   background: rgba(255, 255, 255, 0.13);
   color: var(--ink);

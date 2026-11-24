@@ -531,7 +531,7 @@ function installWatch() {
     check(plug.ctl > 20 && plug.ctl >= 0.9 * plug.few,
           'RUN: ... and with those points taken for a bed (control: the same readbacks, each bed\'s points counted a hundredfold) they are heard as one in nearly every such readback',
           JSON.stringify({ heardAsABed: plug.ctl, of: plug.few, fallsUnderWay: plug.armed, landings: plug.landings, agitation: +plug.agit.toFixed(2) }));
-    // the owner's report says the same (stats().ends, what "Copy a report" carries for Gate B)
+    // the report says the same (stats().ends, what "Copy a report" carries for Gate B)
     var ends = await page.evaluate(function () { return window.Hourglass.realSand.stats().ends; });
     var le = ends && ends.lastPointMs.length ? ends.lastPointMs[ends.lastPointMs.length - 1] : null;
     check(!!le && le.from !== null && le.from >= -le.substep - 0.5 && le.to <= FRAME + 0.5 && late === late && late >= le.from - 0.5 && late <= le.to + 0.5,

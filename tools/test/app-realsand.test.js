@@ -43,7 +43,7 @@
  *        kept, no engine.
  *  AGAIN a start cut short because the page was hidden: tried again once the page is in view,
  *        and taken over then, with no failure counted.
- *  SLOW  a cold start as slow as the owner's iPhone's in a home-screen web app (Gate A: 3.4 s to
+ *  SLOW  a cold start as slow as an iPhone's in a home-screen web app (Gate A: 3.4 s to
  *        the engine's first frame; here 4 s): the CPU sand shows and runs meanwhile, the boot veil
  *        is held 1 s for it and no longer, the canvases cross-fade only once the engine has drawn, the clock
  *        runs on through the handover untouched, no failure is counted, the glass ends on time;
@@ -818,7 +818,7 @@ async function testSlow(s, env) {
     var st = await state(t);
     s.check('SLOW: a slow start is not a failure: "On", the setting kept, nothing counted', st.dstate === 'on' && st.setting === true && !st.fails && !st.why,
             JSON.stringify({ note: st.note, setting: st.setting, fails: st.fails, why: st.why }));
-    // what the owner sends back from the phone (?debug=sand): the start-up times, in the overlay
+    // what a report from the phone carries (?debug=sand): the start-up times, in the overlay
     // and in the copied report, with the engine's log
     var rep = await debugReport(t);
     s.check('SLOW: ?debug=sand: the overlay shows the start-up times, and the copied report holds them (device, pipelines, self-test, first frame: here after 4 s) with the engine\'s log',
@@ -849,7 +849,7 @@ async function testWake(s, env) {
     s.check('WAKE: the GPU sand running holds the screen wake lock (none while the glass stood idle)',
             w0.held === 0 && w1.held === 1 && w1.state === 'active' && w1.live && w1.run === 'running', JSON.stringify({ idle: w0, running: w1 }));
     // the stream's first fall from the neck to the floor of an empty lower bulb (Gate A: 0.83 s in a
-    // home-screen web app and 1.03 s in the hand, 0.42-0.45 s elsewhere), for the owner's reports
+    // home-screen web app and 1.03 s in the hand, 0.42-0.45 s elsewhere), for the reports
     await sleep(600);
     var rep = await debugReport(t), f0 = rep.fall || {};
     s.check('WAKE: ?debug=sand: the stream\'s first fall is in the overlay and in the copied report (simulated and wall time, mode and rate) and the engine\'s log',

@@ -27,6 +27,12 @@
  *     connection fills the cache again from the same release, and offline after it the app
  *     starts. A hole while the server has another release is not filled from it. The same
  *     words when app.js itself is the hole, or the style sheet (index.html's own last lines).
+ *     An older release (1.10.0, 5911e24) with app.js taken out of its cache, when the server
+ *     has this tree: the launch with a connection fills the hole with this tree's app.js, which
+ *     needs the settings store the old page never loads. The page then says "Hourglass is
+ *     updating. Open it again in a moment." (not "with a connection": it has one), builds
+ *     nothing and throws no error, and a later launch runs this tree. Its control: this tree
+ *     with the online words taken out of app.js says "... with a connection" online.
  *  4. LAB: a lab page that meets an engine of another build leaves the app's cache whole, and
  *     the app then starts offline.
  *  5. INTERRUPTED: an update that never finishes, over a copy installed before R1 (13a9772,
@@ -74,7 +80,10 @@ var PORT = (function () {
   return i > 0 ? +process.argv[i + 1] : (+process.env.PORT || 8711);
 })();
 var ORIGIN = 'http://127.0.0.1:' + PORT, HOME = ORIGIN + '/';
-var UPDATING = 'Hourglass is updating. Open it again with a connection.';
+var UPDATING = 'Hourglass is updating. Open it again with a connection.';           // offline
+var UPDATING_ONLINE = 'Hourglass is updating. Open it again in a moment.';            // with a connection
+// app.js's online words, the thing a control takes out (it then says UPDATING online too)
+var ONLINE_WORDS = "navigator.onLine ? '" + UPDATING_ONLINE + "' : ";
 // index.html's own last lines: the inline script that says so when app.js never started
 var LAST_LINES = /<script>(?:(?!<\/script>)[\s\S])*id = 'updating'(?:(?!<\/script>)[\s\S])*<\/script>/;
 var sleep = H.sleep;
@@ -644,6 +653,45 @@ async function caseHole(s, browser, T) {
 }
 
 /**
+ * Release 1.10.0 installed, app.js taken out of its cache, then `dir` served: the launch with a
+ * connection (the old page, with `dir`'s app.js filled into the hole), then launches with a
+ * connection until `dir` runs.
+ */
+async function holeOlder(browser, T, dir) {
+  var ctx = await newContext(browser), old = T.olds['1.10.0'], r = {};
+  try {
+    serve(old.dir);
+    await online(ctx);
+    var L = await install(ctx, old.version);
+    r.installed = L.installed.ok && problems(L).length === 0;
+    r.took = await L.page.evaluate(function (v) { return caches.open(v).then(function (c) { return c.delete('./app.js'); }); }, old.version);
+    serve(dir);
+    L = await launch(ctx);
+    r.first = { app: L.app, errors: L.errors.slice(0, 3), release: L.app ? (await marks(L.page)).release : null };
+    r.next = await until(async function () {
+      var L2 = await launch(ctx), m = L2.app ? await marks(L2.page) : {};
+      return { ok: !!L2.app && L2.app.sim && !L2.app.updating && m.release === T.release, app: L2.app, release: m.release, errors: L2.errors.slice(0, 2) };
+    }, 40000, 500);
+  } finally {
+    await ctx.close();
+    await up();
+  }
+  return r;
+}
+async function caseHoleOlder(s, browser, T) {
+  var r = await holeOlder(browser, T, T.tree), f = r.first;
+  s.check('HOLE: 1.10.0 installed with app.js taken out of its cache, this tree on the server: the launch with a connection runs the old page with this tree\'s app.js, which says "' + UPDATING_ONLINE + '", builds nothing, and throws no error',
+          r.installed && r.took && f.release === '1.10.0' && !!f.app && f.app.updating === UPDATING_ONLINE && !f.app.sim && pageErrors(f).length === 0,
+          JSON.stringify({ installed: r.installed, took: r.took, first: f }));
+  s.check('HOLE: ... and a later launch with a connection runs this tree (' + T.release + ')', r.next.ok, JSON.stringify(r.next));
+  // control: this tree with the online words taken out of app.js
+  var c = await holeOlder(browser, T, T.offlineWords.dir), cf = c.first;
+  s.check('HOLE: control: this tree with the online words taken out of app.js says "' + UPDATING + '" in the same launch, though it has a connection',
+          T.offlineWords.found === 1 && c.installed && c.took && !!cf.app && !cf.app.sim && cf.app.updating === UPDATING && cf.app.updating !== UPDATING_ONLINE,
+          JSON.stringify({ undone: T.offlineWords.found, first: cf }));
+}
+
+/**
  * `dir` installed; then, one after the other, each of `files` taken out of the cache and the app
  * launched offline (and the cache filled again by a launch with a connection). What the page
  * said each time.
@@ -941,6 +989,7 @@ async function main() {
     T.after = release(T.tree, 'after', nextVersion(T.next.version));
     T.varied = without(T.tree, 'varied', 'sw.js', ', ignoreVary: true', '');
     T.plain = without(T.tree, 'plain', 'index.html', LAST_LINES, '');
+    T.offlineWords = without(T.tree, 'offline-words', 'app.js', ONLINE_WORDS, '');
     T.old = archive(BEFORE_R1, 'old');
     T.oldWorker = worker(T.old);
     T.oldBad = nextRelease(T.old, 'old-bad', true);
@@ -958,7 +1007,7 @@ async function main() {
     await up();
     browser = await require('playwright').chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required', '--disable-webgl'] });
     var cases = [['UPGRADE', caseUpgrade], ['OVERTAKEN', caseOvertaken], ['VARY', caseVary], ['FAILED INSTALL', caseFailedInstall],
-      ['HOLE', caseHole], ['HOLE', caseHoleOwn], ['LAB', caseLab], ['INTERRUPTED', caseInterrupted], ['OLD SAVES', caseOldSaves]];
+      ['HOLE', caseHole], ['HOLE', caseHoleOwn], ['HOLE', caseHoleOlder], ['LAB', caseLab], ['INTERRUPTED', caseInterrupted], ['OLD SAVES', caseOldSaves]];
     var only = process.argv.indexOf('--only') > 0 ? process.argv[process.argv.indexOf('--only') + 1].toUpperCase() : null;
     for (var i = 0; i < cases.length; i++) {
       if (only && cases[i][0] !== only) continue;

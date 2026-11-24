@@ -1,36 +1,31 @@
 /*
- * The app as it was before the settings store (step A3 of the reorganisation), for the three
- * checks that the store changed nothing. Development only, not shipped.
+ * The kept files of the three settings checks, in tools/test/base/. Development only, not
+ * shipped.
  *
- * What the app did then is kept as three files in tools/test/base/, so that the default run
- * needs no commit of the past:
- *   app-settings-section.txt   app.js's "Settings (persisted)" section, byte for byte: the
- *                              loader the store is compared with (settings-unit)
- *   boot-trace.json            what the boot called and wrote on the Sim, the Renderer, the
- *                              sound engine and storage, for five saved states (app-boot-trace)
- *   tune-trace.json            what every control of Tune saved, called and buzzed, in order
- *                              (app-tune-trace); the new Tune is compared with this file too
- * Each suite, run with --base <commit> (or HOURGLASS_BASE=<commit>), makes its file again from
- * that commit and fails if it differs from the one kept; with --write as well, it writes it.
- * They were made from BASE: release 1.11.0, the last app.js with a Settings section of its own.
- * (The store was cut from an earlier commit of release 1.10.0, 5b9bb5a, which had 30 settings;
- * that release gained a 31st, realSandNaAt, before the two were merged, and the three files
- * were made again from it then. Release 1.11.0 kept its Settings section byte for byte but
- * moved the engine's build stamp from 5 to 6, which the app saves at the boot and with Tune's
- * last save, so the two traces were made again from it, changed in those saves alone. They
- * were written (--write) from the tree that joined it with the new Tune, release 1.13.0: the
- * tuneTab key and the lines of Tune's tabs added, nothing else; and last for release 1.14.0:
- * the sand, sandColor and finish keys, the lines of the sands, the colour well and the
- * finishes in place of the six materials', and the boot at the walk's end drawing the sand the
- * sand chip left over walnut.) The two traces, run with
- * --write and no --base, are written
- * from the tree just run: that is how a setting or a control added on purpose gets into them,
- * in a commit of its own whose diff is read (the new key, the new control's lines, nothing
- * else). The kept section is the app before the store: a setting added to the store is not
- * added to it, and it is not made again.
+ *   app-settings-section.txt   app.js's "Settings (persisted)" section of BASE (release 1.11.0,
+ *                              the last app.js with a Settings section of its own), byte for
+ *                              byte: the old loader the store is compared with (settings-unit).
+ *                              It is the app before the store, and stays so: a setting added to
+ *                              the store is not added to it, and it is not made again
+ *   boot-trace.json            what the boot reads, saves and calls on the Sim, the Renderer, the
+ *                              sound engine and the sensors, for six saved states (app-boot-trace)
+ *   tune-trace.json            what every control of Tune saves, calls and buzzes, in order
+ *                              (app-tune-trace)
+ *
+ * The two traces are a reviewed record, not a recording of BASE: each holds the tree named in
+ * its "from", and the suites hold the app to it. They were first made from BASE (and before it
+ * from release 1.10.0), then made again (--write, from the tree just run) whenever a setting or
+ * a control was added on purpose, each time in a commit of its own that says what changed and
+ * nothing else: the engine's build stamp 6 (1.11.0), tuneTab and Tune's tabs (1.13.0), the
+ * sands, the colour well and the finishes (1.14.0), the shapes and the build stamp 7 (1.15.0).
+ * That chain of commits is what ties them to the app before the store. An older commit cannot
+ * give the same trace, so --base <commit> (or HOURGLASS_BASE) only reports, for whoever makes a
+ * trace again: that commit's tree is run too, and what differs from the kept trace is printed;
+ * it passes and fails nothing. (settings-unit's --base is its own: the kept section must be that
+ * commit's, and with --write it is written from it.)
  *
  *   var base = require('./lib/base.js');
- *   base.BASE                    the commit the kept files were made from
+ *   base.BASE                    the commit the kept section is from (and the traces first were)
  *   base.asked()                 the commit named by --base or HOURGLASS_BASE, else null
  *   base.writing()               whether --write was given
  *   base.here(root)              what a trace written from the tree just run says it is from

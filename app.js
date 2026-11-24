@@ -18,7 +18,10 @@
    *  snapshot). Should one be missing from the copy all the same, an
    *  offline launch gets an error for it and its engine is not there: then
    *  nothing is built, the page says so, and the next launch with a
-   *  connection fills the copy again.
+   *  connection fills the copy again. With a connection it says to open it
+   *  again in a moment: an older copy with a hole, filled from a server
+   *  that has moved on, runs this script beside its own page, and the new
+   *  release is installing meanwhile.
    * ==================================================================== */
   var missing = missingParts();
   if (missing.length) { updating(missing); return; }
@@ -40,7 +43,8 @@
       var note = document.createElement('p');
       note.id = 'updating';
       note.setAttribute('role', 'alert');
-      note.textContent = 'Hourglass is updating. Open it again with a connection.';
+      // (online, the new release is on its way in: an older copy, with a hole, that met this release's app.js)
+      note.textContent = navigator.onLine ? 'Hourglass is updating. Open it again in a moment.' : 'Hourglass is updating. Open it again with a connection.';
       note.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;margin:0;padding:24px;' +
         'display:flex;align-items:center;justify-content:center;text-align:center;background:#0b0c0e;' +
         'color:#d8d2c8;font:16px/1.5 -apple-system,system-ui,sans-serif';
@@ -125,8 +129,9 @@
   audio.muted = settings.muted;
   audio.character = settings.character;
   audio.chimeEnabled = settings.chime;
-  if (!window.HourglassAudio.CHARACTERS[settings.character]) settings.character = 'asmr';
-  if (!window.HourglassAudio.AMBIENCES[settings.ambience]) settings.ambience = 'none';
+  // (a name the sound engine's table has as its own: not 'toString' or 'constructor', which every object has)
+  if (!Object.prototype.hasOwnProperty.call(window.HourglassAudio.CHARACTERS, settings.character)) settings.character = 'asmr';
+  if (!Object.prototype.hasOwnProperty.call(window.HourglassAudio.AMBIENCES, settings.ambience)) settings.ambience = 'none';
   audio.ambience = settings.ambience;
   audio.ambLevel = settings.ambienceLevel;
   // The phone's own motion: what it feels, how it turns, where down is.
@@ -3142,11 +3147,15 @@
   var RESET_ASK = 'Put the look and sound back as they came', RESET_SURE = 'Tap again to put them back';
   var RESET_MS = 3000, RESET_DOUBLE_MS = 400;        // how long it waits for the second tap; a double tap is one tap
   var tuneReset = $('tune-reset'), resetText = $('tune-reset-text'), resetTimer = 0, resetArmedAt = 0;
+  // (the first tap's question, said through a polite status in the sheet that only a screen reader
+  // hears: the link itself already shows it, and its new words are not read out on their own)
+  var resetSay = $('tune-reset-say');
   function resetDisarm() {
     clearTimeout(resetTimer);
     if (!tuneReset || !resetText || tuneReset.getAttribute('data-state') === 'idle') return;
     tuneReset.setAttribute('data-state', 'idle');
     resetText.textContent = RESET_ASK;
+    if (resetSay) resetSay.textContent = '';
   }
   /** What a new install has for a setting (its record's default). */
   function settingDefault(key) {
@@ -3184,6 +3193,7 @@
       if (tuneReset.getAttribute('data-state') !== 'armed') {
         tuneReset.setAttribute('data-state', 'armed');
         resetText.textContent = RESET_SURE;
+        if (resetSay) resetSay.textContent = RESET_SURE;
         resetArmedAt = now;
         clearTimeout(resetTimer);
         resetTimer = setTimeout(resetDisarm, RESET_MS);
@@ -3323,9 +3333,35 @@
   });
 
   /* ---- keyboard ----------------------------------------------------- */
+  /** What Tab can reach in a sheet, in the page's order: shown, enabled, not taken out of the tab order. */
+  function tabStops(el) {
+    var all = el.querySelectorAll('button, [href], input, select, textarea, [tabindex]'), out = [];
+    for (var i = 0; i < all.length; i++) {
+      var c = all[i];
+      if (c.tabIndex < 0 || c.disabled || !c.getClientRects().length || getComputedStyle(c).visibility === 'hidden') continue;
+      out.push(c);
+    }
+    return out;
+  }
+  /**
+   * A sheet is a dialog: with a keyboard, Tab from its last control goes round to its first, and
+   * Shift+Tab from its first to its last, so the focus never reaches the page behind the scrim.
+   * Only Tab is held: a finger and a screen reader reach what they always did.
+   */
+  function keepTabIn(el, e) {
+    var stops = tabStops(el);
+    if (!stops.length) return;
+    var at = document.activeElement, i = stops.indexOf(at);
+    var inside = at !== el && el.contains(at);
+    if (inside && (e.shiftKey ? i !== 0 : i !== stops.length - 1)) return;   // the page's own order, inside the sheet
+    e.preventDefault();
+    var to = e.shiftKey ? stops[stops.length - 1] : stops[0];
+    try { to.focus(); } catch (err) {}
+  }
   window.addEventListener('keydown', function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === 'Escape') { if (sheetOpen) closeSheet(); else setZen(false); return; }
+    if (e.key === 'Tab') { if (sheetOpen) keepTabIn(sheetOpen, e); return; }
     var tag = e.target && e.target.tagName;
     if (sheetOpen || tag === 'INPUT' || tag === 'BUTTON') return;
     var key = e.key.toLowerCase();
@@ -3512,7 +3548,7 @@
    *  exists, the page loads realsand/boot.mjs, which hands this script the
    *  engine's class and build stamp (attachRealSand). The CPU sand runs,
    *  and shows, while the engine starts (a cold start in a home-screen web
-   *  app took 3.4 s on the owner's iPhone), and a slow start is never a
+   *  app took 3.4 s on an iPhone), and a slow start is never a
    *  failure; the dark opening waits up to 1 s for the engine's first frame
    *  (holdVeil, at Boot). Once the engine has drawn its first frame it
    *  takes over between two frames (handover): `sim` becomes the GPU sand,
@@ -3552,7 +3588,7 @@
    *  ?offscreen=1 is for the tests only: the engine draws into a texture
    *  shown on a 2-D canvas and takes a software adapter (a headless
    *  browser's WebGPU canvas cannot be read back). ?debug=sand shows the
-   *  engine's figures for the owner's reports.
+   *  engine's figures for a report.
    * ==================================================================== */
   var REALSAND_BUILD = '7';          // the engine's stamp this script was written for (realsand/build.mjs)
   var REAL_TEST = /[?&]offscreen=1(?:&|$)/.test(location.search);
@@ -3612,7 +3648,7 @@
   /**
    * With the switch on, the row has a link that copies the report (realReport). A web app on the
    * home screen keeps its own storage and opens at its own address, so ?debug=sand never reaches
-   * it, and that is where the owner uses the app (and where Gate A found the slow start).
+   * it, and that is where a home-screen app is used (and where Gate A found the slow start).
    */
   var realReportEl = null;
   function showReportLink(on) {
@@ -3879,7 +3915,7 @@
     app.classList.add('regrain');
     setTimeout(function () { location.reload(); }, 320);
   });
-  /* ---- ?debug=sand: the engine's figures, for the owner's reports ------ */
+  /* ---- ?debug=sand: the engine's figures, for a report ---------------- */
   var dbgSand = /[?&]debug=sand(?:&|$)/.test(location.search) ? { el: null, text: null, at: 0 } : null;
   if (dbgSand) {
     dbgSand.el = document.createElement('div');
@@ -3899,7 +3935,7 @@
     dbgSand.el.appendChild(copy);
     app.appendChild(dbgSand.el);
   }
-  /** Everything the owner's report needs: the device, the switch, the engine's figures and its log. */
+  /** Everything a report needs: the device, the switch, the engine's figures and its log. */
   function realReport() {
     var st = null;
     try { st = realEng ? realEng.stats() : null; } catch (e) { st = String(e); }
