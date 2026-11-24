@@ -3512,7 +3512,7 @@
    *  exists, the page loads realsand/boot.mjs, which hands this script the
    *  engine's class and build stamp (attachRealSand). The CPU sand runs,
    *  and shows, while the engine starts (a cold start in a home-screen web
-   *  app took 3.4 s on the owner's iPhone), and a slow start is never a
+   *  app took 3.4 s on an iPhone), and a slow start is never a
    *  failure; the dark opening waits up to 1 s for the engine's first frame
    *  (holdVeil, at Boot). Once the engine has drawn its first frame it
    *  takes over between two frames (handover): `sim` becomes the GPU sand,
@@ -3552,7 +3552,7 @@
    *  ?offscreen=1 is for the tests only: the engine draws into a texture
    *  shown on a 2-D canvas and takes a software adapter (a headless
    *  browser's WebGPU canvas cannot be read back). ?debug=sand shows the
-   *  engine's figures for the owner's reports.
+   *  engine's figures for a report.
    * ==================================================================== */
   var REALSAND_BUILD = '7';          // the engine's stamp this script was written for (realsand/build.mjs)
   var REAL_TEST = /[?&]offscreen=1(?:&|$)/.test(location.search);
@@ -3612,7 +3612,7 @@
   /**
    * With the switch on, the row has a link that copies the report (realReport). A web app on the
    * home screen keeps its own storage and opens at its own address, so ?debug=sand never reaches
-   * it, and that is where the owner uses the app (and where Gate A found the slow start).
+   * it, and that is where a home-screen app is used (and where Gate A found the slow start).
    */
   var realReportEl = null;
   function showReportLink(on) {
@@ -3879,7 +3879,7 @@
     app.classList.add('regrain');
     setTimeout(function () { location.reload(); }, 320);
   });
-  /* ---- ?debug=sand: the engine's figures, for the owner's reports ------ */
+  /* ---- ?debug=sand: the engine's figures, for a report ---------------- */
   var dbgSand = /[?&]debug=sand(?:&|$)/.test(location.search) ? { el: null, text: null, at: 0 } : null;
   if (dbgSand) {
     dbgSand.el = document.createElement('div');
@@ -3899,7 +3899,7 @@
     dbgSand.el.appendChild(copy);
     app.appendChild(dbgSand.el);
   }
-  /** Everything the owner's report needs: the device, the switch, the engine's figures and its log. */
+  /** Everything a report needs: the device, the switch, the engine's figures and its log. */
   function realReport() {
     var st = null;
     try { st = realEng ? realEng.stats() : null; } catch (e) { st = String(e); }

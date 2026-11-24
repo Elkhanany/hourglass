@@ -6,7 +6,7 @@
  * against three models of when a phone's GPU reports a frame done:
  *   prop   when its work is done (a fixed per-frame cost F plus c ms a substep);
  *   floor  never sooner than about 0.93 of a display frame after submit, whatever the work
- *          (the owner's iPhone at 5cc11b3, 30 Hz display: 31 ms for a frame of 48 substeps
+ *          (an iPhone at 5cc11b3, 30 Hz display: 31 ms for a frame of 48 substeps
  *          and for one of 47 on a larger bed, where its real-speed rows put the work at 17
  *          and 26 ms);
  *   vsync  at the first display refresh after the work is done.

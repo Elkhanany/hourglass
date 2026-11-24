@@ -335,7 +335,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   it whole, and a theme or layered sand chosen while the GPU sand runs (the
   new colours at once; a re-tone that moves no grain); and `?debug=sand`
   and the row's "Copy a report", whose report carries the start-up times
-  and the stream's first fall to the owner's reports. The monitor every suite runs (`stubs/page-init.js`) follows
+  and the stream's first fall to the reports. The monitor every suite runs (`stubs/page-init.js`) follows
   `Hourglass.sim` when Real sand takes over, and checks the GPU's readbacks
   against its count (`audit()`). `app-regression`'s service worker check
   serves a new build of the engine midway: the app keeps its cached engine,
@@ -648,7 +648,7 @@ BEHIND (GPU budget). (More, "N in flight" and "GPU budget", go back toward
 the old pace, to compare: up to 3 frames in flight, no budget; a budget
 set from the measured time instead, as in 9b0a9f1, would fall to one
 substep a frame on a phone whose light frames report about a display frame
-whatever their work, as the owner's did, and nearly stop the sand:
+whatever their work, as one iPhone's did, and nearly stop the sand:
 `tools/test/lab-pace.test.js` keeps that rule as its control.)
 **Benchmark** and **Flow test** measure the phone, and **Copy results**
 puts a plain-text report on the clipboard to send back: it opens with the

@@ -354,7 +354,7 @@ Starting. The dark opening waits up to 1 s longer for Real sand's first
 picture, so that most launches open straight on Real sand. If the graphics
 chip takes longer, the opening fades up as before on the classic sand,
 which shows and runs while the chip gets ready, and the two cross-fade once
-Real sand has drawn its first picture: on the owner's iPhone that took
+Real sand has drawn its first picture: on an iPhone that took
 0.6 s in Chrome and 3.4 s in a home-screen web app opened cold. A slow start
 is never counted as a failure.
 
