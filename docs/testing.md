@@ -108,8 +108,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   saves, the new control's lines, and nothing else). The kept Settings
   section is the app before the store (release 1.10.0's, with its 31 keys,
   which release 1.11.0 kept byte for byte): a setting added to the store is
-  not added to it, and it is not made again. The two traces were last made
-  from release 1.11.0, whose new engine build (6) is in their saves.
+  not added to it, and it is not made again. The two traces were made from
+  release 1.11.0, whose new engine build (6) is in their saves, and last
+  made again (`--write`) from the tree that joined it with the new Tune
+  (release 1.13.0): against each side's file they differ only in what the
+  other side brought (the `tuneTab` key at the end of every full save and
+  the lines of the four tabs and the reset link's two taps; the build
+  stamp 6 in the saves and the boot's save of it).
   The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with

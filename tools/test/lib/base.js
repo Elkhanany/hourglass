@@ -17,7 +17,10 @@
  * that release gained a 31st, realSandNaAt, before the two were merged, and the three files
  * were made again from it then. Release 1.11.0 kept its Settings section byte for byte but
  * moved the engine's build stamp from 5 to 6, which the app saves at the boot and with Tune's
- * last save, so the two traces were made again from it, changed in those saves alone.) The two traces, run with --write and no --base, are written
+ * last save, so the two traces were made again from it, changed in those saves alone. They
+ * were last written (--write) from the tree that joined it with the new Tune, release 1.13.0:
+ * the tuneTab key and the lines of Tune's tabs added, nothing else.) The two traces, run with
+ * --write and no --base, are written
  * from the tree just run: that is how a setting or a control added on purpose gets into them,
  * in a commit of its own whose diff is read (the new key, the new control's lines, nothing
  * else). The kept section is the app before the store: a setting added to the store is not
