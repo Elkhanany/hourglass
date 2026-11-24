@@ -23,7 +23,7 @@
  * everything kept.
  *
  *   var trace = require('./lib/trace.js');
- *   trace.STORAGES                       the five saved states of the boot trace
+ *   trace.STORAGES                       the six saved states of the boot trace
  *   await trace.boot(env, storage)    -> { name, trace: [...], saved: '<json>' }
  *   await trace.tune(env, [only])     -> { controls: [{ name, now: [...], later: [...] }], saved,
  *                                           undriven: [the controls of Tune that DRIVE has no line for],
@@ -201,8 +201,9 @@ function recorder() {
 }
 
 /* ---- the boot trace -------------------------------------------------------------------- */
-// Five saved states: nothing; a save from before 1.10.0 (no version) with everything changed;
-// a version-2 save with Real motion left on; a damaged save; and "?t=45" over a saved sequence.
+// Six saved states: nothing; a save from before 1.10.0 (no version) with everything changed;
+// a version-2 save with Real motion left on; a damaged save; "?t=45" over a saved sequence; and
+// a glass of another shape (1.15.0).
 var STORAGES = [
   { name: 'a first launch: nothing saved', raw: {} },
   { name: 'a save from before version 2, everything changed', save: {
@@ -215,7 +216,9 @@ var STORAGES = [
     v: 2, realSand: false, theme: 'granite', character: 'tuba', volume: 'loud', muted: 1, chime: null, frame: 'yes', layers: 0, ambience: 'jungle', ambienceLevel: 2.5,
     breath: 1, breathPattern: 'fast', durationMs: 1, restMs: 5, rounds: 99, motionSign: 7, grain: 5, hintZen: 'x', extra: { a: 1 } } },
   { name: '"?t=45" over a saved sequence, the finest grain', query: '?t=45', save: {
-    v: 2, realSand: false, realSandBuild: '5', durationMs: 1500000, restMs: 300000, rounds: 4, grain: 2 } }
+    v: 2, realSand: false, realSandBuild: '5', durationMs: 1500000, restMs: 300000, rounds: 4, grain: 2 } },
+  { name: 'a version-2 save, the glass in the delta shape', save: {
+    v: 2, realSand: false, realSandBuild: '7', tuneTab: 'glass', shape: 'delta' } }
 ];
 
 /** One launch from a saved state: what the boot did, and what was saved when it was over. */
@@ -315,6 +318,15 @@ var DRIVE = [
   ['haptics: on', click('#opt-haptics')],
   ['sand, by the chip in the top bar: the next one', click('#btn-theme')],
   ['duration: 10 minutes (a pill)', click('#durations .pill[data-min="10"]')],
+  ['shape: lozenge, looked at', click('#shapes [data-shape="lozenge"]')],
+  ['shape: ampoule, looked at', click('#shapes [data-shape="ampoule"]')],
+  ['shape: onion, looked at', click('#shapes [data-shape="onion"]')],
+  ['shape: bell, looked at', click('#shapes [data-shape="bell"]')],
+  ['shape: gourd, looked at', click('#shapes [data-shape="gourd"]')],
+  ['shape: delta, looked at', click('#shapes [data-shape="delta"]')],
+  ['shape: delta, used', click('#shape-use'), 'reload'],
+  ['shape: classic, looked at', click('#shapes [data-shape="classic"]')],
+  ['shape: classic, used', click('#shape-use'), 'reload'],
   ['grain: fine', click('#grains [data-grain="1"]'), 'reload'],
   ['grain: finest', click('#grains [data-grain="2"]'), 'reload'],
   ['grain: classic', click('#grains [data-grain="0"]'), 'reload'],

@@ -5108,7 +5108,12 @@
    *  put while the glass turns, so highlights slide across it.
    * ==================================================================== */
   var GLASS_VS = 'attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }';
-  var GLASS_FS = [
+  // The fragment shader, in parts: what it is told, the shape of the glass
+  // (the classic teardrop's, or a table for another glass of SHAPES), and the
+  // light. The classic glass is lit by exactly the lines it always was; the
+  // few another glass needs differently stand beside them as a pair
+  // (glassSource).
+  var GLASS_FS_HEAD = [
     'precision highp float;',
     'uniform vec2 uRes;',      // drawing buffer, px
     'uniform vec2 uBox;',      // the same rectangle in cells
@@ -5119,8 +5124,9 @@
     'uniform vec3 uAbs;',      // absorption per cell of glass
     'uniform vec3 uGlow;',     // warm bounce from the desk
     'uniform float uPx;',      // cells per pixel (edge anti-aliasing)
-    'uniform float uGain;',    // exposure
-
+    'uniform float uGain;'     // exposure
+  ];
+  var GLASS_FS_TEARDROP = [
     'float prof(float u) {',
     '  if (u >= 1.0) return 0.0;',
     '  float c = uGeo.w;',
@@ -5134,7 +5140,41 @@
     '  if (u >= 1.0) return 0.0;',
     // heavier at the waist, where blown glass is drawn out; closed at the tip
     '  return prof(u) + uWall * (1.0 + 1.15 * exp(-u * u / 0.0035)) * (1.0 - smoothstep(0.985, 1.0, u));',
+    '}'
+  ];
+  // Another glass than the classic: its two surfaces are read from a table
+  // (shapeTable) baked from the same profile() the sand is held by, so the
+  // glass seen is the glass the sand is in. The table is a texture of bytes,
+  // read one texel at a time and joined here: no phone is asked to blend
+  // 16-bit numbers that lie across two bytes.
+  var TABLE_N = 1024;
+  var GLASS_FS_TABLE = [
+    // highp: a sampler is lowp unless it says otherwise, and what is read
+    // through it is then lowp too, which need hold no more than 8 bits
+    'uniform highp sampler2D uProf;',
+    'uniform float uProfK;',   // cells per count of the table
+    'float tap(float i, float row) {',
+    '  vec4 t = texture2D(uProf, vec2((i + 0.5) / ' + TABLE_N + '.0, row));',
+    // each byte back to a whole number first, then the two as one of 16 bits
+    '  vec2 b = floor(t.xy * 255.0 + 0.5);',
+    '  return (b.x * 256.0 + b.y) * uProfK;',
     '}',
+    'float look(float u, float row) {',
+    '  float x = u * ' + (TABLE_N - 1) + '.0, i = floor(x);',
+    '  return mix(tap(i, row), tap(min(i + 1.0, ' + (TABLE_N - 1) + '.0), row), x - i);',
+    '}',
+    'float rIn(float y) {',
+    '  float u = abs(y) / uGeo.y;',
+    '  if (u >= 1.0) return 0.0;',
+    '  return look(u, 0.25);',
+    '}',
+    'float rOut(float y) {',
+    '  float u = abs(y) / (uGeo.y + uWall);',
+    '  if (u >= 1.0) return 0.0;',
+    '  return look(u, 0.75);',
+    '}'
+  ];
+  var GLASS_FS_LIGHT = [
     'vec3 rotZ(vec3 v, float a) {',
     '  float c = cos(a), s = sin(a);',
     '  return vec3(v.x * c - v.y * s, v.x * s + v.y * c, v.z);',
@@ -5160,6 +5200,14 @@
     // the glass ends
     '  col += vec3(1.0) * 1.7 * panel(d, normalize(vec3(-0.30, -0.04, -0.95)), vec2(0.05, 0.7), 0.08);',
     '  col += vec3(1.0) * 1.3 * panel(d, normalize(vec3(0.30, -0.04, -0.95)), vec2(0.05, 0.7), 0.08);',
+    // another glass may end low and wide, where the teardrop comes to a round
+    // tip: two more strips behind, lying flat, draw the same line along an
+    // end as those two draw down the sides (without them a lid is black on
+    // the dark room, and the glass has no end)
+    [[], [
+      '  col += vec3(1.0) * 1.7 * panel(d, normalize(vec3(0.0, -0.25, -0.97)), vec2(0.7, 0.05), 0.08);',
+      '  col += vec3(1.0) * 1.3 * panel(d, normalize(vec3(0.0, 0.25, -0.97)), vec2(0.7, 0.05), 0.08);'
+    ]],
     // soft light from the sides, which the thick rim bends round into the eye
     '  col += vec3(0.86, 0.89, 0.94) * 0.55 * panel(d, normalize(vec3(-1.0, -0.06, 0.04)), vec2(0.5, 0.55), 0.3);',
     '  col += vec3(0.86, 0.89, 0.94) * 0.45 * panel(d, normalize(vec3(1.0, -0.06, 0.04)), vec2(0.5, 0.55), 0.3);',
@@ -5172,7 +5220,14 @@
     '  vec2 p = (gl_FragCoord.xy / uRes - 0.5) * uBox;',
     '  p.y = -p.y;',
     '  float ro = rOut(p.y), ri = rIn(p.y), ax = abs(p.x);',
-    '  float edge = 1.0 - smoothstep(ro - 1.6 * uPx, ro, ax);',
+    // The edge is smoothed over 1.6 px: across, which is right down the
+    // teardrop's sides. Another glass has lids that lie nearly flat, so there
+    // the gap across is shrunk by the outer surface's slope first (the same
+    // slope the near wall is lit by, below).
+    ['  float edge = 1.0 - smoothstep(ro - 1.6 * uPx, ro, ax);', [
+      '  float so = uPass > 0.5 && ax < ro ? (rOut(p.y + 0.6) - rOut(p.y - 0.6)) / 1.2 : 0.0;',
+      '  float edge = 1.0 - smoothstep(-1.6 * uPx, 0.0, (ax - ro) / sqrt(1.0 + so * so));'
+    ]],
     '  if (ro <= 0.0 || edge <= 0.0) { gl_FragColor = vec4(0.0); return; }',
     '  const float E = 0.6;',
     // signed distance to the inner surface, positive inside the bore: the
@@ -5186,7 +5241,8 @@
     '  vec3 absorb = exp(-uAbs * path);',
     '  vec3 col; float a;',
     '  if (uPass > 0.5) {',
-    '    float dro = clamp((rOut(p.y + E) - rOut(p.y - E)) / (2.0 * E), -8.0, 8.0);',
+    ['    float dro = clamp((rOut(p.y + E) - rOut(p.y - E)) / (2.0 * E), -8.0, 8.0);',
+     '    float dro = clamp(so, -8.0, 8.0);'],
     '    float s = clamp(p.x / ro, -0.9995, 0.9995);',
     '    vec3 n = normalize(vec3(s, -dro, sqrt(1.0 - s * s)));',
     // hand-blown glass is never optically perfect
@@ -5227,10 +5283,77 @@
     '  a = clamp(max(a, max(col.r, max(col.g, col.b))), 0.0, 1.0);',
     '  gl_FragColor = vec4(col, a) * edge;',
     '}'
-  ].join('\n');
+  ];
+  /** The shader's text for the classic glass (0) or for another (1): of a pair, [the classic's, another glass's], that one. */
+  function glassSource(which) {
+    var parts = GLASS_FS_HEAD.concat([[GLASS_FS_TEARDROP, GLASS_FS_TABLE]], GLASS_FS_LIGHT), out = [], i;
+    for (i = 0; i < parts.length; i++) out = out.concat(typeof parts[i] === 'string' ? parts[i] : parts[i][which]);
+    return out.join('\n');
+  }
 
-  /** One WebGL layer of the glass. Returns null where WebGL cannot do it. */
-  function makeGlass(canvas, pass) {
+  var GLASS_FS = glassSource(0), GLASS_FS_SHAPE = glassSource(1);
+
+  /**
+   * The two surfaces of a glass that is not the classic one, as its shader
+   * reads them: TABLE_N by 2 texels of four bytes, a half-width as 16 bits in
+   * the first two (the high byte first), `k` cells to a count.
+   *   row 0   the bore: profile at u = i / (TABLE_N - 1), the last just short
+   *           of the closed end
+   *   row 1   the outer surface, over a bulb longer by the wall: the bore
+   *           pushed straight out of the glass by the wall's thickness, as the
+   *           drawn glass has it (shapeMarks), and heavier at the waist by as
+   *           much as the teardrop is there
+   * Found once per geometry and kept on it.
+   */
+  function shapeTable(g) {
+    if (g.table) return g.table;
+    var N = TABLE_N, M = 4096, HB = g.HB, wall = g.wall, i, k, u, ua, ub, sl, nx, y, x, t, top = 0;
+    var rin = new Float64Array(N), rout = new Float64Array(N);
+    for (i = 0; i < N; i++) rin[i] = profile(Math.min(i / (N - 1), 1 - 1e-9), g);
+    // the outer surface as points, end to neck (the end itself first)
+    var px = new Float64Array(M + 1), py = new Float64Array(M + 1);
+    py[0] = HB + wall;
+    for (k = 1; k <= M; k++) {
+      u = 1 - k / M;
+      ua = Math.max(0, u - 0.002); ub = Math.min(1, u + 0.002);
+      sl = (profile(ub, g) - profile(ua, g)) / ((ub - ua) * HB);
+      nx = 1 / Math.sqrt(1 + sl * sl);
+      px[k] = profile(u, g) + wall * nx; py[k] = u * HB - wall * sl * nx;
+    }
+    // The bead at the waist: the teardrop's, where this bore opens as fast as
+    // the teardrop's does by the bead's end; less on a neck drawn out long,
+    // where a bead that size would stand on a tube as a lump.
+    var ue = Math.sqrt(0.0035), bead = 1.15 * Math.min(1, (profile(ue, g) - g.RN) / ((g.R - g.RN) * Math.sin(Math.PI * 0.5 * Math.pow(ue / 0.66, 1.22))));
+    // ... and how far out it reaches at each height (the farthest, where a
+    // tight hollow makes the pushed wall cross itself; beside the waist, where
+    // the two bulbs' walls meet, what it is at the neck)
+    for (i = 0; i < N; i++) {
+      u = i / (N - 1); y = u * (HB + wall); x = -1;
+      for (k = 0; k < M; k++) {
+        if ((py[k] - y) * (py[k + 1] - y) > 0) continue;
+        t = py[k] === py[k + 1] ? 0 : (y - py[k]) / (py[k + 1] - py[k]);
+        t = px[k] + (px[k + 1] - px[k]) * t;
+        if (t > x) x = t;
+      }
+      if (x < 0) x = px[M];
+      rout[i] = x + wall * bead * Math.exp(-u * u / 0.0035);
+      top = Math.max(top, rout[i], rin[i]);
+    }
+    var data = new Uint8Array(N * 2 * 4), kk = top / 65535, v;
+    for (i = 0; i < N; i++) {
+      v = Math.round(rin[i] / kk); data[4 * i] = v >> 8; data[4 * i + 1] = v & 255; data[4 * i + 3] = 255;
+      v = Math.round(rout[i] / kk); data[4 * (N + i)] = v >> 8; data[4 * (N + i) + 1] = v & 255; data[4 * (N + i) + 3] = 255;
+    }
+    g.table = { data: data, k: kk };
+    return g.table;
+  }
+
+  /**
+   * One WebGL layer of the glass of geometry `geo`. Returns null where WebGL
+   * cannot do it: no context, no full float precision, or a shader the
+   * device will not take (the glass is then the drawn one, of the same shape).
+   */
+  function makeGlass(canvas, pass, geo) {
     var opts = { alpha: true, premultipliedAlpha: true, antialias: false, depth: false,
                  stencil: false, preserveDrawingBuffer: false, powerPreference: 'low-power' };
     var gl = null;
@@ -5248,7 +5371,7 @@
       }
       var prog = gl.createProgram();
       gl.attachShader(prog, sh(gl.VERTEX_SHADER, GLASS_VS));
-      gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, GLASS_FS));
+      gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, geo.shape ? GLASS_FS_SHAPE : GLASS_FS));
       gl.bindAttribLocation(prog, 0, 'p');
       gl.linkProgram(prog);
       if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'link');
@@ -5261,6 +5384,24 @@
       gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
       var names = ['uRes', 'uBox', 'uGeo', 'uWall', 'uRot', 'uPass', 'uAbs', 'uGlow', 'uPx', 'uGain'];
       for (var i = 0; i < names.length; i++) g.u[names[i]] = gl.getUniformLocation(prog, names[i]);
+      if (geo.shape) {
+        // the shape's table: made here, so that a context that was lost and
+        // came back (a phone does that to a page left in the background)
+        // gets it again with its program
+        var tb = shapeTable(geo), tex = gl.createTexture();
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, TABLE_N, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, tb.data);
+        gl.uniform1i(gl.getUniformLocation(prog, 'uProf'), 0);
+        gl.uniform1f(gl.getUniformLocation(prog, 'uProfK'), tb.k);
+        if (gl.getError() !== gl.NO_ERROR) throw new Error('table');
+      }
       g.prog = prog;
     };
     try { g.build(); } catch (e) { return null; }
@@ -5385,22 +5526,29 @@
   Renderer.prototype._initGlass = function () {
     var els = this.els, self = this;
     this.glass = null;
-    // (the shader knows the teardrop only: any other glass is drawn, so that
-    // the glass seen is always the glass the sand is in)
-    if (els.glBack && els.glFront && !this.sim.geo.shape) {
-      var a = makeGlass(els.glBack, 0), b = a && makeGlass(els.glFront, 1);
+    if (els.glBack && els.glFront) {
+      var geo = this.sim.geo, a = makeGlass(els.glBack, 0, geo), b = a && makeGlass(els.glFront, 1, geo);
       if (a && b) {
         this.glass = [a, b];
         this.glass.forEach(function (g) {
           g.canvas.addEventListener('webglcontextlost', function (e) { e.preventDefault(); g.lost = true; });
           g.canvas.addEventListener('webglcontextrestored', function () {
-            try { g.build(); g.lost = false; self.drawGlass(self.glassRot, true); } catch (err) {}
+            try { g.build(); g.lost = false; self.drawGlass(self.glassRot, true); }
+            catch (err) { self._dropGlass(); }     // it came back and cannot: the drawn glass from here on
           });
         });
       }
     }
     if (els.glBack) els.glBack.style.display = this.glass ? '' : 'none';
     if (els.glFront) els.glFront.style.display = this.glass ? '' : 'none';
+  };
+
+  /** Give up the rendered glass for the drawn one, of the same shape. */
+  Renderer.prototype._dropGlass = function () {
+    var els = this.els;
+    this.glass = null;
+    els.glBack.style.display = 'none'; els.glFront.style.display = 'none';
+    this.drawStatic();
   };
 
   /**

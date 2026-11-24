@@ -593,6 +593,54 @@ check(typo !== APP_SRC && n1.join() === 'settings.chmie is no record of the stor
   '... and a copy of ' + APP_FILE + ' that writes settings.chmie, a record it never names (one it only binds is named), a setting read by a computed name, and a bindSwitch on a misspelt key, on a slider and on a key that is no string ' +
   'are each found; a name in a comment or a string is not one (control)', [n1.join('; '), n2.join('; '), n3.join('; '), n4.join('; '), n5.join('; ')].join(' | '));
 
+/* ---- 4b. the glass's shape (release 1.15.0) ---------------------------------------------- */
+// The record `shape`: an id of the shapes Tune offers; anything else, and a save from before it,
+// is the classic glass, with every other setting as that save gives it.
+var SHAPES = require('./lib/load-physics.js').P.SHAPES, REG_SH = { themes: THEMES, shapes: SHAPES };
+function shapeLoad(store, saved) {
+  var st = Storage(JSON.stringify(saved), 'ok');
+  return store.load(st.reach, '', REG_SH);
+}
+var SAVE_1_13 = { theme: 'lapis', character: 'bamboo', volume: 0.35, muted: true, chime: false, tilt: true, zenFull: true, haptics: false, keepAwake: false, frame: false,
+  layers: true, ambience: 'rain', ambienceLevel: 0.7, breath: true, breathPattern: 'box', durationMs: 1500000, restMs: 300000, rounds: 4, motionSign: -1, mendNotes: 2,
+  hintCrack: true, hintZen: 3, grain: 1, hintMotion: 3, realSand: false, realSandFails: 1, realSandWhy: 'x', realSandNa: '', realSandNaAt: 0, realSandBuild: '6', v: 2, tuneTab: 'glass' };
+var SAVE_1_10 = { theme: 'seaglass', volume: 1, ambience: 'drips', ambienceLevel: 0.2, frame: false, grain: 2, durationMs: 600000, realSand: true, realSandBuild: '5', v: 2 };
+/** What is wrong with a store's shape record: [] when it holds. */
+function shapeProblems(store) {
+  var out = [];
+  [[SAVE_1_13, 'a save of 1.13.0'], [SAVE_1_10, 'a save of 1.10.0']].forEach(function (c) {
+    var old = shapeLoad(store, c[0]), withShape = shapeLoad(store, Object.assign({}, c[0], { shape: 'delta' }));
+    if (old.shape !== 'classic') out.push(c[1] + ' came up as ' + show(old.shape));
+    store.KEYS.forEach(function (k) {
+      if (k === 'shape') return;
+      if (!Object.is(old[k], withShape[k])) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' without a shape, ' + show(withShape[k]) + ' with one');
+      if (Object.prototype.hasOwnProperty.call(c[0], k) && k !== 'v' && !Object.is(old[k], c[0][k]) && !(k === 'durationMs' || k === 'rounds')) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' for the saved ' + show(c[0][k]));
+    });
+  });
+  Object.keys(SHAPES).forEach(function (id) {
+    var got = shapeLoad(store, { v: 2, shape: id }).shape, want = SHAPES[id].offered ? id : 'classic';
+    if (got !== want) out.push(id + ' (' + (SHAPES[id].offered ? 'offered' : 'held back') + ') came up as ' + show(got));
+  });
+  [['heart', 'an unknown shape'], [7, 'a number'], ['', 'an empty name'], ['toString', 'a name every object has']].forEach(function (c) {
+    var got = shapeLoad(store, { v: 2, shape: c[0] }).shape;
+    if (got !== 'classic') out.push(c[1] + ' came up as ' + show(got));
+  });
+  return out;
+}
+var offeredIds = Object.keys(SHAPES).filter(function (id) { return SHAPES[id].offered; }), heldIds = Object.keys(SHAPES).filter(function (id) { return !SHAPES[id].offered; });
+var sp = shapeProblems(S), lastRec = S.RECORDS[S.RECORDS.length - 1];
+check(sp.length === 0 && lastRec.id === 'shape' && lastRec.default === 'classic',
+  'the shape: the last record, \'classic\' by default; a save of 1.13.0 and one of 1.10.0 come up as the classic glass, every other setting as they give it; each offered shape (' + offeredIds.join(', ') +
+  ') as itself; one held back (' + heldIds.join(', ') + '), an unknown one, a number, an empty name and a name every object has as the classic glass', sp.join('; '));
+// controls: a store whose shape takes any name, and one that takes a shape held back
+function withShapeRecord(valid) {
+  return S.make(S.RECORDS.map(function (r) { return r.id === 'shape' ? { id: 'shape', default: 'classic', valid: valid } : r; }), S.STEPS, S.repair);
+}
+var spAny = shapeProblems(withShapeRecord(undefined));
+var spHeld = shapeProblems(withShapeRecord(function (v, reg) { return Object.prototype.hasOwnProperty.call(reg.shapes, v); }));
+check(spAny.length >= 3 && spHeld.length === heldIds.length && heldIds.length > 0,
+  '... and a store whose shape takes any name, and one that takes a shape held back, are each found out (control)', spAny.concat(spHeld).join('; '));
+
 /* ---- 5. save, a blocked storage, bindSwitch, loading ------------------------------------ */
 var st1 = Storage('{"v":2,"realSand":false,"theme":"lapis"}', 'ok'), v1 = S.load(st1.reach, '', REG);
 v1.volume = 0.25; S.save();

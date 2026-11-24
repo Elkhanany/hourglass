@@ -50,7 +50,8 @@ export const PAD = 6;                 // grid cells between the glass's widest/f
 /**
  * The glass on a grid of s cells per app cell. The neck is widened, if it
  * has to be, to at least neckMin cells across (the solver needs room to
- * flow); the widening fades out by the bulb's widest point.
+ * flow); the widening fades out by the bulb's widest point, and beyond it
+ * the glass is the app's own.
  *
  * geo, prof: the app's own glass (physics.js makeGeometry(q, shape) and
  * profile(u, geo)), so that the sand fills the glass the app draws, at any
@@ -75,8 +76,15 @@ export function buildGlass({ s = 0.8, neckMin = 5.5, q = APP_Q, geo = null, prof
   const W = Math.ceil(2 * Rc) + 2 * PAD + 1;
   const H = Math.ceil(2 * HBc) + 2 * PAD + 1;
   const cx = W / 2, cy = H / 2;                     // the neck centre, grid coordinates
+  // The widened neck is used only up to the bulb's widest row. In a shape
+  // (physics.js SHAPES) every row's width leans on the neck's (r = RN +
+  // (R - RN) f), and beyond the widest row f falls back towards 0, so a
+  // widened neck there would make the far end of the bulb, where the sand
+  // lies, wider than the glass the app draws. The classic glass's far end
+  // does not lean on the neck at all, so for it nothing changes.
+  const neckAt = u => (u <= g.equator ? RNapp : g.RN);
   /** Inner half-width in cells at height |dy| cells from the neck centre. */
-  const half = ady => (ady >= HBc ? 0 : shapeAt(ady / HBc, RNapp) * s);
+  const half = ady => (ady >= HBc ? 0 : shapeAt(ady / HBc, neckAt(ady / HBc)) * s);
   /** The same, of the glass the app draws (its neck not widened). */
   const halfDrawn = ady => (ady >= HBc ? 0 : shapeAt(ady / HBc, g.RN) * s);
 
@@ -87,7 +95,7 @@ export function buildGlass({ s = 0.8, neckMin = 5.5, q = APP_Q, geo = null, prof
   for (let k = 0; k <= N; k++) {
     const a = k / N;
     const u = 0.5 - 0.5 * Math.cos(Math.PI * a);   // dense at both ends
-    pts.push([shapeAt(u, RNapp) * s, u * HBc]);
+    pts.push([shapeAt(u, neckAt(u)) * s, u * HBc]);
   }
   pts[N] = [0, HBc];
   const px = new Float64Array(pts.length), py = new Float64Array(pts.length);

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Hourglass</title>
   <!-- this page's release: sw.js's VERSION names the same (check-release); Tune's last line shows it -->
-  <meta name="hourglass-version" content="1.14.0">
+  <meta name="hourglass-version" content="1.15.0">
   <meta name="description" content="A hyper-realistic sand hourglass timer. Every grain is simulated; every sound is synthesised live.">
   <meta name="theme-color" content="#0b0c0e">
   <meta name="color-scheme" content="dark">
@@ -206,8 +206,20 @@
         <p class="colophon"><span id="grain-count">—</span> grains<span id="spilled"></span>, each one simulated<span id="sim-where"></span>. Every sound is synthesised live.</p>
       </div>
 
-      <!-- Glass: the frame and its finish (the shapes come with a later release) -->
+      <!-- Glass: its shape, and the frame round it -->
       <div id="panel-glass" class="tab-panel" role="tabpanel" aria-labelledby="tab-glass" data-tab="glass" hidden>
+        <!-- The shapes (app.js fills #shapes from physics.js's SHAPE_ORDER, the shapes Tune offers, before the
+             page is labelled for the iPhone's tick). A tap on one only shows it here; "Use this shape" builds it. -->
+        <h3>Shape</h3>
+        <div class="shape-pick">
+          <div id="shape-preview" class="shape-preview">
+            <svg id="shape-big" class="shape-art" aria-hidden="true"></svg>
+            <b id="shape-name">Classic</b>
+            <button id="shape-use" class="shape-use" type="button" data-state="in-use" aria-disabled="true">In use</button>
+          </div>
+          <div id="shapes" class="shapes" role="radiogroup" aria-label="Glass shape"></div>
+        </div>
+        <p class="note shape-note">Using a shape builds the glass anew; the time keeps running.</p>
         <h3>Frame</h3>
         <div class="rows rows-single">
           <label class="row" for="opt-frame">

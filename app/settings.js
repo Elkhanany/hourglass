@@ -31,8 +31,8 @@
  *                 inside the store's own try: where storage is blocked,
  *                 reaching localStorage itself throws)
  *       search    location.search ("?t=300" preselects a duration)
- *       reg       what the checks need: { themes, sands, finishes, finishOf } of
- *                 HourglassPhysics
+ *       reg       what the checks need: { themes, sands, finishes, finishOf, shapes }
+ *                 of HourglassPhysics
  *   HourglassSettings.save(values)      to the storage of the last load
  *   HourglassSettings.preset(search)    "?t=300": { durationMs }, else null
  *   HourglassSettings.bindSwitch(el, key, after)   a plain switch of Tune:
@@ -112,7 +112,9 @@
       valid: function (v) { return !!colorOf(v); } },
     { id: 'finish', default: 'walnut',           // the frame's finish: an id of the finishes
       valid: function (v, reg) { return !!reg.finishes && has.call(reg.finishes, v); },
-      from: function (saved, reg) { return reg.finishOf(saved.theme); } }
+      from: function (saved, reg) { return reg.finishOf(saved.theme); } },
+    { id: 'shape', default: 'classic',           // the glass's shape: an id of reg.shapes that Tune offers (a shape held back comes up as the classic)
+      valid: function (v, reg) { var s = reg && reg.shapes; return !!s && has.call(s, v) && s[v].offered === true; } }
   ];
 
   /** A custom sand's colour as it is kept, "h,s,l": { h, s, l }, or null when the text is not one. */
