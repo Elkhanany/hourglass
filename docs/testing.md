@@ -87,9 +87,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   and the callback inside the event); and that the file reads nothing when
   it loads. `app-boot-trace`, in the browser: what the app
   reads, saves and calls on the Sim, the Renderer, the sound engine and the
-  sensors as it starts, in order, for five saved states (nothing saved; a
+  sensors as it starts, in order, for six saved states (nothing saved; a
   save from before version 2 with everything changed; Real motion left on; a
-  damaged save; `?t=45` over a saved sequence); a copy of `app.js` that gives
+  damaged save; `?t=45` over a saved sequence; a glass in the Delta shape); a copy of `app.js` that gives
   the sound engine `muted` before `volume` must fail. `app-tune-trace`: what
   each of the 48 controls that change a setting saves, calls and buzzes in
   its own tap, and what follows it (what the cross-fade sets, the answer to
@@ -140,7 +140,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   constant back. (`HOURGLASS_PACE=2 node tools/test/sim-fracture.test.js`
   runs any `sim-*` suite on finer sand; what a suite counts in cells or in
   grains then comes out larger.) `sim-shape` covers other glass shapes
-  (`HourglassPhysics.SHAPES`; the app does not offer them yet): for every
+  (`HourglassPhysics.SHAPES`; Tune offers those whose record says so): for every
   registered shape, the classic teardrop first as the reference, what the
   sand needs of the lattice at every size the app builds, the clock of a
   one-minute glass upright, leaned 12 degrees and on Finest sand, the fullest
@@ -357,7 +357,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the tabs as a screen reader meets them, the haptic labels on every button
   at boot, the reset link (what it puts back and what it keeps), and the
   "more below" hint (`--only hint`): at 393 x 852 a tab that can scroll
-  shows it at its top and in its middle and not at its end, Glass never; a
+  shows it at its top and in its middle and not at its end (every tab can, at that size); a
   scrolled tab fades its rows under the tab row; a finger on the hint
   reaches the row under it; the sheet, the tab row and each tab's first row
   stand where they did before the hint; Grain appearing or going with Real
@@ -375,6 +375,18 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   label over a hidden switch on every control and on the stage, the switch
   flipping exactly when the app asked for a tap, every control still doing
   its work once, and scrolling, pouring, carrying and pinching unchanged.
+  `app-shape` covers the glass's shape (`--only pick,look,use,shapes,full,old`):
+  the Glass tab's Shape section above the frame's, the seven offered shapes
+  in their order, three a row, drawn at one scale, the one in use drawn
+  large; a tap that only shows a shape (nothing saved, nothing loaded
+  again, the glass behind unchanged); "Use this shape" at 40 % of a
+  5-minute glass (the page built again in the shape and Tune open again on
+  the Glass tab, the time left kept within a frame, the sand the same share
+  of the new full glass, the glass out at 00:00.0 on time); every offered
+  shape on the classic sand (a 60-minute glass filled to its cap, a 10 s
+  glass out on time); the Sand button of a full glass; and saves of 1.13.0
+  and 1.10.0, and ones naming a held-back or unknown shape, as the classic
+  glass. Each check has a control. About 6 minutes.
   `app-grain` covers the Grain choice: the three choices, Finest chosen
   while a glass runs (twice the scale, four times the grains, the time kept),
   the clock kept to the last grain, Sand adding time as fast, Classic again
@@ -408,7 +420,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   through early.
   `realsand-fill` checks the fills (exactly the points asked for on every
   grid and amount, all inside the glass; a target that is not a number is
-  refused), the grains' colour seeds against the grain shader's own hash, and
+  refused), every glass shape as Real sand builds it (the same after a half
+  turn, the solver's widened neck stopping at the widest row, the fills
+  from the app's own sand exact; a copy with the neck widened to the far
+  end is its control), the grains' colour seeds against the grain shader's own hash, and
   the felt jolts' film against the lab's code from before they moved to
   `realsand/`.
   `realsand-felt` checks how the glass's motion reaches the sand
@@ -424,7 +439,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `realsand-adapter` checks `RealSand` (`realsand/app-sand.mjs`), the
   adapter through which the app runs the GPU sand as its `sim`, on a mock
   engine whose neck is the valve test's model, inside a copy of the app's
-  frame: every `sim.` member the app and the audio use, with the CPU Sim's
+  frame (also every glass shape: its fill and a 10 s and a 5-minute glass
+  out on time, with a control whose neck passes too little): every `sim.` member the app and the audio use, with the CPU Sim's
   type; the fills from the CPU Sim's lattice (exact counts, each grain's
   colour); each place where the sand sets the clock (a start after the end,
   the Flip's swap, a tilt swap, pours, a re-time after a starved neck, a
@@ -478,7 +494,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   hundredths of real time, so once the engine has started the page's clock
   is made virtual (its time, frames and timers driven by the test, a frame
   at a time, each once the chip has done the last), and the sand runs at
-  real time in it. Eight cases on 10 s glasses: the start and the handover;
+  real time in it. Nine cases on 10 s glasses: the start and the handover;
   the bed's sounds before the start (nothing while asleep; flicked along the
   glass as `motion.js` reports a flick, a thump of the energy of the bed's
   fastest fall, fed within 6 frames of that fall and as loud as the classic
@@ -498,8 +514,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   a Flip at 4 s; a pour, then real motion turning the glass over while sand
   is poured; 30 s hidden and caught up by one transfer; and the chip lost
   mid-run (the CPU sand at the same counts in the same frame, the clock
-  untouched, then back). With `--shots <dir>` it saves pictures of the app
-  with Real sand on.
+  untouched, then back). Then each shape Tune offers, the page loaded in
+  it: a 60-minute glass filled to its cap with exactly the ledger's points
+  on the chip, and a 10 s glass whose last grain crosses within one frame
+  after 00:00.0. With `--shots <dir>` it saves pictures of the app with
+  Real sand on, each shape mid-run among them.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).

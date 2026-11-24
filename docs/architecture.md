@@ -104,7 +104,9 @@ than 220 px tall, and a phone on its side keeps the old limit (the sheet's
 top 28 px under the safe area: the glass is beside it there). The tab row
 never moves; what a tab holds changes only how far it scrolls. All four
 panels are in `index.html`, one of them shown (the others `hidden`), so
-every button is there for the haptic labels at boot. Tune opens on the tab
+every button is there for the haptic labels at boot (the Glass tab's shape
+buttons are made by `app.js` from the shapes registry, before the labels
+are put on). Tune opens on the tab
 last used (the setting `tuneTab`), each tab from its top; a tap on a tab
 saves it and ticks, the arrow keys, Home and End move along the tab row.
 The tests find every control through this markup and nothing else, so a
@@ -122,6 +124,13 @@ sound, the ambience and its level and the completion bowl to their records'
 defaults, saves once, and tells the engines only what differed, the look
 behind one cross-fade. Everything else is kept, and nothing is loaded again.
 
+At the top of the Glass tab, a tap on a shape only shows it; "Use this
+shape" saves the setting `shape` and the session, and loads the page again,
+as another grain does. Before it reloads it puts `glass` in
+sessionStorage's `hourglass.openNow` (the note that already skips the held
+veil), and the next start reads that note once and opens Tune on the Glass
+tab at once, with no slide.
+
 A toast said while Tune is open (the breathing hint, a Real motion message)
 would lie on the rows it is about, so it sits just above the sheet, its
 lower edge 4 px over the sheet's top, placed from where the sheet really is
@@ -133,7 +142,7 @@ controls.
 
 What the app keeps from one launch to the next is one JSON object in
 `localStorage`, under `hourglass.settings.v1`. The settings store holds it as
-a table of records, one for every saved key (32 today), in the order the
+a table of records, one for every saved key (33 today), in the order the
 keys are saved:
 
 - `id`, the key;

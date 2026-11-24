@@ -37,6 +37,11 @@ glass holds less by the square root of its time: four times the time is twice
 the sand. A minute is a tenth of a bulb, five a good fifth, ten a third,
 fifteen two fifths, thirty over half. (Strictly in proportion, a minute would
 be a pinch and every glass would run with the thin thread of the hour glass.)
+Each shape of glass (Tune, Glass) has its own full glass, as much as fits
+under its neck. Delta, whose low ends hold less, is full at an hour with no
+room to spare: there the **Sand** button reads **Full**, and a tap on it says
+that the glass is full. Any glass reads so once sand has been poured in to
+the brim.
 
 ## Tune
 
@@ -96,6 +101,18 @@ keys move between the tabs.
 
 **Glass**
 
+- **Shape**: the glass itself. Classic is the teardrop the app has always
+  had; Lozenge, Delta, Ampoule, Onion, Bell and Gourd are the others. The
+  shape in use is drawn large on the left, and beside it every shape is
+  drawn small, all at the same scale, so a wide glass looks wide and a small
+  one small. A tap on a shape only shows it there: nothing changes yet, so
+  you can look at them one after another. **Use this shape** builds the glass
+  in that shape: the glass fades, comes back in its new shape, and Tune opens
+  again on this tab. A running glass keeps its time: the sand is counted
+  anew for the new glass, as the same share of what it holds when full, and
+  it runs out on time. Two more shapes, Trumpet and Florence, are made but
+  not offered yet: their long narrow necks must first be seen to flow on a
+  phone.
 - **Show the frame**: the turned posts and caps around the glass. Off, only
   the glass remains, a little larger.
 
@@ -128,7 +145,7 @@ keys move between the tabs.
   within three seconds ("Tap again to put them back"). The material, the
   frame, layered sand, the volume, the sand sound, the ambience and its
   level and the completion bowl go back to how the app came; everything
-  else stays as you set it (Real sand and the grain, the durations, work and
+  else stays as you set it (Real sand and the grain, the glass's shape, the durations, work and
   rest, breathing, Zen, the screen, haptics, Real motion, the mute button),
   and the running glass carries on.
 
