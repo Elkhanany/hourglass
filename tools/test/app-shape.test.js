@@ -224,13 +224,16 @@ async function use(env, o) {
     var g = await t.glass();
     await t.touch.tap(g.cx, g.cy, 60);
     await sleep(600);
-    // 40 % of the glass run: the clock moved on, and the sand caught up with it
-    await t.eval(function () { var T = window.Hourglass.timer; T.rem = 0.6 * T.durationMs; T.lastTick = Date.now(); });
-    await sleep(2200);
+    // Tune open on Delta first, so that between the clock set to 40 % and the change there is
+    // only the fixed wait (the sheet's opening, its scrolling and the taps take longer on a
+    // loaded machine, and the clock runs on through them: measured after them, the share run
+    // at the change drifted with the machine's load)
     await tune.show(t, '#shapes [data-shape="delta"]');
     await tapEl(t, '#shapes [data-shape="delta"]');
     await sleep(300);
-    await t.eval(function () { window.__shapeMarker = true; });
+    // 40 % of the glass run: the clock moved on, and the sand caught up with it
+    m.setAt = await t.eval(function () { var T = window.Hourglass.timer; T.rem = 0.6 * T.durationMs; T.lastTick = Date.now(); window.__shapeMarker = true; return T.lastTick; });
+    await sleep(2200);
     m.before = await glassNow(t);
     m.session0 = null;
     await tapEl(t, '#shape-use');
@@ -266,7 +269,7 @@ function useOk(m) {
                 m.pick.big === 'delta' && m.pick.use.text === 'In use',
             detail: JSON.stringify(m.tune) + '; in use ' + m.pick.list.filter(function (x) { return x.inUse; }).map(function (x) { return x.id; }).join() + ', ' + m.pick.use.text },
     time: { ok: Math.abs(keptMs) <= FRAME && Math.abs(b.rem / b.dur - 0.6) < 0.02,
-            detail: 'left ' + (b.rem / 1000).toFixed(3) + ' s at ' + (100 - 100 * b.rem / b.dur).toFixed(1) + ' % run; ' + ((a.at - b.at) / 1000).toFixed(2) + ' s later ' + (a.rem / 1000).toFixed(3) + ' s: ' + keptMs.toFixed(1) + ' ms off' },
+            detail: 'left ' + (b.rem / 1000).toFixed(3) + ' s at ' + (100 - 100 * b.rem / b.dur).toFixed(1) + ' % run (set to 40 % ' + ((b.at - m.setAt) / 1000).toFixed(2) + ' s before); ' + ((a.at - b.at) / 1000).toFixed(2) + ' s later ' + (a.rem / 1000).toFixed(3) + ' s: ' + keptMs.toFixed(1) + ' ms off' },
     // (within a grain of what the clock asked at the restore: it may have let through as much more as
     // it runs in the time app.js took after it)
     sand: { ok: a.total === want && bt.total === want && bt.nTop - bt.topAt >= -1 && bt.nTop - bt.topAt <= 1 + bt.rate * bt.ms / 1000 && bt.shape === 'delta',
