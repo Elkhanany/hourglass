@@ -253,7 +253,7 @@ function pick(sel, v) { return { slide: sel, value: v, change: true }; }
 // reset link's two taps come after every control that changes the look and the sound, just
 // before Real sand (which must be last: what Real sand does once it has started is another
 // suite's): there it has a sand, a volume, an ambience level, the sand's and the bowl's levels,
-// the rings and the fade before the end to put back (and Sound in silent mode to keep), so its
+// the rings and the fade before the end to put back, so its
 // save, its cross-fade and what it tells the sound engine are in the trace (what it does with every
 // setting changed is app-tune's). The second tap is
 // 'slow': a person's second tap, at least 0.4 s after the first (a quicker one is the second
@@ -318,7 +318,6 @@ var DRIVE = [
   ['bowl level: 80', slide('#bowl-level', 80)],
   ['sound in silent mode: off', click('#opt-silent')],
   ['sound in silent mode: on', click('#opt-silent')],
-  ['sound in silent mode: off again (the reset keeps it)', click('#opt-silent')],
   ['keep screen awake: off', click('#opt-awake')],
   ['keep screen awake: on', click('#opt-awake')],
   ['real motion: on', click('#opt-tilt'), 'motion'],
