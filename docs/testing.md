@@ -580,14 +580,14 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `app.js`, the lab, the engine and its shaders name the same build stamp.
   `realsand-gpu` runs only when named (`node tools/test/run-all.js
   realsand-gpu`, about 47 minutes on a shared four-core machine, every core
-  busy, when Tune offered seven shapes; about 5 minutes more for each shape
-  since): the app with Real sand
+  busy, when Tune offered seven shapes; SHAPES takes about 5 minutes for
+  each shape Tune offers, and it offers nine now): the app with Real sand
   and layered sand on the real engine, on Chromium's WebGPU in software
   (SwiftShader), loaded with `?offscreen=1`. Software runs the sand at a few
   hundredths of real time, so once the engine has started the page's clock
   is made virtual (its time, frames and timers driven by the test, a frame
   at a time, each once the chip has done the last), and the sand runs at
-  real time in it. Nine cases on 10 s glasses: the start and the handover;
+  real time in it. Nine cases, the first eight on 10 s glasses: the start and the handover;
   the bed's sounds before the start (nothing while asleep; flicked along the
   glass as `motion.js` reports a flick, a thump of the energy of the bed's
   fastest fall, fed within 6 frames of that fall and as loud as the classic
