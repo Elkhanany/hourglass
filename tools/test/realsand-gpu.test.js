@@ -49,6 +49,12 @@
  *  LOSS    the device destroyed mid-run and reported lost: the CPU sand takes over in the same
  *          frame with the ledger's counts, the clock untouched, its canvas shown; Real sand is
  *          rebuilt and takes the sand back;
+ *  SHAPES  each glass shape Tune offers, the page loaded in it (release 1.15.0): a 60-minute glass
+ *          filled to its cap (the clock's full glass for that shape) with exactly the ledger's
+ *          points on the GPU, none outside, the GPU's glass the shape's own; then a 10 s glass
+ *          (a Reset) run to its end, its last point crossing within one frame after 00:00.0,
+ *          and every readback agreeing with the ledger. With --shots, each shape mid-run
+ *          (shape-<n>-<id>.png), for the contact sheet;
  *  and no page or console errors.
  *
  * With --shots <dir> it saves pictures of the app with Real sand on: at rest, the stream, the
@@ -667,6 +673,56 @@ function installWatch() {
       return JSON.stringify({ log: (r.log || []).slice(-6), lost: rs && rs._lostInfo, n: rs && rs.stats().n });
     });
     check(lb.live && lb.real && lb.rstate === 'on', 'LOSS: Real sand is rebuilt and takes the sand back', lb.rstate + ': ' + lb.note + (why ? '; ' + why.slice(0, 900) : ''));
+
+    /* ---- SHAPES ---------------------------------------------------------- */
+    var SHAPE_IDS = await page.evaluate(function () { var P = window.HourglassPhysics; return P.SHAPE_ORDER.filter(function (id) { return P.SHAPES[id].offered; }); });
+    var shapeFill = [], shapeRun = [], fillOk = true, runOk = true;
+    for (var si = 0; si < SHAPE_IDS.length; si++) {
+      var sid = SHAPE_IDS[si];
+      await page.evaluate(function (id) {
+        localStorage.setItem('hourglass.settings.v1', JSON.stringify({ v: 2, realSand: true, durationMs: 3600000, layers: false, shape: id }));
+        localStorage.removeItem('hourglass.session.v1');
+      }, sid);
+      await page.reload();
+      await page.waitForFunction(function () {
+        var H = window.Hourglass;
+        return !!H && ((!!H.realSand && H.sim === H.realSand) || /Could not|Needs|Did not|updating/.test(document.getElementById('realsand-note').textContent));
+      }, null, { timeout: 180000, polling: 200 });
+      await page.evaluate(function () { window.__vt.freeze(); });
+      await page.evaluate(installWatch);
+      var f0 = await fresh();
+      var g0 = await page.evaluate(function () {
+        var H = window.Hourglass, rs = H.realSand, s = H.sim;
+        return { cpu: s.geo.shape ? s.geo.shape.id : 'classic', gpu: rs && rs.glass.geo.shape ? rs.glass.geo.shape.id : 'classic',
+                 cap: Math.round(s.capacity * Math.min(0.78, s.fillMax)) };
+      });
+      var okF = f0.live && g0.cpu === sid && g0.gpu === sid && f0.total === f0.want && f0.want === g0.cap && f0.nTop === f0.total &&
+                !!f0.tally && f0.tally.points === f0.pts && f0.tally.above === f0.pts && f0.tally.nan === 0 && f0.tally.outside === 0 && !!f0.audit && f0.audit.ok;
+      if (!okF) fillOk = false;
+      shapeFill.push(sid + ' ' + f0.total + ' grains, ' + (f0.tally ? f0.tally.points : '?') + ' points' + (okF ? '' : ' (WRONG: ' + JSON.stringify({ live: f0.live, glass: g0, want: f0.want, nTop: f0.nTop, tally: f0.tally, audit: f0.audit }) + ')'));
+      // a 10 s glass (a Reset to the new length), run to its end
+      await page.evaluate(function () { window.Hourglass.setDuration(10000); });
+      await frames(12);
+      await frames(240, sweeping);
+      await frames(30);
+      await page.evaluate(function () { var W = window.__watch; W.keep = true; W.frames = []; W.audit = []; W.cross = null; W.audits = 0; window.Hourglass.start(); });
+      await frames(270);
+      await shot('shape-' + (si + 1) + '-' + sid);
+      await frames(900, "T.state === 'done' && rs.nTop === 0");
+      await frames(4);
+      var rn = await page.evaluate(function () {
+        var W = window.__watch, F = W.frames, zeroAt = null;
+        for (var i = 0; i < F.length; i++) if (F[i].state === 'running' && zeroAt === null) zeroAt = F[i].now + F[i].rem;
+        W.keep = false;
+        return { zeroAt: zeroAt, cross: W.cross, audits: W.audits, audit: W.audit.slice(), state: window.Hourglass.timer.state, nTop: window.Hourglass.sim.nTop };
+      });
+      var lt = rn.cross !== null && rn.zeroAt !== null ? rn.cross - rn.zeroAt : NaN;
+      var okR = rn.state === 'done' && rn.nTop === 0 && lt >= -0.5 && lt <= FRAME + 0.5 && rn.audit.length === 0 && rn.audits > 50;
+      if (!okR) runOk = false;
+      shapeRun.push(sid + ' ' + (lt === lt ? lt.toFixed(1) : lt) + ' ms' + (okR ? '' : ' (WRONG: ' + JSON.stringify(rn).slice(0, 300) + ')'));
+    }
+    check(SHAPE_IDS.length >= 7 && fillOk, 'SHAPES: in each shape Tune offers, a 60-minute glass is filled to its cap with exactly the ledger\'s points on the GPU, all above, none outside, the GPU\'s glass the shape\'s own: ' + shapeFill.join('; '));
+    check(SHAPE_IDS.length >= 7 && runOk, 'SHAPES: ... and a 10 s glass in it runs to its end, the last point crossing within one frame after 00:00.0, every readback agreeing with the ledger: ' + shapeRun.join('; '));
 
     check(errors.length === 0, 'no page or console errors', errors.slice(0, 3).join(' | '));
   } catch (e) {
