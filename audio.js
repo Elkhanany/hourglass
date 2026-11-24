@@ -2222,10 +2222,6 @@
     this.silentRing = !!on;
     this._session();
   };
-  /** Whether this browser lets a page choose (navigator.audioSession): where it does not, it decides by itself. */
-  HourglassAudio.sessionChoice = function () {
-    try { return !!(root.navigator && root.navigator.audioSession); } catch (e) { return false; }
-  };
 
   HourglassAudio.prototype.isRunning = function () {
     return !!this.ctx && this.ctx.state === 'running';

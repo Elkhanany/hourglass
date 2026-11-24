@@ -3137,7 +3137,9 @@
   function showSilent() {
     if (!optSilent) return;
     optSilent.checked = settings.silentRing;
-    if (silentNote) silentNote.textContent = window.HourglassAudio.sessionChoice && window.HourglassAudio.sessionChoice() ?
+    var choice = false;
+    try { choice = !!navigator.audioSession; } catch (e) {}
+    if (silentNote) silentNote.textContent = choice ?
       'On: plays with the ringer off. Off: follows the ringer switch, and other music plays on.' :
       'This browser decides by itself';
   }
