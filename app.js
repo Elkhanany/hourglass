@@ -134,6 +134,10 @@
   if (!Object.prototype.hasOwnProperty.call(window.HourglassAudio.AMBIENCES, settings.ambience)) settings.ambience = 'none';
   audio.ambience = settings.ambience;
   audio.ambLevel = settings.ambienceLevel;
+  audio.sandLevel = settings.sandLevel;               // (Tune's Sound tab: the sand's level, the bowl's, and the ringer switch)
+  audio.bowlLevel = settings.bowlLevel;
+  audio.silentRing = settings.silentRing;
+  if (!settings.silentRing) audio.setSilentRing(false);   // the audio session follows the ringer switch from the launch on
   // The phone's own motion: what it feels, how it turns, where down is.
   // Its sign convention differs between engines; once learned it is kept.
   var motion = new window.HourglassMotion({ sign: settings.motionSign });
@@ -232,7 +236,7 @@
     T.rem -= d;
     if (T.rem <= 0) {
       if (seq.rest && seq.phase < 2 * seq.rounds - 1) phaseEnd(-T.rem);
-      else { T.rem = 0; finish(); }
+      else { var over = -T.rem; T.rem = 0; finish(over); }
     }
   }
 
@@ -300,6 +304,7 @@
 
   var pendingStart = false;
   function start() {
+    ringsStop();                                        // a new start ends a bowl that rings again
     if (resetting) { pendingStart = true; return; }     // mid cross-fade: start as soon as it lands
     if (seq.gap) { seq.gap = Date.now(); setState('running'); return; }   // paused between two phases: on with the turn
     if (flip.active) return;
@@ -318,15 +323,118 @@
     if (T.state === 'running') pause(); else start();
     buzz(10);
   }
-  function finish() {
+  /** The glass has run out (`over` ms ago: found late, after a sleep or while hidden). */
+  function finish(over) {
     if (seq.rest) seq.phase = 2 * seq.rounds;   // a sequence is over: turned again, it starts from its first glass
     endWall = Date.now();            // before setState: the wake lock covers the ending
+    ringsBegin(endWall - (over > 0 ? over : 0) + BOWL_AT);
     setState('done');
-    audio.chime(0.75);               // after the last grain has landed
-    audio.end(0.75);                 // the stream flows on to the bowl, then recedes under it
+    audio.chime(BOWL_AT / 1000);     // after the last grain has landed
+    audio.end(BOWL_AT / 1000);       // the stream flows on to the bowl, then recedes under it
     buzz([16, 110, 16, 110, 42]);
     setTimeout(syncWakeLock, END_AWAKE + 100);
   }
+
+  /* ---- the ambience fades out before the end (Tune) ----------------------
+   * With an ambience chosen and "Fade out before the end" on, the ambience falls away over the
+   * glass's last minute, 5 or 10 minutes, so that the glass ends in quiet; the sand and the bowl
+   * are not touched. It follows the time that is really left: paused, it holds; sand added or
+   * the glass turned brings it back up (the sound engine glides to it, never steps). Its share
+   * is (time left / stretch)^1.5: the Ambience slider drawn down evenly to nothing. A glass
+   * shorter than twice the stretch fades over its last half, so it is heard whole for at least
+   * the first half of its time. In a work and rest sequence only the end of the last phase
+   * fades: between two phases the ambience goes on as it is, as the sequence does.
+   */
+  function ambFadeShare() {
+    var stretch = settings.ambFade, last = 2 * seq.rounds - 1, len, rem;
+    if (!stretch || settings.ambience === 'none') return 1;
+    if (seq.rest && seq.phase < last) return 1;                 // (a phase that is not the last)
+    if (T.state === 'done') return 0;                           // (ended in quiet; a new glass brings it back)
+    len = seq.rest ? phaseMs(last) : T.durationMs;
+    stretch = Math.min(stretch, len / 2);
+    rem = T.rem;
+    if (!(stretch > 0) || rem >= stretch) return 1;
+    return Math.pow(Math.max(0, rem) / stretch, 1.5);
+  }
+
+  /* ---- the bowl that rings again (Tune: Rings) --------------------------
+   * "Once" is the bowl as it always was. "Three times" rings it again about 8.5 s and 17 s after
+   * the first; "Until a tap" every 8.5 s, for 10 minutes at most. Only the end of a glass (the
+   * last of a sequence) rings again: between two phases the soft bowl rings once and the next
+   * phase is never held up. The rings keep their times on the wall clock and are rung from the
+   * frame loop, so nothing rings while the page is hidden (a locked phone, another app): back
+   * on screen, a ring whose time has passed is dropped, not played late, and the rings end at
+   * their 10 minutes whatever happened meanwhile. While the bowl is still to ring again, the
+   * first tap (on the glass, a button, anywhere), or the first key, only stops it: it is used
+   * up, and does nothing else. Reset, another duration, a turn and a start stop it too. The
+   * screen is kept awake for the rings only when Keep screen awake is on.
+   */
+  var BOWL_AT = 750;                 // ms from the last grain to the bowl
+  var RING_GAP = 8500, RING_MAX = 600000, RING_LATE = 2000;   // ms: between two rings; the last no later than this after the first; a ring later than this is dropped
+  var rings = null;                  // { t0: the first ring's time (Date.now()), k: the next ring's number, n: the last's }
+  /** The ring numbers after the first, for a choice: 'three' 1 and 2; 'tap' up to 10 minutes; 'once' none. */
+  function ringsLast(choice) { return choice === 'three' ? 2 : choice === 'tap' ? Math.floor(RING_MAX / RING_GAP) : 0; }
+  function ringsBegin(t0) {
+    ringsStop();
+    var n = settings.chime ? ringsLast(settings.bowlRings) : 0;
+    if (n) rings = { t0: t0, k: 1, n: n };
+  }
+  /** The bowl is still to ring again: a tap now only stops it. */
+  function ringsDue() { return rings !== null && T.state === 'done'; }
+  /** No more rings; `hush`: the bowl that rings now fades away too (a tap stopped it). */
+  function ringsStop(hush) {
+    if (!rings) return;
+    rings = null;
+    if (hush) audio.stopChime();
+    syncWakeLock();
+  }
+  /** From the frame loop (never while hidden): a ring whose time has come, rung; one long past, dropped. */
+  function ringsStep() {
+    if (!rings || document.hidden) return;
+    if (T.state !== 'done') { ringsStop(); return; }
+    var now = Date.now(), k = rings.k, at = rings.t0 + k * RING_GAP;
+    if (now < at) return;
+    if (now - at <= RING_LATE) audio.chime(0);
+    // the next one still to come (those whose time has passed meanwhile are dropped)
+    k = Math.max(k + 1, Math.floor((now - rings.t0) / RING_GAP) + 1);
+    if (k > rings.n) ringsStop(); else rings.k = k;
+  }
+  // The tap that stops the bowl is used up: seen first (on the window, capturing), it goes no
+  // further, nor do the rest of its gesture (its pointer's moves and lift, the click and the
+  // touch and mouse events that follow it) or the key's own lift and click.
+  var ringEat = null;                // { id: the pointer, up: when it lifted (0: still down) } or { key }
+  function ringEaten(e) {
+    onGesture();                     // (what every gesture does still happens: the sound unlocked, the wake lock asked for)
+    e.stopImmediatePropagation();
+    if (e.cancelable) e.preventDefault();
+  }
+  window.addEventListener('pointerdown', function (e) {
+    if (!ringsDue()) return;
+    ringsStop(true);
+    ringEat = { id: e.pointerId, up: 0 };
+    ringEaten(e);
+    buzz(10);
+  }, true);
+  window.addEventListener('keydown', function (e) {
+    if (ringEat && ringEat.key === e.key) { ringEaten(e); return; }     // (a key held down repeats)
+    if (!ringsDue() || e.metaKey || e.ctrlKey || e.altKey || /^(Shift|Control|Alt|Meta|CapsLock)$/.test(e.key)) return;
+    ringsStop(true);
+    ringEat = { key: e.key, up: 0 };
+    ringEaten(e);
+  }, true);
+  ['pointermove', 'pointerup', 'pointercancel', 'touchstart', 'touchmove', 'touchend', 'mousedown', 'mouseup', 'click', 'keyup', 'contextmenu'].forEach(function (type) {
+    window.addEventListener(type, function (e) {
+      var q = ringEat;
+      if (!q) return;
+      if (q.up && performance.now() - q.up > 600) { ringEat = null; return; }    // (the gesture is over)
+      if (type === 'keyup') { if (q.key === e.key) { ringEaten(e); q.up = performance.now(); } return; }
+      if (q.key !== undefined) { if (type === 'click') ringEaten(e); return; }   // (a key's click: Enter or Space on a button)
+      if ((type === 'pointerup' || type === 'pointercancel') && e.pointerId === q.id) q.up = performance.now();
+      if (type.indexOf('pointer') === 0 && e.pointerId !== q.id) return;
+      ringEaten(e);
+      if (type === 'click') ringEat = null;
+    }, true);
+  });
 
   /* ---- reset / duration -------------------------------------------- */
   // A new glass (Reset, another duration). The old sand is drawn into the
@@ -345,6 +453,7 @@
     }
     resetting = true;
     pendingStart = false;
+    ringsStop();
     audio.hush();
     if (reduceMotion || document.hidden) {
       app.classList.add('swap');     // cross-fade the sand (and any that spilled)
@@ -498,7 +607,7 @@
     beginPhase(at[0]);
     T.rem -= at[1];
     applyBody(0);
-    if (T.rem <= 0) { T.rem = 0; finish(); return; }
+    if (T.rem <= 0) { var over = -T.rem; T.rem = 0; finish(over); return; }
     if (at[1] < 10000 && !(rung && at[2] === 1)) audio.chime(0, true);
     setState('running');
   }
@@ -566,6 +675,7 @@
   };
 
   function beginTurn(autoRun, byHand) {
+    ringsStop();                     // a turn ends a bowl that rings again
     flip.active = true;
     flip.was = T.state;
     flip.auto = !!autoRun;
@@ -1258,6 +1368,7 @@
     if (realDue && !sweep && !resetting && !flip.active && !pour.active && !bodyBusy() && (!realEng || realEng.ready)) handover('gpu');
 
     tickClock();
+    ringsStep();
     if (sweep) stepSweep(now);
     if (seq.gap) seqTurn();
     if (grav.on) {
@@ -1609,6 +1720,7 @@
     AU.pouring = pour.active || (sweep !== null && sweep.pour === true);   // (a new glass is poured, too)
     AU.running = running;
     AU.ambient = T.state === 'running';  // a running glass keeps its ambience while being turned
+    AU.ambFade = ambFadeShare();
     AU.flipping = flip.active;
     AU.spin = Math.abs(body.w);
     AU.angle = sim.angle;
@@ -2029,7 +2141,7 @@
   var awakeNote = $('awake-note');
   function wantAwake() {
     return settings.keepAwake && !document.hidden &&
-      (T.state === 'running' || (T.state === 'done' && Date.now() - endWall < END_AWAKE));
+      (T.state === 'running' || (T.state === 'done' && (Date.now() - endWall < END_AWAKE || ringsDue())));
   }
   function showAwake() {
     awakeNote.textContent =
@@ -2916,7 +3028,32 @@
     var v = Math.round(settings.ambienceLevel * 100);
     ambLevel.value = v; ambOut.textContent = v;
     ambLevel.style.setProperty('--fill', v + '%');
+    showAmbFade();
   }
+  // the ambience's fade before the end: a switch and, when on, over how long (with an ambience chosen)
+  var ambFadeRows = $('ambfade-rows'), optAmbFade = $('opt-ambfade'), ambFadeSub = $('ambfade-sub'), ambFades = $('ambfades');
+  function showAmbFade() {
+    if (!ambFadeRows || !optAmbFade) return;
+    ambFadeRows.hidden = settings.ambience === 'none';
+    optAmbFade.checked = settings.ambFade > 0;
+    if (ambFadeSub) ambFadeSub.hidden = !(settings.ambFade > 0);
+    if (ambFades) {
+      var b = ambFades.querySelectorAll('button'), want = settings.ambFade > 0 ? settings.ambFade : 300000;
+      for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-checked', +b[i].dataset.fade === want ? 'true' : 'false');
+    }
+  }
+  if (optAmbFade) optAmbFade.addEventListener('change', function (e) {
+    settings.ambFade = e.target.checked ? 300000 : 0;      // turned on: the last 5 minutes
+    save();
+    showAmbFade();
+  });
+  if (ambFades) ambFades.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    settings.ambFade = +b.dataset.fade; save();
+    showAmbFade();
+    buzz(8);
+  });
   $('ambiences').addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b) return;
@@ -2946,6 +3083,64 @@
     settings.chime = e.target.checked; save();
     audio.setChimeEnabled(settings.chime);
     if (settings.chime) audio.chime(0);                // audition it
+    else ringsStop();
+    showBowl();
+  });
+  // the sand's own level: its sounds (both sands'), not the bowl's nor the ambience's
+  var sandLevel = $('sand-level'), sandLevelOut = $('sand-level-out');
+  function showSandLevel() {
+    if (!sandLevel) return;
+    var v = Math.round(settings.sandLevel * 100);
+    sandLevel.value = v; if (sandLevelOut) sandLevelOut.textContent = v;
+    sandLevel.style.setProperty('--fill', v + '%');
+  }
+  if (sandLevel) sandLevel.addEventListener('input', function () {
+    settings.sandLevel = sandLevel.value / 100; save();
+    audio.setSandLevel(settings.sandLevel);
+    showSandLevel();
+  });
+  // the bowl: how often it rings and how loud (shown while it is on)
+  var bowlSub = $('bowl-sub'), ringsEl = $('rings'), bowlLevel = $('bowl-level'), bowlLevelOut = $('bowl-level-out');
+  function showBowl() {
+    if (bowlSub) bowlSub.hidden = !settings.chime;
+    if (ringsEl) {
+      var b = ringsEl.querySelectorAll('button');
+      for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-checked', b[i].dataset.rings === settings.bowlRings ? 'true' : 'false');
+    }
+    if (bowlLevel) {
+      var v = Math.round(settings.bowlLevel * 50);
+      bowlLevel.value = v; if (bowlLevelOut) bowlLevelOut.textContent = v;
+      bowlLevel.style.setProperty('--fill', v + '%');
+    }
+  }
+  if (ringsEl) ringsEl.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    settings.bowlRings = b.dataset.rings; save();
+    if (settings.bowlRings === 'once') ringsStop();
+    showBowl();
+    buzz(8);
+  });
+  if (bowlLevel) {
+    bowlLevel.addEventListener('input', function () {
+      settings.bowlLevel = bowlLevel.value / 50; save();
+      audio.setBowlLevel(settings.bowlLevel);
+      showBowl();
+    });
+    bowlLevel.addEventListener('change', function () { if (settings.chime) audio.chime(0); });   // heard at its new level once let go
+  }
+  // sound in silent mode: the page's audio session (where the browser lets a page choose)
+  var optSilent = $('opt-silent'), silentNote = $('silent-note');
+  function showSilent() {
+    if (!optSilent) return;
+    optSilent.checked = settings.silentRing;
+    if (silentNote) silentNote.textContent = window.HourglassAudio.sessionChoice && window.HourglassAudio.sessionChoice() ?
+      'On: plays with the ringer off. Off: follows the ringer switch, and other music plays on.' :
+      'This browser decides by itself';
+  }
+  if (optSilent) optSilent.addEventListener('change', function (e) {
+    settings.silentRing = e.target.checked; save();
+    audio.setSilentRing(settings.silentRing);
   });
   $('opt-awake').addEventListener('change', function (e) {
     settings.keepAwake = e.target.checked; save();
@@ -3159,10 +3354,12 @@
   /* ---- the look and the sound as they came ---------------------------- */
   // The quiet link at the end of the Time tab (settings design 3.4). A first tap asks for a
   // second one within three seconds; the second puts the look and the sound back as a new
-  // install has them: the sand, the frame and its finish, layered sand, the volume, the sand's sound, the
-  // ambience and its level, the bowl. Everything else is kept: Real sand and the grain, the
-  // durations and a sequence, breathing, Zen, the screen kept awake, haptics, Real motion, the
-  // mute button, what the app has learned and hinted. Nothing is loaded again, and the running
+  // install has them: the sand, the frame and its finish, layered sand, the volume, the sand's sound
+  // and its level, the ambience, its level and its fade before the end, the bowl, its rings and its
+  // level. Everything else is kept: Real sand and the grain, the durations and a sequence,
+  // breathing, Zen, the screen kept awake, haptics, Real motion, sound in silent mode (how the
+  // phone treats the app: put back on, it could ring in a quiet room), the mute button, what the
+  // app has learned and hinted. Nothing is loaded again, and the running
   // time is not touched.
   var RESET_ASK = 'Put the look and sound back as they came', RESET_SURE = 'Tap again to put them back';
   var RESET_MS = 3000, RESET_DOUBLE_MS = 400;        // how long it waits for the second tap; a double tap is one tap
@@ -3185,7 +3382,8 @@
   function resetLook() {
     var was = {
       theme: settings.theme, sand: settings.sand, finish: settings.finish, frame: settings.frame, layers: settings.layers, volume: settings.volume,
-      character: settings.character, ambience: settings.ambience, ambienceLevel: settings.ambienceLevel, chime: settings.chime
+      character: settings.character, ambience: settings.ambience, ambienceLevel: settings.ambienceLevel, chime: settings.chime,
+      sandLevel: settings.sandLevel, bowlLevel: settings.bowlLevel, bowlRings: settings.bowlRings, ambFade: settings.ambFade
     };
     // (each by its name: the settings store's check follows every settings.<name> in this file)
     settings.theme = settingDefault('theme'); settings.sand = settingDefault('sand'); settings.finish = settingDefault('finish');
@@ -3193,6 +3391,9 @@
     settings.volume = settingDefault('volume'); settings.character = settingDefault('character');
     settings.ambience = settingDefault('ambience'); settings.ambienceLevel = settingDefault('ambienceLevel');
     settings.chime = settingDefault('chime');
+    settings.sandLevel = settingDefault('sandLevel'); settings.bowlLevel = settingDefault('bowlLevel');
+    settings.bowlRings = settingDefault('bowlRings'); settings.ambFade = settingDefault('ambFade');
+    // (Sound in silent mode is kept: it is how the phone treats the app, and putting it back on could ring in a quiet room)
     save();
     // the look, behind one cross-fade
     if (was.theme !== settings.theme || was.sand !== settings.sand || was.finish !== settings.finish) {
@@ -3206,6 +3407,11 @@
     if (was.ambience !== settings.ambience) { audio.setAmbience(settings.ambience, false); showAmbience(); }
     if (was.ambienceLevel !== settings.ambienceLevel) { audio.setAmbienceLevel(settings.ambienceLevel, false); showAmbience(); }
     if (was.chime !== settings.chime) { audio.setChimeEnabled(settings.chime); $('opt-chime').checked = settings.chime; }
+    if (was.sandLevel !== settings.sandLevel) { audio.setSandLevel(settings.sandLevel); showSandLevel(); }
+    if (was.bowlLevel !== settings.bowlLevel) audio.setBowlLevel(settings.bowlLevel);
+    if (was.bowlRings !== settings.bowlRings) ringsStop();
+    showBowl();
+    if (was.ambFade !== settings.ambFade) showAmbFade();
   }
   if (tuneReset && resetText) {
     tuneReset.addEventListener('click', function () {
@@ -4074,6 +4280,9 @@
   syncGrains();
   showVolume();
   showAmbience();
+  showSandLevel();
+  showBowl();
+  showSilent();
   showBreath();
   showTab(settings.tuneTab);                           // Tune will open on the tab last used
   breathLayer(settings.breath);

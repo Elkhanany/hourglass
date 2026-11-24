@@ -1993,6 +1993,12 @@
     this.muted = false;
     this.character = 'asmr';
     this.chimeEnabled = true;
+    // Tune's Sound tab: the sand's own level (0..1, heard as its 1.5th power), the bowl's (0..2, 1 as
+    // it always was), and whether the page sounds with the ringer switched off (its audio session)
+    this.sandLevel = 1;
+    this.bowlLevel = 1;
+    this.silentRing = true;
+    this._bowls = [];         // the completion bowls still ringing: { out, end } (stopChime fades them)
     this._last = {};          // last scheduled value per parameter
     this._cushion = 0;
     this._voices = 0;
@@ -2174,8 +2180,8 @@
     if (!this.ctx) {
       try { this.ctx = new AC({ latencyHint: 'interactive' }); }
       catch (e) { this.ctx = new AC(); }
-      // Let WebKit play through the hardware mute switch like a timer should.
-      try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e2) {}
+      // Let WebKit play through the hardware mute switch like a timer should (unless Tune says not to).
+      this._session();
       this._build();
       this.ctx.onstatechange = function () { self._onState(); };
       document.addEventListener('visibilitychange', function () {
@@ -2198,6 +2204,27 @@
         s.start(0);
       } catch (e4) {}
     }
+  };
+
+  /**
+   * The page's audio session, where the browser has one (navigator.audioSession, Safari 16.4 on):
+   * 'playback' sounds with the ringer switched off, as a timer should; 'ambient' (Sound in silent
+   * mode off) follows the ringer switch and lets other apps' music play on. Never throws.
+   */
+  HourglassAudio.prototype._session = function () {
+    try {
+      var s = root.navigator && root.navigator.audioSession;
+      if (s) s.type = this.silentRing === false ? 'ambient' : 'playback';
+    } catch (e) {}
+  };
+  /** Sound in silent mode (Tune): on, the page sounds with the ringer off; off, it follows it. At once. */
+  HourglassAudio.prototype.setSilentRing = function (on) {
+    this.silentRing = !!on;
+    this._session();
+  };
+  /** Whether this browser lets a page choose (navigator.audioSession): where it does not, it decides by itself. */
+  HourglassAudio.sessionChoice = function () {
+    try { return !!(root.navigator && root.navigator.audioSession); } catch (e) { return false; }
   };
 
   HourglassAudio.prototype.isRunning = function () {
@@ -2288,9 +2315,14 @@
     // layer faders (set by the acoustic character)
     this.gWhisper = G(0); this.gTicks = G(0); this.gBeds = G(0);
     this.gModal = G(0); this.gBody = G(0); this.gFoley = G(0.9); this.gChime = G(1);
-    this.gWhisper.connect(this.bus); this.gTicks.connect(this.bus);
-    this.gBeds.connect(this.bus); this.gModal.connect(this.bus); this.gBody.connect(this.bus);
-    this.gFoley.connect(this.bus); this.gChime.connect(this.bus);
+    // the sand's own sounds (the faders above: the stream, its grains, the vessel, the body and
+    // the foley, so the thumps, slides, slosh and pours of both sands) pass one more gain on their
+    // way to the bus: Tune's Sand level. The bowl and the ambience do not.
+    this.gSand = G(this._sandGain());
+    this.gSand.connect(this.bus);
+    this.gWhisper.connect(this.gSand); this.gTicks.connect(this.gSand);
+    this.gBeds.connect(this.gSand); this.gModal.connect(this.gSand); this.gBody.connect(this.gSand);
+    this.gFoley.connect(this.gSand); this.gChime.connect(this.bus);
     this.chimeWet = G(0.55); this.gChime.connect(this.chimeWet); this.chimeWet.connect(this.conv);
 
     // ---- source material: what every sound needs now (a few ms if
@@ -2430,9 +2462,12 @@
 
     // ---- ambience: an optional layer behind the sand ----------------------
     // It bypasses the character's tone shaping (a dune should not muffle a brook).
+    // Then the fade before the end (Tune: 1 while it is off, or while the glass is not in its last stretch).
     this.ambBus = G(0);
-    this.ambBus.connect(this.comp);
-    var aW = G(0.12); this.ambBus.connect(aW); aW.connect(this.conv);
+    this.ambEnd = G(1);
+    this.ambBus.connect(this.ambEnd);
+    this.ambEnd.connect(this.comp);
+    var aW = G(0.12); this.ambEnd.connect(aW); aW.connect(this.conv);
 
     this.ready = true;
     for (var key in BEDS) if (raw[key]) this._bedReady(key);
@@ -2545,6 +2580,16 @@
     this._applyCharacter(0.3);
   };
   HourglassAudio.prototype.setChimeEnabled = function (on) { this.chimeEnabled = !!on; };
+  /** The sand's own level, 0..1 (Tune's Sand 0..100 over 100); heard as its 1.5th power, as the ambience's level is. */
+  HourglassAudio.prototype._sandGain = function () { return Math.pow(this.sandLevel, 1.5); };
+  HourglassAudio.prototype.setSandLevel = function (v) {
+    this.sandLevel = Math.max(0, Math.min(1, +v || 0));
+    if (this.ready) this.gSand.gain.setTargetAtTime(this._sandGain(), this.ctx.currentTime, 0.05);
+  };
+  /** The completion bowl's level, 0..2 (Tune's Bowl 0..100 over 50): 1 is the bowl as it always was, 2 is 6 dB more. */
+  HourglassAudio.prototype.setBowlLevel = function (v) {
+    this.bowlLevel = Math.max(0, Math.min(2, +v || 0));
+  };
 
   /* ---------------------------------------------------------------- *
    *  Ambience
@@ -2718,6 +2763,8 @@
    *    spin      how fast it is turning (rad/s)
    *    angle     current flip angle (rad)
    *    running   true while the timer is running (keeps the ambience on)
+   *    ambFade   0 … 1 the ambience's share as the glass's last stretch runs out (Tune's
+   *              "Fade out before the end"; app.js works it out); 1, or none, leaves it whole
    *    sim       the Sim (for this frame's impact events), or null
    *
    *    — optional, the glass in hand —
@@ -2740,6 +2787,10 @@
     // ---- ambience: on while the glass runs, even while it is being turned ---
     var amb = st.ambient != null ? st.ambient : st.running;
     this._ambience(amb);
+    // the fade before the end (Tune): 0..1 as the glass's last stretch runs out, 1 without it. A
+    // glide, never a step: sand added or the glass turned brings it back up as smoothly.
+    var fe = typeof st.ambFade === 'number' && st.ambFade >= 0 && st.ambFade < 1 ? st.ambFade : 1;
+    this._set('ambEnd', this.ambEnd.gain, fe, 0.35);
 
     // ---- the stream, and its breathing -----------------------------------
     // Heard against its own slow mean, the flow's swell lifts the whole sand.
@@ -3373,8 +3424,21 @@
    */
   HourglassAudio.prototype.chime = function (delay, soft) {
     if (!this.ready || !this.chimeEnabled || this.ctx.state !== 'running') return;
-    // F4: warm, yet audible on small phone speakers (`soft`: lighter and shorter, between two phases of a sequence)
-    this._bell(this.ctx.currentTime + (delay || 0) + 0.03, 349.23, soft ? 0.07 : 0.12, soft ? 0.8 : 1);
+    // F4: warm, yet audible on small phone speakers (`soft`: lighter and shorter, between two phases of a sequence);
+    // at Tune's Bowl level (1: the bowl as it always was)
+    var t0 = this.ctx.currentTime + (delay || 0) + 0.03, d = soft ? 0.8 : 1;
+    var out = this._bell(t0, 349.23, (soft ? 0.07 : 0.12) * this.bowlLevel, d), now = this.ctx.currentTime;
+    this._bowls = this._bowls.filter(function (w) { return w.end > now; });
+    this._bowls.push({ out: out, end: t0 + 8.5 * d });
+  };
+  /** The completion bowls still ringing fade away at once (a tap that stops a bowl that rings again). */
+  HourglassAudio.prototype.stopChime = function () {
+    if (!this.ready) return;
+    var t = this.ctx.currentTime;
+    this._bowls.forEach(function (w) {
+      try { w.out.gain.cancelScheduledValues(t); w.out.gain.setValueAtTime(w.out.gain.value, t); w.out.gain.setTargetAtTime(0, t, 0.12); } catch (e) {}
+    });
+    this._bowls = [];
   };
 
   /** The bowl's partials at f0, `level` out, each decay × `decay`. */
@@ -3408,6 +3472,7 @@
       }
     }
     setTimeout(function () { try { out.disconnect(); } catch (e) {} }, (end - ctx.currentTime) * 1000 + 1000);
+    return out;
   };
 
   root.HourglassAudio = HourglassAudio;
