@@ -23,14 +23,18 @@
  *   FULL     a 60-minute Delta glass has no room for more sand: its Sand button reads "Full"
  *            (and says "The glass is full" to a screen reader), and a tap says so and adds none;
  *            the classic 60-minute glass still reads "Sand"
- *   OLD      a save of 1.13.0 and one of 1.10.0 come up in the classic glass with every setting
- *            they hold as it was; a save that names a shape held back (trumpet) or unknown is
- *            the classic glass too, and saves 'classic'
+ *   SAND     the small glasses and the large one are drawn with sand in the current colour: the
+ *            sand chosen in the Sand tab (one of the nine, or the custom colour as it is used),
+ *            not the material's; a change of sand, with Tune open, repaints them
+ *   OLD      a save of 1.14.0 (sand, sandColor, finish; no shape), one of 1.13.0 and one of 1.10.0
+ *            come up in the classic glass with every setting they hold as it was; a save that
+ *            names a shape held back (trumpet) or unknown is the classic glass too, and saves
+ *            'classic'
  *
  * Every check has its control: the same measurement on a copy of the app with that one thing
  * broken (served in place of the file), which must fail it.
  *
- *   node tools/test/app-shape.test.js [--root <dir>] [--port <n>] [--only pick,look,use,shapes,full,old]
+ *   node tools/test/app-shape.test.js [--root <dir>] [--port <n>] [--only pick,look,use,shapes,sand,full,old]
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -330,6 +334,53 @@ function shapesOk(list) {
   };
 }
 
+/* ---- SAND ------------------------------------------------------------------------------------ */
+// The colour the shapes' sand is filled with, small (Delta's button) and large, as drawn, and the
+// colour of the sand the settings name (its record's base tone: P.SANDS, or P.customSand of the
+// colour), both as the browser resolves them.
+function shapeColours(t) {
+  return t.eval(function () {
+    var P = window.HourglassPhysics, raw = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
+    function rgb(css) { var e = document.createElement('i'); e.style.color = css; document.body.appendChild(e); var c = getComputedStyle(e).color; e.remove(); return c.match(/[\d.]+/g).slice(0, 3).map(Number); }
+    function fill(el) { return getComputedStyle(el).fill.match(/[\d.]+/g).slice(0, 3).map(Number); }
+    var c = /^([\d.]+),([\d.]+),([\d.]+)$/.exec(raw.sandColor || ''), rec = raw.sand === 'custom' && c ? P.customSand(+c[1], +c[2], +c[3]) : P.SANDS[raw.sand];
+    var sd = rec.sand, want = rgb('hsl(' + sd.h + ', ' + (sd.s * 100) + '%, ' + (sd.l * 100) + '%)');
+    var th = P.THEMES[raw.theme] && P.THEMES[raw.theme].sand;
+    return { sand: raw.sand, theme: raw.theme, want: want, material: th ? rgb('hsl(' + th.h + ', ' + (th.s * 100) + '%, ' + (th.l * 100) + '%)') : null,
+             small: fill(document.querySelector('#shapes [data-shape="delta"] .sand')), big: fill(document.querySelector('#shape-big .sand')) };
+  });
+}
+async function sandCase(env, o) {
+  o = o || {};
+  var t = await env.open(Object.assign({ storage: { 'hourglass.settings.v1': { sand: 'lapis', theme: 'lapis', finish: 'gold' } } }, o.open || {}));
+  var m = {};
+  try {
+    await sleep(700);
+    await tune.show(t, '#shapes');
+    await sleep(300);
+    m.first = await shapeColours(t);
+    // with Tune open on the Glass tab: a sand that is no material, then a colour of one's own
+    await t.eval(function () { window.Hourglass.setSand('garnet'); });
+    await sleep(500);
+    m.garnet = await shapeColours(t);
+    await t.eval(function () { window.Hourglass.setSand({ h: 160, s: 0.55, l: 0.5 }); });
+    await sleep(500);
+    m.custom = await shapeColours(t);
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+function sandOk(m) {
+  function near(a, b) { return !!a && !!b && a.every(function (v, i) { return Math.abs(v - b[i]) <= 2; }); }
+  function one(r) { return near(r.small, r.want) && near(r.big, r.want); }
+  function says(n, r) { return n + ' (' + r.sand + '): small ' + r.small.join() + ', large ' + r.big.join() + ', the sand ' + r.want.join() + (r.material ? ', the material ' + r.material.join() : ''); }
+  return {
+    first: { ok: one(m.first), detail: says('at the start', m.first) },
+    change: { ok: one(m.garnet) && one(m.custom) && !near(m.garnet.small, m.first.small) && !near(m.custom.small, m.garnet.small) && m.errors.length === 0,
+              detail: says('then', m.garnet) + '; ' + says('then', m.custom) + (m.errors.length ? '; ' + m.errors[0] : '') }
+  };
+}
+
 /* ---- FULL ------------------------------------------------------------------------------------ */
 async function full(env, o) {
   o = o || {};
@@ -371,9 +422,14 @@ var SAVE_1_13 = { theme: 'lapis', character: 'bamboo', volume: 0.35, muted: true
 var SAVE_1_10 = { theme: 'seaglass', character: 'dune', volume: 1, muted: false, chime: true, tilt: false, zenFull: false, haptics: true, keepAwake: true, frame: false, layers: false,
   ambience: 'drips', ambienceLevel: 0.2, breath: false, breathPattern: 'calm', durationMs: 600000, restMs: 0, rounds: 1, motionSign: 0, mendNotes: 0, hintCrack: false, hintZen: 0,
   grain: 0, hintMotion: 0, realSand: false, realSandFails: 0, realSandWhy: '', realSandNa: '', realSandNaAt: 0, realSandBuild: '5', v: 2 };
+// (1.14.0: the sand, its colour and the frame's finish chosen apart; no shape yet)
+var SAVE_1_14 = { theme: 'rosequartz', character: 'warm', volume: 0.6, muted: false, chime: true, tilt: false, zenFull: false, haptics: true, keepAwake: false, frame: true,
+  layers: true, ambience: 'ocean', ambienceLevel: 0.4, breath: false, breathPattern: 'calm', durationMs: 900000, restMs: 0, rounds: 1, motionSign: 1, mendNotes: 0,
+  hintCrack: false, hintZen: 1, grain: 0, hintMotion: 2, realSand: false, realSandFails: 0, realSandWhy: '', realSandNa: '', realSandNaAt: 0, realSandBuild: '6', v: 2,
+  tuneTab: 'sand', sand: 'custom', sandColor: '12.5,0.6,0.55', finish: 'copper' };
 async function old(env, o) {
   o = o || {};
-  var cases = [['1.13.0', SAVE_1_13], ['1.10.0', SAVE_1_10], ['trumpet', { v: 2, realSand: false, shape: 'trumpet' }], ['florence', { v: 2, realSand: false, shape: 'florence' }],
+  var cases = [['1.14.0', SAVE_1_14], ['1.13.0', SAVE_1_13], ['1.10.0', SAVE_1_10], ['trumpet', { v: 2, realSand: false, shape: 'trumpet' }], ['florence', { v: 2, realSand: false, shape: 'florence' }],
                ['unknown', { v: 2, realSand: false, shape: 'heart' }]];
   var out = [];
   for (var i = 0; i < cases.length; i++) {
@@ -393,7 +449,7 @@ function oldOk(list) {
   var bad = [];
   list.forEach(function (r) {
     if (r.glass !== 'classic' || r.saved.shape !== 'classic' || r.inUse !== 'classic') bad.push(r.name + ': the glass ' + r.glass + ', saved ' + r.saved.shape + ', in use ' + r.inUse);
-    if (r.name === '1.13.0' || r.name === '1.10.0') {
+    if (r.name === '1.14.0' || r.name === '1.13.0' || r.name === '1.10.0') {
       Object.keys(r.save).forEach(function (k) {
         if (k === 'realSandBuild') return;                         // (the engine's stamp: the app writes its own)
         if (JSON.stringify(r.saved[k]) !== JSON.stringify(r.save[k])) bad.push(r.name + ': ' + k + ' ' + JSON.stringify(r.saved[k]) + ' for ' + JSON.stringify(r.save[k]));
@@ -401,7 +457,7 @@ function oldOk(list) {
     }
     if (r.errors.length) bad.push(r.name + ': ' + r.errors[0]);
   });
-  return { ok: list.length === 5 && bad.length === 0, detail: bad.length ? bad.join('; ') : list.map(function (r) { return r.name + ' -> ' + r.glass; }).join(', ') + '; every other setting of the two old saves as it was' };
+  return { ok: list.length === 6 && bad.length === 0, detail: bad.length ? bad.join('; ') : list.map(function (r) { return r.name + ' -> ' + r.glass; }).join(', ') + '; every other setting of the three old saves as it was' };
 }
 
 /* ---- the run ---------------------------------------------------------------------------------- */
@@ -465,6 +521,17 @@ async function main() {
         return shapes(env, Object.assign({ short: true }, app(swap('    if (id !== \'classic\' && P.SHAPES', '    if (false && P.SHAPES'))));
       }, shapesOk);
     }
+    if (wanted('sand')) {
+      var sa = sandOk(await sandCase(env));
+      s.check('SAND: the small glasses and the large one are drawn in the sand chosen in the Sand tab', sa.first.ok, sa.first.detail);
+      s.check('SAND: ... and with Tune open a change of sand repaints them: a sand that is no material (Red Garnet), then a colour of one\'s own', sa.change.ok, sa.change.detail);
+      await control('a copy that does not repaint the shapes when the sand changes', 'change', function () {
+        return sandCase(env, app(swap('    shapeSand(rec);\n', '')));
+      }, sandOk);
+      await control('a copy that draws the shapes in the old material\'s sand', 'change', function () {
+        return sandCase(env, app(swap('    var sd = (rec || sandRecord()).sand;', '    var sd = P.THEMES[settings.theme] && P.THEMES[settings.theme].sand;')));
+      }, sandOk);
+    }
     if (wanted('full')) {
       var fu = fullOk(await full(env));
       s.check('FULL: a 60-minute Delta glass has no room: its Sand button reads "Full", says "The glass is full", and a tap adds none', fu.says.ok, fu.says.detail);
@@ -475,7 +542,7 @@ async function main() {
     }
     if (wanted('old')) {
       var od = oldOk(await old(env));
-      s.check('OLD: saves of 1.13.0 and 1.10.0 come up in the classic glass, every setting as it was; a shape held back (trumpet, florence) or unknown is the classic glass, saved so', od.ok, od.detail);
+      s.check('OLD: saves of 1.14.0, 1.13.0 and 1.10.0 come up in the classic glass, every setting as it was; a shape held back (trumpet, florence) or unknown is the classic glass, saved so', od.ok, od.detail);
       await control('a copy of the settings that takes any shape name', 'ok', function () {
         return old(env, { open: { routes: [broken(env, 'app/settings.js', swap('return !!s && has.call(s, v) && s[v].offered === true;', 'return true;'))] } });
       }, function (l) { return { ok: oldOk(l) }; });

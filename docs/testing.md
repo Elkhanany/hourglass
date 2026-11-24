@@ -121,7 +121,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   at the end of the walk, which now draws Volcanic Black over walnut (the
   chip steps the sands alone) with `setLook` where it drew the volcanic
   bundle. The trace's recorder writes a small record of plain values (the
-  look handed to `setLook`) as it is, where it wrote "(an object)".
+  look handed to `setLook`) as it is, where it wrote "(an object)". They
+  were made again (`--write`) from the tree that joined that release with
+  the glass shapes (release 1.15.0): against the sands release's files they
+  differ only in the key `shape` at the end of every full save, the build
+  stamp 7 for 6, the sixth boot (a save in the delta shape) and the lines of
+  the nine shape controls; against the shapes' files, only in what the sands
+  release brought, as above.
   The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
@@ -411,7 +417,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   label over a hidden switch on every control and on the stage, the switch
   flipping exactly when the app asked for a tap, every control still doing
   its work once, and scrolling, pouring, carrying and pinching unchanged.
-  `app-shape` covers the glass's shape (`--only pick,look,use,shapes,full,old`):
+  `app-shape` covers the glass's shape (`--only pick,look,use,shapes,sand,full,old`):
   the Glass tab's Shape section above the frame's, the seven offered shapes
   in their order, three a row, drawn at one scale, the one in use drawn
   large; a tap that only shows a shape (nothing saved, nothing loaded
@@ -420,9 +426,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the Glass tab, the time left kept within a frame, the sand the same share
   of the new full glass, the glass out at 00:00.0 on time); every offered
   shape on the classic sand (a 60-minute glass filled to its cap, a 10 s
-  glass out on time); the Sand button of a full glass; and saves of 1.13.0
-  and 1.10.0, and ones naming a held-back or unknown shape, as the classic
-  glass. Each check has a control. About 6 minutes.
+  glass out on time); the shapes drawn in the sand chosen in the Sand tab
+  (not the material's) and repainted when it changes; the Sand button of a
+  full glass; and saves of 1.14.0 (sand, colour and finish, no shape),
+  1.13.0 and 1.10.0, and ones naming a held-back or unknown shape, as the
+  classic glass, every other setting as it was. Each check has a control.
+  About 6 minutes.
   `app-grain` covers the Grain choice: the three choices, Finest chosen
   while a glass runs (twice the scale, four times the grains, the time kept),
   the clock kept to the last grain, Sand adding time as fast, Classic again
