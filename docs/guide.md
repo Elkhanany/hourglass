@@ -102,7 +102,7 @@ keys move between the tabs.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.16.0" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.17.0" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;
@@ -163,7 +163,8 @@ keys move between the tabs.
     before: *Rings* is for the last end. Reset, another duration, a turn or a
     new start stop it too.
   - **Bowl**: the bowl's level, 0 to 100. 50 is the bowl as it always was,
-    100 is twice as loud (6 dB more), 0 is silent.
+    100 doubles it (6 dB asked; about 5 dB heard, since the app's limiter
+    holds the peak back so nothing clips), 0 is silent.
 - **Sound in silent mode**: on (as it always was), the app sounds with the
   ringer switched off, as a timer should. Off, it follows the ringer switch,
   and music playing in another app plays on under it. Where the browser does
