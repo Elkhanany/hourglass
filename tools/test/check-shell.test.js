@@ -26,7 +26,9 @@
  *  - whichever script is missing from the copy (a hole, offline), the last one, app.js, finds
  *    what it lacks before it builds anything and says "Hourglass is updating. Open it again
  *    with a connection." instead of throwing: the page's scripts are run here in its order, in
- *    a bare context, once with each of the others left out.
+ *    a bare context, once with each of the others left out. When the browser is online it
+ *    says "Hourglass is updating. Open it again in a moment." instead, and index.html's last
+ *    lines (app.js not started) say the same words, online and offline.
  * Each rule has its control: the same check on a copy that breaks it must fail.
  *
  *   node tools/test/check-shell.test.js
@@ -265,13 +267,13 @@ check(added(c6, inlineBad).length === 2 && /const/.test(c6.join(';')) && /a modu
 /* ---- 4. a script missing from the copy: app.js says so, and builds nothing ---- */
 var UPDATING = 'Hourglass is updating. Open it again with a connection.';
 /** The page's scripts run in order in a bare context, but `skip`: what app.js put on the page, warned, and what threw. */
-function launch(skip, appSrc) {
+function launch(skip, appSrc, nav) {
   var notes = [], warns = [], threw = [];
   function el() { return { style: {}, setAttribute: function () {}, appendChild: function () {} }; }
   var box = {
     console: { warn: function (m) { warns.push(String(m)); }, log: function () {}, info: function () {}, error: function () {} },
     document: { createElement: el, getElementById: function () { return null; }, body: { appendChild: function (n) { notes.push(n.textContent); } } },
-    navigator: {}, location: { search: '' }
+    navigator: nav || {}, location: { search: '' }
   };
   box.window = box;
   vm.createContext(box);
@@ -297,6 +299,39 @@ var blind = app.split('\n').filter(function (l) { return !(lastGlobal && l.index
 var c7 = launch(lastOther, blind);
 check(blind !== app && !saysUpdating(c7) && c7.threw.some(function (t) { return t.indexOf('app.js: ') === 0; }),
   '... and a copy of app.js that does not ask for ' + lastGlobal + ' goes on without ' + lastOther + ' and throws (control)', c7.threw.join('; '));
+
+
+// With a connection the words are another (an older copy with a hole, filled from a server that
+// has moved on, runs this app.js beside its own page while the new release installs): open it
+// again in a moment. Offline, as before. index.html's last lines say the same, both ways.
+var UPDATING_ONLINE = 'Hourglass is updating. Open it again in a moment.', ONLINE_WORDS = "navigator.onLine ? '" + UPDATING_ONLINE + "' : ";
+var on = launch(lastOther, null, { onLine: true }), off = launch(lastOther, null, { onLine: false });
+check(on.notes.join() === UPDATING_ONLINE && off.notes.join() === UPDATING,
+  'with ' + lastOther + ' missing, app.js says "' + UPDATING_ONLINE + '" when the browser is online, and "' + UPDATING + '" when it is not', JSON.stringify({ online: on.notes, offline: off.notes }));
+var c8 = launch(lastOther, app.split(ONLINE_WORDS).join(''), { onLine: true });
+check(app.split(ONLINE_WORDS).length === 2 && c8.notes.join() === UPDATING,
+  '... and a copy of app.js without its online words says "' + UPDATING + '" online (control)', c8.notes.join());
+/** index.html's last lines run as at the page's load event, app.js not started: what they put on the page. */
+function lastLines(html, nav) {
+  var notes = [], load = [];
+  var box = {
+    addEventListener: function (t, fn) { if (t === 'load') load.push(fn); },
+    document: { getElementById: function () { return null; }, querySelector: function () { return null; },
+                createElement: function () { return { style: {}, setAttribute: function () {} }; }, body: { appendChild: function (n) { notes.push(n.textContent); } } },
+    navigator: nav
+  };
+  box.window = box;
+  vm.createContext(box);
+  inlineScripts(html).forEach(function (sc) { try { vm.runInContext(sc.code, box); } catch (e) { notes.push('threw: ' + e.message); } });
+  load.forEach(function (fn) { try { fn(); } catch (e) { notes.push('threw: ' + e.message); } });
+  return notes;
+}
+var pOn = lastLines(HTML, { onLine: true }), pOff = lastLines(HTML, { onLine: false });
+check(pOn.join() === UPDATING_ONLINE && pOff.join() === UPDATING,
+  'index.html\'s last lines, with app.js not started, say the same: "' + UPDATING_ONLINE + '" online, "' + UPDATING + '" offline', JSON.stringify({ online: pOn, offline: pOff }));
+var c9 = lastLines(HTML.split(ONLINE_WORDS).join(''), { onLine: true });
+check(HTML.split(ONLINE_WORDS).length === 2 && c9.join() === UPDATING,
+  '... and a copy of the page without its online words says "' + UPDATING + '" online (control)', c9.join());
 
 console.log('check-shell: ' + (count - failures) + '/' + count + ' passed');
 if (failures) process.exitCode = 1;

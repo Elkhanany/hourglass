@@ -18,7 +18,10 @@
    *  snapshot). Should one be missing from the copy all the same, an
    *  offline launch gets an error for it and its engine is not there: then
    *  nothing is built, the page says so, and the next launch with a
-   *  connection fills the copy again.
+   *  connection fills the copy again. With a connection it says to open it
+   *  again in a moment: an older copy with a hole, filled from a server
+   *  that has moved on, runs this script beside its own page, and the new
+   *  release is installing meanwhile.
    * ==================================================================== */
   var missing = missingParts();
   if (missing.length) { updating(missing); return; }
@@ -40,7 +43,8 @@
       var note = document.createElement('p');
       note.id = 'updating';
       note.setAttribute('role', 'alert');
-      note.textContent = 'Hourglass is updating. Open it again with a connection.';
+      // (online, the new release is on its way in: an older copy, with a hole, that met this release's app.js)
+      note.textContent = navigator.onLine ? 'Hourglass is updating. Open it again in a moment.' : 'Hourglass is updating. Open it again with a connection.';
       note.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;margin:0;padding:24px;' +
         'display:flex;align-items:center;justify-content:center;text-align:center;background:#0b0c0e;' +
         'color:#d8d2c8;font:16px/1.5 -apple-system,system-ui,sans-serif';

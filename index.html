@@ -394,7 +394,8 @@
 <script src="./app/settings.js" defer></script>
 <script src="./app.js" defer></script>
 <!-- app.js says so itself when another script is missing from the offline copy (its pre-flight).
-     It cannot say that it is missing itself, or the style sheet: this does, in the same words. -->
+     It cannot say that it is missing itself, or the style sheet: this does, in the same words
+     (online and offline alike). -->
 <script>
   window.addEventListener('load', function () {
     var css = document.querySelector('link[rel="stylesheet"]');
@@ -402,7 +403,7 @@
     var note = document.createElement('p');
     note.id = 'updating';
     note.setAttribute('role', 'alert');
-    note.textContent = 'Hourglass is updating. Open it again with a connection.';
+    note.textContent = navigator.onLine ? 'Hourglass is updating. Open it again in a moment.' : 'Hourglass is updating. Open it again with a connection.';
     note.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;margin:0;padding:24px;' +
       'display:flex;align-items:center;justify-content:center;text-align:center;background:#0b0c0e;' +
       'color:#d8d2c8;font:16px/1.5 -apple-system,system-ui,sans-serif';

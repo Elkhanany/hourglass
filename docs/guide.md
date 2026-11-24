@@ -173,7 +173,9 @@ An update arrives whole or not at all: the installed app keeps running the
 release it has until the new one is complete, so it always opens offline.
 Should it ever open offline and say *Hourglass is updating. Open it again
 with a connection.*, a file of its offline copy went missing; the next
-launch with a connection fills the copy again.
+launch with a connection fills the copy again. With a connection it says
+*Hourglass is updating. Open it again in a moment.*: the new release is
+on its way in. Close the app and open it again a little later.
 
 ## Work and rest
 

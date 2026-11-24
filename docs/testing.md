@@ -358,7 +358,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   whose `SHELL` names a missing file (its install fails, leaves no cache,
   and the installed release runs whole, online and offline); a script taken
   out of the cache (offline the page says it is updating; one launch with a
-  connection fills the cache again, from the same release only); a lab
+  connection fills the cache again, from the same release only); an older
+  release (1.10.0) with `app.js` taken out of its cache, met online by this
+  tree (the page says to open it again in a moment, not "with a
+  connection", and the next launch runs this tree; its control is this tree
+  with the online words taken out); a lab
   page that meets another build (the app's cache stays whole); and an update
   that never finishes over a copy installed before the snapshot worker
   (13a9772's worker fetches each file it answers into its copy, so offline

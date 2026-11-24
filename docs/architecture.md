@@ -273,7 +273,12 @@ says "Hourglass is updating. Open it again with a connection." instead of
 building anything (`app.js`'s pre-flight check, which `check-shell` tries by
 running the page's scripts with each one left out; when `app.js` itself or
 the style sheet is the hole, the last lines of `index.html` say it), and the
-next launch with a connection repairs the copy. Other paths under the scope
+next launch with a connection repairs the copy. Online the same note reads
+"Hourglass is updating. Open it again in a moment.": an older copy with a
+hole, met by a server that has moved on, fills the hole with the newer
+release's file, and that file may need one the old page never loads (the
+settings store, from 1.13.0 on); the newer release installs meanwhile and
+the next launch runs it. Other paths under the scope
 (the launch
 screens, the install screenshots) are answered from the cache and refreshed
 in the background, as before; offline, a navigation that is not cached gets
