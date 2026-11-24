@@ -780,10 +780,12 @@ packed: thrown, a bed flies (loose, until it has packed again, or moving
 along the glass as a body), and the classic sand's bed in the air slides
 nothing. The agitation follows each bed's
 own acceleration over the glass, with the classic sand's memory (0.25 s) and
-a landing's heat. Nothing is fitted in the thumps and the agitation, and on
-the same scripted motions they agree with the classic sand's (a 10 s glass
-before its start, WebGPU in software, the classic Sim on the same motion
-beside it): flicked along the glass, one thump of 0.0048 against 0.0043 and
+a landing's heat. Nothing is fitted in the thumps and the agitation. On the
+same scripted motions they agreed with the classic sand's when measured at
+engine build 6, before the seven-in-ten rule (a 10 s glass before its start,
+WebGPU in software, the classic Sim on the same motion beside it; the probe
+that made these figures is not in the repository, and they have not been
+measured again since the rule): flicked along the glass, one thump of 0.0048 against 0.0043 and
 agitation 0.60 against 0.71; shaken along the glass at 1.5 g and 5 Hz for
 3 s, 14 thumps of 0.094 in all (the largest 0.012) against 10 of 0.072
 (0.013), agitation 2.1 against 2.4; shaken sideways, no thump in either,
