@@ -77,7 +77,7 @@
    * ==================================================================== */
   var Store = window.HourglassSettings;
   // (localStorage is reached inside the store's own try: where storage is blocked, reaching it throws)
-  var settings = Store.load(function () { return localStorage; }, location.search, { themes: P.THEMES });
+  var settings = Store.load(function () { return localStorage; }, location.search, { themes: P.THEMES, sands: P.SANDS, finishes: P.FINISHES, finishOf: P.finishOf });
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts (a saved session gives way to it)
   var qt = Store.preset(location.search);
   function save() { Store.save(settings); }
@@ -2442,14 +2442,13 @@
   btnMute.addEventListener('click', function () { setMuted(!settings.muted); buzz(8); });
   btnZen.addEventListener('click', function () { buzz(8); if (setZen(true)) zenHint(); });
 
-  var THEME_ORDER = ['sahara', 'volcanic', 'moonstone', 'lapis', 'rosequartz', 'seaglass'];
   /**
    * Change something about the instrument behind a slow cross-fade. What is
    * asked for while the fade comes in waits with it and happens once the
-   * instrument is out of sight: every `kind` of change asked for (the
-   * material, the frame, the layers), and of one kind only the last, so the
-   * chip tapped quickly through four materials sets one, not four (each
-   * rebuilds the renderer's picture of the sand and the glass).
+   * instrument is out of sight: every `kind` of change asked for (the look,
+   * the frame, the layers), and of one kind only the last, so the chip
+   * tapped quickly through four sands sets one, not four (each rebuilds the
+   * renderer's picture of the sand and the glass).
    */
   var softTimer = 0, softQueue = [];
   function softSwap(kind, fn) {
@@ -2466,25 +2465,194 @@
       requestAnimationFrame(function () { if (!softTimer) assembly.classList.remove('fade'); });   // (unless the next one has begun)
     }, 380);
   }
-  function setTheme(id, soft) {
-    settings.theme = id; save();
-    showTheme(id, soft);
+  /** A change of that kind still waiting for the fade is given up (one made at once has overtaken it). */
+  function softDrop(kind) {
+    softQueue = softQueue.filter(function (q) { return q.kind !== kind; });
   }
-  /** The material shown: the page's colours, the chip's name, the glass (behind the cross-fade if `soft`), the cards. */
-  function showTheme(id, soft) {
-    document.documentElement.dataset.theme = id;
-    themeName.textContent = P.THEMES[id].short;
-    if (soft) softSwap('theme', function () { renderer.setTheme(id); if (realEng) realEng.setPalette(); });
-    else { renderer.setTheme(id); if (realEng) realEng.setPalette(); }
-    dirty = true;
-    var cards = document.querySelectorAll('#themes .card');
-    for (var i = 0; i < cards.length; i++) {
-      cards[i].setAttribute('aria-checked', cards[i].dataset.themeId === id ? 'true' : 'false');
+
+  /* ---- the look: the sand and the frame's finish ------------------------ */
+  // The sand (settings.sand: one of P.SANDS, or 'custom', a sand made from the colour
+  // settings.sandColor) and the finish of the frame's caps (settings.finish: one of
+  // P.FINISHES) are chosen apart. settings.theme, the material of releases before 1.14.0,
+  // follows the sand while it is one of the six themes.
+  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  /** A colour asked for, as the settings keep it: hue 0..360 to a tenth, two shares of 1 to a thousandth. Null when it is not one. */
+  function sandColorIn(v) {
+    var h = +v.h, sat = +v.s, l = +v.l;
+    if (!isFinite(h) || !isFinite(sat) || !isFinite(l)) return null;
+    h = Math.round((((h % 360) + 360) % 360) * 10) / 10;
+    return { h: h >= 360 ? 0 : h, s: Math.round(Math.max(0, Math.min(1, sat)) * 1000) / 1000, l: Math.round(Math.max(0, Math.min(1, l)) * 1000) / 1000 };
+  }
+  /** The sand the settings name, as the renderer is asked for it: an id, or the custom colour { h, s, l }. */
+  function sandAsked() {
+    return settings.sand === 'custom' ? Store.colorOf(settings.sandColor) : settings.sand;
+  }
+  /** The sand's whole record: one of P.SANDS, or the custom sand made from its colour. */
+  function sandRecord() {
+    var c = sandAsked();
+    return typeof c === 'object' ? P.customSand(c.h, c.s, c.l) : P.SANDS[c];
+  }
+  /**
+   * The renderer is given the look the settings name (and Real sand its colours, which it
+   * takes from the renderer's table). One of the six sands over its own caps is the
+   * renderer's own bundle, exactly as it has always been drawn; anything else is put
+   * together by setLook. `live`: the colour table only (a colour being dragged).
+   */
+  function lookToRenderer(live) {
+    var material = P.FINISHES[settings.finish].theme;
+    if (settings.sand === material) renderer.setTheme(material);
+    else if (live) renderer.setLook({ sand: sandAsked(), material: material }, true);
+    else renderer.setLook({ sand: sandAsked(), material: material });
+    if (realEng) realEng.setPalette();
+  }
+  /**
+   * The page wears the sand: the six themes and the three new sands have their colours in
+   * the style sheet (data-theme); the custom sand's are set on the root element. Its name is
+   * on the chip, and the controls that choose it show it chosen.
+   */
+  function showSand(live) {
+    var rec = sandRecord(), root = document.documentElement, ui = rec.ui;
+    if (rec.id === 'custom') {
+      root.removeAttribute('data-theme');
+      root.style.setProperty('--accent', ui.accent);
+      root.style.setProperty('--accent-ink', ui.accentInk);
+      root.style.setProperty('--glow', ui.glow);
+      root.style.setProperty('--glow-a', String(ui.glowA));
+    } else {
+      root.dataset.theme = rec.id;
+      ['--accent', '--accent-ink', '--glow', '--glow-a'].forEach(function (k) { root.style.removeProperty(k); });
     }
+    themeName.textContent = rec.name;
+    checkOne('#sands [data-sand]', 'sand', settings.sand);
+    // the custom sand's swatch wears its colour once there is one (until then the colours of every sand)
+    var c = Store.colorOf(settings.sandColor), orb = $('orb-custom'), well = $('sand-color'), cr;
+    if (orb) {
+      if (c) { cr = P.customSand(c.h, c.s, c.l).ui.orb; orb.style.background = 'radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.6), transparent 29%), linear-gradient(160deg, ' + cr[0] + ', ' + cr[1] + ' 55%, ' + cr[2] + ')'; }
+      else orb.style.background = '';
+    }
+    if ($('sandcolor-rows')) $('sandcolor-rows').hidden = settings.sand !== 'custom';
+    if (well && c && !live) well.value = hexOf(P.customSand.clamp(c.h, c.s, c.l));   // (the colour really used, not the one asked)
+    checkOne('#finishes [data-finish]', 'finish', settings.finish);
+    showFinishRow();
   }
+  /** The finish is chosen only while there is a frame to wear it. */
+  function showFinishRow() { if ($('finish-sub')) $('finish-sub').hidden = !settings.frame; }
+  /** In a group of radios, the one whose data-<key> is `value` is the one checked. */
+  function checkOne(sel, key, value) {
+    var b = document.querySelectorAll(sel);
+    for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-checked', b[i].dataset[key] === value ? 'true' : 'false');
+  }
+  /** "#rrggbb" of a colour { h, s, l } (hue in degrees, two shares of 1), and back. */
+  function hexOf(c) {
+    var sat = c.s, l = c.l, k = function (n) { return (n + c.h / 30) % 12; }, a = sat * Math.min(l, 1 - l);
+    var f = function (n) { var v = Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)))); return (v < 16 ? '0' : '') + v.toString(16); };
+    return '#' + f(0) + f(8) + f(4);
+  }
+  function hslOfHex(hex) {
+    var m = /^#([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return null;
+    var v = parseInt(m[1], 16), r = (v >> 16) / 255, g = ((v >> 8) & 255) / 255, b = (v & 255) / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn, h = 0, sat = 0;
+    if (d > 1e-9) {
+      sat = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      h = mx === r ? ((g - b) / d + (g < b ? 6 : 0)) * 60 : mx === g ? ((b - r) / d + 2) * 60 : ((r - g) / d + 4) * 60;
+    }
+    return { h: h, s: sat, l: l };
+  }
+  var dragRaf = 0, dragging = false;                   // a colour being dragged (dragSand): the next frame shows it
+  /** The look the settings name is shown, saved, and given to the renderer: behind the fade, or at once. */
+  function lookChosen(soft) {
+    save();
+    dragging = false;                                  // (a colour still being dragged has been overtaken)
+    showSand();
+    if (soft) softSwap('look', function () { lookToRenderer(false); });
+    else { softDrop('look'); lookToRenderer(false); }
+    dirty = true;
+  }
+  /**
+   * Choose the sand: an id of P.SANDS, a colour { h, s, l } (a custom sand; the colour
+   * really used is P.customSand.clamp of it), or 'custom' for the custom sand made last.
+   * The frame keeps its finish. Anything else is no sand and changes nothing.
+   */
+  function setSand(v, soft) {
+    var c;
+    if (v && typeof v === 'object') {
+      if (!(c = sandColorIn(v))) return;
+      settings.sand = 'custom'; settings.sandColor = c.h + ',' + c.s + ',' + c.l;
+    } else if (v === 'custom') {
+      if (!Store.colorOf(settings.sandColor)) return;
+      settings.sand = 'custom';
+    } else if (typeof v === 'string' && own(P.SANDS, v)) {
+      settings.sand = v;
+      if (own(P.THEMES, v)) settings.theme = v;
+    } else return;
+    lookChosen(soft);
+  }
+  /**
+   * A custom colour while it is being dragged in a picker: as many calls as the picker
+   * makes, and the sand in the glass follows at most once a frame, by its colour table
+   * alone. The glass and the frame are drawn again when the drag ends: setSand, with the
+   * colour it ended on. Nothing is saved meanwhile.
+   */
+  function dragSand(v) {
+    var c = v && typeof v === 'object' ? sandColorIn(v) : null;
+    if (!c) return;
+    settings.sand = 'custom'; settings.sandColor = c.h + ',' + c.s + ',' + c.l;
+    softDrop('look');
+    dragging = true;
+    if (dragRaf) return;
+    dragRaf = requestAnimationFrame(function () {
+      dragRaf = 0;
+      if (!dragging) return;
+      dragging = false;
+      showSand(true);
+      lookToRenderer(true);
+      dirty = true;
+    });
+  }
+  /** Choose the frame's finish: an id of P.FINISHES. The sand stays. */
+  function setFinish(id, soft) {
+    if (typeof id !== 'string' || !own(P.FINISHES, id)) return;
+    settings.finish = id;
+    lookChosen(soft);
+  }
+  /**
+   * One of the six materials of the releases before 1.14.0, sand and caps together: the
+   * sand of that name and the finish of its caps, in one save and one cross-fade.
+   */
+  function setTheme(id, soft) {
+    if (typeof id !== 'string' || !own(P.THEMES, id)) return;
+    settings.theme = settings.sand = id;
+    settings.finish = P.finishOf(id);
+    lookChosen(soft);
+  }
+  // The chip in the top bar steps through the sands: the nine, then the custom one once a
+  // colour has been made. The frame keeps its finish.
   btnTheme.addEventListener('click', function () {
-    setTheme(THEME_ORDER[(THEME_ORDER.indexOf(settings.theme) + 1) % THEME_ORDER.length], true);
+    var order = P.SAND_ORDER.concat(Store.colorOf(settings.sandColor) ? ['custom'] : []);
+    setSand(order[(order.indexOf(settings.sand) + 1) % order.length], true);
     buzz(8);
+  });
+  // The sands of Tune. Custom with no colour made yet starts from a sea green, so that the tap
+  // shows at once and the well below it is there to change it.
+  var CUSTOM_FIRST = { h: 185, s: 0.5, l: 0.5 };
+  if ($('sands')) $('sands').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-sand]');
+    if (!b) return;
+    var id = b.dataset.sand;
+    if (id === 'custom' && !Store.colorOf(settings.sandColor)) setSand(CUSTOM_FIRST, true);
+    else setSand(id, true);
+    buzz(8);
+  });
+  // The well: the colour input itself. While a finger moves in the phone's picker the sand
+  // follows by its colour table (dragSand); when it is let go the glass is drawn again, saved.
+  if ($('sand-color')) {
+    $('sand-color').addEventListener('input', function (e) { var c = hslOfHex(e.target.value); if (c) dragSand(c); });
+    $('sand-color').addEventListener('change', function (e) { var c = hslOfHex(e.target.value); if (c) setSand(c); });
+  }
+  if ($('finishes')) $('finishes').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-finish]');
+    if (b) { setFinish(b.dataset.finish, true); buzz(8); }
   });
 
   /* ---- duration pills ----------------------------------------------- */
@@ -2639,10 +2807,6 @@
   }
 
   /* ---- settings controls -------------------------------------------- */
-  $('themes').addEventListener('click', function (e) {
-    var c = e.target.closest('.card');
-    if (c) { setTheme(c.dataset.themeId, true); buzz(8); }
-  });
   function setCharacter(id) {
     settings.character = id; save();
     audio.setCharacter(id);
@@ -2708,6 +2872,7 @@
   }
   $('opt-frame').addEventListener('change', function (e) {
     settings.frame = e.target.checked; save();
+    showFinishRow();
     swapFrame();
   });
   // Layered sand: the sand in the glass is laid in strata where it lies (or
@@ -2795,7 +2960,7 @@
   /* ---- the look and the sound as they came ---------------------------- */
   // The quiet link at the end of the Time tab (settings design 3.4). A first tap asks for a
   // second one within three seconds; the second puts the look and the sound back as a new
-  // install has them: the material, the frame, layered sand, the volume, the sand's sound, the
+  // install has them: the sand, the frame and its finish, layered sand, the volume, the sand's sound, the
   // ambience and its level, the bowl. Everything else is kept: Real sand and the grain, the
   // durations and a sequence, breathing, Zen, the screen kept awake, haptics, Real motion, the
   // mute button, what the app has learned and hinted. Nothing is loaded again, and the running
@@ -2816,18 +2981,21 @@
   /** The look and the sound back as they came: saved once, then each one that differed shown and told to its engine. */
   function resetLook() {
     var was = {
-      theme: settings.theme, frame: settings.frame, layers: settings.layers, volume: settings.volume,
+      theme: settings.theme, sand: settings.sand, finish: settings.finish, frame: settings.frame, layers: settings.layers, volume: settings.volume,
       character: settings.character, ambience: settings.ambience, ambienceLevel: settings.ambienceLevel, chime: settings.chime
     };
     // (each by its name: the settings store's check follows every settings.<name> in this file)
-    settings.theme = settingDefault('theme'); settings.frame = settingDefault('frame'); settings.layers = settingDefault('layers');
+    settings.theme = settingDefault('theme'); settings.sand = settingDefault('sand'); settings.finish = settingDefault('finish');
+    settings.frame = settingDefault('frame'); settings.layers = settingDefault('layers');
     settings.volume = settingDefault('volume'); settings.character = settingDefault('character');
     settings.ambience = settingDefault('ambience'); settings.ambienceLevel = settingDefault('ambienceLevel');
     settings.chime = settingDefault('chime');
     save();
     // the look, behind one cross-fade
-    if (was.theme !== settings.theme) showTheme(settings.theme, true);
-    if (was.frame !== settings.frame) { $('opt-frame').checked = settings.frame; swapFrame(); }
+    if (was.theme !== settings.theme || was.sand !== settings.sand || was.finish !== settings.finish) {
+      showSand(); softSwap('look', function () { lookToRenderer(false); });     // (the custom colour is kept for its swatch)
+    }
+    if (was.frame !== settings.frame) { $('opt-frame').checked = settings.frame; showFinishRow(); swapFrame(); }
     if (was.layers !== settings.layers) { $('opt-layers').checked = settings.layers; swapLayers(); }
     // the sound (nothing is auditioned, and the bowl is not rung)
     if (was.volume !== settings.volume) { audio.setVolume(settings.volume); showVolume(); }
@@ -3686,7 +3854,7 @@
   zoom.style.transition = 'none';                     // arrive in place, not shrinking from the Zen size
   layout();
   void zoom.offsetWidth;
-  setTheme(settings.theme);
+  lookChosen(false);                                  // (saved once, as the boot always has)
   setState(restored ? T.state : 'idle');
   if (settings.tilt) setMotion(true, false);
   showTime(T.rem);
@@ -3729,7 +3897,7 @@
   window.Hourglass = {
     renderer: renderer, audio: audio, timer: T, flip: flip, stats: S, seq: seq,
     start: start, pause: pause, toggle: toggle, reset: reset,
-    flipNow: startFlip, setDuration: setDuration, setTheme: setTheme,
+    flipNow: startFlip, setDuration: setDuration, setTheme: setTheme, setSand: setSand, dragSand: dragSand, setFinish: setFinish,
     topAt: topAt, remAt: remAt, grainsFor: grainsFor,
     wakeState: function () { return wakeState; }, grav: grav,
     motion: motion, body: body, room: room, spill: spill, perf: perf, breath: breath,

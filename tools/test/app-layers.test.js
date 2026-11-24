@@ -52,13 +52,16 @@ async function testSwitch(s, env) {
     return {
       title: row.querySelector('b').textContent, note: row.querySelector('small').textContent,
       label: row.tagName === 'LABEL' && row.getAttribute('for') === 'opt-layers', role: el.getAttribute('role'), type: el.type,
-      tab: tab ? tab.textContent.trim() : null, first: !!panel && panel.querySelector('.row') === row && row === row.parentNode.firstElementChild,
-      material: row.parentNode.previousElementSibling.id === 'themes',
+      tab: tab ? tab.textContent.trim() : null,
+      // (the first row shown: the custom sand's colour, above it, is hidden until Custom is chosen)
+      first: !!panel && Array.prototype.filter.call(panel.querySelectorAll('.row'), function (r) { for (var q = r; q && q !== panel; q = q.parentNode) if (q.hidden) return false; return true; })[0] === row && row === row.parentNode.firstElementChild,
+      // (between them, the custom sand's colour, hidden until Custom is chosen)
+      sands: (function () { var q = row.parentNode.previousElementSibling; while (q && q.hidden) q = q.previousElementSibling; return !!q && q.id === 'sands'; })(),
       top: document.querySelectorAll('#hud-top button').length, bottom: document.querySelectorAll('#hud-bottom button').length
     };
   });
   s.check('ROW: "Layered sand", with its note', ui.title === 'Layered sand' && ui.note === 'Two tones that settle into strata as they fall', JSON.stringify([ui.title, ui.note]));
-  s.check('ROW: a labelled switch like the others, the first row of the Sand tab, right under the materials', ui.label && ui.role === 'switch' && ui.type === 'checkbox' && ui.tab === 'Sand' && ui.first && ui.material, JSON.stringify(ui));
+  s.check('ROW: a labelled switch like the others, the first row of the Sand tab, right under the sands', ui.label && ui.role === 'switch' && ui.type === 'checkbox' && ui.tab === 'Sand' && ui.first && ui.sands, JSON.stringify(ui));
   s.check('ROW: the main screen has not gained a button (4 top, one of them hidden; 12 bottom)', ui.top === 4 && ui.bottom === 12, ui.top + ' / ' + ui.bottom);
   var p0 = await probe(t);
   s.check('OFF by default: no layers in the sim or the renderer, nothing saved as on', !p0.checked && p0.sim === false && p0.ren === false && !p0.saved, JSON.stringify(p0));
@@ -174,8 +177,8 @@ async function testQuick(s, env) {
           setTimeout(function () {
             var saved = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
             resolve({ sw: document.getElementById('opt-layers').checked, sim: Hg.sim.layers, ren: Hg.renderer.layers, tones: Hg.sim.tones(), total: Hg.sim.total,
-                      frameSw: document.getElementById('opt-frame').checked, frame: Hg.renderer.frame, saved: [saved.layers, saved.frame, saved.theme],
-                      theme: Hg.renderer.theme === P.THEMES[saved.theme], fading: document.getElementById('assembly').classList.contains('fade') });
+                      frameSw: document.getElementById('opt-frame').checked, frame: Hg.renderer.frame, saved: [saved.layers, saved.frame, saved.sand],
+                      theme: Hg.renderer.look.sand === saved.sand && Hg.renderer.theme.sand === P.SANDS[saved.sand].sand, fading: document.getElementById('assembly').classList.contains('fade') });
           }, 1100);
         }, a.ms);
       });
@@ -184,8 +187,8 @@ async function testQuick(s, env) {
   var a = await both('#opt-layers', '#opt-frame', 150);
   s.check('QUICK: Layered sand, then Frame 150 ms later: the sand is layered (switch, sim and renderer agree) and the frame is off',
           a.sw && a.sim === true && a.ren === true && a.tones[1] > 0.2 * a.total && a.tones[1] <= a.tones[0] && !a.frameSw && a.frame === false && !a.fading, JSON.stringify(a));
-  var b = await both('#opt-layers', '#themes .card[data-theme-id="lapis"]', 250);
-  s.check('QUICK: Layered sand off, then a material 250 ms later: one tone again, and the renderer has the new material',
+  var b = await both('#opt-layers', '#sands [data-sand="lapis"]', 250);
+  s.check('QUICK: Layered sand off, then a sand 250 ms later: one tone again, and the renderer has the new sand',
           !b.sw && b.sim === false && b.ren === false && b.saved[2] === 'lapis' && b.theme && !b.fading, JSON.stringify(b));
   var c = await both('#opt-frame', '#opt-layers', 30);
   s.check('QUICK: Frame back on, then Layered sand 30 ms later: both', c.frameSw && c.frame === true && c.sw && c.sim === true && c.ren === true && !c.fading, JSON.stringify(c));
@@ -193,15 +196,16 @@ async function testQuick(s, env) {
   await sleep(300);
   var d = await both('#opt-layers', '#opt-layers', 700);
   s.check('QUICK: switched off and, 700 ms later, on again: on, in step', d.sw && d.sim === true && d.ren === true && !d.fading, JSON.stringify(d));
-  // Of one kind of change only the last happens: the material chip tapped through four
-  // materials sets one, not four (each is a heavy change of the renderer's), and a switch
+  // Of one kind of change only the last happens: the sand chip tapped through four
+  // sands sets one, not four (each is a heavy change of the renderer's), and a switch
   // tapped on, off and on again is applied once. Another kind asked meanwhile still happens.
   await sleep(300);
   var e = await t.eval(function () {
     return new Promise(function (resolve) {
       var Hg = window.Hourglass, P = window.HourglassPhysics, R = Hg.renderer, n = { theme: 0, frame: 0, layers: 0 };
-      var st = R.setTheme, sf = R.setFrame, sl = R.setLayers, chip = document.getElementById('btn-theme'), was = R.theme, frameWas = R.frame;
+      var st = R.setTheme, sk = R.setLook, sf = R.setFrame, sl = R.setLayers, chip = document.getElementById('btn-theme'), was = R.theme, frameWas = R.frame;
       R.setTheme = function () { n.theme++; return st.apply(R, arguments); };
+      R.setLook = function () { n.theme++; return sk.apply(R, arguments); };      // (a sand over another's caps: the same change of the look)
       R.setFrame = function () { n.frame++; return sf.apply(R, arguments); };
       R.setLayers = function () { n.layers++; return sl.apply(R, arguments); };
       chip.click(); chip.click();
@@ -212,15 +216,15 @@ async function testQuick(s, env) {
       }, 120);
       setTimeout(function () {
         var saved = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
-        R.setTheme = st; R.setFrame = sf; R.setLayers = sl;
-        resolve({ calls: n, saved: saved.theme, theme: R.theme === P.THEMES[saved.theme], moved: R.theme !== was, shown: document.documentElement.dataset.theme,
+        R.setTheme = st; R.setLook = sk; R.setFrame = sf; R.setLayers = sl;
+        resolve({ calls: n, saved: saved.sand, theme: R.look.sand === saved.sand && R.theme.sand === P.SANDS[saved.sand].sand, moved: R.theme !== was, shown: document.documentElement.dataset.theme,
                   frame: R.frame === !frameWas && R.frame === document.getElementById('opt-frame').checked,
                   layers: Hg.sim.layers === document.getElementById('opt-layers').checked && R.layers === Hg.sim.layers,
                   fading: document.getElementById('assembly').classList.contains('fade') });
       }, 1300);
     });
   });
-  s.check('QUICK: the material chip tapped four times, Frame once and Layered sand three times within one fade: one change of each kind, the last asked',
+  s.check('QUICK: the sand chip tapped four times, Frame once and Layered sand three times within one fade: one change of each kind, the last asked',
           e.calls.theme === 1 && e.calls.frame === 1 && e.calls.layers === 1 && e.theme && e.moved && e.shown === e.saved && e.frame && e.layers && !e.fading, JSON.stringify(e));
   s.check('QUICK: no page or console errors', t.errors.length === 0, t.errors.slice(0, 3).join(' | '));
   await t.close();

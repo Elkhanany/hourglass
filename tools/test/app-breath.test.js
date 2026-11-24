@@ -247,8 +247,8 @@ async function tune(s, env) {
       on: window.Hourglass.breath.on
     };
   });
-  s.check('TUNE: the main screen has the same buttons (4 top, one of them hidden; 12 bottom); Tune has its row (10 in all, with Layered sand, Grain and Real sand)',
-          ui.top === 4 && ui.bottom === 12 && ui.rows === 10, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
+  s.check('TUNE: the main screen has the same buttons (4 top, one of them hidden; 12 bottom); Tune has its row (11 in all, with Layered sand, Grain, Real sand and the custom sand\'s colour)',
+          ui.top === 4 && ui.bottom === 12 && ui.rows === 11, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
   s.check('TUNE: "Breathing pace" is the first row of the Time tab\'s "While it runs", its choice sits directly under it, then Full Zen',
           ui.tab === 'Time' && ui.group === 'While it runs' && ui.before === '(first)' && ui.then === 'breath-row' && ui.after === 'Full Zen' && ui.name === 'Breathing pace',
           ui.tab + ' / ' + ui.group + ': ' + ui.before + ' / ' + ui.name + ' / #' + ui.then + ' / ' + ui.after);
