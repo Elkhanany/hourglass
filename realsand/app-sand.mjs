@@ -113,8 +113,9 @@ const EV_CAP = 48;                         // landings a frame for the audio (ph
 //  fastest, however many runs a second the display asks for;
 //  BODY: a fall starts only when the bed falls as one body, this share of its points moving: a
 //  falling body moves every point faster than a point moves from, while sand shaken up the wall
-//  and sliding back down it into the rest is about half the bed moving (0.44 to 0.58 at the
-//  speed of a landing, against 0.84 to 1 for a flicked bed's fall), and is a slip, not a landing;
+//  and sliding back down it into the rest is about half the bed moving (0.47 to 0.62 at the
+//  speed of a landing, against 0.75 to 0.84 as a flicked bed's fall starts and up to 0.94 as it
+//  speeds up), and is a slip, not a landing;
 //  BED_MIN, BED_SHARE: a bed is heard from this many points and this share of the glass's: fewer
 //  are the plug of the stream under the neck, the first grains on the floor or the last above
 //  the neck, whose mean speed is no bed's (a 10 s glass's plug: 3 to 14 points at up to 59 cells/s);
@@ -135,7 +136,7 @@ const EV_CAP = 48;                         // landings a frame for the audio (ph
 //  HOLD_MS: a readback's slides are fed until the next comes, this long at most; MUTE_MS: a fresh
 //  bed (a fill, a transfer) settles unheard this long; TURN_W: turned faster than this (rad/s), a
 //  bed neither lands nor heats (as the classic sand's, which a turn leaves calm)
-const SND = Object.freeze({ E_MIN: 0.0015, FALL_S: 0.15, BODY: 0.75, BED_MIN: 40, BED_SHARE: 0.03, SLIDE_K: 16, CAL_S: 0.65, PACK_LO: 0.75, PACK_HI: 0.95, PACK_T: 1, AXIS: 0.9,
+const SND = Object.freeze({ E_MIN: 0.0015, FALL_S: 0.15, BODY: 0.7, BED_MIN: 40, BED_SHARE: 0.03, SLIDE_K: 16, CAL_S: 0.65, PACK_LO: 0.75, PACK_HI: 0.95, PACK_T: 1, AXIS: 0.9,
   TAU_T: 0.25, IDLE_T: 0.02, HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5 });
 const SELF_TEST_POINTS = 500;
 
