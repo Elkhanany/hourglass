@@ -66,6 +66,24 @@
   --glow: 150, 212, 198;
   --glow-a: 0.17;
 }
+[data-theme="garnet"] {
+  --accent: #e59aa2;
+  --accent-ink: #1c0a0d;
+  --glow: 226, 110, 122;
+  --glow-a: 0.16;
+}
+[data-theme="olivine"] {
+  --accent: #c6d28a;
+  --accent-ink: #13190a;
+  --glow: 196, 210, 138;
+  --glow-a: 0.17;
+}
+[data-theme="amethyst"] {
+  --accent: #c9afe6;
+  --accent-ink: #140d1e;
+  --glow: 188, 150, 228;
+  --glow-a: 0.17;
+}
 
 /* ------------------------------------------------------------------ *
  *  Page: full-bleed, no scroll, no bounce
@@ -559,6 +577,21 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
     radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.85), transparent 30%),
     radial-gradient(circle at 60% 72%, #a39a8a 0 34%, transparent 35%),
     linear-gradient(160deg, #e6f6f1, #a9d6cb 55%, #5f9a8e);
+}
+.orb-garnet {
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.55), transparent 28%),
+    linear-gradient(160deg, #c4506a, #8a2a3f 55%, #3a0e1a);
+}
+.orb-olivine {
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.65), transparent 29%),
+    linear-gradient(160deg, #c3d07c, #8a9c45 55%, #46521f);
+}
+.orb-amethyst {
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.7), transparent 29%),
+    linear-gradient(160deg, #cdb2ea, #9670c4 55%, #4d3273);
 }
 
 .segmented {
