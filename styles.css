@@ -374,6 +374,12 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   #duration-row .pill-custom.seq .ic { display: none; }   /* a sequence ("25·5 ×4") needs the icon's room */
   #duration-row .pill-custom.long { padding: 0 8px; font-size: 12px; }   /* ... and the longest ("99:59·60 ×12") a little more */
 }
+/* The narrowest phones: six two-digit pills ("99" in each, the quick durations being anyone's) and
+   Custom still fit with no scroll, Custom without its icon */
+@media (max-width: 340px) {
+  #durations .pill { min-width: 30px; padding: 0 5px; }
+  #duration-row .pill-custom .ic { display: none; }
+}
 .pill {
   flex: 1 0 auto;
   min-width: 46px; height: 38px; padding: 0 12px;

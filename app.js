@@ -284,13 +284,14 @@
 
   /*
    * Show when it ends (the setting endsAt): while a glass runs, the state line says when its
-   * clock reaches 00:00.0, "Flowing · ends 14:35", in the phone's own 12 or 24 hour style. It is
+   * clock reaches 00:00.0, "Flowing · ends 14:35", in the phone's own 12 or 24 hour style (the locale's short time:
+   hour and minute). It is
    * worked out from the time left, so it moves when that does (sand added, a turn, a pause), and
    * it is written to the page only when its words change. The words are drawn, not spoken: the
    * state line is a polite live region, and an end that moves (a glass on its side, its time
    * standing still) would be said again each minute. A screen reader finds it in the time's label.
    */
-  var endsEl = document.createElement('span'), endsShown = '', endsMin = NaN, endsWords = '', endsFmt = null;
+  var endsEl = document.createElement('span'), endsShown = null, endsMin = NaN, endsWords = '', endsFmt = null;
   var READOUT_SAID = $('readout').getAttribute('aria-label');
   endsEl.id = 'ends';
   endsEl.setAttribute('aria-hidden', 'true');
@@ -301,7 +302,7 @@
     if (min !== endsMin) {                             // (worked out again only when its minute changes)
       endsMin = min;
       try {
-        if (!endsFmt) endsFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+        if (!endsFmt) endsFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
         endsWords = 'ends ' + endsFmt.format(new Date(at));
       } catch (e) {
         var d = new Date(at);
@@ -327,7 +328,7 @@
   /** The state line's words (the end, when it is shown, follows them). */
   function setStatus(text) {
     statusEl.textContent = text;
-    endsShown = '';
+    endsShown = null;                                  // (the span went with the old words: shown again, or the label put back)
     showEnds();
   }
 

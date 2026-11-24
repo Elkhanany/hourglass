@@ -364,7 +364,7 @@ function endState(t) {
   return t.eval(function () {
     var H = window.Hourglass, st = document.getElementById('status'), e = document.getElementById('ends');
     var at = Date.now() + H.timer.rem;
-    var want = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(at));
+    var want = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(new Date(at));
     return {
       text: st.textContent, state: H.timer.state, rem: H.timer.rem, at: at, want: want, writes: window.__writes,
       ends: e ? { hidden: e.getAttribute('aria-hidden'), inStatus: e.parentNode === st, drawn: e.getClientRects().length > 0, display: getComputedStyle(e).display,
@@ -481,8 +481,8 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
           return src.slice(0, a) + awake + '\n          ' + ends.trim() + src.slice(e);
         }) });
       }, fitOk);
-      await control('FIT: a style sheet that keeps the six buttons six across at 320 px makes them narrower than 44 px', 'tab', function () {
-        return fit(env, { open: copy('styles.css', add('#quick { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; }')) });
+      await control('FIT: a style sheet that keeps the six buttons six across at 320 px (and lets them shrink) makes them narrower than 44 px', 'tab', function () {
+        return fit(env, { open: copy('styles.css', add('#quick { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; } #quick button { min-width: 0 !important; }')) });
       }, fitOk);
       await control('FIT: a style sheet whose pills under the glass are wider does not fit 320 px', 'pills', function () {
         return fit(env, { open: copy('styles.css', add('#durations .pill { min-width: 44px !important; }')) });
@@ -602,7 +602,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       await control('ENDS: a copy that says the end through the live state line (not hidden from a screen reader)', 'start',
         endsCopy('app.js', swap("  endsEl.setAttribute('aria-hidden', 'true');\n", '')), function (m) { return endsOk(m, BERLIN); });
       await control('ENDS: a copy that always writes 24 hours is wrong in a 12 hour locale', 'start',
-        endsCopy('app.js', swap("{ hour: 'numeric', minute: '2-digit' }", "{ hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }"), NEW_YORK), function (m) { return endsOk(m, NEW_YORK); });
+        endsCopy('app.js', swap("{ timeStyle: 'short' }", "{ hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }"), NEW_YORK), function (m) { return endsOk(m, NEW_YORK); });
       await control('ENDS: a style sheet that draws the end in Zen at full strength', 'zen',
         endsCopy('styles.css', add('#app.zen .hud { opacity: 1 !important; }')), function (m) { return endsOk(m, BERLIN); });
       await control('ENDS: a copy that shows the end whatever the switch says', null, function () {
