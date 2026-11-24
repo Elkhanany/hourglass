@@ -32,8 +32,15 @@
  *                 reaching localStorage itself throws)
  *       search    location.search ("?t=300" preselects a duration)
  *       reg       what the checks need: { themes, sands, finishes, finishOf, shapes }
- *                 of HourglassPhysics
- *   HourglassSettings.save(values)      to the storage of the last load
+ *                 of HourglassPhysics. A saved name is one of a table's only when the
+ *                 table has it as its own (hasOwnProperty): a name every object has
+ *                 ('toString', '__proto__', 'valueOf' ...) is none, and gives the default
+ *   HourglassSettings.save(values)      to the storage of the last load. When that load
+ *       could not read the storage (getItem threw), save() first reads it again: while it
+ *       still cannot, nothing is written; once it can, a save that is missing or is not JSON
+ *       is written as usual, but a save that is there is left as it is for the rest of this
+ *       launch (the next launch reads it), so that one failed read never writes the defaults
+ *       over the settings
  *   HourglassSettings.preset(search)    "?t=300": { durationMs }, else null
  *   HourglassSettings.bindSwitch(el, key, after)   a plain switch of Tune:
  *       it shows the loaded value from then on (so load comes first), and
@@ -68,7 +75,7 @@
   /* The records, in the order their keys are saved. */
   var RECORDS = [
     { id: 'theme', default: 'sahara',            // the material: a sand and its frame
-      valid: function (v, reg) { return !!reg.themes[v]; } },
+      valid: function (v, reg) { return has.call(reg.themes, v); } },     // (its own names only: not 'toString', which every object has)
     { id: 'character', default: 'asmr' },        // the sound's character (app.js checks the name against the sound engine's)
     { id: 'volume', default: 0.8 },
     { id: 'muted', default: false },
@@ -152,17 +159,21 @@
     var version = steps.length ? steps[steps.length - 1].v : 0;
     var where = null;                // the storage of the last load (or the function that returns it)
     var current = null;              // the values of the last load
+    var guard = '';                  // '' as usual; 'unread': the last load could not read the storage; 'kept': a save is there that it could not read, left alone
     var keys = [], i;
     for (i = 0; i < records.length; i++) keys.push(records[i].id);
 
     function storage() { return typeof where === 'function' ? where() : where; }
 
     function load(st, search, reg) {
-      var values = {}, saved, k, r, got, plain;
+      var values = {}, saved, k, r, got, plain, text;
       where = st;
+      guard = 'unread';
       for (k = 0; k < records.length; k++) values[records[k].id] = records[k].default;
       try {
-        saved = JSON.parse(storage().getItem(KEY) || 'null');
+        text = storage().getItem(KEY);
+        guard = '';
+        saved = JSON.parse(text || 'null');
         if (saved) {
           plain = Object.prototype.toString.call(saved) === '[object Object]';
           for (k = 0; k < records.length; k++) {
@@ -191,7 +202,17 @@
     }
 
     function save(values) {
-      try { storage().setItem(KEY, JSON.stringify(values || current)); } catch (e) {}
+      var st, text, kept;
+      try {
+        st = storage();
+        if (guard === 'unread') {          // the load could not read: read again before anything is written
+          text = st.getItem(KEY);
+          try { kept = Object.prototype.toString.call(JSON.parse(text)) === '[object Object]'; } catch (e2) { kept = false; }
+          guard = kept ? 'kept' : '';
+        }
+        if (guard === 'kept') return;      // (a save is there: this launch leaves it as it is)
+        st.setItem(KEY, JSON.stringify(values || current));
+      } catch (e) {}
     }
 
     /**

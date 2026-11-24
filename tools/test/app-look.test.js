@@ -20,6 +20,9 @@
  *   SHIM     Hourglass.setTheme(id) is still the material of old: that sand over its own caps
  *   RELOAD   a sand, a finish and a custom colour come back after a reload
  *   NARROW   at 320 px: four sands a row, three finishes a row, every name whole, the well 44 px
+ *   NAMES    a save whose theme is a name every object has ({ v: 2, theme: 'valueOf' }) starts the
+ *            app with the default look, saved so; a sound character 'toString' and an ambience
+ *            'constructor' come up as the default sound, saved so (release 1.15.1)
  *
  * Every check has a control: a copy of the app (or of its style sheet) with one thing wrong
  * must fail it.
@@ -300,6 +303,40 @@ function customOk(m) {
   };
 }
 
+/* ---- NAMES ----------------------------------------------------------------------------------- */
+// A saved name that every object has ('valueOf', 'toString', 'constructor') is no theme, sound
+// character or ambience: until 1.15.1 such a theme passed the store's check and was kept and saved
+// (in 1.13.0 it stopped the app at every launch; from 1.14.0 the look is drawn from the sand and
+// the finish, which check their names properly), and the sounds' names were kept and saved.
+async function names(env, o) {
+  var m = {}, cases = [['theme', { v: 2, theme: 'valueOf' }], ['sound', { v: 2, realSand: false, character: 'toString', ambience: 'constructor' }]];
+  for (var i = 0; i < cases.length; i++) {
+    var raw = {}, t;
+    raw[KEY] = cases[i][1];
+    try { t = await env.open(Object.assign({ init: pageInit, rawStorage: raw }, o || {})); }
+    catch (e) { m[cases[i][0]] = { started: false, why: String(e && e.message || e).split('\n')[0] }; continue; }
+    try {
+      await sleep(900);
+      m[cases[i][0]] = await t.eval(function (k) {
+        var st = JSON.parse(localStorage.getItem(k) || '{}'), L = window.__look.state();
+        return { started: true, data: L.data, sandOf: L.sandOf, capOf: L.capOf, saved: { theme: st.theme, sand: st.sand, finish: st.finish, character: st.character, ambience: st.ambience },
+                 sound: { character: window.Hourglass.audio.character, ambience: window.Hourglass.audio.ambience } };
+      }, KEY);
+      m[cases[i][0]].errors = t.errors.filter(function (e) { return !/WebGPU|realsand/i.test(e); });
+    } finally { await t.close(); }
+  }
+  return m;
+}
+function namesOk(m) {
+  var th = m.theme, so = m.sound;
+  return {
+    theme: { ok: !!th.started && th.data === 'sahara' && th.sandOf === 'sahara' && th.capOf === 'sahara' && th.saved.theme === 'sahara' && th.saved.sand === 'sahara' &&
+                 th.saved.finish === 'walnut' && th.errors.length === 0, detail: js(th) },
+    sound: { ok: !!so.started && so.saved.character === 'asmr' && so.saved.ambience === 'none' && so.sound.character === 'asmr' && so.sound.ambience === 'none' &&
+                 so.errors.length === 0, detail: js(so) }
+  };
+}
+
 /* ---- NARROW ---------------------------------------------------------------------------------- */
 async function narrow(env, o) {
   var t = await env.open(Object.assign({ viewport: { width: 320, height: 568 }, init: pageInit }, o || {})), m = {};
@@ -387,6 +424,22 @@ function narrowOk(m) {
       await control('CUSTOM: a copy whose Custom does nothing until a colour is made', 'first', function () {
         return custom(env, app(swap("    if (id === 'custom' && !Store.colorOf(settings.sandColor)) setSand(CUSTOM_FIRST, true);", "    if (id === 'custom' && !Store.colorOf(settings.sandColor)) return;")));
       }, customOk);
+    }
+    if (wanted('names')) {
+      var nm = namesOk(await names(env));
+      s.check('NAMES: a save of { v: 2, theme: \'valueOf\' } (a name every object has) starts the app with the default look, Sahara Quartz over walnut, saved so, with no errors', nm.theme.ok, nm.theme.detail);
+      s.check('NAMES: a saved sound character \'toString\' and ambience \'constructor\' come up as the default sound (asmr, no water), saved so, with no errors', nm.sound.ok, nm.sound.detail);
+      await control('NAMES: a copy of the store that checks the theme the old way (!!reg.themes[v])', 'theme', function () {
+        return names(env, { routes: [broken(env, 'app/settings.js', swap('return has.call(reg.themes, v); }', 'return !!reg.themes[v]; }'))] });
+      }, namesOk);
+      await control('NAMES: a copy of app.js that checks the sound\'s names the old way (the table\'s entry, inherited or not)', 'sound', function () {
+        return names(env, app(function (src) {
+          return swap('  if (!Object.prototype.hasOwnProperty.call(window.HourglassAudio.CHARACTERS, settings.character)) settings.character = \'asmr\';',
+                      '  if (!window.HourglassAudio.CHARACTERS[settings.character]) settings.character = \'asmr\';')(
+                 swap('  if (!Object.prototype.hasOwnProperty.call(window.HourglassAudio.AMBIENCES, settings.ambience)) settings.ambience = \'none\';',
+                      '  if (!window.HourglassAudio.AMBIENCES[settings.ambience]) settings.ambience = \'none\';')(src));
+        }));
+      }, namesOk);
     }
     if (wanted('narrow')) {
       var n = narrowOk(await narrow(env));

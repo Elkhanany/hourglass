@@ -36,8 +36,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   licence says GPL-3.0-or-later. `check-release`: a branch that changes a shipped file
   (`sw.js` or a path of its `SHELL`) raises `VERSION` above both the
   merge-base's and `origin/main`'s, as a version number, and `index.html`
-  has its `hourglass-version` meta, equal to it; it needs `origin/main`
-  (`HOURGLASS_MAIN=<ref>` names another). `check-harness`: the test guards
+  has its `hourglass-version` meta, equal to it; and the `VERSION` an
+  installed copy reads from the server's `sw.js` (the worker's own
+  `served()`, taken from `sw.js` and run on its text) is the one running
+  `sw.js` gives (copies with the line in double quotes, with a comment above
+  it naming another `VERSION`, or with the value built from parts must
+  fail); it needs `origin/main` (`HOURGLASS_MAIN=<ref>` names another). `check-harness`: the test guards
   themselves: `tools/test/lib/paths.js` reads the page's scripts from
   `index.html`, a suite that still reads one `physics.js` fails at once, the
   browser harness refuses a tree that lacks a script the page loads, naming
@@ -61,9 +65,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `sim-perf`) and `realsand-gpu` are run by hand, as above, and their
   results go in the pull request (`.github/pull_request_template.md`).
 - `settings-unit`, `app-boot-trace` and `app-tune-trace` hold the settings
-  store (`app/settings.js`), and whatever is built on it, to what the app did
-  before it, each against a file kept in `tools/test/base/` (see
-  [the architecture](architecture.md#appsettingsjs)). `settings-unit`, in
+  store (`app/settings.js`), and whatever is built on it, each against a
+  file kept in `tools/test/base/` (see
+  [the architecture](architecture.md#appsettingsjs)): `settings-unit` to
+  the app before the store, the two traces to their reviewed record. `settings-unit`, in
   Node, in a moment: the records are well formed, and the first 31 are the
   old settings' keys and defaults in their order; the old Settings section
   of `app.js`, kept byte for byte, and the store give the same on 500 saved
@@ -71,7 +76,18 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   JSON, `?t=` queries, with and without a version, storage that throws): the
   same settings in the same order, the same saved JSON byte for byte, the
   same calls on storage, and the same again on a second launch, and nine
-  stores that differ in one thing each are found out; the Settings section
+  stores that differ in one thing each are found out; but for the
+  differences made on purpose, each held as the store must give it: a saved
+  theme that is a name every object has (each own name of
+  `Object.prototype`, each a case), which the old section kept, is the
+  default material (and a store that checks it the old way must fail); where
+  `getItem` throws, the old section saved the defaults over the save, and
+  the store reads again and writes nothing (one failed read at the launch,
+  with writing working, keeps the save through every save of that launch,
+  and a copy of the store that writes without reading again must fail);
+  each of those names, saved as the theme, the sand, the finish or the
+  shape, comes up and is saved as the default (copies that look the theme,
+  the sand or the finish up the loose way must fail); the Settings section
   `app.js` has today (the lines that call the store, cut by its banners and
   run as `app.js` runs them) gives the same on the 500 too, and five copies
   of it with one thing changed are found out (the Storage handed over itself,
@@ -91,25 +107,32 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   save from before version 2 with everything changed; Real motion left on; a
   damaged save; `?t=45` over a saved sequence; a glass in the Delta shape); a copy of `app.js` that gives
   the sound engine `muted` before `volume` must fail. `app-tune-trace`: what
-  each of the controls that change a setting (61, with the ten sands, the
-  custom sand's colour well and the six finishes of 1.14.0) saves, calls and buzzes in
-  its own tap, and what follows it (what the cross-fade sets, the answer to
+  each of the controls that change a setting (the ten sands, the custom
+  sand's colour well, the six finishes and the glass shapes among them; the
+  suite's check "the controls driven are the kept trace's" says how many)
+  saves, calls and buzzes in its own tap, and what follows it (what the cross-fade sets, the answer to
   the motion question, the boot after the reload a grain makes); a copy of
   `app.js` whose completion bowl saves after it has told the sound engine,
   and whose Haptics switch has lost its buzz, must fail at those. Every
   switch, choice and slider of Tune's sheet must be one the trace drives
   (`DRIVE` in `tools/test/lib/trace.js`), so a control added to Tune and not
   to the driver fails instead of going untraced; a copy of the page with one
-  switch more must be found out. Run with `--base <commit>` (or
-  `HOURGLASS_BASE=<commit>`), each makes its file again from that commit's
-  tree and compares; with `--write` as well it writes it from that commit.
-  The two traces run with `--write` alone write their file from the tree
-  just run: that is how a setting or a control added on purpose gets its new
-  trace, in a commit of its own whose diff is read (the new key in the
-  saves, the new control's lines, and nothing else). The kept Settings
+  switch more must be found out. The two kept traces are the reviewed
+  record of the tree named in each file's `from`, not a recording of the
+  app before the store: run with `--write`, a trace suite writes its file
+  from the tree just run, and that is how a setting or a control added on
+  purpose gets its new trace, in a commit of its own that says what changed
+  and nothing else (the new key in the saves, the new control's lines),
+  whose diff is read. Run with `--base <commit>` (or
+  `HOURGLASS_BASE=<commit>`), a trace suite also runs that commit's tree and
+  prints how it differs from the kept trace, as a report for whoever makes
+  a trace again; it passes and fails nothing, since an older commit cannot
+  have the keys and controls added since. `settings-unit --base <commit>`
+  is its own: the kept section must be that commit's (with `--write`, it is
+  written from it). The kept Settings
   section is the app before the store (release 1.10.0's, with its 31 keys,
   which release 1.11.0 kept byte for byte): a setting added to the store is
-  not added to it, and it is not made again. The two traces were made from
+  not added to it, and it is not made again. The two traces were first made from
   release 1.11.0, whose new engine build (6) is in their saves, made again
   (`--write`) from the tree that joined it with the new Tune (release
   1.13.0), and last made again for release 1.14.0, the sand and the frame's
@@ -127,7 +150,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   differ only in the key `shape` at the end of every full save, the build
   stamp 7 for 6, the sixth boot (a save in the delta shape) and the lines of
   the nine shape controls; against the shapes' files, only in what the sands
-  release brought, as above.
+  release brought, as above. The Tune trace was made again for release
+  1.15.1, the reset link's two taps moved from the start of the walk (where
+  nothing differed from the defaults, and its save was empty) to just before
+  Real sand: its entries now save the sand, the volume and the ambience
+  level put back and tell the sound engine, and the Real sand boot that
+  follows, and the last save, draw and hold Sahara Quartz at the default
+  volume and level; no other entry changed.
   The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with

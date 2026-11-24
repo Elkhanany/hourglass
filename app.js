@@ -125,8 +125,9 @@
   audio.muted = settings.muted;
   audio.character = settings.character;
   audio.chimeEnabled = settings.chime;
-  if (!window.HourglassAudio.CHARACTERS[settings.character]) settings.character = 'asmr';
-  if (!window.HourglassAudio.AMBIENCES[settings.ambience]) settings.ambience = 'none';
+  // (a name the sound engine's table has as its own: not 'toString' or 'constructor', which every object has)
+  if (!Object.prototype.hasOwnProperty.call(window.HourglassAudio.CHARACTERS, settings.character)) settings.character = 'asmr';
+  if (!Object.prototype.hasOwnProperty.call(window.HourglassAudio.AMBIENCES, settings.ambience)) settings.ambience = 'none';
   audio.ambience = settings.ambience;
   audio.ambLevel = settings.ambienceLevel;
   // The phone's own motion: what it feels, how it turns, where down is.

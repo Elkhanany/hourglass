@@ -10,10 +10,12 @@
  * For each: what its own tap does before it returns (now: the save, the calls on the sound
  * engine, the Sim, the Renderer and the sensors, the buzz), and what follows (later: what the
  * cross-fade sets, the answer to the motion question, the boot after the reload a grain and
- * Real sand make). It must be what the app did before the settings store:
- * tools/test/base/tune-trace.json, made from the commit before it (lib/base.js). The controls
- * are named for what they set, not for the page's markup, so that a new Tune can be driven by
- * its own selectors and compared with the same file.
+ * Real sand make). It must be as the kept trace has it: tools/test/base/tune-trace.json, the
+ * reviewed record of the tree named in its "from" (lib/base.js). It was first made from the
+ * last release before the settings store, and made again, each time in a commit of its own
+ * that says what changed and nothing else, when a setting or a control was added on purpose.
+ * The controls are named for what they set, not for the page's markup, so that a new Tune can
+ * be driven by its own selectors and compared with the same file.
  * A control of Tune that the driver has no line for would not be traced at all, so every
  * switch, choice, slider, tab and button of Tune's sheet (but the one that closes it) must be
  * one the driver reaches (lib/trace.js, DRIVE).
@@ -27,13 +29,15 @@
  * whose tabs tell the sound engine something as they are shown must be found out on the way
  * to a control.
  *
- *   node tools/test/app-tune-trace.test.js [--port <n>] [--root <dir>] [--base <commit>] [--write]
+ *   node tools/test/app-tune-trace.test.js [--port <n>] [--root <dir>] [--write] [--base <commit>]
  *
- * --base <commit> (or HOURGLASS_BASE): the kept trace must be that commit's (its tree, from
- * git, is run too); with --write it is written from it. --write alone: the kept trace is
- * written from the tree just run, which is how a setting or a control added on purpose gets
- * into it (in a commit of its own: read the diff). Ports: <n>, and <n>+1 and <n>+2 for the
- * control's and the commit's trees.
+ * --write: the kept trace is written from the tree just run, which is how a setting or a
+ * control added on purpose gets into it (in a commit of its own: read the diff). --base
+ * <commit> (or HOURGLASS_BASE), a report for whoever makes the trace again: that commit's
+ * tree, from git, is driven too, and how its controls differ from the kept trace is printed
+ * (NOTE lines). It passes and fails nothing: the kept trace holds keys and controls that an
+ * older commit cannot have. Ports: <n>, and <n>+1 and <n>+2 for the control's and the
+ * commit's trees.
  */
 'use strict';
 var H = require('./stubs/harness.js');
@@ -52,22 +56,17 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
 (async function () {
   var s = new H.Suite('app-tune-trace'), env = null, rev = base.asked(), kept = trace.read(base.TUNE);
   try {
-    /* ---- the commit before the store, when asked for ---- */
+    /* ---- another commit, when asked for: a report, which passes and fails nothing ---- */
     if (rev) {
       var full = base.git(['rev-parse', '--verify', rev + '^{commit}']).trim();
       var envB = await H.start({ root: base.tree(rev), port: port() + 2 }), made;
       try { made = await trace.tune(envB); } finally { await envB.close(); }
-      if (base.writing()) {
-        trace.write(base.TUNE, { from: full, what: WHAT, controls: made.controls, saved: made.saved });
-        kept = trace.read(base.TUNE);
-        s.note('written', 'tools/test/base/tune-trace.json, from ' + full);
-      }
       var off = made.controls.map(function (c) { var d = trace.differ(byName(kept || { controls: [] }, c.name), c); return d.length ? c.name + ': ' + d[0] : ''; }).filter(Boolean);
-      s.check('BASE: the kept trace is ' + rev + '\'s: every control (' + made.controls.length + '), and the settings saved at the end',
-              off.length === 0 && !!kept && kept.controls.length === made.controls.length && kept.saved === made.saved && made.errors.length === 0,
-              off.slice(0, 3).join(' | ') + ' ' + made.errors.slice(0, 2).join(' | '));
+      var absent = kept ? kept.controls.filter(function (k) { return !byName(made, k.name); }).map(function (k) { return k.name; }) : [];
+      s.note('BASE: ' + full.slice(0, 7) + '\'s ' + made.controls.length + ' controls against the kept trace: ' + off.length + ' differ, ' + absent.length + ' of the kept ones it has not' +
+             (kept && kept.saved !== made.saved ? ', and the settings saved at the end differ' : ''), off.concat(absent.map(function (n) { return n + ': not in that commit'; })).join(' | '));
     }
-    var fromHere = base.writing() && !rev;
+    var fromHere = base.writing();
     if (!kept && !fromHere) throw new Error('no kept trace (tools/test/base/tune-trace.json): make it with --write');
 
     /* ---- this tree ---- */
@@ -84,7 +83,7 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
             trace.CONTROLS.join('|') === kept.controls.map(function (c) { return c.name; }).join('|') && mine.controls.length === kept.controls.length);
     kept.controls.forEach(function (k) {
       var m = byName(mine, k.name), d = trace.differ(k, m);
-      s.check(k.name + ': saves, calls and buzzes as before the store (' + k.now.length + ' in its tap, ' + k.later.length + ' after)', d.length === 0, d.join('; '));
+      s.check(k.name + ': saves, calls and buzzes as the kept trace has it (' + k.now.length + ' in its tap, ' + k.later.length + ' after)', d.length === 0, d.join('; '));
     });
     s.check('the settings saved at the end are the kept ones, byte for byte', mine.saved === kept.saved, mine.saved + ' for ' + kept.saved);
     // the way to a control: Tune opened again after a reload, the control's tab shown. Each step is held to the kept entry of the line that drives the same element
@@ -126,6 +125,13 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
             names(grain.now).join() === 'audio.unlock,save,buzz,remove' && first(grain.later, 'Sim.setPace') && names(grain.later).indexOf('Sim.setPace') < names(grain.later).indexOf('new Sim') &&
             names(real.now).join() === 'audio.unlock,save,remove,buzz' && first(real.now, 'save')[1].realSand === true && names(real.later).indexOf('new Sim') > 0,
             JSON.stringify(grain.now) + ' ' + JSON.stringify(real.now));
+
+    // the reset link, tapped where the sand, the volume and the ambience level differ from the defaults: one save of what it put back, the engine told, the look behind the cross-fade
+    var reset = byName(kept, 'the look and sound put back: the second tap'), resetSave = first(reset && reset.now, 'save');
+    s.check('... the reset link\'s second tap, after the look and the sound were changed: one save that puts back the sand, the volume and the ambience level, the sound engine told each, its buzz (12), and the look set behind the cross-fade',
+            !!resetSave && JSON.stringify(resetSave[1]) === '{"theme":"sahara","volume":0.8,"ambienceLevel":0.5,"sand":"sahara"}' &&
+            names(reset.now).join() === 'audio.unlock,save,audio.setVolume,audio.setAmbienceLevel,buzz' && JSON.stringify(reset.later) === '[["renderer.setTheme","sahara"]]',
+            JSON.stringify(reset));
 
     /* ---- control: a copy that changes the order in two handlers, and has a switch more in Tune ---- */
     var AWAKE = '<input id="opt-awake" class="switch" type="checkbox" role="switch" checked>';
