@@ -5,7 +5,8 @@
  * custom sand's colour well, Frame and its six finishes, Layered sand, the six characters, the
  * volume, the six ambiences and their level, the completion bowl, Keep screen awake, Real
  * motion, Full Zen, Breathing pace and its three patterns, Haptics, the three grains, Real
- * sand), and the mute button, the sand chip and a duration pill, which save too.
+ * sand, the six quick durations with the custom duration's dial, Show when it ends), and the
+ * mute button, the sand chip and a duration pill, which save too.
  *
  * For each: what its own tap does before it returns (now: the save, the calls on the sound
  * engine, the Sim, the Renderer and the sensors, the buzz), and what follows (later: what the
