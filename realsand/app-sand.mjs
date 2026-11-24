@@ -111,6 +111,10 @@ const EV_CAP = 48;                         // landings a frame for the audio (ph
 //  E_MIN: a landing under this energy is not heard (audio.js thump: 1.3 sqrt(E) under 0.05);
 //  FALL_S: a bed that lands has lost half its speed within this long (simulated s) of its
 //  fastest, however many runs a second the display asks for;
+//  BODY: a fall starts only when the bed falls as one body, this share of its points moving: a
+//  falling body moves every point faster than a point moves from, while sand shaken up the wall
+//  and sliding back down it into the rest is about half the bed moving (0.44 to 0.58 at the
+//  speed of a landing, against 0.84 to 1 for a flicked bed's fall), and is a slip, not a landing;
 //  BED_MIN, BED_SHARE: a bed is heard from this many points and this share of the glass's: fewer
 //  are the plug of the stream under the neck, the first grains on the floor or the last above
 //  the neck, whose mean speed is no bed's (a 10 s glass's plug: 3 to 14 points at up to 59 cells/s);
@@ -131,7 +135,7 @@ const EV_CAP = 48;                         // landings a frame for the audio (ph
 //  HOLD_MS: a readback's slides are fed until the next comes, this long at most; MUTE_MS: a fresh
 //  bed (a fill, a transfer) settles unheard this long; TURN_W: turned faster than this (rad/s), a
 //  bed neither lands nor heats (as the classic sand's, which a turn leaves calm)
-const SND = Object.freeze({ E_MIN: 0.0015, FALL_S: 0.15, BED_MIN: 40, BED_SHARE: 0.03, SLIDE_K: 16, CAL_S: 0.65, PACK_LO: 0.75, PACK_HI: 0.95, PACK_T: 1, AXIS: 0.9,
+const SND = Object.freeze({ E_MIN: 0.0015, FALL_S: 0.15, BODY: 0.75, BED_MIN: 40, BED_SHARE: 0.03, SLIDE_K: 16, CAL_S: 0.65, PACK_LO: 0.75, PACK_HI: 0.95, PACK_T: 1, AXIS: 0.9,
   TAU_T: 0.25, IDLE_T: 0.02, HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5 });
 const SELF_TEST_POINTS = 500;
 
@@ -1665,13 +1669,15 @@ export class RealSand {
    *  - a bed is its bulb's crowded points once they are BED_MIN and BED_SHARE of the glass's: the
    *    few under the neck of a glass just started, or the last above it, are the stream's, and
    *    nothing is heard of them.
-   *  - a landing. A bed that falls with the field along the glass's axis, and is then stopped by
+   *  - a landing. A bed that falls as one body (BODY of its points moving) with the field along
+   *    the glass's axis, and is then stopped by
    *    the glass (it loses half its speed within FALL_S of its fastest, the field not having
    *    slowed it), has landed with the speed u it fell at: E = u^2 / (2 G HB), the classic's
    *    energy of a bed landing at u (its kinetic energy a grain over G times the bulb's height).
    *    On the side gravity holds the sand to, a thump; on the far end, a slam; its place, the
    *    bed's centre across the bulb. A bed stopped sideways lands nothing, as the classic sand's
-   *    slip does not.
+   *    slip does not; nor does sand that slides down the glass's wall into the rest of the bed,
+   *    the bed's mean falling while half of it is still (a fall once started that speeds up goes on).
    *  - slides: the bed's motion within itself, the summed speed of its moving points beyond the
    *    bed's own speed (a bed flying or sliding as one body slides nothing) and beyond the speed a
    *    point moves from (a bed that only creeps slides nothing), in the CPU Sim's grains and cells
@@ -1734,7 +1740,7 @@ export class RealSand {
           }
           F = null;
         }
-      } else if (sp >= uMin && vx * q.ax + vy * q.ay >= 0.5 * sp * am && Math.abs(vy) >= 0.707 * sp) F = { u: sp, dx: vx / sp, dy: vy / sp, push: 0, t: 0 };
+      } else if (sp >= uMin && vx * q.ax + vy * q.ay >= 0.5 * sp * am && Math.abs(vy) >= 0.707 * sp && (F || bed.sliding >= SND.BODY * bed.n)) F = { u: sp, dx: vx / sp, dy: vy / sp, push: 0, t: 0 };
       else if (F) F = null;
       S.fall[gb] = F;
       // the granular temperature

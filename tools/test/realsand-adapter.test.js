@@ -1193,6 +1193,28 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     'the landing\'s window is time, not runs: a bed falling at 86 cells/s that the glass slows to half in 0.12 s lands one thump of ' + Efall.toFixed(4) + ' at 60, 120 and 180 runs a second (' +
     landed.map(function (l) { return l.hz + ': ' + l.n + ' of ' + l.E.toFixed(4); }).join(', ') + '); slowed to half only in 0.2 s it has not landed at that speed, only as fast as the glass then stopped it (control: ' +
     slow14.map(function (l) { return l.E.toFixed(4); }).join(', ') + ')');
+  // a slip is no landing: after a sideways shake the sand thrown up the wall slides back down it (55 degrees
+  // from the level, as the GPU sand does down the funnel) into the rest of the bed, which lies still. Half the
+  // bed moving at 2.8 times the speed of the faintest landing makes the bed's mean fall at 1.4 times it along
+  // the glass, and the heap stops it within 2 runs: no thump, no slam. The same mean motion with the whole bed
+  // moving as one body, stopped the same, is a landing (control: one thump, of that speed's energy)
+  var uM17 = Math.sqrt(2 * 0.0015 * GHh), dir17 = [-Math.cos(55 * Math.PI / 180), -Math.sin(55 * Math.PI / 180)];
+  var at17 = function (k) { return [k * dir17[0], k * dir17[1]]; };
+  function land17(body) {
+    rHR._quiet(false);
+    var out = { th: 0, n: 0, slam: 0, phi: 0 };
+    var seq = body ? [B.rest(NH), B.bed([{ n: NH, v: at17(1.4 * uM17) }]), B.bed([{ n: NH, v: at17(0.45 * uM17) }]), B.rest(NH), B.rest(NH)]
+      : [B.rest(NH), B.bed([{ n: NH - Math.round(NH / 2) }, { n: Math.round(NH / 2), v: at17(2.8 * uM17) }]),
+        B.bed([{ n: NH - Math.round(0.3 * NH) }, { n: Math.round(0.3 * NH), v: at17(1.5 * uM17) }]), B.rest(NH), B.rest(NH)];
+    out.phi = seq[1].sliding / seq[1].n; out.sp = Math.hypot(seq[1].vx, seq[1].vy) / uM17;
+    seq.forEach(function (bd) { var r = hear(F60, bd, null); if (r.th0 > 0) { out.th += r.th0; out.n++; } out.slam += r.slam; });
+    return out;
+  }
+  var slip17 = land17(false), body17 = land17(true), Ebody17 = Math.pow(1.4 * uM17, 2) / (2 * GHh);
+  check(slip17.n === 0 && slip17.slam === 0 && Math.abs(slip17.sp - 1.4) < 0.01 && body17.n === 1 && Math.abs(body17.th / Ebody17 - 1) < 1e-6 && body17.slam === 0,
+    'a slip is no landing: sand sliding back down the wall into a still bed (half its points moving, the bed\'s mean falling at ' + slip17.sp.toFixed(2) +
+    ' times the speed of the faintest landing, stopped within 2 runs) feeds no thump or slam (' + slip17.n + ', ' + slip17.slam + '); the same fall with the whole bed moving as one body lands one thump of ' +
+    body17.th.toFixed(4) + ' (control: ' + Ebody17.toFixed(4) + ')');
   // a stall: no readback for a second while the sand was stirred. What was stirred has faded by the clock,
   // and the next readback (the bed at rest) does not bring it back
   rHR._quiet(false);

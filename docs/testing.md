@@ -348,7 +348,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   gave them) feeds nothing, where the same speeds of a bed land a thump;
   sand sliding within a bed is heard while the bed is packed, not while it
   is thrown loose or packs again, nor while it moves along the glass as a
-  body (across the glass it is: the control); a landing is the same thump
+  body (across the glass it is: the control); sand sliding back down the
+  wall into a still bed (half its points moving, the bed's mean falling at
+  1.4 times the speed of the faintest landing) lands nothing, where the same
+  fall of the whole bed as one body lands a thump (the control); a landing is the same thump
   at 60, 120 and 180 runs a second; after a second without readbacks the
   agitation that had faded stays faded; and the same motion of the same GPU
   bed is the same sound at the phone's, a tablet's, the Fine and the Finest
