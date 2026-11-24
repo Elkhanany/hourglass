@@ -239,7 +239,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Bowl level at 50 is the bowl as it was, at 100 with Sound at 100 its peak
   printed and nothing into the clipper's end, at 0 silent; each with its
   control (a gain of 0.99, a level heard as its plain value, the base engine,
-  a bowl or an ambience routed through the sand's gain, a bowl at 200, a
+  a bowl or an ambience routed through the sand's gain, a bowl 30 dB over the top, a
   copy that ignores the bowl's level). `audio-levels` renders every
   character of the registry behind every ambience its tables name, and an
   ambience that makes a sound and is in neither table (its level, the

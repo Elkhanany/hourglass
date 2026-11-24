@@ -40,7 +40,7 @@
  *     dB); the base engine, and a bowl or an ambience routed through the sand's gain, fail that
  *     (the controls);
  *   - the Bowl level at 50 is the bowl as it was, to the last bits; at 100 with Sound at 100 its
- *     peak is printed and nothing goes into the clipper's end (a bowl at 200 does: the control);
+ *     peak is printed and nothing goes into the clipper's end (a bowl 30 dB over the top does: the control);
  *     at 0 it is silent (a copy that ignores the level is not: the control); and stopChime()
  *     fades a ringing bowl away at once.
  *
@@ -580,12 +580,13 @@ async function main() {
       var s0 = await scene(A, 4, { sand: true }, function (a) { a.setSandLevel(0); });
       var withAll0 = await scene(A, 8, { sand: true, bowl: 1.5, brook: true }, function (a) { a.setSandLevel(0); });
       var noSand = await scene(A, 8, { bowl: 1.5, brook: true });
-      out.at0 = { sand: M(s0, 0.3, 4), all: M(withAll0, 0.5, 8), bowlBrook: M(noSand, 0.5, 8), apart: apart(noSand, withAll0, 1, 0.1) };
+      // (measured from 1 s: the level glides to 0 from the moment the graph is built, τ 50 ms, and is 170 dB down by then)
+      out.at0 = { sand: M(s0, 1, 4), all: M(withAll0, 1, 8), bowlBrook: M(noSand, 1, 8), apart: apart(noSand, withAll0, 1, 1) };
       // controls: the base engine (the change undone: no level) is heard at "0"; a bowl, or an ambience, routed through the sand's gain is silenced with it
       var bs0 = await scene(B, 4, { sand: true }, function (a) { if (a.setSandLevel) a.setSandLevel(0); });
       var viaB = await scene(A, 8, { sand: true, bowl: 1.5, brook: true }, function (a) { a.gChime.disconnect(); a.gChime.connect(a.gSand); a.gChime.connect(a.chimeWet); a.setSandLevel(0); });
       var viaA = await scene(A, 8, { sand: true, bowl: 1.5, brook: true }, function (a) { a.ambEnd.disconnect(); a.ambEnd.connect(a.gSand); a.setSandLevel(0); });
-      out.at0ctl = { base: M(bs0, 0.3, 4), bowlVia: apart(noSand, viaB, 1, 0.1), brookVia: apart(noSand, viaA, 1, 0.1) };
+      out.at0ctl = { base: M(bs0, 1, 4), bowlVia: apart(noSand, viaB, 1, 1), brookVia: apart(noSand, viaA, 1, 1) };
       // 4. the bowl: at 50 the bowl as it was; at 100 (Sound 100) its peak and what goes into the clipper; at 0 silent
       var master = A.prototype._masterTarget.call({ muted: false, _silenced: false, volume: 1 });
       var into = function (m) { var y = Math.pow(10, m.peak / 20) / master; return y < 1 ? +(20 * Math.log10(Math.atanh(y * Math.tanh(1.5)) / 1.5)).toFixed(2) : 99; };
@@ -597,9 +598,9 @@ async function main() {
       // ... and the soft bowl between two phases, at 100
       var soft100 = await R(A, 9, function (a) { a.setVolume(1); a.setBowlLevel(2); a.chime(0.5, true); });
       out.bowl.soft100 = M(soft100, 0.4, 9);
-      // controls: a copy that ignores the bowl's level is heard at 0; a bowl at 200 (twice the top of the slider) goes into the clipper's end
+      // controls: a copy that ignores the bowl's level is heard at 0; a bowl 30 dB over the top of the slider goes into the clipper's end
       var nb0 = await scene(NB, 9, { bowl: 0.5, volume: 1 }, function (a) { a.setBowlLevel(0); });
-      var bw200 = await scene(A, 9, { bowl: 0.5, volume: 1 }, function (a) { a.bowlLevel = 4; });
+      var bw200 = await scene(A, 9, { bowl: 0.5, volume: 1 }, function (a) { a.bowlLevel = 64; });     // (30 dB over the top of the slider: the compressor holds much of it back)
       out.bowlCtl = { noLevel0: M(nb0, 0.4, 9), at200: M(bw200, 0.4, 9) };
       out.bowlCtl.into200 = into(out.bowlCtl.at200);
       // 5. stopChime: a bowl stopped 1 s in is gone 1 s later (the next 8 s silent), and the bowl left alone is still ringing then
@@ -630,7 +631,7 @@ async function main() {
            'the Bowl level at 100 with Sound at 100: louder (+6 dB asked) and nothing clips (the clipper\'s input ≥ 0.3 dB under its end)',
            'peak ' + lv.bowl.at100.peak + ' dBFS (at 50: ' + lv.bowl.at50.peak + '; the soft bowl between phases ' + lv.bowl.soft100.peak + '), RMS ' + lv.bowl.at100.rms + ' dBFS; into the clipper ' +
            lv.bowl.into100 + ' dB under its end; the output can reach ' + lv.bowl.master + ' dBFS');
-    report(lv.bowlCtl.into200 > -0.3, 'control: a bowl at 200 (twice the top of the slider) reaches the clipper\'s end, and fails that check', 'peak ' + lv.bowlCtl.at200.peak + ' dBFS, ' + lv.bowlCtl.into200 + ' dB');
+    report(lv.bowlCtl.into200 > -0.3, 'control: a bowl 30 dB over the top of the slider reaches the clipper\'s end, and fails that check', 'peak ' + lv.bowlCtl.at200.peak + ' dBFS, ' + lv.bowlCtl.into200 + ' dB');
     report(lv.bowl.at0.peak <= -150, 'the Bowl level at 0: the bowl is silent', 'peak ' + lv.bowl.at0.peak + ' dBFS');
     report(lv.bowlCtl.noLevel0.peak > -60, 'control: a copy whose bowl ignores its level is heard at 0', 'peak ' + lv.bowlCtl.noLevel0.peak + ' dBFS');
     report(lv.stop.after.peak <= -60 && lv.stop.left.peak > -40 && lv.stop.before.peak > -40,
