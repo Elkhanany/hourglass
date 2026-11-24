@@ -77,7 +77,7 @@
    * ==================================================================== */
   var Store = window.HourglassSettings;
   // (localStorage is reached inside the store's own try: where storage is blocked, reaching it throws)
-  var settings = Store.load(function () { return localStorage; }, location.search, { themes: P.THEMES });
+  var settings = Store.load(function () { return localStorage; }, location.search, { themes: P.THEMES, shapes: P.SHAPES });
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts (a saved session gives way to it)
   var qt = Store.preset(location.search);
   function save() { Store.save(settings); }
@@ -94,7 +94,18 @@
   // ear and the desk are given, the last grains of the tail.
   var fine = P.Sim.setPace ? [1, Math.SQRT2, 2][settings.grain] : 1, fine2 = fine * fine;
   if (fine > 1) P.Sim.setPace(fine);
-  var sim = new P.Sim({ scale: (roomy ? 1.3 : 1.08) * fine, seed: (Date.now() & 0x7fffffff) | 1 });
+  var sim = new P.Sim(simOptions((roomy ? 1.3 : 1.08) * fine, (Date.now() & 0x7fffffff) | 1));
+  /**
+   * The Sim's options: the glass's size and seed, and its shape (Tune's Glass tab). The classic
+   * glass is asked for as it always was, with no shape named. A shape the sand cannot use at
+   * this size and grain (P.checkShape) is not built: the classic glass is, and the setting is
+   * left as it is, so that the shape comes back where it fits.
+   */
+  function simOptions(scale, seed) {
+    var o = { scale: scale, seed: seed }, id = settings.shape;
+    if (id !== 'classic' && P.SHAPES && P.SHAPES[id] && !(P.checkShape && P.checkShape(id, scale, fine).length)) o.shape = id;
+    return o;
+  }
   // Real sand (Tune, on by default; see "Real sand" below): while it runs, `sim` is the GPU sand
   // (`real`), which has the CPU Sim's members; the CPU Sim stays alive as the glass's model and the
   // fallback. With the switch off, or where it cannot run, `real` stays null and the CPU Sim is the
@@ -167,6 +178,9 @@
     var f = Math.min(FULL, sim.fillMax || FULL) * Math.sqrt(Math.min(1, ms / FULL_MS));
     return Math.round(sim.capacity * Math.max(0.02, f));
   }
+
+  /** The id of the glass's shape ('classic' for the teardrop). */
+  function glassShape() { return sim.geo.shape ? sim.geo.shape.id : 'classic'; }
 
   /** Time the neck so that N grains last d ms (by default: the whole glass, its whole length). */
   function calibrate(d, N) {
@@ -2024,7 +2038,8 @@
       var s = {
         v: 1, at: Date.now(), state: T.state, rem: T.rem, durationMs: T.durationMs,
         scale: sim.geo.q, total: sim.total, top: sim.nTop,
-        mpg: T.mpg, mpg0: T.mpg0, tailMs: T.tailMs, tailGrains: T.tailGrains
+        mpg: T.mpg, mpg0: T.mpg0, tailMs: T.tailMs, tailGrains: T.tailGrains,
+        shape: glassShape(), full: grainsFor(T.durationMs)   // the glass, and what it holds when full for this time
       };
       var dmg = sim.serializeDamage();
       if (dmg) s.damage = dmg;
@@ -2039,7 +2054,22 @@
     var away = Date.now() - s.at;
     if (!(away >= 0) || away > 6 * 3600000 + (seq.rest ? seq.rounds * (T.durationMs + seq.rest) : 0)) return false;   // (a sequence may run long)
     if (s.durationMs !== T.durationMs) return false;   // a different glass
-    if (s.scale !== sim.geo.q) {
+    var was = typeof s.shape === 'string' ? s.shape : 'classic';   // (a session saved before the shapes: the classic glass)
+    if (was !== glassShape()) {
+      // The same time in another shape (Tune's "Use this shape"): the sand is counted anew, as a
+      // share of what each glass holds when full for this time, so that sand added with + Sand
+      // keeps its share; the pace is scaled with it, so the time left is what it was. A crack
+      // belongs to the other glass.
+      if (!(s.full > 0) || !(s.total > 0)) return false;
+      var n2 = Math.min(sim.maxTotal, Math.round(s.total * grainsFor(T.durationMs) / s.full)), r3 = n2 / s.total;
+      if (!(r3 > 0.05 && r3 < 20)) return false;
+      s.total = n2;
+      s.top = Math.round(s.top * r3);
+      s.mpg /= r3; s.mpg0 /= r3;
+      s.tailGrains = Math.max(3, Math.round(s.tailGrains * r3));
+      s.scale = sim.geo.q;
+      delete s.damage;
+    } else if (s.scale !== sim.geo.q) {
       // The same glass in another grain (Tune), or on a screen that has changed its size class:
       // its sand is counted anew. A crack is kept cell by cell, so this glass comes back whole.
       var r2 = sim.geo.q / s.scale;

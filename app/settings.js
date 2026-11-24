@@ -31,7 +31,8 @@
  *                 inside the store's own try: where storage is blocked,
  *                 reaching localStorage itself throws)
  *       search    location.search ("?t=300" preselects a duration)
- *       reg       what the checks need: { themes: HourglassPhysics.THEMES }
+ *       reg       what the checks need: { themes: HourglassPhysics.THEMES,
+ *                 shapes: HourglassPhysics.SHAPES }
  *   HourglassSettings.save(values)      to the storage of the last load
  *   HourglassSettings.preset(search)    "?t=300": { durationMs }, else null
  *   HourglassSettings.bindSwitch(el, key, after)   a plain switch of Tune:
@@ -101,7 +102,9 @@
     { id: 'realSandBuild', default: '' },        // the engine build those three were found with: another build clears them, and it tries again
     { id: 'v', default: 2 },                     // the settings' version (see STEPS)
     { id: 'tuneTab', default: 'sand',            // the tab of Tune last shown: Tune opens on it
-      valid: function (v) { return v === 'glass' || v === 'sound' || v === 'time'; } }
+      valid: function (v) { return v === 'glass' || v === 'sound' || v === 'time'; } },
+    { id: 'shape', default: 'classic',           // the glass's shape: an id of reg.shapes that Tune offers (a shape held back comes up as the classic)
+      valid: function (v, reg) { var s = reg && reg.shapes; return !!s && has.call(s, v) && s[v].offered === true; } }
   ];
 
   /** "./?t=300" (seconds) preselects a duration; the app's shortcuts use it. { durationMs }, or null. */
