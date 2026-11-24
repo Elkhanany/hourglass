@@ -754,13 +754,20 @@ is heard once it is 3 % of the glass's points (and 40 of them): the plug of
 the stream under the neck of a glass just started, the first grains on its
 floor and the last above the neck are no bed, and a glass started and left
 alone feeds nothing of a bed. A bed
-that falls with the field along the glass and is then stopped by the glass
+that falls as one body (seven in ten of its points moving) with the field
+along the glass and is then stopped by the glass
 (half its speed lost within 0.15 s, whatever the display's rate)
 has landed with the speed `u` it fell at: a thump of `u² / (2 G HB)`, the
 classic sand's own energy for a bed landing at that speed, or a slam when it
 is the far end that stops it; a bed that the field itself slowed has not
 landed, and one stopped sideways lands nothing, as the classic sand's slip
-does not. The slides are the bed's motion within itself: a bed that flies or
+does not. Nor does sand shaken up the wall that slides back down it into the
+rest of the bed: the bed's mean may fall as fast as a faint landing, but only
+about half of it moves (0.47 to 0.62 of its points, where a flicked bed's
+fall moves 0.75 to 0.94 of them), and it is a slip, not a landing; before this
+rule a sideways shake gave such a thump (0.0016 to 0.0030) as the sand
+settled, in six of ten shakes on one machine, where the classic sand gives
+none. The slides are the bed's motion within itself: a bed that flies or
 slides as one body slides nothing, and one that only creeps next to nothing.
 They are counted at a share set against the classic sand, 16 over the square
 root of the bed's grains, because the classic sand slides at its surface
