@@ -385,7 +385,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
   at boot, the reset link (what it puts back, the sand and its finish among it,
-  and what it keeps, the custom sand's colour among it), and the
+  and what it keeps, the custom sand's colour among it; its first tap's
+  question said to a screen reader through a status drawn nowhere), and the
   "more below" hint (`--only hint`): at 393 x 852 a tab that can scroll
   shows it at its top and in its middle and not at its end (every tab can, at that size); a
   scrolled tab fades its rows under the tab row; a finger on the hint

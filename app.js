@@ -3142,11 +3142,15 @@
   var RESET_ASK = 'Put the look and sound back as they came', RESET_SURE = 'Tap again to put them back';
   var RESET_MS = 3000, RESET_DOUBLE_MS = 400;        // how long it waits for the second tap; a double tap is one tap
   var tuneReset = $('tune-reset'), resetText = $('tune-reset-text'), resetTimer = 0, resetArmedAt = 0;
+  // (the first tap's question, said through a polite status in the sheet that only a screen reader
+  // hears: the link itself already shows it, and its new words are not read out on their own)
+  var resetSay = $('tune-reset-say');
   function resetDisarm() {
     clearTimeout(resetTimer);
     if (!tuneReset || !resetText || tuneReset.getAttribute('data-state') === 'idle') return;
     tuneReset.setAttribute('data-state', 'idle');
     resetText.textContent = RESET_ASK;
+    if (resetSay) resetSay.textContent = '';
   }
   /** What a new install has for a setting (its record's default). */
   function settingDefault(key) {
@@ -3184,6 +3188,7 @@
       if (tuneReset.getAttribute('data-state') !== 'armed') {
         tuneReset.setAttribute('data-state', 'armed');
         resetText.textContent = RESET_SURE;
+        if (resetSay) resetSay.textContent = RESET_SURE;
         resetArmedAt = now;
         clearTimeout(resetTimer);
         resetTimer = setTimeout(resetDisarm, RESET_MS);

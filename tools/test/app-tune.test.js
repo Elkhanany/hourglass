@@ -33,7 +33,8 @@
  *             tap); the second puts back the ten settings it names and no other (the sand and
  *             its finish among them; the custom sand's colour is kept), tells the
  *             engines what differed and nothing else, in order, rings no bowl, says so above the
- *             sheet, and loads nothing again
+ *             sheet, and loads nothing again; the first tap's question is said to a screen reader
+ *             through a polite status drawn nowhere, emptied when the link gives up or answers
  *   HINT      at 393 × 852: a tab with more below shows it (its rows fade into the sheet's lower
  *             edge, a small chevron under them) from the moment it is shown at its top, and not
  *             once it is scrolled to its end (since 1.15.0 every tab has more below at its top,
@@ -608,6 +609,7 @@ var CHANGED = {
 function resetState(t) {
   return t.eval(function (key) {
     var Hg = window.Hourglass, el = document.getElementById('tune-reset'), q = document.getElementById('toast'), a = Hg.audio;
+    var say = document.getElementById('tune-reset-say'), sb = say ? say.getBoundingClientRect() : null;
     var one = function (sel) { var c = document.querySelector(sel); return c ? (c.dataset.sand || c.dataset.finish || c.dataset.character || c.dataset.ambience) : null; };
     return {
       link: el ? [el.getAttribute('data-state'), (el.textContent || '').replace(/\s+/g, ' ').trim()] : null,
@@ -621,6 +623,9 @@ function resetState(t) {
       engines: { frame: Hg.renderer.frame, layers: [Hg.sim.layers, Hg.renderer.layers], volume: a.volume, muted: a.muted, character: a.character, ambience: a.ambience,
                  ambLevel: a.ambLevel, chime: a.chimeEnabled },
       toast: q.classList.contains('show') ? q.textContent : '',
+      // (the polite status only a screen reader hears: its words, its role, where it is and how big it is drawn)
+      say: say ? { text: say.textContent, role: say.getAttribute('role'), live: say.getAttribute('aria-live'), inSheet: !!say.closest('#sheet-settings'),
+                   inPanel: !!say.closest('[role="tabpanel"]'), drawn: [sb.width, sb.height] } : null,
       alive: window.__alive === 1, state: Hg.timer.state, rem: Hg.timer.rem, events: window.__trace.take()
     };
   }, KEY);
@@ -776,7 +781,20 @@ function resetOk(m, save) {
     ok: JSON.stringify(m.again.events) === JSON.stringify(wantAgain) && m.again.saved === m.done.saved && m.again.link[0] === 'idle' && m.again.toast === DONE && m.errors.length === 0,
     detail: JSON.stringify(m.again.events) + ' ' + m.errors.slice(0, 2).join(' | ')
   };
-  return { ask: ask, gives: gives, back: back, kept: kept, engines: engines, shown: shown, says: says, again: again };
+  // 6. the first tap's question is said to a screen reader too: a polite status in the sheet, drawn
+  // nowhere, holds it while the link is armed, and is empty once it has given up or answered
+  var sayText = function (st) { return st.say ? st.say.text : null; };
+  var sv = m.asked.say;
+  var speaks = {
+    ok: !!sv && sv.role === 'status' && sv.live === 'polite' && sv.inSheet && !sv.inPanel && sv.drawn[0] <= 1 && sv.drawn[1] <= 1 &&
+        sayText(m.idle) === '' && sayText(m.asked) === SURE && m.asked.toast === '' && sayText(m.gaveUp) === '' && sayText(m.otherTab) === '' &&
+        sayText(m.closed) === '' && sayText(m.double) === SURE && sayText(m.done) === '' && sayText(m.again) === '',
+    detail: (sv ? JSON.stringify({ role: sv.role, live: sv.live, inSheet: sv.inSheet, inPanel: sv.inPanel, drawn: sv.drawn }) : 'no status') +
+            '; said: idle ' + JSON.stringify(sayText(m.idle)) + ', first tap ' + JSON.stringify(sayText(m.asked)) + ' (toast ' + JSON.stringify(m.asked.toast) + '), after 3 s ' +
+            JSON.stringify(sayText(m.gaveUp)) + ', another tab ' + JSON.stringify(sayText(m.otherTab)) + ', Tune closed ' + JSON.stringify(sayText(m.closed)) +
+            ', a double tap ' + JSON.stringify(sayText(m.double)) + ', answered ' + JSON.stringify(sayText(m.done)) + ', again ' + JSON.stringify(sayText(m.again))
+  };
+  return { ask: ask, gives: gives, back: back, kept: kept, engines: engines, shown: shown, says: says, again: again, speaks: speaks };
 }
 
 /* ---- HINT -------------------------------------------------------------------------------- */
@@ -1201,6 +1219,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       s.check('RESET: the controls and the engines show it (the mute button left as it was)', v.shown.ok, v.shown.detail);
       s.check('RESET: the link is as it was, and "' + DONE + '" is said just above the sheet', v.says.ok, v.says.detail);
       s.check('RESET: with nothing left to put back it saves once, tells no engine, and says so again', v.again.ok, v.again.detail);
+      s.check('RESET: the first tap\'s "' + SURE + '" is said to a screen reader through a polite status in the sheet that is drawn nowhere (no toast), and it is emptied when the link gives up, another tab is shown, Tune is closed or the second tap answers', v.speaks.ok, v.speaks.detail);
       // a save where only the material differs, and Haptics is off: one thing told, no buzz, Haptics still off
       var SOME = { theme: 'volcanic', haptics: false, tuneTab: 'time' }, m2 = await reset(env, { save: SOME }), v2 = resetOk(m2, SOME);
       s.check('RESET: from a save of 1.13.0 where only the material differs (Volcanic Black, so brass caps), with Haptics off: only the sand, its finish and the material are saved and set, no engine of the sound is told, nothing buzzes, Haptics stays off',
@@ -1268,6 +1287,12 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
         document.addEventListener('click', function (e) { if (e.target && e.target.closest && e.target.closest('#tune-reset')) armed = el.getAttribute('data-state') === 'armed'; }, true);
         el.addEventListener('click', function () { var a = window.Hourglass.audio; if (armed && el.getAttribute('data-state') === 'idle') a.setVolume(a.volume); });
       }), resetOk);
+      await control('RESET: a copy whose first tap only changes the link\'s words (nothing said to a screen reader)', 'speaks', function () {
+        return reset(env, { open: { routes: [broken(env, 'app.js', swap(/if \(resetSay\) resetSay\.textContent = RESET_SURE;/, ''))] } });
+      }, resetOk);
+      await control('RESET: a copy that leaves the question in the status once the link has given up', 'speaks', function () {
+        return reset(env, { open: { routes: [broken(env, 'app.js', swap(/if \(resetSay\) resetSay\.textContent = '';/, ''))] } });
+      }, resetOk);
       await control('RESET: a copy that says it done in the usual place, on the rows', 'says', function () {
         return reset(env, { open: { routes: [broken(env, 'styles.css', add('#toast.high { bottom: calc(var(--sab) + 172px) !important; top: auto !important; }'))] } });
       }, resetOk);
