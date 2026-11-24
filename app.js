@@ -1444,7 +1444,7 @@
   function drainDamage(now) {
     var f = sim.frame, n = f.dmgN, keep = false, sealed = false;
     for (var e = dmgSeen; e < n; e++) {
-      var type = f.dmgType[e], k = f.dmgK[e], lv = f.dmgLevel[e], x = f.dmgX[e];
+      var type = f.dmgType[e], k = f.dmgK[e], lv = f.dmgLevel[e], x = f.dmgX[e] * heardSide();
       renderer.damageEvent(type, k, lv, now);
       if (type === DMG.WARN) {
         audio.creak(lv, x); buzz(6);
@@ -1562,6 +1562,20 @@
   /* ---- sound ----------------------------------------------------------- */
   var AU = {};                       // reused every frame: nothing new for the collector
   var leakRate = 0, landBuzzAt = -1e9;
+  /**
+   * Where a sound is heard: on the side where the listener sees its sand, the phone held as it is
+   * held (headphones keep the listener's left and right; the picture turns with the phone). The
+   * sand gives its places across the glass (x, + its right: the thumps, slams, a leak, single
+   * landings, creaks and cracks); the glass is drawn turned by sim.angle + grav.base on the screen
+   * and the screen is turned by the phone's roll, sim.tilt - grav.base, in the room, so x is heard
+   * at x cos(sim.angle + sim.tilt): the glass's right on the right when it stands upright before
+   * the listener, whether the phone is upright or upside down with the glass swapped, and on the
+   * left when a finger has turned it half round. (The hiss is given on the screen, from the field:
+   * it is turned by the phone's roll alone.)
+   */
+  var heardThump = new Float32Array(4), heardSlam = new Float32Array(2);
+  function heardSide() { return Math.cos(sim.angle + sim.tilt); }
+
   function feedAudio(dt, active, running, landed) {
     var f = sim.frame, kf = Math.min(1, dt * 7);
     // (finer sand: the ear is given the classic glass's counts: grains by fine2, their slides by fine³)
@@ -1575,9 +1589,10 @@
     var bulk = running && sim.nTop > T.tailGrains;
     // the slosh moves between the ears with the fuller bulb's field: to the side its sand runs to
     // (a lean with the right edge low, the hiss in the right ear, where the landings there are too)
-    var b = sim.nTop >= sim.nBottom ? 0 : 2, rho = sim.angle + grav.base;
+    // (the field on the screen, and the screen's right as the listener holds the phone: heardSide)
+    var b = sim.nTop >= sim.nBottom ? 0 : 2, rho = sim.angle + grav.base, kx = heardSide(), ks = Math.cos(sim.tilt - grav.base);
     var fxp = sim.bf[b] * Math.cos(rho) - sim.bf[b + 1] * Math.sin(rho);
-    var pan = 0.6 * fxp / sim.G;
+    var pan = 0.6 * fxp * ks / sim.G;
     if (pan > 0.65) pan = 0.65; else if (pan < -0.65) pan = -0.65;
     AU.dt = dt;
     AU.flow = bulk ? Math.max(S.flow, T.rate * 0.5 / fine2) : S.flow;
@@ -1605,13 +1620,18 @@
     // or shaken sounds as a running one does (the stream and the ambience are the running
     // glass's: AU.flow, AU.ambient). Real sand fills the same record from what its sand did
     // (inside real.submit, before this), and leaves it empty, its agitation 0, while it sleeps.
+    if (active) for (ev = 0; ev < sim.nev; ev++) sim.evX[ev] *= kx;   // (the single landings' places, as heard)
     AU.sim = active ? sim : null;
-    AU.thump = active ? f.thump : null;  // beds landing [E0, x0, E1, x1]
-    AU.slam = active ? f.slam : null;    // beds slammed into the far end [E, x]
+    if (active) {
+      heardThump[0] = f.thump[0]; heardThump[1] = f.thump[1] * kx; heardThump[2] = f.thump[2]; heardThump[3] = f.thump[3] * kx;
+      heardSlam[0] = f.slam[0]; heardSlam[1] = f.slam[1] * kx;
+    }
+    AU.thump = active ? heardThump : null;  // beds landing [E0, x0, E1, x1]
+    AU.slam = active ? heardSlam : null;    // beds slammed into the far end [E, x]
     AU.agit = sim.agitation();
     AU.rushPan = pan;
     AU.leak = leakRate;
-    AU.leakPan = f.leakX;
+    AU.leakPan = f.leakX * kx;
     AU.spillPats = dt > 0 ? landed / dt : 0;
     audio.update(AU);
     // a hard landing is felt too (Android only), now and then

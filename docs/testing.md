@@ -236,7 +236,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the other, each against where the sand's centre went); shaken, the rush
   and the shimmer; no stream and
   no ambience in either; and the same lean under a running stream leaving
-  the rush at nothing, its control): every
+  the rush at nothing, its control; and SIDES: every sound that has a side
+  (the hiss, the thumps, a slam, a leak, a single grain's landing, the
+  glass's creak, crack, its growth and a chip) heard where the listener sees
+  its sand, the glass upright or turned half round by a finger, the phone
+  upright or upside down with the glass swapped; its controls are made by
+  hand, app.js's heardSide() returning 1 and the hiss not turned by the
+  phone's roll): every
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
   then served at `motion.js`'s path. Real sand is the app's default, and
