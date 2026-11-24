@@ -14,6 +14,9 @@
  *   TOP       the sheet's top edge is 44 px under the glass's neck at those three sizes (454,
  *             365 and 502 px down), again once the frame is switched off (the glass sits
  *             larger) and when the window changes size; its lower edge is the screen's
+ *   TARGET    each tab takes a tap 3 px above and 3 px below its drawn box (at 393 × 852 and
+ *             320 × 568), and its reach covers neither the close button, the gap to the next
+ *             tab, nor the rows under the tab row
  *   SIDE      a phone on its side keeps the old limit, 28 px from the top, on every tab
  *   FLOOR     a very short screen still gets 220 px of sheet
  *   SCRIM     behind Tune the scrim is light (0.2), behind the custom sheet as it was (0.5); a
@@ -23,6 +26,10 @@
  *   KEYS      with the focus on a tab the arrows (round the ends), Home and End show and save
  *             the tab they move to and take the focus there, without a buzz; elsewhere they do
  *             nothing; Escape closes
+ *   FOCUS     with a keyboard the focus stays in an open sheet: Tab twenty times and Shift+Tab
+ *             twenty times from the close button never leave Tune (on the Sand and the Time
+ *             tab) nor the custom-duration sheet, and go round from the last control to the
+ *             first and back
  *   HAPTIC    on an iPhone's shape every button and switch row of all four panels, the tabs
  *             and the reset link carry their haptic label from the boot, before Tune is ever
  *             opened; a tab's tap and the link's taps tick
@@ -33,7 +40,8 @@
  *             tap); the second puts back the ten settings it names and no other (the sand and
  *             its finish among them; the custom sand's colour is kept), tells the
  *             engines what differed and nothing else, in order, rings no bowl, says so above the
- *             sheet, and loads nothing again
+ *             sheet, and loads nothing again; the first tap's question is said to a screen reader
+ *             through a polite status drawn nowhere, emptied when the link gives up or answers
  *   HINT      at 393 × 852: a tab with more below shows it (its rows fade into the sheet's lower
  *             edge, a small chevron under them) from the moment it is shown at its top, and not
  *             once it is scrolled to its end (since 1.15.0 every tab has more below at its top,
@@ -595,6 +603,144 @@ function toastOk(m) {
            detail: toastSays(m.up) + '; with Tune closed it is ' + (m.gone.shown ? 'STILL SHOWN' : 'gone') + ' ' + m.errors.slice(0, 2).join(' | ') };
 }
 
+/* ---- TARGET ------------------------------------------------------------------------------ */
+// Each tab is drawn 36 px tall; it takes a tap over 44 (4 px more above and below), with nothing moved.
+var TARGET_SIZES = [[393, 852], [320, 568]], TARGET_ORDER = ['glass', 'sound', 'time', 'sand'];
+async function target(env, size, o) {
+  var t = await env.open(Object.assign({ viewport: { width: size[0], height: size[1] } }, o || {})), m = { size: size.join(' x '), taps: [] };
+  function boxes() {
+    return t.eval(function () {
+      var s = document.getElementById('sheet-settings'), r = function (el) { var b = el.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+      var o = { tabs: {}, close: r(s.querySelector('.sheet-close')), body: r(s.querySelector('.sheet-body')) };
+      Array.prototype.forEach.call(s.querySelectorAll('[role="tab"]'), function (b) { o.tabs[b.getAttribute('data-tab')] = r(b); });
+      return o;
+    });
+  }
+  /** What a finger at (x, y) would reach: the tab's key, 'close', or what else. */
+  function at(x, y) {
+    return t.eval(function (p) {
+      var el = document.elementFromPoint(p[0], p[1]);
+      if (el && el.classList.contains('haptic') && el._host) el = el._host;   // (an iPhone's label over a control: the control is what a tap reaches)
+      var tab = el && el.closest('[role="tab"]');
+      return tab ? tab.getAttribute('data-tab') : el && el.closest('.sheet-close') ? 'close' : el ? (el.id || el.className || el.tagName) : null;
+    }, [x, y]);
+  }
+  try {
+    await sleep(600);
+    await tune.open(t);
+    await sleep(400);
+    m.box = await boxes();
+    var B = m.box.tabs;
+    // the taps: 3 px above each tab, then 3 px below, each tab in turn (so each tap changes the tab shown).
+    // What is under the point is read first (the page's own hit test); the tap itself is a click at
+    // that exact point, not a touch, which the browser would move onto the nearest control by itself.
+    for (var e = 0; e < 2; e++) {
+      for (var i = 0; i < TARGET_ORDER.length; i++) {
+        var k = TARGET_ORDER[i], b = B[k], x = (b[0] + b[2]) / 2, y = e ? b[3] + 3 : b[1] - 3;
+        var hit = await at(x, y);
+        await t.page.mouse.click(x, y);
+        await tune.rest(t);
+        var sel = await t.eval(function () { var el = document.querySelector('#sheet-settings [role="tab"][aria-selected="true"]'); return el ? el.getAttribute('data-tab') : null; });
+        m.taps.push({ tab: k, where: e ? 'below' : 'above', y: y, hit: hit, selected: sel });
+      }
+    }
+    // what the reach must leave alone
+    var c = m.box.close, keys = Object.keys(B);
+    m.close = await at((c[0] + c[2]) / 2, (c[1] + c[3]) / 2);
+    m.closeEdge = await at(c[0] + 1, (c[1] + c[3]) / 2);
+    m.gaps = [];
+    for (var j = 0; j + 1 < keys.length; j++) {
+      var l = B[keys[j]], r2 = B[keys[j + 1]], gx = (l[2] + r2[0]) / 2;
+      m.gaps.push(await at(gx, l[1] - 3), await at(gx, (l[1] + l[3]) / 2), await at(gx, l[3] + 3));
+    }
+    m.rows = await at((m.box.body[0] + m.box.body[2]) / 2, m.box.body[1] + 1);
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+function targetOk(m) {
+  var missed = m.taps.filter(function (x) { return x.selected !== x.tab || x.hit !== x.tab; });
+  var B = m.box.tabs, reach = Object.keys(B).map(function (k) { return B[k][3] + 4; }), bodyTop = m.box.body[1];
+  var taps = { ok: missed.length === 0 && m.taps.length === 8,
+               detail: m.size + ': ' + (missed.length ? 'MISSED ' + missed.map(function (x) { return x.where + ' ' + x.tab + ' (the point is ' + x.hit + '\'s; shown: ' + x.selected + ')'; }).join(', ')
+                                                      : 'all eight taps (3 px above and below each of the four) chose their tab') + ' ' + m.errors.slice(0, 2).join(' | ') };
+  var clear = { ok: m.close === 'close' && m.closeEdge === 'close' && m.gaps.every(function (g) { return g && TARGET_ORDER.indexOf(g) < 0; }) && TARGET_ORDER.indexOf(m.rows) < 0 &&
+                    reach.every(function (y) { return y <= bodyTop; }),
+                detail: m.size + ': the close button reaches ' + m.close + ' (its edge ' + m.closeEdge + '); between the tabs ' + JSON.stringify(m.gaps) + '; the rows\' top ' + m.rows +
+                        '; the tabs reach down to ' + Math.max.apply(null, reach) + ', the rows start at ' + bodyTop };
+  return { taps: taps, clear: clear };
+}
+
+/* ---- FOCUS ------------------------------------------------------------------------------- */
+/** From the close button of the open sheet `id`: Tab `n` times, then (from the close button again) Shift+Tab `n` times. */
+async function tabWalk(t, id, n) {
+  function where() {
+    return t.eval(function (id) {
+      var s = document.getElementById(id), a = document.activeElement;
+      var name = !a ? '' : a.id || (a.getAttribute('aria-label') || (a.textContent || '').replace(/\s+/g, ' ').trim()).slice(0, 24) || a.tagName;
+      // (the sheet's own stops, as Tab meets them: shown, enabled, in the tab order)
+      var stops = Array.prototype.filter.call(s.querySelectorAll('button, [href], input, select, textarea, [tabindex]'), function (c) {
+        return c.tabIndex >= 0 && !c.disabled && c.getClientRects().length && getComputedStyle(c).visibility !== 'hidden';
+      });
+      return { inside: !!a && a !== s && s.contains(a), name: name, at: stops.indexOf(a), stops: stops.length };
+    }, id);
+  }
+  var w = { fwd: [], back: [] };
+  for (var dir = 0; dir < 2; dir++) {
+    await t.eval(function (id) { document.querySelector('#' + id + ' .sheet-close').focus(); }, id);
+    await sleep(60);
+    w[dir ? 'back' : 'fwd'].push(await where());
+    for (var i = 0; i < n; i++) {
+      await t.page.keyboard.press(dir ? 'Shift+Tab' : 'Tab');
+      await sleep(40);
+      w[dir ? 'back' : 'fwd'].push(await where());
+    }
+  }
+  return w;
+}
+async function focus(env, o) {
+  var t = await env.open(o || {}), m = {};
+  try {
+    await sleep(600);
+    await tune.open(t);
+    await sleep(300);
+    m.sand = await tabWalk(t, 'sheet-settings', 20);
+    await tapTab(t, 'time');
+    m.time = await tabWalk(t, 'sheet-settings', 20);
+    await tune.close(t);
+    await sleep(700);
+    await t.page.tap('#readout');                      // the custom-duration sheet: the same open and close
+    await sleep(900);
+    m.custom = await tabWalk(t, 'sheet-custom', 20);
+    await t.page.keyboard.press('Escape');
+    await t.page.waitForFunction(function () { return document.getElementById('sheet-custom').hidden; }, null, { timeout: 4000 }).catch(function () {});
+    m.closed = await t.eval(function () { return document.getElementById('sheet-custom').hidden; });
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+/** A walk that never leaves the sheet, and goes round: Tab from its last stop to its first, Shift+Tab from its first to its last. */
+function walkOk(w) {
+  var all = w.fwd.concat(w.back), out = all.filter(function (r) { return !r.inside; });
+  var round = function (seq, from, to) {
+    for (var i = 1; i < seq.length; i++) if (seq[i - 1].at === from(seq[i - 1]) && seq[i].at === to(seq[i])) return true;
+    return false;
+  };
+  var fwdRound = round(w.fwd, function (r) { return r.stops - 1; }, function () { return 0; });
+  var backRound = round(w.back, function () { return 0; }, function (r) { return r.stops - 1; });
+  return { ok: out.length === 0 && fwdRound && backRound && all.length === 42,
+           detail: (out.length ? 'LEFT THE SHEET for ' + out.map(function (r) { return r.name; }).slice(0, 3).join(', ') + '; ' : '') +
+                   'Tab: ' + w.fwd.map(function (r) { return r.name; }).join(' > ') + (fwdRound ? ' (round from the last to the first)' : ' (NEVER ROUND)') +
+                   '; Shift+Tab: ' + w.back.map(function (r) { return r.name; }).join(' < ') + (backRound ? ' (round from the first to the last)' : ' (NEVER ROUND)') };
+}
+function focusOk(m) {
+  var sd = walkOk(m.sand), tm = walkOk(m.time), cu = walkOk(m.custom);
+  return {
+    tune: { ok: sd.ok && tm.ok, detail: 'Sand: ' + sd.detail + ' | Time: ' + tm.detail },
+    custom: { ok: cu.ok && m.closed && m.errors.length === 0, detail: cu.detail + (m.closed ? '; Escape closed it' : '; ESCAPE DID NOT CLOSE IT') + ' ' + m.errors.slice(0, 2).join(' | ') }
+  };
+}
+
 /* ---- RESET ------------------------------------------------------------------------------- */
 // A save with everything the reset names changed, and with what it must keep changed too (the
 // mute button, the grain, a sequence, breathing, Full Zen, the screen not kept awake, what the app
@@ -608,6 +754,7 @@ var CHANGED = {
 function resetState(t) {
   return t.eval(function (key) {
     var Hg = window.Hourglass, el = document.getElementById('tune-reset'), q = document.getElementById('toast'), a = Hg.audio;
+    var say = document.getElementById('tune-reset-say'), sb = say ? say.getBoundingClientRect() : null;
     var one = function (sel) { var c = document.querySelector(sel); return c ? (c.dataset.sand || c.dataset.finish || c.dataset.character || c.dataset.ambience) : null; };
     return {
       link: el ? [el.getAttribute('data-state'), (el.textContent || '').replace(/\s+/g, ' ').trim()] : null,
@@ -621,6 +768,9 @@ function resetState(t) {
       engines: { frame: Hg.renderer.frame, layers: [Hg.sim.layers, Hg.renderer.layers], volume: a.volume, muted: a.muted, character: a.character, ambience: a.ambience,
                  ambLevel: a.ambLevel, chime: a.chimeEnabled },
       toast: q.classList.contains('show') ? q.textContent : '',
+      // (the polite status only a screen reader hears: its words, its role, where it is and how big it is drawn)
+      say: say ? { text: say.textContent, role: say.getAttribute('role'), live: say.getAttribute('aria-live'), inSheet: !!say.closest('#sheet-settings'),
+                   inPanel: !!say.closest('[role="tabpanel"]'), drawn: [sb.width, sb.height] } : null,
       alive: window.__alive === 1, state: Hg.timer.state, rem: Hg.timer.rem, events: window.__trace.take()
     };
   }, KEY);
@@ -776,7 +926,20 @@ function resetOk(m, save) {
     ok: JSON.stringify(m.again.events) === JSON.stringify(wantAgain) && m.again.saved === m.done.saved && m.again.link[0] === 'idle' && m.again.toast === DONE && m.errors.length === 0,
     detail: JSON.stringify(m.again.events) + ' ' + m.errors.slice(0, 2).join(' | ')
   };
-  return { ask: ask, gives: gives, back: back, kept: kept, engines: engines, shown: shown, says: says, again: again };
+  // 6. the first tap's question is said to a screen reader too: a polite status in the sheet, drawn
+  // nowhere, holds it while the link is armed, and is empty once it has given up or answered
+  var sayText = function (st) { return st.say ? st.say.text : null; };
+  var sv = m.asked.say;
+  var speaks = {
+    ok: !!sv && sv.role === 'status' && sv.live === 'polite' && sv.inSheet && !sv.inPanel && sv.drawn[0] <= 1 && sv.drawn[1] <= 1 &&
+        sayText(m.idle) === '' && sayText(m.asked) === SURE && m.asked.toast === '' && sayText(m.gaveUp) === '' && sayText(m.otherTab) === '' &&
+        sayText(m.closed) === '' && sayText(m.double) === SURE && sayText(m.done) === '' && sayText(m.again) === '',
+    detail: (sv ? JSON.stringify({ role: sv.role, live: sv.live, inSheet: sv.inSheet, inPanel: sv.inPanel, drawn: sv.drawn }) : 'no status') +
+            '; said: idle ' + JSON.stringify(sayText(m.idle)) + ', first tap ' + JSON.stringify(sayText(m.asked)) + ' (toast ' + JSON.stringify(m.asked.toast) + '), after 3 s ' +
+            JSON.stringify(sayText(m.gaveUp)) + ', another tab ' + JSON.stringify(sayText(m.otherTab)) + ', Tune closed ' + JSON.stringify(sayText(m.closed)) +
+            ', a double tap ' + JSON.stringify(sayText(m.double)) + ', answered ' + JSON.stringify(sayText(m.done)) + ', again ' + JSON.stringify(sayText(m.again))
+  };
+  return { ask: ask, gives: gives, back: back, kept: kept, engines: engines, shown: shown, says: says, again: again, speaks: speaks };
 }
 
 /* ---- HINT -------------------------------------------------------------------------------- */
@@ -1142,6 +1305,32 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       }, keysOk);
     }
 
+    if (wanted('target')) {
+      for (var ts = 0; ts < TARGET_SIZES.length; ts++) {
+        var tg = targetOk(await target(env, TARGET_SIZES[ts]));
+        s.check('TARGET: at ' + TARGET_SIZES[ts].join(' x ') + ' a tap 3 px above and 3 px below each tab\'s drawn box chooses that tab', tg.taps.ok, tg.taps.detail);
+        s.check('TARGET: at ' + TARGET_SIZES[ts].join(' x ') + ' a tab\'s reach covers neither the close button, the gap to the next tab, nor the rows under the tab row', tg.clear.ok, tg.clear.detail);
+      }
+      for (var tc = 0; tc < TARGET_SIZES.length; tc++) {
+        await control('TARGET: a style sheet without the tabs\' reach (each tab takes taps only on what is drawn of it) at ' + TARGET_SIZES[tc].join(' x '), 'taps', (function (size) {
+          return function () {
+            return target(env, size, { routes: [broken(env, 'styles.css', function (src) {
+              return swap(/\.tabs button > \.haptic \{[^}]*\}/, '')(swap(/\.tabs button::before \{[^}]*\}/, '')(src));
+            })] });
+          };
+        })(TARGET_SIZES[tc]), targetOk);
+      }
+    }
+
+    if (wanted('focus')) {
+      var fo = focusOk(await focus(env));
+      s.check('FOCUS: in Tune (on the Sand and the Time tab), Tab twenty times and Shift+Tab twenty times from the close button never leave the sheet, and go round from its last control to its first and back', fo.tune.ok, fo.tune.detail);
+      s.check('FOCUS: the same in the custom-duration sheet, and Escape still closes it', fo.custom.ok, fo.custom.detail);
+      var noRound = function () { return focus(env, { routes: [broken(env, 'app.js', swap(/if \(e\.key === 'Tab'\) \{ if \(sheetOpen\) keepTabIn\(sheetOpen, e\); return; \}/, ''))] }); };
+      await control('FOCUS: a copy whose sheets let Tab go on to the page behind the scrim (Tune)', 'tune', noRound, focusOk);
+      await control('FOCUS: a copy whose sheets let Tab go on to the page behind the scrim (the custom-duration sheet)', 'custom', noRound, focusOk);
+    }
+
     if (wanted('haptic')) {
       var h = hapticOk(await haptic(env));
       s.check('HAPTIC: at the boot, before Tune is ever opened, every button and switch row of all four panels, the four tabs and the reset link carry one haptic label each, and there are no others',
@@ -1201,6 +1390,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       s.check('RESET: the controls and the engines show it (the mute button left as it was)', v.shown.ok, v.shown.detail);
       s.check('RESET: the link is as it was, and "' + DONE + '" is said just above the sheet', v.says.ok, v.says.detail);
       s.check('RESET: with nothing left to put back it saves once, tells no engine, and says so again', v.again.ok, v.again.detail);
+      s.check('RESET: the first tap\'s "' + SURE + '" is said to a screen reader through a polite status in the sheet that is drawn nowhere (no toast), and it is emptied when the link gives up, another tab is shown, Tune is closed or the second tap answers', v.speaks.ok, v.speaks.detail);
       // a save where only the material differs, and Haptics is off: one thing told, no buzz, Haptics still off
       var SOME = { theme: 'volcanic', haptics: false, tuneTab: 'time' }, m2 = await reset(env, { save: SOME }), v2 = resetOk(m2, SOME);
       s.check('RESET: from a save of 1.13.0 where only the material differs (Volcanic Black, so brass caps), with Haptics off: only the sand, its finish and the material are saved and set, no engine of the sound is told, nothing buzzes, Haptics stays off',
@@ -1268,6 +1458,12 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
         document.addEventListener('click', function (e) { if (e.target && e.target.closest && e.target.closest('#tune-reset')) armed = el.getAttribute('data-state') === 'armed'; }, true);
         el.addEventListener('click', function () { var a = window.Hourglass.audio; if (armed && el.getAttribute('data-state') === 'idle') a.setVolume(a.volume); });
       }), resetOk);
+      await control('RESET: a copy whose first tap only changes the link\'s words (nothing said to a screen reader)', 'speaks', function () {
+        return reset(env, { open: { routes: [broken(env, 'app.js', swap(/if \(resetSay\) resetSay\.textContent = RESET_SURE;/, ''))] } });
+      }, resetOk);
+      await control('RESET: a copy that leaves the question in the status once the link has given up', 'speaks', function () {
+        return reset(env, { open: { routes: [broken(env, 'app.js', swap(/if \(resetSay\) resetSay\.textContent = '';/, ''))] } });
+      }, resetOk);
       await control('RESET: a copy that says it done in the usual place, on the rows', 'says', function () {
         return reset(env, { open: { routes: [broken(env, 'styles.css', add('#toast.high { bottom: calc(var(--sab) + 172px) !important; top: auto !important; }'))] } });
       }, resetOk);

@@ -102,7 +102,7 @@ keys move between the tabs.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.14.0" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.15.1" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;
@@ -152,8 +152,10 @@ keys move between the tabs.
   reset. It works in Zen and Full Zen; with *Reduce Motion* the glow only
   brightens and dims.
 - **Full Zen**: Zen hides the controls completely instead of dimming them.
-- **Buttons: Haptics**: a light tick from buttons and switches, where the
-  phone supports it (see "Browser notes" below for an iPhone).
+- **Touch: Haptics**: a light tick from taps on the glass, buttons and
+  switches, where the phone supports it. On a phone that can vibrate it also
+  covers the end of a glass, landings and cracks. Turn it off and all of them
+  stop (see "Browser notes" below for an iPhone).
 - **Put the look and sound back as they came**: tap it, then tap again
   within three seconds ("Tap again to put them back"). The sand (Sahara
   Quartz; a colour of your own is kept for its swatch), the frame and its
@@ -171,7 +173,9 @@ An update arrives whole or not at all: the installed app keeps running the
 release it has until the new one is complete, so it always opens offline.
 Should it ever open offline and say *Hourglass is updating. Open it again
 with a connection.*, a file of its offline copy went missing; the next
-launch with a connection fills the copy again.
+launch with a connection fills the copy again. With a connection it says
+*Hourglass is updating. Open it again in a moment.*: the new release is
+on its way in. Close the app and open it again a little later.
 
 ## Work and rest
 
@@ -352,7 +356,7 @@ Starting. The dark opening waits up to 1 s longer for Real sand's first
 picture, so that most launches open straight on Real sand. If the graphics
 chip takes longer, the opening fades up as before on the classic sand,
 which shows and runs while the chip gets ready, and the two cross-fade once
-Real sand has drawn its first picture: on the owner's iPhone that took
+Real sand has drawn its first picture: on an iPhone that took
 0.6 s in Chrome and 3.4 s in a home-screen web app opened cold. A slow start
 is never counted as a failure.
 

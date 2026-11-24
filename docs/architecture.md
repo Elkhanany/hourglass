@@ -168,7 +168,9 @@ keys are saved:
   back (the material must be one of `HourglassPhysics.THEMES`, the sand one
   of `SANDS` or `'custom'`, the custom colour "h,s,l" or nothing, the finish
   one of `FINISHES`, the grain 1 or 2, the accelerometer's sign 1 or -1,
-  Tune's tab one of the four). It does not clamp: a value outside
+  Tune's tab one of the four). A name is one of a table's only when the
+  table has it as its own: a name every object has (`toString`, `valueOf`,
+  `__proto__` ...) is none, and gives the default. It does not clamp: a value outside
   its range comes up as the default, not as the nearest end;
 - `from(saved, reg)`, where a setting is made from older ones: the value for
   a save that has no such key yet. A migration is keyed on its own key being
@@ -190,7 +192,12 @@ repairs that read two keys (`?t=300` sets the duration and ends a saved
 sequence; a rest out of range is no rest; without a rest there is one
 round; a custom sand without a colour is its material's sand). `save(values)` writes them back. Storage that throws, or cannot be
 reached at all (private mode, storage blocked), runs with the defaults and
-saves nothing. The file reads nothing when it loads, so the tests load it in
+saves nothing. When the load could not read the storage (`getItem` threw)
+but writing works, `save()` first reads it again: while that throws too,
+nothing is written; once it reads, a save that is missing or is not JSON is
+written as usual, and a save that is there is left as it is for the rest of
+that launch (the next launch reads it). One failed read never writes the
+defaults over the settings. The file reads nothing when it loads, so the tests load it in
 Node as it is.
 
 `app.js` keeps the loaded values as `settings`, writes them and calls
@@ -212,11 +219,17 @@ Tune trace's driver, and the two kept traces made again. The steps are in
 [Engines](engines.md#adding-a-sand-a-glass-shape-a-sound-or-a-setting).
 `settings-unit` needs no change for it.
 
-Three checks hold the store, and whatever is built on it, to what the app
-did before it. Each compares with a file in `tools/test/base/`, made from
-the last release before the store (1.11.0, whose Settings section is
-1.10.0's byte for byte; `tools/test/lib/base.js` names its commit; a suite run with `--base <commit>` makes its file again from
-that commit and compares):
+Three checks hold the store, and whatever is built on it, each to a file in
+`tools/test/base/`. The loader's file is the app before the store: the
+Settings section of the last release before it (1.11.0, whose section is
+1.10.0's byte for byte; `tools/test/lib/base.js` names its commit). The two
+traces are a reviewed record: each holds the tree named in its file's
+`from`. They were first made from that release, then made again whenever a
+setting or a control was added on purpose, each time in a commit of its own
+that says what changed and nothing else; that chain of commits is what ties
+them to the app before the store. (A trace suite run with `--base <commit>`
+also runs that commit and prints how it differs from the kept trace: a
+report for whoever makes a trace again, which passes and fails nothing.)
 
 - the loader (`settings-unit`, in Node): the old Settings section of
   `app.js`, kept byte for byte, and the store are run on the same 500 saved
@@ -230,9 +243,13 @@ that commit and compares):
   given to the preset (a shortcut starts a new glass over a saved session).
   The old section knows the 31 keys the app had then: they are the store's
   first records, in their order, and a record added since is left out of
-  this comparison. The suite also holds the names: every `settings.…` in
+  this comparison. Two differences are made on purpose, and held: a saved
+  theme that is a name every object has (`toString`, `valueOf` ...) is the
+  default material, where the old section kept it; and where reading the
+  storage throws, the store writes nothing, where the old section wrote the
+  defaults. The suite also holds the names: every `settings.…` in
   `app.js` is a record, and every record is named there;
-- the boot (`app-boot-trace`, in the browser): for five saved states, what
+- the boot (`app-boot-trace`, in the browser): for six saved states, what
   the app reads and saves and what it calls on the Sim, the Renderer, the
   sound engine and the motion sensors until it has started, in order;
 - Tune (`app-tune-trace`, in the browser): for every control that changes a
@@ -243,8 +260,8 @@ that commit and compares):
   of Tune's sheet must be one the trace drives.
 
 A setting or a control added on purpose changes the two traces: each suite,
-run with `--write` and no `--base`, writes its file from the tree just run,
-in a commit of its own whose diff is read.
+run with `--write`, writes its file from the tree just run, in a commit of
+its own that says what changed and nothing else, and whose diff is read.
 
 ## `sw.js`, `manifest.json`
 
@@ -273,7 +290,12 @@ says "Hourglass is updating. Open it again with a connection." instead of
 building anything (`app.js`'s pre-flight check, which `check-shell` tries by
 running the page's scripts with each one left out; when `app.js` itself or
 the style sheet is the hole, the last lines of `index.html` say it), and the
-next launch with a connection repairs the copy. Other paths under the scope
+next launch with a connection repairs the copy. Online the same note reads
+"Hourglass is updating. Open it again in a moment.": an older copy with a
+hole, met by a server that has moved on, fills the hole with the newer
+release's file, and that file may need one the old page never loads (the
+settings store, from 1.13.0 on); the newer release installs meanwhile and
+the next launch runs it. Other paths under the scope
 (the launch
 screens, the install screenshots) are answered from the cache and refreshed
 in the background, as before; offline, a navigation that is not cached gets

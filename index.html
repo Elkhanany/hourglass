@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Hourglass</title>
   <!-- this page's release: sw.js's VERSION names the same (check-release); Tune's last line shows it -->
-  <meta name="hourglass-version" content="1.15.0">
+  <meta name="hourglass-version" content="1.15.1">
   <meta name="description" content="A hyper-realistic sand hourglass timer. Every grain is simulated; every sound is synthesised live.">
   <meta name="theme-color" content="#0b0c0e">
   <meta name="color-scheme" content="dark">
@@ -312,10 +312,10 @@
           </label>
         </div>
 
-        <h3>Buttons</h3>
+        <h3>Touch</h3>
         <div class="rows rows-single">
           <label class="row" for="opt-haptics">
-            <span><b>Haptics</b><small>A light tick from buttons and switches, where the phone supports it</small></span>
+            <span><b>Haptics</b><small>A light tick from taps on the glass, buttons and switches, where the phone supports it</small></span>
             <input id="opt-haptics" class="switch" type="checkbox" role="switch" checked>
           </label>
         </div>
@@ -327,6 +327,8 @@
     <div class="edge edge-more" aria-hidden="true">
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 9.5l5.5 5 5.5-5"/></svg>
     </div>
+    <!-- what the reset link's first tap asks, said to a screen reader only (app.js); the link shows it -->
+    <p id="tune-reset-say" class="vh" role="status" aria-live="polite"></p>
   </section>
 
   <!-- custom duration sheet -->
@@ -392,7 +394,8 @@
 <script src="./app/settings.js" defer></script>
 <script src="./app.js" defer></script>
 <!-- app.js says so itself when another script is missing from the offline copy (its pre-flight).
-     It cannot say that it is missing itself, or the style sheet: this does, in the same words. -->
+     It cannot say that it is missing itself, or the style sheet: this does, in the same words
+     (online and offline alike). -->
 <script>
   window.addEventListener('load', function () {
     var css = document.querySelector('link[rel="stylesheet"]');
@@ -400,7 +403,7 @@
     var note = document.createElement('p');
     note.id = 'updating';
     note.setAttribute('role', 'alert');
-    note.textContent = 'Hourglass is updating. Open it again with a connection.';
+    note.textContent = navigator.onLine ? 'Hourglass is updating. Open it again in a moment.' : 'Hourglass is updating. Open it again with a connection.';
     note.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;margin:0;padding:24px;' +
       'display:flex;align-items:center;justify-content:center;text-align:center;background:#0b0c0e;' +
       'color:#d8d2c8;font:16px/1.5 -apple-system,system-ui,sans-serif';

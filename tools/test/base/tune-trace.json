@@ -1,5 +1,5 @@
 {
-  "from": "f912f2638c3b1ff4a53394bc4b1a5e615c37ac23",
+  "from": "9c28b1b297e76b4edd0c626b6abbb0f98c4e8ed6",
   "what": "What every control that changes a setting saves, calls on the engines and buzzes, in order: in its own tap (now) and after it (later) (tools/test/lib/trace.js)",
   "controls": [
     {
@@ -34,23 +34,6 @@
         ["audio.unlock"],
         ["save",{"tuneTab":"time"}],
         ["buzz",8]
-      ],
-      "later": []
-    },
-    {
-      "name": "the look and sound put back: the first tap",
-      "now": [
-        ["audio.unlock"],
-        ["buzz",8]
-      ],
-      "later": []
-    },
-    {
-      "name": "the look and sound put back: the second tap",
-      "now": [
-        ["audio.unlock"],
-        ["save",{}],
-        ["buzz",12]
       ],
       "later": []
     },
@@ -889,6 +872,27 @@
       ]
     },
     {
+      "name": "the look and sound put back: the first tap",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "the look and sound put back: the second tap",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"theme":"sahara","volume":0.8,"ambienceLevel":0.5,"sand":"sahara"}],
+        ["audio.setVolume",0.8],
+        ["audio.setAmbienceLevel",0.5,false],
+        ["buzz",12]
+      ],
+      "later": [
+        ["renderer.setTheme","sahara"]
+      ]
+    },
+    {
       "name": "Real sand: on",
       "now": [
         ["audio.unlock"],
@@ -905,12 +909,12 @@
         ["sim.setLayers",false],
         ["renderer.setLayers",false],
         ["new Audio"],
-        ["audio.volume =",0.55],
+        ["audio.volume =",0.8],
         ["audio.muted =",false],
         ["audio.character =","asmr"],
         ["audio.chimeEnabled =",true],
         ["audio.ambience =","none"],
-        ["audio.ambLevel =",0.7],
+        ["audio.ambLevel =",0.5],
         ["new Motion",{"sign":0}],
         ["get","hourglass.openNow"],
         ["sim.reset",8948],
@@ -922,10 +926,10 @@
         ["audio.setCharacter","asmr"],
         ["renderer.layout"],
         ["save",{}],
-        ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
+        ["renderer.setTheme","sahara"],
         ["remove","hourglass.session.v1"]
       ]
     }
   ],
-  "saved": "{\"theme\":\"volcanic\",\"character\":\"asmr\",\"volume\":0.55,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.7,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"volcanic\",\"sandColor\":\"330.6,0.447,0.553\",\"finish\":\"walnut\",\"shape\":\"classic\"}"
+  "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"330.6,0.447,0.553\",\"finish\":\"walnut\",\"shape\":\"classic\"}"
 }

@@ -2,7 +2,7 @@
 /*
  * Real sand: how the glass's own motion is played to the sand at app speed (realsand/felt.mjs,
  * GlassFelt), in Node. The world there runs slowed by lambda (0.075 here, a phone's glass), and
- * the owner felt the sand answer the phone about half a second late. The playbacks: live (the
+ * on a phone the sand was felt to answer about half a second late. The playbacks: live (the
  * default), slowmo, film (the slowed film the engine used before: the control) and plain.
  * Steps of 1/120 s, as the app's.
  *
@@ -35,7 +35,7 @@
  *     spread over some 7 s, and the knee's, given at the hand's 5 Hz, are logged);
  *  6. under a sustained shake the film sits about 0.5 s behind the hand (its play head 0.45 to
  *     0.5 s behind for the shake's last second, and it pushes the bed beyond its friction 0.45 s
- *     or more after the hand stops: the control, the owner's "about 0.5 sec delay"); live: 50 ms
+ *     or more after the hand stops: the control, the "about 0.5 sec delay" felt on a phone); live: 50 ms
  *     or less, and the jitter 20 ms late or less; slowmo plays a lone flick exactly as the film,
  *     and a shake live within 0.25 s of its start (never more than 0.2 s behind, 50 ms or less
  *     after the hand stops), as it does the jitter;
@@ -225,7 +225,7 @@ async function main() {
   var lLag = lagOf(jL.t, jL.x, jL.ox, 1.2, 2.2, 0.7);
   log('  shake, its last second: the film\'s play head ' + ms(behindMin) + ' to ' + ms(behindMax) + ' behind; after the hand stops, beyond the knee for ' + ms(fDriven) + ' (the film) and ' + ms(lDriven) + ' (live)');
   check(behindMin >= 0.45 && behindMax <= 0.5 + 1e-9 && fDriven >= 0.45,
-    'control: under a sustained shake the film sits about 0.5 s behind the hand (its play head ' + ms(behindMin) + ' to ' + ms(behindMax) + ' behind), and pushes the bed beyond its friction ' + ms(fDriven) + ' after the hand stops: the owner\'s "about 0.5 sec delay"');
+    'control: under a sustained shake the film sits about 0.5 s behind the hand (its play head ' + ms(behindMin) + ' to ' + ms(behindMax) + ' behind), and pushes the bed beyond its friction ' + ms(fDriven) + ' after the hand stops: the "about 0.5 sec delay" felt on a phone');
   check(lDriven <= 0.05 && lLag <= 0.02, 'live follows the hand: ' + ms(lDriven) + ' after a shake stops nothing beyond the bed\'s friction is felt (<= 50), and the jitter is felt ' + ms(lLag) + ' late (<= 20, the smoothing)');
   var sFl = play(IN.flick, { mode: 'slowmo' }, 1.5), sameFilm = true;
   for (i = 0; i < sFl.t.length; i++) if (sFl.ox[i] !== film.ox[i] || sFl.oy[i] !== film.oy[i]) sameFilm = false;
