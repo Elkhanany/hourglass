@@ -392,12 +392,11 @@
   function ringsStep() {
     if (!rings || document.hidden) return;
     if (T.state !== 'done') { ringsStop(); return; }
-    var now = Date.now(), k = rings.k, at = rings.t0 + k * RING_GAP;
-    if (now < at) return;
-    if (now - at <= RING_LATE) audio.chime(0);
-    // the next one still to come (those whose time has passed meanwhile are dropped)
-    k = Math.max(k + 1, Math.floor((now - rings.t0) / RING_GAP) + 1);
-    if (k > rings.n) ringsStop(); else rings.k = k;
+    var now = Date.now(), due = Math.floor((now - rings.t0) / RING_GAP);   // the last ring whose time has come
+    if (due < rings.k) return;
+    if (due > rings.n) { ringsStop(); return; }                             // (over while away)
+    if (now - (rings.t0 + due * RING_GAP) <= RING_LATE) audio.chime(0);     // (those before it, long past, are dropped; so is it, if it is late too)
+    if (due >= rings.n) ringsStop(); else rings.k = due + 1;
   }
   // The tap that stops the bowl is used up: seen first (on the window, capturing), it goes no
   // further, nor do the rest of its gesture (its pointer's moves and lift, the click and the
@@ -4380,6 +4379,12 @@
   Object.defineProperty(window.Hourglass.debug, 'mpg0', {
     get: function () { return T.mpg0; }, enumerable: true
   });
+  // the bowl that rings again: { t0, k, n } (the first ring's time, the next ring's number, the last's), or null;
+  // and the ambience's share in the fade before the end, as the frame loop hands it to the sound engine
+  Object.defineProperty(window.Hourglass.debug, 'rings', {
+    get: function () { return rings ? { t0: rings.t0, k: rings.k, n: rings.n } : null; }, enumerable: true
+  });
+  window.Hourglass.debug.ambFadeShare = ambFadeShare;
   // whether this frame counts the glass as just shaken (no catch-up teleports then)
   Object.defineProperty(window.Hourglass.debug, 'motionRecent', {
     get: function () { return motionRecentNow; }, enumerable: true
