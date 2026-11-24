@@ -59,7 +59,11 @@
  *    crowded points (the plug of the stream under the neck of a glass just started) are no bed
  *    and feed nothing; a bed thrown loose, or flying along the glass as a body, slides nothing;
  *    the landing's window is time, the same at 60, 120 and 180 runs a second; after a stall the
- *    faded agitation stays faded; and the same GPU motion is the same sound at every lattice.
+ *    faded agitation stays faded; and the same GPU motion is the same sound at every lattice;
+ *  - every glass shape (physics.js SHAPES): adopt() fills it from the CPU lattice with exactly the
+ *    points of each bulb, and a 10 s glass and a 5-minute glass run to 00:00.0 on time, the last
+ *    point out within a frame or two; the control, a delta glass whose neck passes too little sand
+ *    for its pace, must miss it.
  *
  *   node tools/test/realsand-adapter.test.js
  */
@@ -84,7 +88,7 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   var MATERIAL = SOL.MATERIALS.coarse, PW = SOL.PARTICLE_WORDS;
   var glassCache = {};
   function glassFor(geo) {
-    var k = geo.q.toFixed(4);
+    var k = geo.q.toFixed(4) + (geo.shape ? ' ' + geo.shape.id : '');
     if (!glassCache[k]) glassCache[k] = GL.buildGlass({ s: RS.CELLS_AT_Q1 / geo.q, neckMin: 5.5, geo: geo, profile: P.profile });
     return glassCache[k];
   }
@@ -210,7 +214,7 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   function makeApp(o) {
     var fine = o.fine || 1, fine2 = fine * fine;
     if (fine > 1) P.Sim.setPace(fine);
-    var cpu = new P.Sim({ scale: (o.q || 1.08) * fine, seed: o.seed || 11 });
+    var cpu = new P.Sim({ scale: (o.q || 1.08) * fine, seed: o.seed || 11, shape: o.shape });
     cpu.reset(grainsFor(o.ms));                     // the glass of its length, as newGlass lays it
     var V = { wall: 1.7e12, perf: 1000, frame: 0 };
     var env = { V: V, rnd: L.rng(o.seed || 5), plant: o.plant, lag: o.lag, xferFrames: o.xferFrames };
@@ -1398,6 +1402,46 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     check(errSB && errSB.code === 'stamp' && errSB.capability === false && SB.env.device.destroyed,
       'shaders of another build than the modules ("Engine build: 3" against ' + RS.BUILD + '): start() fails with \'stamp\' (' + (errSB && errSB.message) + ')');
   } finally { globalThis.fetch = fetchWas; }
+
+  /* ------------------------------------------------------------------------------------ *
+   *  Every glass shape: the fill from the CPU lattice, and a glass run to its end
+   * ------------------------------------------------------------------------------------ */
+  /** endOk's test as a value: { ok, text }. */
+  function endIs(app, lateMs) {
+    var e = app.endMs(), pl = app.env.solver.plant, sub = 1000 / 480 + 0.5;
+    return { ok: e >= -sub && e <= (lateMs || 34) && app.stats.zeroEarly === 0 && app.T.state === 'done' && app.sim.nTop === 0 && pl.above === 0 && pl.viol === 0 && pl.startErr === 0 && pl.closedCross === 0,
+      text: f1(e) + ' ms' };
+  }
+  var shapeRuns = [], shapeOk = true, shapeFill = true;
+  for (var si = 0; si < P.SHAPE_ORDER.length; si++) {
+    var sid = P.SHAPE_ORDER[si];
+    for (var mi2 = 0; mi2 < 2; mi2++) {
+      var msS = [10000, 300000][mi2];
+      var SA = makeApp({ ms: msS, seed: 301 + si, shape: sid });
+      var rSA = await SA.attach(), sdS = SA.env.solver.lastUpload.sides;
+      if (!(sdS.above === VA.pointsFor(SA.cpu.nTop, rSA.ppg) && sdS.below === VA.pointsFor(SA.cpu.total - SA.cpu.nTop, rSA.ppg) && rSA.glass.geo.shape === SA.cpu.geo.shape)) shapeFill = false;
+      SA.calibrate(); SA.T.rem = SA.T.durationMs; SA.start();
+      await runGlass(SA, msS, []);
+      var eS = endIs(SA);
+      if (!eS.ok) shapeOk = false;
+      shapeRuns.push(sid + ' ' + (msS / 1000) + ' s ' + eS.text + (eS.ok ? '' : ' (FAILS)'));
+      if (SA.restorePace) SA.restorePace();
+    }
+  }
+  check(shapeFill, 'every shape: adopt() fills its own glass from the CPU lattice with exactly Pts(nTop) points above and Pts(nBottom) below');
+  // the control: a delta glass handed the classic glass's field is found out
+  var XA = makeApp({ ms: 10000, seed: 341, shape: 'delta' });
+  var rXA = await XA.attach({ glass: glassFor(P.makeGeometry(1.08)) });
+  check(rXA.glass.geo.shape !== XA.cpu.geo.shape, '... and a delta glass given the classic glass\'s field is found out (control)');
+  check(shapeOk, 'every shape: a 10 s and a 5-minute glass run to their end, the last point out within a frame or two of 00:00.0, none early: ' + shapeRuns.join('; '));
+  // the control: the same delta glass on a neck that passes too little sand for its pace (60 points a
+  // second where it needs about 170) must end late, and be found out
+  var CD = makeApp({ ms: 10000, seed: 331, shape: 'delta', plant: { q0: 60 } });
+  await CD.attach();
+  CD.calibrate(); CD.T.rem = CD.T.durationMs; CD.start();
+  await runGlass(CD, 10000, []);
+  var eCD = endIs(CD);
+  check(!eCD.ok, '... and a delta glass whose neck passes too little sand for its pace misses it: the last point out ' + eCD.text + ' after 00:00.0 (control)');
 
   log('realsand-adapter: ' + (failures ? failures + ' of ' + count + ' checks FAILED' : 'all ' + count + ' checks passed') + ' (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)');
   process.exit(failures ? 1 : 0);

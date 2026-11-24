@@ -13,6 +13,15 @@
  * lab/sand/main.mjs glassFelt, copied below) on a recorded flick, a shake and a steady push, at
  * app speed (played back as a slowed film) and at real speed.
  *
+ * Each glass shape (physics.js SHAPES), built as Real sand builds it in the app (from the app's
+ * makeGeometry at a phone's scale and its profile): the field is the same after a half turn,
+ * point for point (both engines turn the glass that way); the neck's widening never reaches
+ * past the bulb's widest row (beyond it the simulated wall is the drawn wall, warp 1 on every
+ * row, and nowhere is warp above 1); and the fills from the app's own sand (fromLattice) hold
+ * exactly the points asked for, a 5-minute and a 60-minute glass, all inside the glass and on
+ * their side of the neck. The control: a copy of glass.mjs that widens the neck all the way to
+ * the far end (as it did before engine build 7) must fail the widest-row check.
+ *
  *   node tools/test/realsand-fill.test.js
  */
 'use strict';
@@ -108,6 +117,70 @@ async function main() {
   check(inside, 'every point of every fill lies inside the glass and on its side of the neck' + (inside ? '' : ': ' + rows.filter(function (r) { return /outside/.test(r); }).join('; ')));
   var refused = [NaN, undefined, Infinity, -1].map(function (x) { try { F.makeFill(gS, 'top', { points: x }); return false; } catch (e) { return /points/.test(e.message); } });
   check(refused.every(Boolean), 'a target that is not a number of points (NaN, none, Infinity, -1) is refused, not filled as a nearly empty bed');
+
+  // ---- every glass shape, as Real sand builds it in the app ----
+  var P = require('./lib/load-physics.js').P;
+  var RS = await import(path.join(__dirname, '..', '..', 'realsand', 'app-sand.mjs'));
+  var VA = await import(path.join(__dirname, '..', '..', 'realsand', 'valve.mjs'));
+  /** What the glass of a shape breaks: [] or the reasons (half turn, neck past the widest row, warp). */
+  function shapeGlassFaults(GG, id) {
+    var geo = P.makeGeometry(1.08, id), g = GG.buildGlass({ s: RS.CELLS_AT_Q1 / geo.q, neckMin: 5.5, geo: geo, profile: P.profile });
+    var out = [], W = g.W, H = g.H, f = g.field, odd = 0, j, i;
+    for (j = 0; j < H; j++) for (i = 0; i < W; i++) {
+      var o = (j * W + i) * 4, m = ((H - 1 - j) * W + (W - 1 - i)) * 4;
+      // (on the axis itself, a column or row through the neck's centre, a normal is its own twin)
+      var ax0 = i + 0.5 === g.cx, ay0 = j + 0.5 === g.cy;
+      if (f[o + 2] !== f[m + 2] || f[o + 3] !== f[m + 3] || f[o] !== (ax0 ? f[m] : -f[m]) || f[o + 1] !== (ay0 ? f[m + 1] : -f[m + 1])) odd++;
+    }
+    if (odd) out.push(odd + ' grid points differ from their half-turned twin');
+    var past = 0, over = 0, wide = 0, rows = 0;
+    for (j = 0; j < H; j++) {
+      var ady = Math.abs(j + 0.5 - g.cy);
+      if (g.warp[j] > 1) over++;
+      if (ady / g.HBc > geo.equator + 1e-9 && ady < g.HBc) {
+        rows++;
+        if (g.warp[j] !== 1) past++;
+        if (g.half(ady) !== g.halfDrawn(ady)) wide++;
+      }
+    }
+    if (past || wide) out.push('beyond the widest row ' + past + ' of ' + rows + ' rows warped and ' + wide + ' wider than the drawn glass');
+    if (over) out.push(over + ' rows with warp above 1');
+    return { faults: out, glass: g, geo: geo, rows: rows };
+  }
+  var shapeRows = [], shapeOk = true, fillRows = [], fillOk = true;
+  for (var si = 0; si < P.SHAPE_ORDER.length; si++) {
+    var id = P.SHAPE_ORDER[si], r = shapeGlassFaults(G, id);
+    if (r.faults.length) shapeOk = false;
+    shapeRows.push(id + (r.faults.length ? ': ' + r.faults.join(', ') : ' (' + r.rows + ' rows beyond its widest)'));
+    // the fills from the app's own sand: a 5-minute and a 60-minute glass, a third of the sand run down
+    var sim = new P.Sim({ scale: 1.08, shape: id, seed: 13 }), gs = r.glass, ppgS = F.PPC * F.PPC * gs.s * gs.s;
+    [300000, 3600000].forEach(function (ms) {
+      var N = Math.round(sim.capacity * Math.max(0.02, Math.min(0.78, sim.fillMax) * Math.sqrt(ms / 3600000)));
+      sim.reset(N); sim.fastForward(Math.round(N / 3));
+      var want = { top: VA.pointsFor(sim.nTop, ppgS), bottom: VA.pointsFor(sim.total - sim.nTop, ppgS) };
+      var fl = F.fromLattice(sim, gs, want), bad = 0;
+      for (var q = 0; q < fl.top + fl.bottom; q++) {
+        var x = fl.pts[2 * q], y = fl.pts[2 * q + 1];
+        if (!(G.sampleField(gs, x, y)[2] > 0.45) || ((q < fl.top) !== (y > gs.cy))) bad++;
+      }
+      var ok = fl.top === want.top && fl.bottom === want.bottom && bad === 0;
+      if (!ok) fillOk = false;
+      fillRows.push(id + ' ' + ms / 60000 + ' min ' + fl.top + '+' + fl.bottom + (ok ? '' : ' (asked ' + want.top + '+' + want.bottom + ', ' + bad + ' outside or on the wrong side)'));
+    });
+  }
+  check(shapeOk, 'every shape\'s glass, built as the app builds it: the same after a half turn, point for point; the widened neck stops at the widest row (warp 1 and the drawn wall beyond it), warp never above 1: ' + shapeRows.join('; '));
+  check(fillOk, 'every shape: the fills from the app\'s own sand hold exactly the points asked for, inside the glass and on their side of the neck: ' + fillRows.join('; '));
+  // the control: the neck widened all the way to the far end, as before build 7
+  var os = require('os'), fs = require('fs');
+  var src = fs.readFileSync(path.join(__dirname, '..', '..', 'realsand', 'glass.mjs'), 'utf8');
+  var oldRule = src.replace('const neckAt = u => (u <= g.equator ? RNapp : g.RN);', 'const neckAt = u => RNapp;');
+  var tmp = path.join(os.tmpdir(), 'hg-glass-old-neck-' + process.pid + '.mjs');
+  fs.writeFileSync(tmp, oldRule);
+  var GOld = await import(tmp);
+  fs.unlinkSync(tmp);
+  var cDelta = shapeGlassFaults(GOld, 'delta'), cClassic = shapeGlassFaults(GOld, 'classic');
+  check(oldRule !== src && cDelta.faults.length > 0 && cClassic.faults.length === 0,
+    '... and a copy of glass.mjs that widens the neck to the far end fails it on delta (' + cDelta.faults.join(', ') + ') and changes nothing on the classic glass (control)');
 
   // ---- the colour seeds ----
   var pts = F.makeFill(gS, 'top', { points: 2000 }), data = F.packParticles(pts, SOL.MATERIALS.coarse), seedsOk = true, n2 = pts.length / 2;
