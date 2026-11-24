@@ -37,7 +37,7 @@
  *     is updating. Open it again with a connection.", builds nothing and throws no error, and
  *     with a connection again it runs. (From a snapshot worker, R1 and later, a copy is never
  *     mixed: that is UPGRADE and FAILED INSTALL.)
- *  6. OLD SAVES: each of the six materials, saved by release 1.13.0 (origin/main) and by release
+ *  6. OLD SAVES: each of the six materials, saved by release 1.13.0 (d6482bd) and by release
  *     1.10.0 (5911e24) through their own cards, comes through the update to this tree with the
  *     same sand, caps and picture and every other setting as it was, online and offline (the
  *     sand and the frame's finish are chosen apart from 1.14.0 on). Its control: a copy of this
@@ -56,7 +56,7 @@
  * app.js or the style sheet).
  *
  * HOURGLASS_MAIN=<ref> installs another ref than origin/main first. Without that ref, or without
- * 13a9772 (a shallow clone), the suite fails and says how to fetch it.
+ * 13a9772, d6482bd or 5911e24 (a shallow clone), the suite fails and says how to fetch it.
  *
  *   node tools/test/app-upgrade.test.js [--port <n>] [--only <case>]    (default port: $PORT, else 8711;
  *   cases: upgrade overtaken vary "failed install" hole lab interrupted "old saves")
@@ -806,7 +806,8 @@ async function caseInterrupted(s, browser, T) {
 // sand in the same colour table, the same caps, the same static picture, and every other setting
 // as it was, online and offline. The save is written by the old release itself: its own card for
 // the material tapped, with layered sand on, the bowl off and the rain behind the sand.
-var OLD_RELEASES = [['1.13.0', MAIN], ['1.10.0', '5911e24']];
+// (each named by its own commit, never by MAIN: from 1.14.0 on a release has no material cards to tap)
+var OLD_RELEASES = [['1.13.0', 'd6482bd'], ['1.10.0', '5911e24']];
 var MATERIALS = { sahara: 'walnut', volcanic: 'brass', moonstone: 'silver', lapis: 'gold', rosequartz: 'copper', seaglass: 'driftwood' };
 /** What the page shows of the look: the renderer's colour table and static layers (hashes), whose theme it is, the save. */
 function lookNow(page) {
@@ -920,9 +921,9 @@ async function main() {
     try {
       git(['rev-parse', '--verify', '--quiet', MAIN + '^{commit}']);
       git(['rev-parse', '--verify', '--quiet', BEFORE_R1 + '^{commit}']);
-      git(['rev-parse', '--verify', '--quiet', OLD_RELEASES[1][1] + '^{commit}']);
+      OLD_RELEASES.forEach(function (o) { git(['rev-parse', '--verify', '--quiet', o[1] + '^{commit}']); });
     } catch (e) {
-      why = 'needs ' + MAIN + ', ' + OLD_RELEASES[1][1] + ' and ' + BEFORE_R1 + ' (git fetch origin main; in a shallow clone, git fetch --unshallow)';
+      why = 'needs ' + MAIN + ', ' + OLD_RELEASES.map(function (o) { return o[1]; }).join(', ') + ' and ' + BEFORE_R1 + ' (git fetch origin main; in a shallow clone, git fetch --unshallow)';
     }
     if (why) { s.check('the upgrade suite ' + why, false); return; }
     var argRoot = process.argv.indexOf('--root') > 0 ? path.resolve(process.argv[process.argv.indexOf('--root') + 1]) : (process.env.HOURGLASS_ROOT || ROOT);

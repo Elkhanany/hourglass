@@ -378,8 +378,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   as that sand over its own finish, and every other setting as it was,
   online and offline (what the app keeps of its Real sand engine aside); a
   copy without the finish's migration is found out. It needs
-  `origin/main`, 5911e24 (release 1.10.0) and 13a9772 from git
-  (`HOURGLASS_MAIN=<ref>` names another first release).
+  `origin/main`, d6482bd (release 1.13.0), 5911e24 (release 1.10.0) and
+  13a9772 from git (`HOURGLASS_MAIN=<ref>` names another first release;
+  the old saves are always made by those two releases).
   `app-tune` covers Tune's four tabs: one panel shown and remembered, the
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
