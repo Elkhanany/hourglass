@@ -97,7 +97,7 @@
  *        MUTED: the feeds come, the output is silent, and so with the volume at 0 (the
  *        control: unmuted, it is not). BEDS: the engine's own ears, with nothing said for it:
  *        the mock chip's readbacks carry each bulb's bed (solver.mjs bedOf), the upper one
- *        sliding within itself, then falling and stopped by the glass; the real adapter makes
+ *        sliding within itself, then falling as one body and stopped by the glass; the real adapter makes
  *        slides, agitation and one landing of it, and audio.update is given them and plays them
  *        (the control: the same bed at rest in its records: nothing).
  *
@@ -2183,8 +2183,9 @@ async function testSounds(s, env) {
         e.tally = !how ? null : function () {
           k++;
           var fall = how === 'moved' && k > 20 && k <= 23, stop = how === 'moved' && k > 23 && k <= 27;
-          // moved: a quarter of its points sliding at 60 cells a second, its own velocity swinging; then 3 readbacks falling at 160, and stopped
-          var vx = how === 'moved' ? 6 * Math.sin(k / 3) : 0, vy = fall ? -160 : (stop ? -8 : 0), sl = how === 'moved' ? 5000 : 0;
+          // moved: a quarter of its points sliding at 60 cells a second, its own velocity swinging; then 3 readbacks falling at 160
+          // as one body (every point of it moving, as a bed's mean of 160 must have them), and stopped
+          var vx = how === 'moved' ? 6 * Math.sin(k / 3) : 0, vy = fall ? -160 : (stop ? -8 : 0), sl = how === 'moved' ? (fall ? 20000 : 5000) : 0;
           return { moving: 5000, beds: [
             { n: 20000, vx: vx, vy: vy, x: 3, sliding: sl, slide: sl * (60 + Math.sqrt(vx * vx + vy * vy)) },
             { n: 0, vx: 0, vy: 0, x: 0, sliding: 0, slide: 0 }] };

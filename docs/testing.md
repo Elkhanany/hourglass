@@ -194,7 +194,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   analyser on the sound engine's last node (unmuted, it is not); and the
   engine's own ears, with nothing said for it: the mock chip's readbacks
   carry each bulb's bed, the upper one sliding within itself, then falling
-  and stopped by the glass, and the real adapter's slides, agitation and
+  as one body and stopped by the glass, and the real adapter's slides, agitation and
   one landing, at the energy of that fall, reach `audio.update` and are
   played (the same bed at rest in the records gives nothing); a start
   that fails keeps the setting and stops after three launches (an engine
