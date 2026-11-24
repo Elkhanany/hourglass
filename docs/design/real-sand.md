@@ -7,7 +7,7 @@ WebGPU, in the glass the app draws, keeping the app's exact time. The engine
 is `realsand/`; the app runs it by default where WebGPU works, and the
 **Real sand** switch in Tune turns it off and on.
 
-This document is the design as it is built (engine build 8), written from the
+This document is the design as it is built (engine build 7), written from the
 code. The code cites it by section: a comment that says "(design 7.4)" means
 section 7.4 below, and the section numbers are kept so that those citations
 stay true. Where this document and the code disagree, the code is right and
@@ -757,7 +757,7 @@ changed. The classic sand's figures stand: its code has not changed. What
 can be measured again here is realsand-gpu's SOUND case (its own motions: a
 flick along the glass, a sideways shake of 1.5 g at 5 Hz for 1.5 s, a lean of
 30°), whose checks hold the GPU's thump and agitation within a factor of 2 of
-the classic sand's; its figures at build 8, with the sideways shake counted
+the classic sand's; its figures at build 7 (the engine has not changed since), with the sideways shake counted
 over several runs, are still to be written here.
 
 | motion | thumps: classic (number, summed E, largest) | GPU | agitation: classic (highest, summed over time) | GPU |
