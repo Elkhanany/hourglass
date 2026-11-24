@@ -815,7 +815,7 @@ glow, rim light and depth shading of the CPU sand are not drawn. Grain is
 the classic sand's and is hidden meanwhile; the GPU sand keeps its own. With the switch
 on, the row's **Copy a report** copies the engine's figures (its power mode,
 rate, counts, the stream's first fall, the start-up times, the heat guard's
-trips, its log) for the owner's notes, also from a home-screen web app;
+trips, its log) for a report, also from a home-screen web app;
 `?debug=sand` shows them on screen too; `?offscreen=1` is for the tests only
 (the engine draws offscreen and accepts a software adapter).
 

@@ -364,7 +364,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   it whole, and a theme or layered sand chosen while the GPU sand runs (the
   new colours at once; a re-tone that moves no grain); and `?debug=sand`
   and the row's "Copy a report", whose report carries the start-up times
-  and the stream's first fall to the owner's reports. The monitor every suite runs (`stubs/page-init.js`) follows
+  and the stream's first fall to the reports. The monitor every suite runs (`stubs/page-init.js`) follows
   `Hourglass.sim` when Real sand takes over, and checks the GPU's readbacks
   against its count (`audit()`). `app-regression`'s service worker check
   serves a new build of the engine midway: the app keeps its cached engine,
@@ -387,7 +387,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   whose `SHELL` names a missing file (its install fails, leaves no cache,
   and the installed release runs whole, online and offline); a script taken
   out of the cache (offline the page says it is updating; one launch with a
-  connection fills the cache again, from the same release only); a lab
+  connection fills the cache again, from the same release only); an older
+  release (1.10.0) with `app.js` taken out of its cache, met online by this
+  tree (the page says to open it again in a moment, not "with a
+  connection", and the next launch runs this tree; its control is this tree
+  with the online words taken out); a lab
   page that meets another build (the app's cache stays whole); and an update
   that never finishes over a copy installed before the snapshot worker
   (13a9772's worker fetches each file it answers into its copy, so offline
@@ -414,7 +418,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
   at boot, the reset link (what it puts back, the sand and its finish among it,
-  and what it keeps, the custom sand's colour among it), and the
+  and what it keeps, the custom sand's colour among it; its first tap's
+  question said to a screen reader through a status drawn nowhere), each
+  tab taking a tap 3 px above and below what is drawn of it (`--only
+  target`, at 393 x 852 and 320 x 568, its reach clear of the close button,
+  the next tab and the rows), the focus kept in an open sheet by Tab and
+  Shift+Tab (`--only focus`, Tune and the custom-duration sheet), and the
   "more below" hint (`--only hint`): at 393 x 852 a tab that can scroll
   shows it at its top and in its middle and not at its end (every tab can, at that size); a
   scrolled tab fades its rows under the tab row; a finger on the hint
@@ -677,7 +686,7 @@ BEHIND (GPU budget). (More, "N in flight" and "GPU budget", go back toward
 the old pace, to compare: up to 3 frames in flight, no budget; a budget
 set from the measured time instead, as in 9b0a9f1, would fall to one
 substep a frame on a phone whose light frames report about a display frame
-whatever their work, as the owner's did, and nearly stop the sand:
+whatever their work, as one iPhone's did, and nearly stop the sand:
 `tools/test/lab-pace.test.js` keeps that rule as its control.)
 **Benchmark** and **Flow test** measure the phone, and **Copy results**
 puts a plain-text report on the clipboard to send back: it opens with the
