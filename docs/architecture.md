@@ -192,7 +192,12 @@ repairs that read two keys (`?t=300` sets the duration and ends a saved
 sequence; a rest out of range is no rest; without a rest there is one
 round; a custom sand without a colour is its material's sand). `save(values)` writes them back. Storage that throws, or cannot be
 reached at all (private mode, storage blocked), runs with the defaults and
-saves nothing. The file reads nothing when it loads, so the tests load it in
+saves nothing. When the load could not read the storage (`getItem` threw)
+but writing works, `save()` first reads it again: while that throws too,
+nothing is written; once it reads, a save that is missing or is not JSON is
+written as usual, and a save that is there is left as it is for the rest of
+that launch (the next launch reads it). One failed read never writes the
+defaults over the settings. The file reads nothing when it loads, so the tests load it in
 Node as it is.
 
 `app.js` keeps the loaded values as `settings`, writes them and calls

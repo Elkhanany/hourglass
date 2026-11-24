@@ -17,10 +17,13 @@
  *     first records, in their order; a record added since comes after them, and is left out of
  *     this comparison (out of the values, and out of the saved JSON where a save was written),
  *     so a new setting needs no change here.
- *     One difference from the old section is made on purpose (DELIBERATE below): a saved theme
- *     that is one of the names every object has (each own name of Object.prototype: 'toString',
- *     '__proto__', 'valueOf' ...) passed the old check, and was kept and saved (in 1.13.0 it stopped the app at every launch);
- *     the store gives the default material ('sahara') for it, and is held to that.
+ *     Two differences from the old section are made on purpose (deliberate() below), and the
+ *     store is held to them: a saved theme that is one of the names every object has (each own
+ *     name of Object.prototype: 'toString', '__proto__', 'valueOf' ...) passed the old check,
+ *     and was kept and saved (in 1.13.0 it stopped the app at every launch): the store gives the default material ('sahara');
+ *     and where the storage could not be read (getItem threw), the old section saved the
+ *     defaults over whatever was there: the store reads again before it writes, and while
+ *     that throws too, it writes nothing (the save is left as it was).
  *  3. The migrations: the version step (Real sand on, once, for a save from before version 2),
  *     and a record's `from` (the value for a save without the key), on a made-up store; every
  *     record of the app with a `from` has its example in FROM below.
@@ -92,6 +95,7 @@ function Storage(text, mode) {
     getItem: function (k) {
       st.ops.push('get ' + k);
       if (st.mode === 'noget') throw new Error('SecurityError');
+      if (st.mode === 'getonce' && !st.failedOnce) { st.failedOnce = true; throw new Error('SecurityError'); }
       return Object.prototype.hasOwnProperty.call(st.data, k) ? st.data[k] : null;
     },
     setItem: function (k, v) {
@@ -119,20 +123,29 @@ function runRef(text, search, mode) {
   var out = { values: entries(r.settings), asked: r.qt ? +r.qt[1] * 1000 : null };
   r.save();
   out.json = Object.prototype.hasOwnProperty.call(st.data, KEY) ? st.data[KEY] : null;
-  out.ops = st.ops; out.reached = st.reached; out.wrote = !!st.wrote;
+  out.ops = st.ops; out.reached = st.reached; out.wrote = !!st.wrote; out.before = text; out.mode = mode;
   return out;
 }
 /*
- * The difference from the old section made on purpose: a saved theme that is a name every object
- * has (an own name of Object.prototype, which THEMES only inherits) was kept by the old check
- * (`!!THEMES[v]`); the store gives the default material for it. The old launch is made into what
- * the store must give: the theme 'sahara', in the values and in the JSON it wrote. True when it
- * changed something.
+ * The differences from the old section made on purpose. The old launch is made into what the store
+ * must give; true when it changed something.
+ *  - A storage whose getItem throws ('noget'): the old section saved the defaults over the save.
+ *    The store reads again before it writes; that throws too, so it writes nothing: the save is
+ *    as it was, and the calls on storage are two reads.
+ *  - A saved theme that is a name every object has (an own name of Object.prototype, which THEMES
+ *    only inherits) was kept by the old check (`!!THEMES[v]`); the store gives the default
+ *    material: the theme 'sahara', in the values and in the JSON it wrote.
  */
 var INHERITED = Object.getOwnPropertyNames(Object.prototype);
 function inherited(v) { return typeof v === 'string' && INHERITED.indexOf(v) >= 0 && !Object.prototype.hasOwnProperty.call(THEMES, v); }
 function deliberate(out) {
   var changed = false, o;
+  if (out.mode === 'noget' && out.wrote) {
+    out.json = out.before;                      // (null when nothing was saved)
+    out.ops = out.ops.map(function (op) { return op.replace(/^set /, 'get '); });
+    out.wrote = false;
+    changed = true;
+  }
   out.values.forEach(function (e) { if (e[0] === 'theme' && inherited(e[1])) { e[1] = 'sahara'; changed = true; } });
   if (changed && out.json !== null && out.wrote) {
     o = JSON.parse(out.json);
@@ -379,12 +392,14 @@ function differing(run, handed) {
 }
 function first(list) { return list.slice(0, 3).map(function (d) { return '#' + d.i + ' ' + JSON.stringify(d.text) + ' ' + d.search + ' (' + d.mode + '): ' + d.how; }).join(' | '); }
 var dFn = differing(storeRun(S, 'function')), dObj = differing(storeRun(S, 'object'), true);
-var nDeliberate = CASES.filter(function (c) { return deliberate(runRef(c.text, c.search, c.mode)); }).length;
+var nDeliberate = CASES.filter(function (c) { var r = runRef(c.text, c.search, c.mode); return c.mode !== 'noget' && deliberate(r); }).length;
+var nUnread = CASES.filter(function (c) { var r = runRef(c.text, c.search, c.mode); return c.mode === 'noget' && deliberate(r); }).length;
 var namesCovered = INHERITED.filter(function (n) { return CASES.some(function (c) { return c.text === '{"theme":' + JSON.stringify(n) + '}'; }); });
-check(dFn.length === 0 && namesCovered.length === INHERITED.length && nDeliberate >= INHERITED.length,
+check(dFn.length === 0 && namesCovered.length === INHERITED.length && nDeliberate >= INHERITED.length && nUnread >= 4,
   'the loader: on all 500, the store gives what the old section gave: the same settings in the same order, the same saved JSON byte for byte, ' +
-  'the same calls on storage, the same answer to "?t=", and the same again on a second launch; but for the one difference made on purpose: on the ' + nDeliberate +
-  ' whose theme is a name every object has (each of the ' + INHERITED.length + ' own names of Object.prototype among them), which the old section kept, the store gives the default material, \'sahara\'',
+  'the same calls on storage, the same answer to "?t=", and the same again on a second launch; but for the two differences made on purpose: on the ' + nDeliberate +
+  ' whose theme is a name every object has (each of the ' + INHERITED.length + ' own names of Object.prototype among them), which the old section kept, the store gives the default material, \'sahara\'; ' +
+  'on the ' + nUnread + ' whose storage cannot be read (getItem throws), where the old section saved the defaults over the save, the store reads again, and writes nothing',
   first(dFn) + (namesCovered.length === INHERITED.length ? '' : ' (not every name is a case: ' + namesCovered.join() + ')'));
 check(dObj.length === 0, '... and the same with the Storage handed over itself instead of the function that reaches it', first(dObj));
 
@@ -722,6 +737,31 @@ var blocked = Storage('{"v":2,"theme":"lapis"}', 'blocked'), vb = null, threw = 
 try { vb = S.load(blocked.reach, '?t=45', REG); S.save(vb); } catch (e) { threw = e.message; }
 check(!threw && vb && vb.theme === 'sahara' && vb.durationMs === 45000 && blocked.reached === 2,
   'a storage that cannot be reached at all (blocked: localStorage itself throws) runs with the defaults, and "?t=" still counts', threw);
+// one failed read at the launch (getItem throws once, setItem works): the save that is there is
+// not written over with the defaults; one that is missing or is not JSON is written as usual
+var SAVED_TEXT = '{"v":2,"theme":"lapis","durationMs":1500000,"restMs":300000,"rounds":4,"realSand":false,"grain":2,"tuneTab":"time"}';
+/** What a store does over one failed read: [] when it keeps the save and writes the rest. */
+function unreadProblems(store) {
+  var out = [], st, v, again;
+  st = Storage(SAVED_TEXT, 'getonce'); v = store.load(st.reach, '', REG); store.save(v);
+  if (st.data[KEY] !== SAVED_TEXT) out.push('a save after one failed read became ' + st.data[KEY]);
+  v.volume = 0.2; store.save(); store.save(v);
+  if (st.data[KEY] !== SAVED_TEXT) out.push('... and after two more saves of that launch ' + st.data[KEY]);
+  again = store.load(st.reach, '', REG);
+  if (again.theme !== 'lapis' || again.durationMs !== 1500000 || again.rounds !== 4 || again.grain !== 2 || again.tuneTab !== 'time') out.push('the next launch read ' + JSON.stringify(again).slice(0, 120));
+  st = Storage(SAVED_TEXT, 'noget'); v = store.load(st.reach, '', REG); store.save(v);
+  if (st.data[KEY] !== SAVED_TEXT || st.ops.join() !== 'get ' + KEY + ',get ' + KEY) out.push('a storage whose reads all throw: ' + st.ops.join() + ' and ' + st.data[KEY]);
+  [[null, 'nothing saved'], ['{"v":2,', 'a save that is not JSON'], ['[1]', 'a save that is no object']].forEach(function (c) {
+    st = Storage(c[0], 'getonce'); v = store.load(st.reach, '', REG); store.save(v);
+    if (!st.wrote || JSON.parse(st.data[KEY]).theme !== 'sahara') out.push(c[1] + ', after one failed read, was not written: ' + st.data[KEY]);
+  });
+  st = Storage(SAVED_TEXT, 'ok'); v = store.load(st.reach, '', REG); v.volume = 0.2; store.save(v);
+  if (st.ops.join() !== 'get ' + KEY + ',set ' + KEY || JSON.parse(st.data[KEY]).volume !== 0.2) out.push('a launch that read as usual: ' + st.ops.join());
+  return out;
+}
+var up = unreadProblems(S);
+check(up.length === 0, 'one failed read at the launch (getItem throws once, setItem works): the save that is there is kept, through every save of that launch, and read by the next; ' +
+  'a storage whose reads all throw is not written; a save that is missing, not JSON or no object is written as usual; a launch that read writes as before', up.join('; '));
 // bindSwitch: set, save, then the callback, inside the event
 var st2 = Storage('{"v":2,"realSand":false}', 'ok'), v3 = S.load(st2.reach, '', REG), heard = [], order = [];
 var el = { addEventListener: function (type, fn) { heard.push([type, fn]); } };
@@ -756,6 +796,11 @@ check(showsLoaded(S) && showsLoaded(storeOf(STORE_SRC)) && /bound before the set
   'bindSwitch sets the switch to the loaded value as it binds (a switch the page has on comes up off for a value saved off), so a switch needs no line of its own at the boot; bound before a load, it throws', unloaded);
 var deaf = STORE_SRC.replace('      el.checked = !!current[key];\n', '');
 check(deaf !== STORE_SRC && !showsLoaded(storeOf(deaf)), '... and a copy of ' + STORE_FILE + ' whose bindSwitch only listens leaves the switch as the page has it (control)');
+// (the control of one failed read at the launch, above: a store that writes without reading again)
+var oldSave = STORE_SRC.replace(/    function save\(values\) \{[\s\S]*?\n    \}\n/, "    function save(values) {\n      try { storage().setItem(KEY, JSON.stringify(values || current)); } catch (e) {}\n    }\n");
+var upOld = oldSave !== STORE_SRC ? unreadProblems(storeOf(oldSave)) : ['(the copy is the file itself)'];
+check(oldSave !== STORE_SRC && upOld.length >= 3 && /a save after one failed read became/.test(upOld[0]),
+  '... and a copy of ' + STORE_FILE + ' whose save() writes without reading again (as up to 1.15.0) writes the defaults over the save (control)', upOld.join('; ').slice(0, 300));
 // the file reads nothing when it loads: run where every global it could read is watched
 var touched = [], box = {};
 ['localStorage', 'sessionStorage', 'location', 'document', 'navigator', 'HourglassPhysics'].forEach(function (g) {

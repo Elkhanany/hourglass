@@ -71,14 +71,18 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   JSON, `?t=` queries, with and without a version, storage that throws): the
   same settings in the same order, the same saved JSON byte for byte, the
   same calls on storage, and the same again on a second launch, and nine
-  stores that differ in one thing each are found out; but for one
-  difference made on purpose, held as the store must give it: a saved theme
-  that is a name every object has (each own name of `Object.prototype`, each
-  a case), which the old section kept, is the default material (and a store
-  that checks it the old way must fail); each of those names, saved as the
-  theme, the sand, the finish or the shape, comes up and is saved as the
-  default (copies that look the theme, the sand or the finish up the loose
-  way must fail); the Settings section
+  stores that differ in one thing each are found out; but for the
+  differences made on purpose, each held as the store must give it: a saved
+  theme that is a name every object has (each own name of
+  `Object.prototype`, each a case), which the old section kept, is the
+  default material (and a store that checks it the old way must fail); where
+  `getItem` throws, the old section saved the defaults over the save, and
+  the store reads again and writes nothing (one failed read at the launch,
+  with writing working, keeps the save through every save of that launch,
+  and a copy of the store that writes without reading again must fail);
+  each of those names, saved as the theme, the sand, the finish or the
+  shape, comes up and is saved as the default (copies that look the theme,
+  the sand or the finish up the loose way must fail); the Settings section
   `app.js` has today (the lines that call the store, cut by its banners and
   run as `app.js` runs them) gives the same on the 500 too, and five copies
   of it with one thing changed are found out (the Storage handed over itself,
