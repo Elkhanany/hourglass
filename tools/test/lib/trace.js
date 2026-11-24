@@ -50,7 +50,8 @@ function recorder() {
   // like layout(), the window's: it comes with every resize and load)
   var LATER = { 'renderer.setTheme': 1, 'renderer.setLook': 1, 'renderer.setFrame': 1, 'renderer.setLayers': 1, 'sim.setLayers': 1,
     'audio.setVolume': 1, 'audio.setMuted': 1, 'audio.setCharacter': 1, 'audio.setChimeEnabled': 1, 'audio.setAmbience': 1,
-    'audio.setAmbienceLevel': 1, 'audio.chime': 1, 'motion.request': 1, 'motion.start': 1, 'motion.stop': 1 };
+    'audio.setAmbienceLevel': 1, 'audio.chime': 1, 'motion.request': 1, 'motion.start': 1, 'motion.stop': 1,
+    'audio.setSandLevel': 1, 'audio.setBowlLevel': 1, 'audio.setSilentRing': 1 };
   var NO_ARGS = { 'renderer.layout': 1 };
   var AUDIO_FIELDS = ['volume', 'muted', 'character', 'chimeEnabled', 'ambience', 'ambLevel'];
   function want(name) { return T.depth === 0 && (T.mode === 'all' || LATER[name] === 1); }
@@ -251,8 +252,9 @@ function pick(sel, v) { return { slide: sel, value: v, change: true }; }
 // same element (a tab's, or "open Tune"). The tabs have lines of their own at the start. The
 // reset link's two taps come after every control that changes the look and the sound, just
 // before Real sand (which must be last: what Real sand does once it has started is another
-// suite's): there it has a sand, a volume and an ambience level to put back, so its save, its
-// cross-fade and what it tells the sound engine are in the trace (what it does with every
+// suite's): there it has a sand, a volume, an ambience level, the sand's and the bowl's levels,
+// the rings and the fade before the end to put back (and Sound in silent mode to keep), so its
+// save, its cross-fade and what it tells the sound engine are in the trace (what it does with every
 // setting changed is app-tune's). The second tap is
 // 'slow': a person's second tap, at least 0.4 s after the first (a quicker one is the second
 // half of a double tap, which the link takes for no answer; app-tune holds that).
@@ -291,6 +293,7 @@ var DRIVE = [
   ['character: bamboo', click('#characters [data-character="bamboo"]')],
   ['character: dune', click('#characters [data-character="dune"]')],
   ['character: asmr', click('#characters [data-character="asmr"]')],
+  ['sand level: 40', slide('#sand-level', 40)],
   ['volume: 30', slide('#volume', 30)],
   ['mute (the top bar)', click('#btn-mute')],
   ['volume: 55, while muted', slide('#volume', 55)],
@@ -300,9 +303,22 @@ var DRIVE = [
   ['ambience: waterfall', click('#ambiences [data-ambience="waterfall"]')],
   ['ambience: drips', click('#ambiences [data-ambience="drips"]')],
   ['ambience level: 70', slide('#amb-level', 70)],
+  ['fade out before the end: on (the last 5 minutes)', click('#opt-ambfade')],
+  ['fade out before the end: the last minute', click('#ambfades [data-fade="60000"]')],
+  ['fade out before the end: the last 10 minutes', click('#ambfades [data-fade="600000"]')],
+  ['fade out before the end: the last 5 minutes', click('#ambfades [data-fade="300000"]')],
+  ['fade out before the end: off', click('#opt-ambfade')],
+  ['fade out before the end: on again', click('#opt-ambfade')],
   ['ambience: none', click('#ambiences [data-ambience="none"]')],
   ['completion bowl: off', click('#opt-chime')],
   ['completion bowl: on', click('#opt-chime')],
+  ['rings: until a tap', click('#rings [data-rings="tap"]')],
+  ['rings: once', click('#rings [data-rings="once"]')],
+  ['rings: three times', click('#rings [data-rings="three"]')],
+  ['bowl level: 80', slide('#bowl-level', 80)],
+  ['sound in silent mode: off', click('#opt-silent')],
+  ['sound in silent mode: on', click('#opt-silent')],
+  ['sound in silent mode: off again (the reset keeps it)', click('#opt-silent')],
   ['keep screen awake: off', click('#opt-awake')],
   ['keep screen awake: on', click('#opt-awake')],
   ['real motion: on', click('#opt-tilt'), 'motion'],
