@@ -161,11 +161,16 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
 - `render-*`: the crack paths, their redraw and the spilled sand's physics in
   Node; cracks, their glint, kintsugi and the spill in the real app; and,
   with no cracks, the picture against f446085, pixel for pixel.
-  `render-shape` draws every glass shape as the app would and reads the
-  layers back: no pixel of sand outside the glass, mid-run and through the
-  Reset sweep; the drawn glass's wall on the shape's own curve, and as thick
-  all along; the collars covering the ends; the layers their own half turn;
-  the lights on the glass; cracks on it.
+  `render-shape` draws every glass shape as the app would, once with the
+  drawn glass and once with the WebGL glass, and reads the layers back: no
+  pixel of sand outside the glass, mid-run and through the Reset sweep; the
+  glass's wall on the shape's own curve, and as thick all along; the collars
+  covering the ends; the layers their own half turn; the lights on the
+  glass; cracks on it. For the WebGL glass it also holds that the classic
+  teardrop's shader is still the text it always was, that another shape's
+  shader reads its table at full precision, that the picture comes back
+  after a lost context, and that a device which refuses that shader is
+  given the drawn glass of the same shape.
 - `motion-*` and `audio-*`: the sensor pipeline (against a model of a phone
   being shaken, in each browser's sign convention) and its permission, and
   the sound engine's calls and levels, and the water ambiences: that each

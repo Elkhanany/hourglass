@@ -5,33 +5,41 @@
  * app's canvases, laid out for a phone: 374 x 718 CSS px at DPR 3), run to
  * the middle of its time, and its layers are read back pixel by pixel.
  *
- * For every shape, with each kind of glass in GLASSES (today the drawn 2-D
- * glass; the WebGL glass is to be added beside it, see GLASSES and PROBES):
+ * For every shape, with each kind of glass in GLASSES: the drawn 2-D glass
+ * (c-back and c-front), and the WebGL glass (c-glass-back and
+ * c-glass-front, rendered in software here: still pictures only):
  *
  *   sand        every pixel of sand on c-sand lies inside the shape's bore
  *               (profile), mid-run with the thread in the air; the sand's
  *               canvas sits on the middle of the glass, at the glass's scale
  *   the sweep   the same in the Reset sweep, at nine moments of the old sand
  *               going and 39 of the new coming, and the new sand's thread
- *               starts at the shape's own top
+ *               starts at the shape's own top (once, with the drawn glass:
+ *               the sweep is the sand's own)
  *   the wall    on both glass layers (far wall and near wall) the inner
  *               surface of the glass follows profile within 1.5 device
  *               pixels, at 20 heights in each bulb, on both sides; and on
  *               every shape but the classic the wall is as thick there as
  *               geo.wall says, within 1.5 pixels (it does not thin away
- *               where a funnel flares or an end lies flat)
+ *               where a funnel flares or an end lies flat); the WebGL glass
+ *               may be heavier by the waist, by its bead, never thinner
  *   half turn   both glass layers, with the frame and without, are the same
  *               picture turned by 180 degrees (a Flip puts the lattice back
  *               upright under layers that are not redrawn): at most 100 of
  *               a layer's pixels differ by more than 24 of 255 (up to 34 do
  *               on these nine glasses, on the smoothed edges of hairlines
- *               and of parts drawn turned)
+ *               and of parts drawn turned). The WebGL glass is lit by a
+ *               room that stays put, and is redrawn as it turns: there the
+ *               glass drawn turned half round, and shown so, is the picture
+ *               of the upright glass
  *   collar      with the frame, nothing of the glass shows beside a collar
  *               in the collar's own rows: it covers the end, both ends
  *   lights      what is drawn on c-light for the bare glass lies on the
- *               glass; the window glint is whole and inside the
- *               bore in both bulbs (not in mid-air, not cut by the wall)
- *   cracks      a crack's path stays on the glass and off the waist; on every
+ *               glass; with the drawn glass the window glint is whole and
+ *               inside the bore in both bulbs (not in mid-air, not cut by
+ *               the wall)
+ *   cracks      (with the drawn glass: the paths are the same under either)
+ *               a crack's path stays on the glass and off the waist; on every
  *               shape but the classic no step of it is longer than a step
  *               (a low, flat end makes steps taken along the axis jump); by
  *               the waist it is a hoop, on the dome a star, between them a
@@ -40,6 +48,14 @@
  *
  * and the suite can tell: the same checks on a glass drawn with the wrong
  * shape (the classic teardrop's layers around another shape's sand) fail.
+ *
+ * Then, of the WebGL glass alone (each said in full where it stands, below):
+ * the classic glass is compiled from the shader text it always had, byte
+ * for byte, and another glass from one of its own; that one reads its table
+ * of half-widths at full precision; either layer's context, and both, can
+ * be lost and restored and the picture comes back as it was; and a device
+ * that will not take the table shader gets the drawn glass of the same
+ * shape.
  *
  *   node tools/test/render-shape.test.js [--port n] [--only id[,id]]     exits 0 when every case passes
  *
@@ -69,13 +85,13 @@ var IDS = L.P.SHAPE_ORDER;
 
 /*
  * The kinds of glass. `gl` hands the Renderer the two WebGL canvases; `is`
- * is what it must then say it draws with. The WebGL glass is added here,
- * { id: 'webgl', gl: true, is: 'webgl' }, with its probes in PROBES (in the
- * page, below): how its two layers are read back and where their inner and
- * outer surfaces are. Everything else in this file is the same for both.
+ * is what it must then say it draws with. Each has its probes in PROBES (in
+ * the page, below): which two layers hold its glass, how they are read back
+ * and where their inner and outer surfaces are.
  */
 var GLASSES = [
-  { id: 'drawn', gl: false, is: 'drawn' }
+  { id: 'drawn', gl: false, is: 'drawn' },
+  { id: 'webgl', gl: true, is: 'webgl' }
 ];
 
 var failures = 0, count = 0;
@@ -100,14 +116,15 @@ function pageCode() {
     for (i = 0; i < 480; i++) { sim.beginFrame(); t -= n * 0.06 / 480; sim.targetTop = Math.max(0, Math.ceil(t)); sim.step(); }
     var els = { back: $('c-back'), sand: $('c-sand'), bloom: $('c-bloom'), front: $('c-front'), light: $('c-light') };
     if (cfg.gl) { els.glBack = $('c-glass-back'); els.glFront = $('c-glass-front'); }
-    // `drawAs`: the layers of another shape around this one's sand (the control)
+    // `drawAs`: the layers of another shape around this one's sand (the control;
+    // the WebGL glass is then set up again as that other shape's)
     var ren = new P.Renderer(sim, els), real = sim.geo;
-    if (cfg.drawAs) sim.geo = P.makeGeometry(1.08, cfg.drawAs);
+    if (cfg.drawAs) { sim.geo = P.makeGeometry(1.08, cfg.drawAs); if (cfg.gl) ren._initGlass(); }
     ren.setFrame(false); ren.setTheme('sahara'); ren.layout(374, 718, 3);
     sim.geo = real;
     ren.drawSand(); ren.drawSand(); ren.drawSand();
-    ren.drawGlass(0, true);
-    T.ren = ren; T.sim = sim; T.n = n; T.drawAs = cfg.drawAs || null;
+    T.ren = ren; T.sim = sim; T.n = n; T.drawAs = cfg.drawAs || null; T.gl = {};
+    T.drawGlass(0);
     return { glass: ren.glass ? 'webgl' : 'drawn', total: sim.total, below: sim.total - sim.nTop, np: sim.np, S: ren.scale * ren.dpr,
              W: sim.W, H: sim.H, topY: sim.topY, equator: sim.geo.equator, R: sim.geo.R, HB: sim.geo.HB, wallPx: sim.geo.wall * ren.scale * ren.dpr };
   };
@@ -116,13 +133,41 @@ function pageCode() {
     if (T.drawAs) T.sim.geo = P.makeGeometry(1.08, T.drawAs);
     T.ren.setFrame(on); T.ren.layout(374, 718, 3);
     T.sim.geo = real;
-    T.ren.drawGlass(0, true);
+    T.gl = {};
+    T.drawGlass(0);
+  };
+  /** The WebGL glass turned by `rot` against the room (nothing happens with the drawn glass). */
+  T.drawGlass = function (rot) {
+    var real = T.sim.geo;
+    if (T.drawAs) T.sim.geo = P.makeGeometry(1.08, T.drawAs);
+    T.ren.drawGlass(rot, true);
+    T.sim.geo = real;
   };
 
-  /** A 2-D layer's pixels. */
-  function layer(id) {
-    var c = $(id);
-    return { W: c.width, H: c.height, d: c.getContext('2d').getImageData(0, 0, c.width, c.height).data };
+  /**
+   * A layer's pixels, top row first, and its pixels per cell across and down
+   * (S). A 2-D layer is read as it lies. A WebGL layer keeps its picture
+   * only until the page is next shown, so the glass is drawn again (turned
+   * by `rot`) and read at once with gl.readPixels, bottom row first; its
+   * canvas covers the same box as the 2-D layers with a few pixels fewer.
+   * What was read is kept until the frame changes.
+   */
+  var GL_ID = { 'c-glass-back': 0, 'c-glass-front': 1 };
+  function layer(id, rot) {
+    var c = $(id), S = T.ren.scale * T.ren.dpr, back = $('c-back');
+    if (GL_ID[id] === undefined) return { W: c.width, H: c.height, Sx: S, Sy: S, d: c.getContext('2d').getImageData(0, 0, c.width, c.height).data };
+    rot = rot || 0;
+    if (!T.gl[rot]) {
+      T.drawGlass(rot);
+      T.gl[rot] = T.ren.glass.map(function (g) {
+        var gl = g.gl, w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4), d = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        for (var y = 0; y < h; y++) d.set(px.subarray(4 * w * (h - 1 - y), 4 * w * (h - y)), 4 * w * y);
+        return { W: w, H: h, Sx: S * w / back.width, Sy: S * h / back.height, d: d };
+      });
+      if (rot) T.drawGlass(0);
+    }
+    return T.gl[rot][GL_ID[id]];
   }
   /** Alpha at a point between pixel centres. */
   function alphaAt(im, x, y) {
@@ -136,7 +181,7 @@ function pageCode() {
   /*
    * How each kind of glass shows its wall, read along a line straight
    * through it (v[k]: alpha every quarter pixel from 9 px inside the bore to
-   * 20 px outside it). Each probe answers [inner, outer]: where the inner and
+   * 28 px outside it). Each probe answers [inner, outer]: where the inner and
    * the outer surface are, in pixels from the bore as profile has it, or null
    * for one it cannot find.
    *   drawn, far wall (c-back)    the reflection of the far wall is clipped
@@ -145,8 +190,21 @@ function pageCode() {
    *   drawn, near wall (c-front)  a hairline is stroked along each surface:
    *                               the first crest of alpha on the way out,
    *                               and the highest after it
-   * (The WebGL glass: its layers are read with gl.readPixels, bottom row
-   * first, and its own two probes go here.)
+   *   WebGL, far wall             shaded inside the bore only: it ends at
+   *                               the inner surface (where its alpha has
+   *                               fallen to half of what it is just inside);
+   *                               it has no outer surface (false)
+   *   WebGL, near wall            the wall is solid glass, far more opaque
+   *                               than the bore: the outer surface is where
+   *                               the glass ends, the inner where alpha has
+   *                               climbed, on the way out of the bore, to
+   *                               nine tenths of what it is inside the wall
+   *                               (the bore darkens softly toward the wall,
+   *                               the more slowly the wider the glass: on
+   *                               the widest that point lies a pixel inside)
+   * `bead`: this glass is heavier at the waist than its wall says. `inner`:
+   * the layer whose inner surface the wall's thickness is measured from (the
+   * far wall's, which ends sharply there), where it is not the layer's own.
    */
   function crest(v, k, floor) {
     var sw = 0, sx = 0;
@@ -179,6 +237,31 @@ function pageCode() {
         best = k + 8;
         for (j = k + 8; j < v.length; j++) if (v[j] > v[best]) best = j;
         return [crest(v, k, v[k] - 0.5 * (v[k] - Math.max(lo, dip))), v[best] >= 40 && v[best] - dip >= 12 ? crest(v, best, 0.5 * (v[best] + dip)) : null];
+      }
+    },
+    webgl: {
+      layers: ['c-glass-back', 'c-glass-front'], bead: true, inner: 'c-glass-back',
+      'c-glass-back': function (v) {
+        var k, j, top = 0, half;
+        for (k = v.length - 1; k >= 0 && v[k] < 3; k--) {}
+        if (k < 12 || k === v.length - 1) return [null, false];           // (nothing there, or no end to it)
+        for (j = k - 12; j <= k; j++) if (v[j] > top) top = v[j];
+        if (top < 8) return [null, false];
+        half = top / 2;
+        for (j = k; j > k - 12 && v[j] < half; j--) {}
+        return [(j + (v[j] - half) / (v[j] - v[j + 1]) - 36) / 4, false];
+      },
+      'c-glass-front': function (v, wallPx) {
+        var k, j, end, mid, lev;
+        for (k = v.length - 1; k >= 0 && v[k] < 8; k--) {}
+        if (k < 0 || k === v.length - 1) return [null, null];
+        end = (k + (v[k] - 8) / (v[k] - v[k + 1]) - 36) / 4;               // where the glass ends
+        mid = Math.round(k - 2 * wallPx);                                  // the middle of the wall, if it is as thick as it should be
+        if (mid < 1) return [null, end];
+        lev = 0.9 * v[mid];                                                // (the wall is this opaque from its inner surface on)
+        for (j = mid; j > 0 && v[j - 1] >= lev; j--) {}
+        if (j === 0 || v[mid] < 100) return [null, end];                   // (no bore beside it, or no wall)
+        return [(j - (v[j] - lev) / (v[j] - v[j - 1]) - 36) / 4, end];
       }
     }
   };
@@ -222,24 +305,36 @@ function pageCode() {
    * and the places where a probe found no surface.
    */
   T.edges = function (kind) {
-    var ren = T.ren, g = T.sim.geo, S = ren.scale * ren.dpr, pr = PROBES[kind], out = {};
+    var g = T.sim.geo, pr = PROBES[kind], out = {}, crisp = {};
     pr.layers.forEach(function (id) {
-      var im = layer(id), res = { n: 0, worst: 0, at: '', line: '', none: [], thick: 0, thickAt: '', thickLine: '', thin: 1e9 };
+      var im = layer(id), S = (im.Sx + im.Sy) / 2;
+      var res = { n: 0, worst: 0, at: '', line: '', none: [], thick: 0, thickAt: '', thickLine: '', thin: 1e9, outer: 0, wallPx: g.wall * S, waist: [1e9, -1e9] };
       for (var k = 0; k < 20; k++) {
         var u = 0.05 + 0.9 * k / 19, r = P.profile(u, g), dr = P.profile(u + 0.002, g) - P.profile(u - 0.002, g), dy = 0.004 * g.HB;
         var len = Math.sqrt(dr * dr + dy * dy);
         for (var q = 0; q < 4; q++) {
           var b = q & 1 ? 1 : -1, sd = q & 2 ? 1 : -1, where = 'u ' + u.toFixed(2) + (b < 0 ? ', upper bulb' : ', lower bulb') + (sd < 0 ? ', left' : ', right');
           // the point on the bore, and the way straight out of the glass there
-          var px = im.W / 2 + sd * r * S, py = im.H / 2 + b * u * g.HB * S, nx = sd * dy / len, ny = -b * dr / len, v = [];
-          for (var j = -36; j <= 80; j++) v.push(alphaAt(im, px + nx * j / 4, py + ny * j / 4));
-          var e = pr[id](v), line = v.filter(function (a, i) { return i % 4 === 0; }).map(Math.round).join(' ');
+          var px = im.W / 2 + sd * r * im.Sx, py = im.H / 2 + b * u * g.HB * im.Sy, nx = sd * dy / len, ny = -b * dr / len, v = [];
+          for (var j = -36; j <= 112; j++) v.push(alphaAt(im, px + nx * j / 4, py + ny * j / 4));
+          var e = pr[id](v, g.wall * S), line = v.filter(function (a, i) { return i % 4 === 0; }).map(Math.round).join(' ');
           res.n++;
-          if (e[0] === null || e[1] === null) { res.none.push(where + (e[0] === null ? '' : ' (outer)')); if (!res.line) res.line = line; continue; }
+          if (e[0] === null || e[1] === null) { res.none.push(where + (e[0] === null ? '' : ' (outer)')); if (!res.noneLine) res.noneLine = line; continue; }
           if (Math.abs(e[0]) > Math.abs(res.worst)) { res.worst = e[0]; res.at = where; res.line = line; }
-          var th = e[1] - e[0] - g.wall * S;
+          if (e[1] === false) { crisp[k * 4 + q] = e[0]; continue; }       // (a layer without an outer surface)
+          res.outer++;
+          // (the wall is measured from the far wall's layer where the glass has one: the inner surface is sharp there)
+          var e0 = pr.inner ? crisp[k * 4 + q] : e[0];
+          if (e0 === undefined) continue;
+          var th = e[1] - e0 - g.wall * S;
+          // (by the waist a glass with a bead is the thicker for it)
+          if (pr.bead && u < 0.15) {
+            if (th < res.waist[0]) { res.waist[0] = th; res.waistAt = where; res.waistLine = line; }
+            if (th > res.waist[1]) res.waist[1] = th;
+            continue;
+          }
           if (Math.abs(th) > Math.abs(res.thick)) { res.thick = th; res.thickAt = where; res.thickLine = line; }
-          if ((e[1] - e[0]) / (g.wall * S) < res.thin) res.thin = (e[1] - e[0]) / (g.wall * S);
+          if ((e[1] - e0) / (g.wall * S) < res.thin) res.thin = (e[1] - e0) / (g.wall * S);
         }
       }
       out[id] = res;
@@ -247,17 +342,25 @@ function pageCode() {
     return out;
   };
 
-  /** Each glass layer against itself turned by 180 degrees: the largest difference of a channel, and pixels that differ by more than 24. */
+  /**
+   * Each glass layer against itself turned by 180 degrees: the largest
+   * difference of a channel, and pixels that differ by more than 24. A
+   * WebGL layer is lit by a room that stays where it is, so it is not its
+   * own half turn; what a Flip needs of it is that the glass turned half
+   * round (as it is drawn at the end of a Flip, and shown turned by the
+   * page) is the picture of the upright glass that replaces it.
+   */
   T.turn = function (kind) {
     var out = {};
     PROBES[kind].layers.forEach(function (id) {
-      var im = layer(id), d = im.d, N = im.W * im.H, max = 0, bad = 0, lit = 0, i, j, c, e;
-      for (i = 0; i < N >> 1; i++) {
+      var im = layer(id), d = im.d, N = im.W * im.H, max = 0, bad = 0, lit = 0, i, j, c, e, gl = GL_ID[id] !== undefined;
+      var o = gl ? layer(id, Math.PI).d : d;
+      for (i = 0; i < (gl ? N : N >> 1); i++) {
         j = N - 1 - i;
-        if (d[4 * i + 3] || d[4 * j + 3]) lit++;
-        // (alpha, and colour as much as there is of it)
-        e = Math.abs(d[4 * i + 3] - d[4 * j + 3]);
-        for (c = 0; c < 3; c++) e = Math.max(e, Math.abs(d[4 * i + c] * d[4 * i + 3] - d[4 * j + c] * d[4 * j + 3]) / 255);
+        if (d[4 * i + 3] || o[4 * j + 3]) lit++;
+        // (alpha, and colour as much as there is of it; a WebGL layer's colours come multiplied by it already)
+        e = Math.abs(d[4 * i + 3] - o[4 * j + 3]);
+        for (c = 0; c < 3; c++) e = Math.max(e, gl ? Math.abs(d[4 * i + c] - o[4 * j + c]) : Math.abs(d[4 * i + c] * d[4 * i + 3] - o[4 * j + c] * o[4 * j + 3]) / 255);
         if (e > max) max = e;
         if (e > 24) bad++;
       }
@@ -281,18 +384,19 @@ function pageCode() {
       var y0 = g.HB - 3.5 * q, y1 = g.HB + 3 * q;                       // the collar, in cells from the neck
       var cy = Math.round(front.H / 2 + b * (y0 + y1) / 2 * S), cx = front.W / 2, half = 0, x, y, id;
       while (half < cx && front.d[4 * (cy * front.W + Math.floor(cx + half)) + 3] === 255 && front.d[4 * (cy * front.W + Math.floor(cx - half - 1)) + 3] === 255) half++;
-      var lim = Math.floor((g.postX - 3.2 * q) * S), end = { bulb: b, half: half, reach: {} };
-      var ya = Math.ceil(front.H / 2 + b * (b < 0 ? y1 : y0) * S + 1.5), yb = Math.floor(front.H / 2 + b * (b < 0 ? y0 : y1) * S - 1.5);
+      var end = { bulb: b, half: half, reach: {} };
       for (id in ims) {
         // (under the lower collar c-light also holds the pool of light on the base, as it always has: not the glass)
         if (id === 'c-light' && b > 0) continue;
-        var im = ims[id], reach = 0;
+        // (each layer by its own pixels: a WebGL layer has a few fewer; the reach is then told in c-front's)
+        var im = ims[id], reach = 0, lim = Math.floor((g.postX - 3.2 * q) * im.Sx), mx = im.W / 2;
+        var ya = Math.ceil(im.H / 2 + b * (b < 0 ? y1 : y0) * im.Sy + 1.5), yb = Math.floor(im.H / 2 + b * (b < 0 ? y0 : y1) * im.Sy - 1.5);
         for (y = ya; y <= yb; y++) {
           for (x = lim; x > reach; x--) {
-            if (im.d[4 * (y * im.W + Math.floor(cx + x)) + 3] || im.d[4 * (y * im.W + Math.floor(cx - x - 1)) + 3]) { reach = x; break; }
+            if (im.d[4 * (y * im.W + Math.floor(mx + x)) + 3] || im.d[4 * (y * im.W + Math.floor(mx - x - 1)) + 3]) { reach = x; break; }
           }
         }
-        end.reach[id] = reach;
+        end.reach[id] = Math.ceil(reach * S / im.Sx);
       }
       out.ends.push(end);
     }
@@ -301,21 +405,28 @@ function pageCode() {
 
   /**
    * c-light on the bare glass: lit pixels, and those that lie off the glass
-   * (where c-back, the glass's own body, has nothing); and the window glint
+   * (where the glass's own body has nothing: c-back with the drawn glass,
+   * the near wall's layer, within a pixel, with WebGL); and the window glint
    * in each bulb, which is the only bright white right of the axis: its
    * pixels, and the least distance of one from the bore's wall (cells;
    * negative: it is cut).
    */
-  T.lights = function () {
+  T.lights = function (kind) {
     var ren = T.ren, g = T.sim.geo, S = ren.scale * ren.dpr, im = layer('c-light'), d = im.d, body = layer('c-back').d;
-    var lit = 0, out = 0, glint = [{ n: 0, margin: 1e9 }, { n: 0, margin: 1e9 }], x, y, i, cxp = im.W / 2, cyp = im.H / 2;
+    var near = kind === 'webgl' ? layer('c-glass-front') : null, kx = near ? near.W / im.W : 1, ky = near ? near.H / im.H : 1;
+    function off(x, y) {
+      if (!near) return !body[4 * (y * im.W + x) + 3];
+      var X = (x + 0.5) * kx, Y = (y + 0.5) * ky;
+      return !(alphaAt(near, X, Y) || alphaAt(near, X - 1, Y) || alphaAt(near, X + 1, Y) || alphaAt(near, X, Y - 1) || alphaAt(near, X, Y + 1));
+    }
+    var lit = 0, out = 0, faint = 0, glint = [{ n: 0, margin: 1e9 }, { n: 0, margin: 1e9 }], x, y, i, cxp = im.W / 2, cyp = im.H / 2;
     for (y = 0; y < im.H; y++) {
       var yc = (y + 0.5 - cyp) / S, ri = P.profile(Math.abs(yc) / g.HB, g);
       for (x = 0; x < im.W; x++) {
         i = 4 * (y * im.W + x);
         if (d[i + 3] < 3) continue;                                        // (under 1 %: the last of an edge's smoothing)
         lit++;
-        if (!body[i + 3]) out++;
+        if (off(x, y)) { out++; if (d[i + 3] > faint) faint = d[i + 3]; }
         var xc = (x + 0.5 - cxp) / S;
         if (xc > 0 && d[i + 3] >= 40 && d[i] >= 200 && d[i + 1] >= 200 && d[i + 2] >= 200) {       // (white, or white in the caustic's glow)
           var gb = glint[yc < 0 ? 0 : 1];
@@ -324,7 +435,7 @@ function pageCode() {
         }
       }
     }
-    return { lit: lit, out: out, glint: glint, S: S };
+    return { lit: lit, out: out, faint: faint, glint: glint, S: S };
   };
 
   /** Cracks on this shape's glass (no canvas needed: the paths alone). */
@@ -368,7 +479,80 @@ function pageCode() {
     return res;
   };
 
+  /** The shader texts a Renderer of this shape hands to WebGL (recorded by the hook, below), and the glass it then has. */
+  T.sources = function (shape) {
+    var sim = new P.Sim({ scale: 1.08, seed: 7, shape: shape });
+    window.GLSL.length = 0;
+    var ren = new P.Renderer(sim, { back: $('c-back'), sand: $('c-sand'), bloom: $('c-bloom'), front: $('c-front'), light: $('c-light'),
+                                    glBack: $('c-glass-back'), glFront: $('c-glass-front') });
+    return { glass: ren.glass ? 'webgl' : 'drawn', src: window.GLSL.slice() };
+  };
+
+  /**
+   * What the GLSL compiler makes of a fragment shader: whether it takes it,
+   * and how many of its values it allows less than full precision (ANGLE
+   * hands out its SPIR-V, where each such value is marked RelaxedPrecision;
+   * -1 where the browser gives no SPIR-V).
+   */
+  T.relaxed = function (src) {
+    var gl = document.createElement('canvas').getContext('webgl'), dbg = gl.getExtension('WEBGL_debug_shaders');
+    var sh = gl.createShader(gl.FRAGMENT_SHADER), hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+    gl.shaderSource(sh, src); gl.compileShader(sh);
+    var out = { ok: gl.getShaderParameter(sh, gl.COMPILE_STATUS), log: gl.getShaderInfoLog(sh), n: -1, highp: hp.precision };
+    var w = ((dbg ? dbg.getTranslatedShaderSource(sh) : '').match(/0x[0-9A-Fa-f]{8}/g) || []).map(function (h) { return parseInt(h, 16); });
+    if (w[0] !== 0x07230203) return out;
+    out.n = 0;
+    for (var i = 5; i < w.length && (w[i] >>> 16); i += w[i] >>> 16) if ((w[i] & 0xFFFF) === 71 && w[i + 2] === 0) out.n++;     // OpDecorate <id> RelaxedPrecision
+    return out;
+  };
+
+  /** Both WebGL layers as they are now: a hash of each. */
+  function fnv(b) { var h = 0x811c9dc5; for (var i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); }
+  T.hashes = function () {
+    T.gl = {};
+    return ['c-glass-back', 'c-glass-front'].map(function (id) { var im = layer(id), lit = 0; for (var i = 3; i < im.d.length; i += 4) if (im.d[i]) lit++; return { hash: fnv(im.d), lit: lit }; });
+  };
+  /**
+   * Take the WebGL context of the layers `which` (0 the far wall, 1 the near
+   * wall) away (`back` false), or give it back, as a phone does to a page
+   * in the background; resolves once the page has been told. Answers what
+   * the Renderer then has: its kind of glass, each layer's `lost`, and
+   * whether the WebGL canvases are shown.
+   */
+  T.context = function (which, back) {
+    var gs = T.ren.glass;
+    T.ext = T.ext || gs.map(function (g) { return g.gl.getExtension('WEBGL_lose_context'); });
+    return Promise.all(which.map(function (k) {
+      return new Promise(function (done) {
+        var name = back ? 'webglcontextrestored' : 'webglcontextlost', c = gs[k].canvas;
+        c.addEventListener(name, function f() { c.removeEventListener(name, f); done(); });
+        if (back) T.ext[k].restoreContext(); else T.ext[k].loseContext();
+      });
+    })).then(function () {
+      T.ren.drawGlass(0.5, true); T.ren.drawGlass(0, true);            // (a frame goes by: nothing may throw)
+      return T.state();
+    });
+  };
+  T.state = function () {
+    return { glass: T.ren.glass ? 'webgl' : 'drawn', lost: T.ren.glass ? T.ren.glass.map(function (g) { return g.lost; }) : null,
+             shown: [$('c-glass-back').style.display !== 'none', $('c-glass-front').style.display !== 'none'] };
+  };
+
   window.ready = true;
+}
+
+/*
+ * Before any script of the page: every shader text handed to WebGL is kept
+ * (window.GLSL), and one that matches window.BREAK is handed on with a
+ * brace too many, as a device that will not take that shader.
+ */
+function hook() {
+  window.GLSL = []; window.BREAK = null;
+  var ss = WebGLRenderingContext.prototype.shaderSource;
+  WebGLRenderingContext.prototype.shaderSource = function (sh, src) {
+    window.GLSL.push(src);
+    return ss.call(this, sh, window.BREAK && window.BREAK.test(src) ? src + '\n}' : src);
+  };
 }
 
 var HTML = [
@@ -382,7 +566,8 @@ var HTML = [
   '<script>(' + pageCode.toString() + ')();</script></body></html>'
 ].join('\n');
 
-function open(browser) {
+/** A page with physics.js (`src`: another copy of it) and the checks of pageCode. */
+function open(browser, src) {
   var page;
   return browser.newContext({ viewport: { width: 400, height: 760 } }).then(function (ctx) {
     return ctx.newPage();
@@ -391,9 +576,11 @@ function open(browser) {
     page.errors = [];
     page.on('pageerror', function (e) { page.errors.push('pageerror: ' + e.message); });
     page.on('console', function (m) { if (m.type() === 'error') page.errors.push('console: ' + m.text()); });
+    return page.addInitScript(hook);
+  }).then(function () {
     return page.route(ORIGIN + '**', function (route) {
       var u = route.request().url().slice(ORIGIN.length).split('?')[0];
-      if (u === 'physics.js') return route.fulfill({ status: 200, body: SRC, contentType: 'text/javascript; charset=utf-8' });
+      if (u === 'physics.js') return route.fulfill({ status: 200, body: src || SRC, contentType: 'text/javascript; charset=utf-8' });
       if (u === 'index.html') return route.fulfill({ status: 200, body: HTML, contentType: 'text/html; charset=utf-8' });
       return route.fulfill({ status: 404, body: 'not found' });
     });
@@ -433,17 +620,24 @@ async function look(browser, id, glass, drawAs) {
     notes.push(s.n + ' px of sand, none outside the bore');
 
     // the bare glass: inner edge, half turn, lights
-    var e = await page.evaluate(function (k) { return window.T.edges(k); }, glass.id), worst = 0, thick = 0, thin = 1e9;
+    var e = await page.evaluate(function (k) { return window.T.edges(k); }, glass.id), worst = 0, thick = 0, thin = 1e9, wallPx = 0;
     Object.keys(e).forEach(function (layer) {
       var r = e[layer], how = '; alpha across the wall there, a pixel apart from 9 px inside: ';
-      check(r.none.length === 0, layer + ': no inner edge or no outer edge found at ' + r.none.length + ' of ' + r.n + ' places (' + r.none.slice(0, 4).join('; ') + how + r.line + ')');
+      check(r.none.length === 0, layer + ': no inner edge or no outer edge found at ' + r.none.length + ' of ' + r.n + ' places (' + r.none.slice(0, 4).join('; ') + how + r.noneLine + ')');
       check(Math.abs(r.worst) <= 1.5, layer + ': the inner edge is ' + f2(r.worst) + ' px off profile at ' + r.at + ' (at most 1.5' + how + r.line + ')');
+      worst = Math.max(worst, Math.abs(r.worst));
+      if (!r.outer) return;             // (the WebGL glass's far wall is shaded inside the bore only)
       // (the classic glass keeps the wall it has always had, thinner down its funnel: render-regression holds its picture)
-      if (id !== 'classic' || drawAs) check(Math.abs(r.thick) <= 1.5, layer + ': the wall is ' + f2(r.thick) + ' px off its thickness of ' + f2(b.wallPx) + ' px at ' + r.thickAt + ' (at most 1.5' + how + r.thickLine + ')');
-      worst = Math.max(worst, Math.abs(r.worst)); thick = Math.max(thick, Math.abs(r.thick)); thin = Math.min(thin, r.thin);
+      if (id !== 'classic' || drawAs) {
+        check(Math.abs(r.thick) <= 1.5, layer + ': the wall is ' + f2(r.thick) + ' px off its thickness of ' + f2(r.wallPx) + ' px at ' + r.thickAt + ' (at most 1.5' + how + r.thickLine + ')');
+        // (the WebGL glass is heavier at the waist, as the teardrop is: by up to 1.15 of the wall, never thinner than it)
+        if (r.waist[1] > -1e9) check(r.waist[0] >= -1.5 && r.waist[1] <= 1.15 * r.wallPx + 1.5, layer + ': by the waist the wall is ' + f2(r.waist[0]) + ' to ' + f2(r.waist[1]) + ' px off its thickness of ' + f2(r.wallPx) +
+          ' px (the bead: 0 to ' + f2(1.15 * r.wallPx) + ', within 1.5; at its thinnest at ' + r.waistAt + how + r.waistLine + ')');
+      }
+      thick = Math.max(thick, Math.abs(r.thick)); thin = Math.min(thin, r.thin); wallPx = r.wallPx;
     });
     notes.push('inner edge within ' + f2(worst) + ' px of profile on ' + Object.keys(e).join(' and ') + ' (80 places each)' +
-      (id === 'classic' ? ', the wall ' + f2(thin) + ' of its thickness at its thinnest' : ', the wall within ' + f2(thick) + ' px of its ' + f2(b.wallPx) + ' px'));
+      (id === 'classic' ? ', the wall ' + f2(thin) + ' of its thickness at its thinnest' : ', the wall within ' + f2(thick) + ' px of its ' + f2(wallPx) + ' px'));
 
     var t = await page.evaluate(function (k) { return window.T.turn(k); }, glass.id);
     Object.keys(t).forEach(function (layer) {
@@ -451,9 +645,12 @@ async function look(browser, id, glass, drawAs) {
       ok(t[layer].bad <= 100, layer + ', bare: ' + t[layer].bad + ' of ' + t[layer].lit + ' pixels differ from the half turn by more than 24 of 255 (the most: ' + Math.round(t[layer].max) + '; 100 pixels at most)');
     });
 
-    var li = await page.evaluate(function () { return window.T.lights(); });
+    var li = await page.evaluate(function (k) { return window.T.lights(k); }, glass.id);
     ok(li.lit > 5000, 'c-light holds ' + li.lit + ' lit pixels: this case could not tell');
-    check(li.out === 0, li.out + ' lit pixels of c-light lie off the glass');
+    // (The classic's caustic is cut to the drawn outline, which has always ended a few pixels below the tip of
+    // its WebGL glass: the last of the caustic's glow lies there, at 3 of 255. render-regression holds that picture.)
+    if (id === 'classic' && glass.is === 'webgl' && !drawAs) ok(li.out <= 3 && li.faint <= 3, li.out + ' lit pixels of c-light lie off the classic WebGL glass, the brightest ' + li.faint + ' of 255 (it has always been 1 pixel of 3)');
+    else check(li.out === 0, li.out + ' lit pixels of c-light lie off the glass');
     if (glass.is === 'drawn') {
       var per = [li.glint[0].n / (li.S * li.S), li.glint[1].n / (li.S * li.S)];
       if (id === 'classic' && !drawAs) classicGlint = per;
@@ -484,9 +681,12 @@ async function look(browser, id, glass, drawAs) {
     Object.keys(t2).forEach(function (layer) {
       ok(t2[layer].bad <= 100, layer + ', framed: ' + t2[layer].bad + ' of ' + t2[layer].lit + ' pixels differ from the half turn by more than 24 of 255 (the most: ' + Math.round(t2[layer].max) + '; 100 pixels at most)');
     });
-    notes.push('both layers their own half turn, bare and framed (' + Math.max(t['c-back'].bad, t['c-front'].bad, t2['c-back'].bad, t2['c-front'].bad) + ' px at most differ by more than 24 of 255, of ' +
-      Math.min(t['c-back'].lit, t['c-front'].lit) + ' or more)');
+    var two = Object.keys(t), bad = two.map(function (l) { return Math.max(t[l].bad, t2[l].bad); });
+    notes.push((glass.is === 'webgl' ? 'both layers, drawn turned half round, are the upright glass turned' : 'both layers their own half turn') + ', bare and framed (' + Math.max(bad[0], bad[1]) +
+      ' px at most differ by more than 24 of 255, of ' + Math.min(t[two[0]].lit, t[two[1]].lit) + ' or more)');
     if (SNAP) await page.screenshot({ path: path.join(SNAP, id + '-' + glass.id + '-frame.png') });
+    // (the sweep and the cracks are the sand's and the paths' own: the same whichever glass is round them)
+    if (glass.is !== 'drawn') { ok(!page.errors.length, 'page errors: ' + page.errors.join(' | ')); return notes; }
 
     // the sweep: nine moments of the old sand going, 39 of the new coming
     var sw = [], px = 0, k;
@@ -521,6 +721,164 @@ async function look(browser, id, glass, drawAs) {
   return notes;
 }
 
+/* ---- the WebGL glass's own cases ---------------------------------------------- */
+
+/** The checks of the bare drawn glass's wall (as look makes them), on the page as it is. */
+async function drawnWall(page, what, id) {
+  var e = await page.evaluate(function () { return window.T.edges('drawn'); }), worst = 0;
+  Object.keys(e).forEach(function (layer) {
+    var r = e[layer];
+    ok(r.none.length === 0, what + ': ' + layer + ': no inner edge or no outer edge found at ' + r.none.length + ' of ' + r.n + ' places (' + r.none.slice(0, 4).join('; ') + ')');
+    ok(Math.abs(r.worst) <= 1.5, what + ': ' + layer + ': the inner edge is ' + f2(r.worst) + ' px off profile at ' + r.at);
+    if (id !== 'classic') ok(Math.abs(r.thick) <= 1.5, what + ': ' + layer + ': the wall is ' + f2(r.thick) + ' px off its thickness at ' + r.thickAt);
+    worst = Math.max(worst, Math.abs(r.worst));
+  });
+  return worst;
+}
+
+var EXTRA = [];
+
+/*
+ * The classic glass is rendered by the very shader text it has always had:
+ * what its Renderer hands to WebGL is, byte for byte, what f446085's did.
+ * Another glass gets another fragment shader (one that reads a table).
+ */
+EXTRA.push({ name: 'the classic WebGL glass is compiled from the text it always was', shapes: ['delta'], run: async function (browser, shape) {
+  var old = await open(browser, process.env.HOURGLASS_BASELINE ? fs.readFileSync(process.env.HOURGLASS_BASELINE, 'utf8') : L.gitShow(L.BASELINE_REV, 'physics.js'));
+  var now = await open(browser), other = await open(browser);
+  try {
+    var a = await old.evaluate(function () { return window.T.sources(); }), b = await now.evaluate(function () { return window.T.sources(); });
+    var c = await other.evaluate(function (id) { return window.T.sources(id); }, shape);
+    ok(a.glass === 'webgl' && b.glass === 'webgl' && c.glass === 'webgl', 'no WebGL glass (then: ' + a.glass + ', now: ' + b.glass + ', ' + shape + ': ' + c.glass + '): this case could not tell');
+    ok(a.src.length === 4 && b.src.length === 4 && c.src.length === 4, 'shader texts handed to WebGL: ' + a.src.length + ' then, ' + b.src.length + ' now, ' + c.src.length + ' for ' + shape + ' (a vertex and a fragment shader for each of two layers: 4)');
+    for (var i = 0; i < 4; i++) {
+      var at = 0;
+      while (at < a.src[i].length && a.src[i][at] === b.src[i][at]) at++;
+      ok(a.src[i] === b.src[i], 'shader text ' + i + ' of the classic glass differs from ' + L.BASELINE_REV + '\'s at character ' + at + ': ' + JSON.stringify(b.src[i].slice(Math.max(0, at - 30), at + 30)) + ', it was ' + JSON.stringify(a.src[i].slice(Math.max(0, at - 30), at + 30)));
+    }
+    ok(c.src[0] === b.src[0] && c.src[1] !== b.src[1] && c.src[3] === c.src[1], shape + ' is not rendered by a fragment shader of its own, the same in both layers');
+    ok(/sampler2D/.test(c.src[1]) && !/sampler2D/.test(b.src[1]), shape + '\'s fragment shader reads no table, or the classic one does');
+    ok(!old.errors.length && !now.errors.length && !other.errors.length, 'page errors: ' + old.errors.concat(now.errors, other.errors).join(' | '));
+    return ['the classic glass\'s vertex and fragment shader (' + b.src[0].length + ' and ' + b.src[1].length + ' characters) are ' + L.BASELINE_REV + '\'s to the byte; ' + shape + '\'s fragment shader is its own (' + c.src[1].length + ' characters, reads a table)'];
+  } finally {
+    await old.context().close(); await now.context().close(); await other.context().close();
+  }
+} });
+
+/*
+ * A phone gives a shader's numbers no more bits than the shader asks for,
+ * and a table of 16-bit half-widths needs more than the 10 a mediump float
+ * must have. The table shader may therefore leave no more of its values at
+ * less than full precision than the classic shader does (those are none of
+ * the table's: the picture's colour on its way out). ANGLE's own compiler
+ * says which they are. The suite can tell: the same shader with its
+ * sampler left at the default precision has more.
+ */
+EXTRA.push({ name: 'the table shader reads its table at full precision', shapes: ['delta'], run: async function (browser, shape) {
+  var page = await open(browser);
+  try {
+    var b = await page.evaluate(function () { return window.T.sources(); }), c = await page.evaluate(function (id) { return window.T.sources(id); }, shape);
+    var fs1 = c.src[1], weak = fs1.replace('uniform highp sampler2D', 'uniform sampler2D');
+    ok(c.glass === 'webgl' && /sampler2D/.test(fs1), 'no table shader for ' + shape + ': this case could not tell');
+    ok(/^precision highp float;/.test(fs1), 'the table shader does not begin by asking for highp floats');
+    ok(/uniform highp sampler2D/.test(fs1) && weak !== fs1, 'the table shader does not ask for a highp sampler');
+    var r = await page.evaluate(function (list) { return list.map(function (s) { return window.T.relaxed(s); }); }, [b.src[1], fs1, weak, fs1.replace('precision highp float;', '')]);
+    ok(r[0].ok && r[1].ok && r[2].ok, 'a shader was not taken: ' + [r[0].log, r[1].log, r[2].log].join(' | '));
+    ok(!r[3].ok && /No precision specified/.test(r[3].log), 'without its first line the table shader is still taken (' + r[3].log + '): some float in it has a precision of its own');
+    ok(r[1].highp >= 16, 'this browser\'s highp float has ' + r[1].highp + ' bits: the table needs 16');
+    ok(r[0].n >= 0 && r[1].n >= 0 && r[2].n >= 0, 'this browser hands out no SPIR-V for a shader: this case could not tell');
+    ok(r[2].n > r[1].n, 'with the sampler left at its default precision the compiler marks ' + r[2].n + ' values RelaxedPrecision, with a highp sampler ' + r[1].n + ': this case could not tell');
+    ok(r[1].n === r[0].n, 'the compiler allows ' + r[1].n + ' values of the table shader less than full precision, ' + r[0].n + ' of the classic shader: ' + (r[1].n - r[0].n) + ' of the table\'s own');
+    ok(!page.errors.length, 'page errors: ' + page.errors.join(' | '));
+    return ['highp floats throughout (the compiler refuses the shader without that line) and a highp sampler; the compiler allows ' + r[1].n + ' values less than full precision, as in the classic shader (' + r[0].n +
+      '), none of them the table\'s; with the sampler at its default it would be ' + r[2].n];
+  } finally {
+    await page.context().close();
+  }
+} });
+
+/*
+ * A phone takes a page's WebGL contexts away in the background and gives
+ * them back later, empty. Either layer's context, then both, are lost and
+ * restored (WEBGL_lose_context) while the glass is shown: while lost the
+ * layer is marked so and drawing does nothing; once back, both layers hold
+ * exactly the picture they held before (the table is there again).
+ */
+EXTRA.push({ name: 'the WebGL glass comes back after its contexts were lost', shapes: ['classic', 'delta', 'gourd'], run: async function (browser, shape) {
+  var page = await open(browser), notes = [];
+  try {
+    var b = await page.evaluate(function (c) { return window.T.build(c); }, { shape: shape, gl: true, drawAs: null });
+    ok(b.glass === 'webgl', 'the glass is ' + b.glass + ': this case could not tell');
+    var before = await page.evaluate(function () { return window.T.hashes(); });
+    ok(before[0].lit > 100000 && before[1].lit > 100000, 'the layers are empty before anything is lost (' + before[0].lit + ' and ' + before[1].lit + ' lit pixels): this case could not tell');
+    var rounds = [[0], [1], [0, 1]];
+    for (var i = 0; i < rounds.length; i++) {
+      var which = rounds[i], what = which.length > 1 ? 'both contexts' : (which[0] ? 'the near wall\'s context' : 'the far wall\'s context');
+      var st = await page.evaluate(function (w) { return window.T.context(w, false); }, which);
+      ok(st.glass === 'webgl' && [0, 1].every(function (k) { return st.lost[k] === (which.indexOf(k) >= 0); }), what + ' lost: the Renderer has the ' + st.glass + ' glass, lost: ' + JSON.stringify(st.lost));
+      var gone = await page.evaluate(function () { return window.T.hashes(); });
+      which.forEach(function (k) { ok(gone[k].lit === 0, what + ' lost: its layer still reads ' + gone[k].lit + ' lit pixels: the context was not lost, this case could not tell'); });
+      st = await page.evaluate(function (w) { return window.T.context(w, true); }, which);
+      ok(st.glass === 'webgl' && !st.lost[0] && !st.lost[1] && st.shown[0] && st.shown[1], what + ' restored: the Renderer has the ' + st.glass + ' glass, lost: ' + JSON.stringify(st.lost) + ', shown: ' + JSON.stringify(st.shown));
+      var after = await page.evaluate(function () { return window.T.hashes(); });
+      [0, 1].forEach(function (k) {
+        ok(after[k].hash === before[k].hash, what + ' restored: the ' + (k ? 'near' : 'far') + ' wall\'s layer is not the picture it was (' + after[k].lit + ' lit pixels, ' + before[k].lit + ' before)');
+      });
+    }
+    ok(!page.errors.length, 'page errors: ' + page.errors.join(' | '));
+    notes.push('the far wall\'s context, the near wall\'s, then both lost and restored: each time both layers are the picture they were (' + before[0].lit + ' and ' + before[1].lit + ' lit pixels)');
+    return notes;
+  } finally {
+    await page.context().close();
+  }
+} });
+
+/*
+ * A device that will not take the table shader (here: it is handed on with
+ * a brace too many) gets the drawn glass of the same shape, never a
+ * teardrop round other sand: when the Renderer is made, and when a context
+ * comes back from being lost and its shader can no longer be built. The
+ * classic glass is not touched by the first (its shader is another), and
+ * falls back the same way in the second.
+ */
+EXTRA.push({ name: 'a device that refuses the shader gets the drawn glass of the same shape', shapes: ['delta', 'onion', 'classic'], run: async function (browser, shape) {
+  var notes = [], page = await open(browser), st, w;
+  try {
+    // (1) refused from the start
+    await page.evaluate(function () { window.BREAK = /uProf/; });
+    var b = await page.evaluate(function (c) { return window.T.build(c); }, { shape: shape, gl: true, drawAs: null });
+    st = await page.evaluate(function () { return window.T.state(); });
+    if (shape === 'classic') {
+      ok(b.glass === 'webgl' && st.shown[0] && st.shown[1], 'the classic glass is ' + b.glass + ' when only the table shader is refused');
+      notes.push('the table shader refused: the classic glass is rendered all the same');
+    } else {
+      ok(b.glass === 'drawn' && !st.shown[0] && !st.shown[1], 'the table shader refused: the Renderer has the ' + b.glass + ' glass, WebGL canvases shown: ' + JSON.stringify(st.shown));
+      w = await drawnWall(page, 'the table shader refused', shape);
+      notes.push('the table shader refused: the drawn glass, its inner edge within ' + f2(w) + ' px of this shape\'s profile, the WebGL canvases hidden');
+    }
+    ok(!page.errors.length, 'page errors: ' + page.errors.join(' | '));
+  } finally {
+    await page.context().close();
+  }
+  // (2) refused when a context comes back
+  page = await open(browser);
+  try {
+    var b2 = await page.evaluate(function (c) { return window.T.build(c); }, { shape: shape, gl: true, drawAs: null });
+    ok(b2.glass === 'webgl', 'the glass is ' + b2.glass + ': this case could not tell');
+    st = await page.evaluate(function () { return window.T.context([1], false); });
+    ok(st.glass === 'webgl' && st.lost[1], 'the near wall\'s context was not lost: this case could not tell');
+    await page.evaluate(function () { window.BREAK = /gl_FragColor/; });
+    st = await page.evaluate(function () { return window.T.context([1], true); });
+    ok(st.glass === 'drawn' && !st.shown[0] && !st.shown[1], 'a context came back unable to build its shader: the Renderer has the ' + st.glass + ' glass, WebGL canvases shown: ' + JSON.stringify(st.shown));
+    w = await drawnWall(page, 'a context came back unable to build its shader', shape);
+    ok(!page.errors.length, 'page errors: ' + page.errors.join(' | '));
+    notes.push('a context that comes back and cannot build its shader: the drawn glass from then on, its inner edge within ' + f2(w) + ' px of this shape\'s profile');
+    return notes;
+  } finally {
+    await page.context().close();
+  }
+} });
+
 async function main() {
   var browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] });
   var ids = IDS.filter(function (id) { return !ONLY || id === 'classic' || ONLY.indexOf(id) >= 0; });
@@ -548,6 +906,21 @@ async function main() {
       } catch (e2) {
         failures++;
         console.log('FAIL  ' + name + ': ' + (e2 && e2.message ? e2.message : e2));
+      }
+    }
+  }
+  for (var x = 0; x < EXTRA.length; x++) {
+    for (var k = 0; k < EXTRA[x].shapes.length; k++) {
+      var sh = EXTRA[x].shapes[k];
+      if (ids.indexOf(sh) < 0) continue;
+      t0 = Date.now(); name = EXTRA[x].name + ' (' + sh + ')';
+      count++;
+      try {
+        var ns = await EXTRA[x].run(browser, sh);
+        console.log('PASS  ' + name + ': ' + ns.join('; ') + ' (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)');
+      } catch (e3) {
+        failures++;
+        console.log('FAIL  ' + name + ': ' + (e3 && e3.message ? e3.message : e3));
       }
     }
   }
