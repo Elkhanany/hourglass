@@ -265,7 +265,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the other, each against where the sand's centre went); shaken, the rush
   and the shimmer; no stream and
   no ambience in either; and the same lean under a running stream leaving
-  the rush at nothing, its control): every
+  the rush at nothing, its control; and SIDES: every sound that has a side
+  (the hiss, the thumps, a slam, a leak, a single grain's landing, the
+  glass's creak, crack, its growth and a chip) heard where the listener sees
+  its sand, the glass upright or turned half round by a finger, the phone
+  upright or upside down with the glass swapped; its controls are made by
+  hand, app.js's heardSide() returning 1 and the hiss not turned by the
+  phone's roll): every
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
   then served at `motion.js`'s path. Real sand is the app's default, and
@@ -572,7 +578,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `realsand/boot.mjs` loads and every shader of the engine is in it, and
   `app.js`, the lab, the engine and its shaders name the same build stamp.
   `realsand-gpu` runs only when named (`node tools/test/run-all.js
-  realsand-gpu`, 15 to 20 minutes, every core busy): the app with Real sand
+  realsand-gpu`, about 47 minutes on a shared four-core machine, every core
+  busy): the app with Real sand
   and layered sand on the real engine, on Chromium's WebGPU in software
   (SwiftShader), loaded with `?offscreen=1`. Software runs the sand at a few
   hundredths of real time, so once the engine has started the page's clock
@@ -602,7 +609,17 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   it: a 60-minute glass filled to its cap with exactly the ledger's points
   on the chip, and a 10 s glass whose last grain crosses within one frame
   after 00:00.0. With `--shots <dir>` it saves pictures of the app with
-  Real sand on, each shape mid-run among them.
+  Real sand on, each shape mid-run among them. `--only <case>[,<case>...]`
+  (BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, SHAPES, as its log
+  names them, any letter case) runs those cases alone, in that order: the
+  engine is always started, a case sets up what it needs from the one
+  before it, a name that is no case is an error that lists them, and the
+  last line names the cases run, so the run is never read as the whole
+  suite (`node tools/test/realsand-gpu.test.js --only reset`, about 20 seconds).
+  `--shapes <id>[,<id>...]` runs SHAPES in those shapes instead of every
+  shape Tune offers, one held back offered on the test's page
+  (`--only shapes --shapes trumpet,florence`, about 5 minutes a shape);
+  the last line names them.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).
