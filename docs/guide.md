@@ -152,8 +152,10 @@ keys move between the tabs.
   reset. It works in Zen and Full Zen; with *Reduce Motion* the glow only
   brightens and dims.
 - **Full Zen**: Zen hides the controls completely instead of dimming them.
-- **Buttons: Haptics**: a light tick from buttons and switches, where the
-  phone supports it (see "Browser notes" below for an iPhone).
+- **Touch: Haptics**: a light tick from taps on the glass, buttons and
+  switches, where the phone supports it. On a phone that can vibrate it also
+  covers the end of a glass, landings and cracks. Turn it off and all of them
+  stop (see "Browser notes" below for an iPhone).
 - **Put the look and sound back as they came**: tap it, then tap again
   within three seconds ("Tap again to put them back"). The sand (Sahara
   Quartz; a colour of your own is kept for its swatch), the frame and its
