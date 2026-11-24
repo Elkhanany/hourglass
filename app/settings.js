@@ -32,7 +32,9 @@
  *                 reaching localStorage itself throws)
  *       search    location.search ("?t=300" preselects a duration)
  *       reg       what the checks need: { themes, sands, finishes, finishOf, shapes }
- *                 of HourglassPhysics
+ *                 of HourglassPhysics. A saved name is one of a table's only when the
+ *                 table has it as its own (hasOwnProperty): a name every object has
+ *                 ('toString', '__proto__', 'valueOf' ...) is none, and gives the default
  *   HourglassSettings.save(values)      to the storage of the last load
  *   HourglassSettings.preset(search)    "?t=300": { durationMs }, else null
  *   HourglassSettings.bindSwitch(el, key, after)   a plain switch of Tune:
@@ -68,7 +70,7 @@
   /* The records, in the order their keys are saved. */
   var RECORDS = [
     { id: 'theme', default: 'sahara',            // the material: a sand and its frame
-      valid: function (v, reg) { return !!reg.themes[v]; } },
+      valid: function (v, reg) { return has.call(reg.themes, v); } },     // (its own names only: not 'toString', which every object has)
     { id: 'character', default: 'asmr' },        // the sound's character (app.js checks the name against the sound engine's)
     { id: 'volume', default: 0.8 },
     { id: 'muted', default: false },

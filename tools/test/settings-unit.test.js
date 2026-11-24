@@ -17,6 +17,10 @@
  *     first records, in their order; a record added since comes after them, and is left out of
  *     this comparison (out of the values, and out of the saved JSON where a save was written),
  *     so a new setting needs no change here.
+ *     One difference from the old section is made on purpose (DELIBERATE below): a saved theme
+ *     that is one of the names every object has (each own name of Object.prototype: 'toString',
+ *     '__proto__', 'valueOf' ...) passed the old check, and was kept and saved (in 1.13.0 it stopped the app at every launch);
+ *     the store gives the default material ('sahara') for it, and is held to that.
  *  3. The migrations: the version step (Real sand on, once, for a save from before version 2),
  *     and a record's `from` (the value for a save without the key), on a made-up store; every
  *     record of the app with a `from` has its example in FROM below.
@@ -115,8 +119,26 @@ function runRef(text, search, mode) {
   var out = { values: entries(r.settings), asked: r.qt ? +r.qt[1] * 1000 : null };
   r.save();
   out.json = Object.prototype.hasOwnProperty.call(st.data, KEY) ? st.data[KEY] : null;
-  out.ops = st.ops; out.reached = st.reached;
+  out.ops = st.ops; out.reached = st.reached; out.wrote = !!st.wrote;
   return out;
+}
+/*
+ * The difference from the old section made on purpose: a saved theme that is a name every object
+ * has (an own name of Object.prototype, which THEMES only inherits) was kept by the old check
+ * (`!!THEMES[v]`); the store gives the default material for it. The old launch is made into what
+ * the store must give: the theme 'sahara', in the values and in the JSON it wrote. True when it
+ * changed something.
+ */
+var INHERITED = Object.getOwnPropertyNames(Object.prototype);
+function inherited(v) { return typeof v === 'string' && INHERITED.indexOf(v) >= 0 && !Object.prototype.hasOwnProperty.call(THEMES, v); }
+function deliberate(out) {
+  var changed = false, o;
+  out.values.forEach(function (e) { if (e[0] === 'theme' && inherited(e[1])) { e[1] = 'sahara'; changed = true; } });
+  if (changed && out.json !== null && out.wrote) {
+    o = JSON.parse(out.json);
+    if (inherited(o.theme)) { o.theme = 'sahara'; out.json = JSON.stringify(o); }
+  }
+  return changed;
 }
 // The keys the app had before the store (31): the old section's, which the store's first records
 // must be, in that order. A record added since comes after them.
@@ -202,10 +224,12 @@ function differ(a, b) {
  */
 function compare(run, c, handed) {
   var a = runRef(c.text, c.search, c.mode), b = run(c.text, c.search, c.mode);
+  deliberate(a);
   if (handed) b.reached = a.reached;
   var out = differ(a, b);
   if (!out.length && a.json !== null) {
     var a2 = runRef(a.json, '', 'ok'), b2 = run(b.full, '', 'ok');
+    deliberate(a2);
     if (handed) b2.reached = a2.reached;
     out = differ(a2, b2).map(function (d) { return 'second launch: ' + d; });
   }
@@ -305,14 +329,15 @@ var CASES = [];
  '{"v":2}', '{"realSand":false}', '{"v":1,"realSand":false}', '{"v":2,"realSand":false}', '{"v":3,"realSand":false}', '{"v":"2","realSand":false}',
  '{"v":1e999,"realSand":false}', '{"v":2.5,"realSand":false}', '{"v":1.9999,"realSand":false}', '{"v":-0,"realSand":false}', '{"v":null,"realSand":false}',
  '{"v":true,"realSand":false}', '{"v":1,"realSand":"no"}',
- '{"theme":"toString"}', '{"theme":"__proto__"}', '{"theme":"constructor"}', '{"theme":"lapis"}', '{"theme":5}', '{"theme":""}',
+ '{"theme":"lapis"}', '{"theme":5}', '{"theme":""}',
  '{"motionSign":-0}', '{"motionSign":-1}', '{"motionSign":2}', '{"grain":-0}', '{"grain":2}', '{"grain":1.5}', '{"grain":3}',
  '{"durationMs":1e999}', '{"durationMs":-1e999}', '{"durationMs":0}', '{"durationMs":-0}', '{"durationMs":9999.99}', '{"durationMs":1234567.5}',
  '{"restMs":9999.9,"rounds":5}', '{"restMs":10000,"rounds":4294967300}', '{"restMs":3600000,"rounds":13}', '{"restMs":3600001,"rounds":3}',
  '{"restMs":60000,"rounds":0}', '{"restMs":60000,"rounds":-3}', '{"restMs":60000,"rounds":2.9}', '{"restMs":-0,"rounds":7}', '{"restMs":1e999,"rounds":2}',
  '{"__proto__":{"theme":"lapis"},"character":"dune"}', '{"hasOwnProperty":1,"theme":"lapis"}', '{"volume":7,"ambienceLevel":-3,"hintZen":99}',
  '{"character":"tuba","ambience":"jungle","breathPattern":"fast"}'
-].forEach(function (text) { CASES.push({ text: text, search: '', mode: 'ok', tags: {} }); });
+].concat(INHERITED.map(function (n) { return '{"theme":' + JSON.stringify(n) + '}'; }))      // (every name every object has, as a theme)
+ .forEach(function (text) { CASES.push({ text: text, search: '', mode: 'ok', tags: {} }); });
 QUERIES.forEach(function (q) {
   CASES.push({ text: '{"v":2,"durationMs":1500000,"restMs":300000,"rounds":4}', search: q, mode: 'ok', tags: {} });
 });
@@ -354,8 +379,13 @@ function differing(run, handed) {
 }
 function first(list) { return list.slice(0, 3).map(function (d) { return '#' + d.i + ' ' + JSON.stringify(d.text) + ' ' + d.search + ' (' + d.mode + '): ' + d.how; }).join(' | '); }
 var dFn = differing(storeRun(S, 'function')), dObj = differing(storeRun(S, 'object'), true);
-check(dFn.length === 0, 'the loader: on all 500, the store gives what the old section gave: the same settings in the same order, the same saved JSON byte for byte, ' +
-  'the same calls on storage, the same answer to "?t=", and the same again on a second launch', first(dFn));
+var nDeliberate = CASES.filter(function (c) { return deliberate(runRef(c.text, c.search, c.mode)); }).length;
+var namesCovered = INHERITED.filter(function (n) { return CASES.some(function (c) { return c.text === '{"theme":' + JSON.stringify(n) + '}'; }); });
+check(dFn.length === 0 && namesCovered.length === INHERITED.length && nDeliberate >= INHERITED.length,
+  'the loader: on all 500, the store gives what the old section gave: the same settings in the same order, the same saved JSON byte for byte, ' +
+  'the same calls on storage, the same answer to "?t=", and the same again on a second launch; but for the one difference made on purpose: on the ' + nDeliberate +
+  ' whose theme is a name every object has (each of the ' + INHERITED.length + ' own names of Object.prototype among them), which the old section kept, the store gives the default material, \'sahara\'',
+  first(dFn) + (namesCovered.length === INHERITED.length ? '' : ' (not every name is a case: ' + namesCovered.join() + ')'));
 check(dObj.length === 0, '... and the same with the Storage handed over itself instead of the function that reaches it', first(dObj));
 
 // app.js's own Settings section: the few lines that call the store, run as app.js runs them
@@ -400,7 +430,7 @@ var CONTROLS = [
   ['two records in another order (volume after muted)', function (o) { var a = o.records[2]; o.records[2] = o.records[3]; o.records[3] = a; }, 500],
   ['a version step that does nothing', function (o) { o.steps[0] = { v: 2, run: function () {} }; }, 20],
   ['no version step at all (v is not set)', function (o) { o.steps.length = 0; }, 100],
-  ['a theme checked with hasOwnProperty', function (o) { o.records[0].valid = function (v, reg) { return Object.prototype.hasOwnProperty.call(reg.themes, v); }; }, 3],
+  ['a theme checked as the old section checked it (!!reg.themes[v]: a name every object has passes)', function (o) { o.records[0].valid = function (v, reg) { return !!reg.themes[v]; }; }, INHERITED.length],
   ['a volume held between 0 and 1', function (o) { o.records[2].valid = function (v) { return v >= 0 && v <= 1; }; }, 5],
   ['a motionSign that keeps the zero it was given (-0)', function (o) { o.records[18].valid = function (v) { return v === 0 || v === 1 || v === -1; }; }, 1],
   ['a grain of 3 kept', function (o) { o.records[22].valid = function (v) { return v >= 1 && v <= 3; }; }, 1],
@@ -536,7 +566,7 @@ function lookProblems(store) {
     [{ v: 2, theme: 'granite', sand: 'custom', sandColor: 'red' }, 'sahara,walnut,,sahara', 'a custom sand with no colour over a theme that is none'],
     [{ v: 2, theme: 'moonstone', sand: 'quartz', finish: 'tin', sandColor: '400,2,1' }, 'sahara,walnut,,moonstone', 'no sand, no finish, no colour: the defaults'],
     [{ v: 2, theme: 'moonstone', sand: 7, finish: null }, 'sahara,walnut,,moonstone', 'the wrong types: the defaults, no migration'],
-    [{ v: 2, theme: 'toString' }, 'sahara,walnut,,toString', 'a theme that is a name every object has: no sand, no finish of it']
+    [{ v: 2, theme: 'toString' }, 'sahara,walnut,,sahara', 'a theme that is a name every object has: the default material, and no sand, no finish of it']
   ].forEach(function (c) {
     var r = loadOf(store, c[0]), got = [r.values.sand, r.values.finish, r.values.sandColor, r.values.theme].join();
     if (got !== c[1]) out.push(c[2] + ': ' + got);
@@ -640,6 +670,47 @@ var spAny = shapeProblems(withShapeRecord(undefined));
 var spHeld = shapeProblems(withShapeRecord(function (v, reg) { return Object.prototype.hasOwnProperty.call(reg.shapes, v); }));
 check(spAny.length >= 3 && spHeld.length === heldIds.length && heldIds.length > 0,
   '... and a store whose shape takes any name, and one that takes a shape held back, are each found out (control)', spAny.concat(spHeld).join('; '));
+
+/* ---- 4c. a name every object has (release 1.15.1) ----------------------------------------- */
+// A saved name is looked up in a table of HourglassPhysics: the theme in THEMES, the sand in
+// SANDS, the finish in FINISHES (and made from the theme by finishOf), the shape in SHAPES. A
+// name that every object has ('toString', '__proto__', 'valueOf' ...: each own name of
+// Object.prototype) is in none of them, and gives the record's default, saved alone or as the
+// theme a sand and a finish are made from. (Until 1.15.1 a theme 'toString' was kept and saved;
+// in 1.13.0 it stopped the app at every launch.)
+var REG_ALL = { themes: THEMES, sands: PH.SANDS, finishes: PH.FINISHES, finishOf: PH.finishOf, shapes: SHAPES };
+var LOOKED_UP = ['theme', 'sand', 'finish', 'shape'];
+/** What a store keeps of a name every object has: [] when each comes up as the default. */
+function inheritedProblems(store) {
+  var out = [], dflt = {};
+  store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
+  LOOKED_UP.forEach(function (key) {
+    INHERITED.forEach(function (n) {
+      var saved = { v: 2 }, st, v;
+      saved[key] = n;
+      st = Storage(JSON.stringify(saved), 'ok');
+      try { v = store.load(st.reach, '', REG_ALL); store.save(v); } catch (e) { out.push(key + ' ' + show(n) + ': the load threw ' + e.message); return; }
+      LOOKED_UP.forEach(function (k) {
+        if (v[k] !== dflt[k]) out.push(key + ' ' + show(n) + ': ' + k + ' came up as ' + show(v[k]));
+        if (JSON.parse(st.data[KEY])[k] !== dflt[k]) out.push(key + ' ' + show(n) + ': ' + k + ' saved as ' + show(JSON.parse(st.data[KEY])[k]));
+      });
+    });
+  });
+  return out;
+}
+var ip = inheritedProblems(S);
+check(ip.length === 0 && LOOKED_UP.every(function (k) { return S.KEYS.indexOf(k) >= 0; }),
+  'a name every object has (the ' + INHERITED.length + ' own names of Object.prototype: ' + INHERITED.join(', ') + ') saved as the theme, the sand, the finish or the shape comes up, and is saved, as the default of each of the four',
+  ip.slice(0, 4).join('; ') + (ip.length > 4 ? ' (' + ip.length + ' in all)' : ''));
+// controls: a store that looks a name up the loose way (the table's entry, own or inherited), in the themes, the sands or the finishes
+function withValid(id, valid) { return variant(function (o) { o.records.filter(function (r) { return r.id === id; })[0].valid = valid; }); }
+var LOOSE = [
+  ['the theme', withValid('theme', function (v, reg) { return !!reg.themes[v]; })],
+  ['the sand', withValid('sand', function (v, reg) { return v === 'custom' || (!!reg.sands && !!reg.sands[v]); })],
+  ['the finish', withValid('finish', function (v, reg) { return !!reg.finishes && !!reg.finishes[v]; })]
+].map(function (c) { var n = inheritedProblems(c[1]).length; return c[0] + ': ' + n + (n >= INHERITED.length ? '' : ' (too few)'); });
+check(LOOSE.every(function (t) { return !/too few/.test(t); }),
+  '... and a store that checks the theme, the sand or the finish the loose way (the table\'s entry, inherited or not) is found out, each on every one of the names (control)', LOOSE.join('; '));
 
 /* ---- 5. save, a blocked storage, bindSwitch, loading ------------------------------------ */
 var st1 = Storage('{"v":2,"realSand":false,"theme":"lapis"}', 'ok'), v1 = S.load(st1.reach, '', REG);

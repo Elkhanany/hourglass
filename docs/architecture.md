@@ -168,7 +168,9 @@ keys are saved:
   back (the material must be one of `HourglassPhysics.THEMES`, the sand one
   of `SANDS` or `'custom'`, the custom colour "h,s,l" or nothing, the finish
   one of `FINISHES`, the grain 1 or 2, the accelerometer's sign 1 or -1,
-  Tune's tab one of the four). It does not clamp: a value outside
+  Tune's tab one of the four). A name is one of a table's only when the
+  table has it as its own: a name every object has (`toString`, `valueOf`,
+  `__proto__` ...) is none, and gives the default. It does not clamp: a value outside
   its range comes up as the default, not as the nearest end;
 - `from(saved, reg)`, where a setting is made from older ones: the value for
   a save that has no such key yet. A migration is keyed on its own key being
