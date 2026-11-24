@@ -150,7 +150,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   differ only in the key `shape` at the end of every full save, the build
   stamp 7 for 6, the sixth boot (a save in the delta shape) and the lines of
   the nine shape controls; against the shapes' files, only in what the sands
-  release brought, as above.
+  release brought, as above. The Tune trace was made again for release
+  1.15.1, the reset link's two taps moved from the start of the walk (where
+  nothing differed from the defaults, and its save was empty) to just before
+  Real sand: its entries now save the sand, the volume and the ambience
+  level put back and tell the sound engine, and the Real sand boot that
+  follows, and the last save, draw and hold Sahara Quartz at the default
+  volume and level; no other entry changed.
   The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
