@@ -1,5 +1,5 @@
 {
-  "from": "a1a6d69c75afe39067f5909da04b54d1c55a4b1f",
+  "from": "10585ae0a8049741168181810b7dacc79896ab7a, with the changes not yet committed",
   "what": "What every control that changes a setting saves, calls on the engines and buzzes, in order: in its own tap (now) and after it (later) (tools/test/lib/trace.js)",
   "controls": [
     {
@@ -64,65 +64,139 @@
       "later": []
     },
     {
-      "name": "material: volcanic",
+      "name": "sand: volcanic",
       "now": [
         ["audio.unlock"],
-        ["save",{"theme":"volcanic"}],
+        ["save",{"theme":"volcanic","sand":"volcanic"}],
         ["buzz",8]
       ],
       "later": [
-        ["renderer.setTheme","volcanic"]
+        ["renderer.setLook",{"sand":"volcanic","material":"sahara"}]
       ]
     },
     {
-      "name": "material: moonstone",
+      "name": "sand: moonstone",
       "now": [
         ["audio.unlock"],
-        ["save",{"theme":"moonstone"}],
+        ["save",{"theme":"moonstone","sand":"moonstone"}],
         ["buzz",8]
       ],
       "later": [
-        ["renderer.setTheme","moonstone"]
+        ["renderer.setLook",{"sand":"moonstone","material":"sahara"}]
       ]
     },
     {
-      "name": "material: lapis",
+      "name": "sand: lapis",
       "now": [
         ["audio.unlock"],
-        ["save",{"theme":"lapis"}],
+        ["save",{"theme":"lapis","sand":"lapis"}],
         ["buzz",8]
       ],
       "later": [
-        ["renderer.setTheme","lapis"]
+        ["renderer.setLook",{"sand":"lapis","material":"sahara"}]
       ]
     },
     {
-      "name": "material: rosequartz",
+      "name": "sand: rosequartz",
       "now": [
         ["audio.unlock"],
-        ["save",{"theme":"rosequartz"}],
+        ["save",{"theme":"rosequartz","sand":"rosequartz"}],
         ["buzz",8]
       ],
       "later": [
-        ["renderer.setTheme","rosequartz"]
+        ["renderer.setLook",{"sand":"rosequartz","material":"sahara"}]
       ]
     },
     {
-      "name": "material: seaglass",
+      "name": "sand: seaglass",
       "now": [
         ["audio.unlock"],
-        ["save",{"theme":"seaglass"}],
+        ["save",{"theme":"seaglass","sand":"seaglass"}],
         ["buzz",8]
       ],
       "later": [
-        ["renderer.setTheme","seaglass"]
+        ["renderer.setLook",{"sand":"seaglass","material":"sahara"}]
       ]
     },
     {
-      "name": "material: sahara",
+      "name": "sand: garnet",
       "now": [
         ["audio.unlock"],
-        ["save",{"theme":"sahara"}],
+        ["save",{"sand":"garnet"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setLook",{"sand":"garnet","material":"sahara"}]
+      ]
+    },
+    {
+      "name": "sand: olivine",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"sand":"olivine"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setLook",{"sand":"olivine","material":"sahara"}]
+      ]
+    },
+    {
+      "name": "sand: amethyst",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"sand":"amethyst"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setLook",{"sand":"amethyst","material":"sahara"}]
+      ]
+    },
+    {
+      "name": "sand: custom, its first colour",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"sand":"custom","sandColor":"185,0.5,0.5"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setLook",{"sand":{"h":185,"s":0.5,"l":0.5},"material":"sahara"}]
+      ]
+    },
+    {
+      "name": "sand: custom, a colour of its own (the well, let go)",
+      "now": [
+        ["save",{"sandColor":"330.6,0.447,0.553"}],
+        ["renderer.setLook",{"sand":{"h":330.6,"s":0.447,"l":0.553},"material":"sahara"}]
+      ],
+      "later": []
+    },
+    {
+      "name": "sand: sahara",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"theme":"sahara","sand":"sahara"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setTheme","sahara"]
+      ]
+    },
+    {
+      "name": "sand: custom again, the colour kept",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"sand":"custom"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setLook",{"sand":{"h":330.6,"s":0.447,"l":0.553},"material":"sahara"}]
+      ]
+    },
+    {
+      "name": "sand: sahara, again",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"sand":"sahara"}],
         ["buzz",8]
       ],
       "later": [
@@ -149,6 +223,72 @@
       ],
       "later": [
         ["renderer.setFrame",true]
+      ]
+    },
+    {
+      "name": "finish: brass",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"finish":"brass"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setLook",{"sand":"sahara","material":"volcanic"}]
+      ]
+    },
+    {
+      "name": "finish: silver",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"finish":"silver"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setLook",{"sand":"sahara","material":"moonstone"}]
+      ]
+    },
+    {
+      "name": "finish: gold",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"finish":"gold"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setLook",{"sand":"sahara","material":"lapis"}]
+      ]
+    },
+    {
+      "name": "finish: copper",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"finish":"copper"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setLook",{"sand":"sahara","material":"rosequartz"}]
+      ]
+    },
+    {
+      "name": "finish: driftwood",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"finish":"driftwood"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setLook",{"sand":"sahara","material":"seaglass"}]
+      ]
+    },
+    {
+      "name": "finish: walnut",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"finish":"walnut"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setTheme","sahara"]
       ]
     },
     {
@@ -474,14 +614,14 @@
       "later": []
     },
     {
-      "name": "material, by the chip in the top bar: the next one",
+      "name": "sand, by the chip in the top bar: the next one",
       "now": [
         ["audio.unlock"],
-        ["save",{"theme":"volcanic"}],
+        ["save",{"theme":"volcanic","sand":"volcanic"}],
         ["buzz",8]
       ],
       "later": [
-        ["renderer.setTheme","volcanic"]
+        ["renderer.setLook",{"sand":"volcanic","material":"sahara"}]
       ]
     },
     {
@@ -531,7 +671,7 @@
         ["audio.setCharacter","asmr"],
         ["renderer.layout"],
         ["save",{}],
-        ["renderer.setTheme","volcanic"],
+        ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
         ["remove","hourglass.session.v1"]
       ]
     },
@@ -570,7 +710,7 @@
         ["audio.setCharacter","asmr"],
         ["renderer.layout"],
         ["save",{}],
-        ["renderer.setTheme","volcanic"],
+        ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
         ["remove","hourglass.session.v1"]
       ]
     },
@@ -608,7 +748,7 @@
         ["audio.setCharacter","asmr"],
         ["renderer.layout"],
         ["save",{}],
-        ["renderer.setTheme","volcanic"],
+        ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
         ["remove","hourglass.session.v1"]
       ]
     },
@@ -646,10 +786,10 @@
         ["audio.setCharacter","asmr"],
         ["renderer.layout"],
         ["save",{}],
-        ["renderer.setTheme","volcanic"],
+        ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
         ["remove","hourglass.session.v1"]
       ]
     }
   ],
-  "saved": "{\"theme\":\"volcanic\",\"character\":\"asmr\",\"volume\":0.55,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.7,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"6\",\"v\":2,\"tuneTab\":\"sand\"}"
+  "saved": "{\"theme\":\"volcanic\",\"character\":\"asmr\",\"volume\":0.55,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.7,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"6\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"volcanic\",\"sandColor\":\"330.6,0.447,0.553\",\"finish\":\"walnut\"}"
 }
