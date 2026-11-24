@@ -751,7 +751,8 @@ var CHANGED = {
   theme: 'lapis', sand: 'garnet', sandColor: '185,0.5,0.5', finish: 'copper', frame: false, layers: true, volume: 0.35, character: 'bamboo', ambience: 'rain', ambienceLevel: 0.7, chime: false,
   sandLevel: 0.4, bowlLevel: 1.6, bowlRings: 'tap', ambFade: 600000, silentRing: false,
   muted: true, grain: 1, zenFull: true, keepAwake: false, breath: true, breathPattern: 'box', durationMs: 600000, restMs: 120000, rounds: 3,
-  motionSign: -1, mendNotes: 2, hintCrack: true, hintZen: 3, hintMotion: 3, tuneTab: 'time'
+  motionSign: -1, mendNotes: 2, hintCrack: true, hintZen: 3, hintMotion: 3, tuneTab: 'time',
+  quick: '2,25,3,45,90,99', endsAt: true                // (the Time tab's: kept, as the durations are)
 };
 /** The reset link, the saved settings as text, and what the page and the engines show of the eight. */
 function resetState(t) {
@@ -868,7 +869,7 @@ function resetOk(m, save) {
   var quiet = function (st) { return names(st.events).filter(function (n) { return n !== 'buzz'; }).length === 0; };
   // 1. the first tap
   var ask = {
-    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 13 &&
+    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 14 &&
         m.idle.link.join('|') === 'idle|' + ASK && m.asked.link.join('|') === 'armed|' + SURE && untouched(m.asked) && JSON.stringify(m.asked.events) === '[["buzz",8]]' &&
         m.gaveUp.link.join('|') === 'idle|' + ASK && untouched(m.gaveUp) && m.gaveUp.events.length === 0 && m.waited >= 2900 && m.waited < 5500,
     detail: JSON.stringify(m.place) + '; ' + m.idle.link.join(': ') + ' → ' + m.asked.link.join(': ') + ' ' + JSON.stringify(m.asked.events) + (untouched(m.asked) ? '' : ' AND THE SAVE CHANGED') +
@@ -963,8 +964,11 @@ var BEFORE = {
   sheet: [0, 459, 393, 852], tabs: [16, 479, 329, 521], body: [16, 527, 377, 836],
   // (Sand's first control is its first sand since 1.14.0, measured at 393 x 852 with the edges taken out of the page;
   // it stands where the first material card stood, its top at 555)
-  row: { sand: [16, 555, 85, 644.05], glass: [16, 555, 377, 801], sound: [20, 541, 373, 571], time: [16, 558, 377, 616] }
+  row: { sand: [16, 555, 85, 644.05], glass: [16, 555, 377, 801], sound: [20, 541, 373, 571], time: [16, 555, 377, 644.25] }
 };
+// (The Time tab's first row is its six quick durations, .quick-pick, since they came: its top at
+// 555, 3 px above where Keep screen awake's row stood at 122a7fd, [16, 558, 377, 616], and taller;
+// the heading above it is where it was)
 // (1.15.0: the Glass tab's first row is its shape picker, .shape-pick, in the place where the
 // frame's row stood at 122a7fd: [16, 555, 377, 609.25] then; it is taller, and the frame's row is
 // now under it)
@@ -979,7 +983,7 @@ function edges(t) {
       var cs = getComputedStyle(el);
       return { box: R(el), opacity: +cs.opacity, events: cs.pointerEvents, hidden: el.getAttribute('aria-hidden'), fade: cs.transitionDuration, kids: el.querySelectorAll('*').length };
     }
-    var row = p ? p.querySelector('#sands button, .row, .slider-row, .shape-pick') : null;
+    var row = p ? p.querySelector('#sands button, .row, .slider-row, .shape-pick, .quick-pick') : null;
     return {
       tab: p ? p.getAttribute('data-tab') : null, scrolled: b.scrollTop, left: b.scrollHeight - b.clientHeight - b.scrollTop, length: b.scrollHeight, view: b.clientHeight,
       sheet: R(s), tabs: R(document.getElementById('tune-tabs')), body: R(b), row: row ? R(row) : null,
@@ -1396,7 +1400,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       s.check('RESET: the link is a button at the end of the Time tab, no row; its first tap only asks ("' + SURE + '", one buzz, nothing set or saved) and after 3 s it has given up', v.ask.ok, v.ask.detail);
       s.check('RESET: it gives up at once when another tab is shown and when Tune is closed; a double tap is one tap and still only asks', v.gives.ok, v.gives.detail);
       s.check('RESET: the second tap puts back the fourteen it names (the sand, the material that follows it, the finish, frame, layered sand, volume, sand sound and the Sand level, ambience, its level and its fade before the end, bowl, its Rings and the Bowl level), each to a new install\'s value', v.back.ok, v.back.detail);
-      s.check('RESET: ... and keeps every other saved setting byte for byte (the custom sand\'s colour too, for its swatch, and Sound in silent mode as it was set, off here), loads nothing again and leaves the glass as it is', v.kept.ok, v.kept.detail);
+      s.check('RESET: ... and keeps every other saved setting byte for byte (the custom sand\'s colour too, for its swatch; Sound in silent mode as it was set, off here; the six quick durations and "Show when it ends" as they were set), loads nothing again and leaves the glass as it is', v.kept.ok, v.kept.detail);
       s.check('RESET: saved once, then the sound engine told its seven in order and one buzz, inside the tap; the look (one call for sand and finish), the frame and the layers behind one cross-fade; the bowl is not rung', v.engines.ok, v.engines.detail);
       s.check('RESET: the controls and the engines show it (the mute button left as it was)', v.shown.ok, v.shown.detail);
       s.check('RESET: the link is as it was, and "' + DONE + '" is said just above the sheet', v.says.ok, v.says.detail);
@@ -1437,6 +1441,16 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
         el.addEventListener('click', function () {
           var z = document.getElementById('opt-zen');
           if (armed && el.getAttribute('data-state') === 'idle' && z.checked) z.click();
+        });
+      }), resetOk);
+      await control('RESET: a copy that puts the six quick durations and "Show when it ends" back too', 'kept', copy(function () {
+        var el = document.getElementById('tune-reset'), armed = false;
+        document.addEventListener('click', function (e) { if (e.target && e.target.closest && e.target.closest('#tune-reset')) armed = el.getAttribute('data-state') === 'armed'; }, true);
+        el.addEventListener('click', function () {
+          if (!(armed && el.getAttribute('data-state') === 'idle')) return;
+          var st = JSON.parse(localStorage.getItem('hourglass.settings.v1'));
+          st.quick = '1,5,10,15,30,60'; st.endsAt = false;
+          localStorage.setItem('hourglass.settings.v1', JSON.stringify(st));
         });
       }), resetOk);
       await control('RESET: a copy that leaves the volume as it was', 'back', copy(function () {

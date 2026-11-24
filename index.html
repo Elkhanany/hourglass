@@ -89,12 +89,13 @@
     <div class="panel">
       <div id="duration-row">
         <div id="durations" role="radiogroup" aria-label="Duration">
-<button class="pill" type="button" role="radio" aria-checked="false" data-min="1" aria-label="1 minute">1<i>m</i></button>
-          <button class="pill" type="button" role="radio" aria-checked="true" data-min="5" aria-label="5 minutes">5<i>m</i></button>
-          <button class="pill" type="button" role="radio" aria-checked="false" data-min="10" aria-label="10 minutes">10<i>m</i></button>
-          <button class="pill" type="button" role="radio" aria-checked="false" data-min="15" aria-label="15 minutes">15<i>m</i></button>
-          <button class="pill" type="button" role="radio" aria-checked="false" data-min="30" aria-label="30 minutes">30<i>m</i></button>
-          <button class="pill" type="button" role="radio" aria-checked="false" data-min="60" aria-label="60 minutes">60<i>m</i></button>
+          <!-- the six quick durations: their minutes are the setting `quick` (app.js writes them in) -->
+          <button class="pill" type="button" role="radio" aria-checked="false" data-quick="0"></button>
+          <button class="pill" type="button" role="radio" aria-checked="false" data-quick="1"></button>
+          <button class="pill" type="button" role="radio" aria-checked="false" data-quick="2"></button>
+          <button class="pill" type="button" role="radio" aria-checked="false" data-quick="3"></button>
+          <button class="pill" type="button" role="radio" aria-checked="false" data-quick="4"></button>
+          <button class="pill" type="button" role="radio" aria-checked="false" data-quick="5"></button>
         </div>
         <button class="pill pill-custom" id="pill-custom" type="button" aria-pressed="false" aria-haspopup="dialog" aria-label="Custom duration">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="7.2"/><path d="M12 9v4.2l2.6 1.6M9.5 3.2h5"/></svg>
@@ -322,8 +323,26 @@
 
       <!-- Time: the screen, the breath, Zen, the buttons' tick, and the way back -->
       <div id="panel-time" class="tab-panel" role="tabpanel" aria-labelledby="tab-time" data-tab="time" hidden>
+        <h3 id="quick-title">Quick durations</h3>
+        <!-- the six pills under the glass, each set with the custom-duration dial (app.js writes their minutes in) -->
+        <div class="quick-pick">
+          <div id="quick" role="group" aria-labelledby="quick-title">
+            <button type="button" data-quick="0" aria-haspopup="dialog"></button>
+            <button type="button" data-quick="1" aria-haspopup="dialog"></button>
+            <button type="button" data-quick="2" aria-haspopup="dialog"></button>
+            <button type="button" data-quick="3" aria-haspopup="dialog"></button>
+            <button type="button" data-quick="4" aria-haspopup="dialog"></button>
+            <button type="button" data-quick="5" aria-haspopup="dialog"></button>
+          </div>
+          <small>Touch one to change it. These are the six under the glass.</small>
+        </div>
+
         <h3>The clock</h3>
         <div class="rows">
+          <label class="row" for="opt-ends">
+            <span><b>Show when it ends</b><small>The clock time beside the state: Flowing · ends 14:35</small></span>
+            <input id="opt-ends" class="switch" type="checkbox" role="switch">
+          </label>
           <label class="row" for="opt-awake">
             <span><b>Keep screen awake</b><small id="awake-note">While the sand is flowing</small></span>
             <input id="opt-awake" class="switch" type="checkbox" role="switch" checked>

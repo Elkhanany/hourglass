@@ -238,6 +238,8 @@ function click(sel) { return { click: sel }; }
 function slide(sel, v) { return { slide: sel, value: v }; }
 /** A colour input: its value set, then 'input' and 'change', as a finger lets go of the phone's picker. */
 function pick(sel, v) { return { slide: sel, value: v, change: true }; }
+/** The custom duration's dial: its minutes turned to v, as a finger leaves the wheel (its scroll at that item). */
+function dial(sel, v) { return { dial: sel, value: v }; }
 // Every control of Tune, and the three of the top bar and the pills that save too. `wait`:
 // what must have happened before the next one (default: the cross-fade, the sweep and a
 // reload over). The names are the settings', not the page's: a new Tune is driven by its own
@@ -318,6 +320,21 @@ var DRIVE = [
   ['bowl level: 80', slide('#bowl-level', 80)],
   ['sound in silent mode: off', click('#opt-silent')],
   ['sound in silent mode: on', click('#opt-silent')],
+  ['quick duration 1: its dial opened', click('#quick [data-quick="0"]')],
+  ['quick duration 1: the dial turned to 2 minutes', dial('#wheel-min', 2)],
+  ['quick duration 1: set to 2 minutes', click('#custom-set')],
+  ['quick duration 2: its dial opened', click('#quick [data-quick="1"]')],
+  ['quick duration 2: the dial closed, nothing set', click('#sheet-custom .sheet-close')],
+  ['quick duration 3: its dial opened', click('#quick [data-quick="2"]')],
+  ['quick duration 3: the dial closed, nothing set', click('#sheet-custom .sheet-close')],
+  ['quick duration 4: its dial opened', click('#quick [data-quick="3"]')],
+  ['quick duration 4: the dial closed, nothing set', click('#sheet-custom .sheet-close')],
+  ['quick duration 5: its dial opened', click('#quick [data-quick="4"]')],
+  ['quick duration 5: the dial closed, nothing set', click('#sheet-custom .sheet-close')],
+  ['quick duration 6: its dial opened', click('#quick [data-quick="5"]')],
+  ['quick duration 6: the dial closed, nothing set', click('#sheet-custom .sheet-close')],
+  ['show when it ends: on', click('#opt-ends')],
+  ['show when it ends: off', click('#opt-ends')],
   ['keep screen awake: off', click('#opt-awake')],
   ['keep screen awake: on', click('#opt-awake')],
   ['real motion: on', click('#opt-tilt'), 'motion'],
@@ -386,10 +403,11 @@ async function tune(env, only) {
   /** One traced click or slide: what was logged before it (the entry before's "later"), and in it. */
   function act(a) {
     return page.evaluate(function (act) {
-      var T = window.__trace, el = document.querySelector(act.click || act.slide), earlier = T.take();
+      var T = window.__trace, el = document.querySelector(act.click || act.slide || act.dial), earlier = T.take();
       if (!el) return { missing: true };
       T.tap(function () {
         if (act.click) el.click();
+        else if (act.dial) { el.scrollTop = act.value * 46; el.dispatchEvent(new Event('scroll')); }
         else {
           el.value = String(act.value); el.dispatchEvent(new Event('input', { bubbles: true }));
           if (act.change) el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -415,7 +433,7 @@ async function tune(env, only) {
       var el = document.querySelector(q), did = null;
       a.lines.forEach(function (l) { if (!did && el && document.querySelector(l[1]) === el) did = l[0]; });
       return { click: q, did: did || '(' + q + ', which no line drives)' };
-    }, { sel: sel, opener: DRIVE[0][1].click, lines: DRIVE.map(function (d) { return [d[0], d[1].click || d[1].slide]; }) });
+    }, { sel: sel, opener: DRIVE[0][1].click, lines: DRIVE.map(function (d) { return [d[0], d[1].click || d[1].slide || d[1].dial]; }) });
   }
   async function rest(before, what) {
     await until(page, function (s) { return s.id === before.id && s.calm; }, 8000, 'the page at rest after ' + what);
@@ -433,13 +451,13 @@ async function tune(env, only) {
           return /^data-/.test(t.name) ? '[' + t.name + '="' + t.value + '"]' : '';
         }).join('');
       });
-    }, { selectors: DRIVE.map(function (d) { return d[1].click || d[1].slide; }), holders: HOLDERS });
+    }, { selectors: DRIVE.map(function (d) { return d[1].click || d[1].slide || d[1].dial; }), holders: HOLDERS });
     for (var i = 0; i < DRIVE.length; i++) {
       var d = DRIVE[i];
       if (only && only.indexOf(d[0]) < 0) continue;
       var before = await state(page), r, step, guard = 0;
       // the way to it: at most Tune opened and a tab shown, each a click of its own
-      while ((step = await nextStep(d[1].click || d[1].slide))) {
+      while ((step = await nextStep(d[1].click || d[1].slide || d[1].dial))) {
         if (step.stuck || ++guard > 3) throw new Error('trace: no way to "' + d[0] + '": ' + (step.stuck || 'still not reachable after ' + (guard - 1) + ' steps'));
         r = await act({ click: step.click });
         if (cur) cur.later = cur.later.concat(r.earlier);
@@ -449,7 +467,7 @@ async function tune(env, only) {
       }
       if (d[2] === 'slow') await sleep(450);
       r = await act(d[1]);
-      if (r.missing) throw new Error('trace: no control for "' + d[0] + '" (' + (d[1].click || d[1].slide) + ')');
+      if (r.missing) throw new Error('trace: no control for "' + d[0] + '" (' + (d[1].click || d[1].slide || d[1].dial) + ')');
       if (cur) cur.later = cur.later.concat(r.earlier);
       cur = { name: d[0], now: r.now, later: [] };
       out.push(cur);

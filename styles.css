@@ -374,6 +374,12 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   #duration-row .pill-custom.seq .ic { display: none; }   /* a sequence ("25·5 ×4") needs the icon's room */
   #duration-row .pill-custom.long { padding: 0 8px; font-size: 12px; }   /* ... and the longest ("99:59·60 ×12") a little more */
 }
+/* The narrowest phones: six two-digit pills ("99" in each, the quick durations being anyone's) and
+   Custom still fit with no scroll, Custom without its icon */
+@media (max-width: 340px) {
+  #durations .pill { min-width: 30px; padding: 0 5px; }
+  #duration-row .pill-custom .ic { display: none; }
+}
 .pill {
   flex: 1 0 auto;
   min-width: 46px; height: 38px; padding: 0 12px;
@@ -730,6 +736,27 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
+/* Time: the six quick durations, as they stand under the glass; a touch sets one with the custom
+   duration's dial. Six across, each at least 44 px wide and tall; under 360 px, two rows of three. */
+.quick-pick { padding: 10px; border-radius: 20px; background: var(--raise); box-shadow: inset 0 0 0 1px var(--hair); }
+#quick { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+#quick button {
+  min-width: 44px; height: 44px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--raise); box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--ink-2); font-size: 15.5px; font-variant-numeric: tabular-nums;
+  transition: background 0.22s var(--ease), color 0.22s, transform 0.12s, box-shadow 0.22s;
+}
+#quick button i { font-style: normal; font-size: 11px; opacity: 0.6; margin-left: 2px; }
+#quick button:active { transform: scale(0.94); }
+#quick button.lit { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }   /* the one the glass has now */
+.quick-pick small { display: block; margin: 9px 4px 0; font-size: 12.5px; color: var(--ink-3); line-height: 1.3; }
+@media (max-width: 359px) { #quick { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* the custom duration's sheet setting a quick duration: its minutes only */
+#sheet-custom.quick .dial-sep, #sheet-custom.quick .dial-col + .dial-sep + .dial-col, #sheet-custom.quick #seq { display: none; }
+#sheet-custom.quick .dial-band { width: min(100%, 150px); }
+#sheet-custom.quick .cta { margin-top: 14px; }
+
 .rows { margin-top: 12px; border-radius: 20px; background: var(--raise); box-shadow: inset 0 0 0 1px var(--hair); }
 .row {
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
@@ -914,7 +941,7 @@ input[type="range"]::-moz-range-thumb {
   .act.primary:hover, .cta:hover { filter: brightness(1.05); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .hud, .sheet, #scrim, #toast, .pill, .act, .sands button, .finishes button { transition-duration: 0.01s !important; }
+  .hud, .sheet, #scrim, #toast, .pill, .act, .sands button, .finishes button, #quick button { transition-duration: 0.01s !important; }
   .edge { transition: none; }                                 /* Tune's edges appear and go, nothing fades */
   #zoom, #t-frac { transition-duration: 0.01s !important; }   /* the glass does not grow or shrink either */
   #breath, #breath.in { transform: none; }                    /* a breath only brightens and dims */

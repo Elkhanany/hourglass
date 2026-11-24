@@ -286,11 +286,61 @@
   // controls dimmed (cx, cy), and how far the controls' return moves it (dx, dy)
   var R0 = { width: 0, height: 0, scale: 1, cx: 0, cy: 0, dx: 0, dy: 0 };
 
+  /*
+   * Show when it ends (the setting endsAt): while a glass runs, the state line says when its
+   * clock reaches 00:00.0, "Flowing · ends 14:35", in the phone's own 12 or 24 hour style (the locale's short time:
+   hour and minute). It is
+   * worked out from the time left, so it moves when that does (sand added, a turn, a pause), and
+   * it is written to the page only when its words change. The words are drawn, not spoken: the
+   * state line is a polite live region, and an end that moves (a glass on its side, its time
+   * standing still) would be said again each minute. A screen reader finds it in the time's label.
+   */
+  var endsEl = document.createElement('span'), endsShown = null, endsMin = NaN, endsWords = '', endsFmt = null;
+  var READOUT_SAID = $('readout').getAttribute('aria-label');
+  endsEl.id = 'ends';
+  endsEl.setAttribute('aria-hidden', 'true');
+  /** "ends 14:35" (or "ends 2:35 PM") for a glass now running, else ''. */
+  function endsText() {
+    if (!settings.endsAt || T.state !== 'running' || flip.active || seq.gap || T.rem <= 0) return '';
+    var at = Date.now() + T.rem, min = Math.floor(at / 60000);
+    if (min !== endsMin) {                             // (worked out again only when its minute changes)
+      endsMin = min;
+      try {
+        if (!endsFmt) endsFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
+        endsWords = 'ends ' + endsFmt.format(new Date(at));
+      } catch (e) {
+        var d = new Date(at);
+        endsWords = 'ends ' + d.getHours() + ':' + pad2(d.getMinutes());
+      }
+    }
+    return endsWords;
+  }
+  /** The end on the state line, and in the time's label: written only when it changes. */
+  function showEnds() {
+    var text = endsText();
+    if (text === endsShown && (!text || endsEl.parentNode === statusEl)) return;
+    endsShown = text;
+    if (text) {
+      endsEl.textContent = ' · ' + text;
+      if (endsEl.parentNode !== statusEl) statusEl.appendChild(endsEl);
+      $('readout').setAttribute('aria-label', READOUT_SAID.replace(/^Time remaining\./, 'Time remaining, ' + text + '.'));
+    } else {
+      if (endsEl.parentNode) endsEl.parentNode.removeChild(endsEl);
+      $('readout').setAttribute('aria-label', READOUT_SAID);
+    }
+  }
+  /** The state line's words (the end, when it is shown, follows them). */
+  function setStatus(text) {
+    statusEl.textContent = text;
+    endsShown = null;                                  // (the span went with the old words: shown again, or the label put back)
+    showEnds();
+  }
+
   function setState(s) {
     var was = T.state;
     T.state = s;
     app.dataset.state = s;
-    statusEl.textContent = flip.active ? STATUS.turning : statusFor(s);
+    setStatus(flip.active ? STATUS.turning : statusFor(s));
     btnPlay.setAttribute('aria-label', s === 'running' ? 'Pause' : (s === 'done' ? 'Flip and start again' : 'Start'));
     if (s === 'running') {
       if (was !== 'running') T.lastTick = Date.now();   // (a glass that was running keeps its time)
@@ -686,7 +736,7 @@
     flip.shown = T.rem;
     sim.flipping = true;
     sim.wakeAll();
-    statusEl.textContent = STATUS.turning;
+    setStatus(STATUS.turning);
     if (!byHand) buzz(14);           // a hand has already felt the glass engage
   }
 
@@ -1483,6 +1533,7 @@
     governor(simMs, dtMs);
     if (now - lastSave > 5000) { lastSave = now; if (T.state === 'running') saveSession(); }
     showTime(flip.active ? flip.shown : T.rem);
+    showEnds();
     updateZen(now);
     if (dbg) updateDebug(now, dtMs);
     if (dbgSand) updateSandDebug(now);
@@ -2849,11 +2900,36 @@
   });
 
   /* ---- duration pills ----------------------------------------------- */
+  // The six pills under the glass are the setting `quick`, six whole minute counts in the order the
+  // person set them (Tune's Time tab sets each with the custom-duration dial). Two may be the same
+  // number: the lit one is the first whose minutes are the glass's; none, and Custom is lit.
+  var quickBtns = $('quick') ? $('quick').querySelectorAll('button[data-quick]') : [];
+  /** The six minute counts: the setting, or the default six should it ever not be six of 1 to 99. */
+  function quickMins() {
+    return Store.quickOf(settings.quick) || Store.quickOf(settingDefault('quick'));
+  }
+  function minutesSaid(m) { return m + (m === 1 ? ' minute' : ' minutes'); }
+  /** Each pill under the glass, and each button of Tune's Time tab, shows its minutes. */
+  function showQuick() {
+    var mins = quickMins(), pills = durations.querySelectorAll('.pill[data-quick]'), i;
+    for (i = 0; i < pills.length; i++) {
+      var m = mins[+pills[i].dataset.quick];
+      pills[i].dataset.min = m;
+      pills[i].innerHTML = m + '<i>m</i>';
+      pills[i].setAttribute('aria-label', minutesSaid(m));
+    }
+    for (i = 0; i < quickBtns.length; i++) {
+      var k = +quickBtns[i].dataset.quick, q = mins[k];
+      quickBtns[i].innerHTML = q + '<i>m</i>';
+      quickBtns[i].setAttribute('aria-label', 'Quick duration ' + (k + 1) + ': ' + minutesSaid(q) + ', change');
+    }
+  }
   function syncPills() {
     var pills = durations.querySelectorAll('.pill[data-min]'), hit = false;
     for (var i = 0; i < pills.length; i++) {
-      var on = !seq.rest && +pills[i].dataset.min * 60000 === T.durationMs;
+      var on = !seq.rest && !hit && +pills[i].dataset.min * 60000 === T.durationMs;   // (the first of two the same)
       pills[i].setAttribute('aria-checked', on ? 'true' : 'false');
+      if (quickBtns[i]) quickBtns[i].classList.toggle('lit', on);                    // (Tune shows which one the glass has)
       if (on) hit = true;
     }
     pillCustom.setAttribute('aria-pressed', hit ? 'false' : 'true');
@@ -2885,6 +2961,23 @@
     buzz(8);
     setDuration(+pill.dataset.min * 60000);
   });
+  /**
+   * Quick duration i set to m minutes: saved, and the pill under the glass changes at once. The
+   * glass keeps its time; the lit pill follows by number (none the same: Custom is lit).
+   */
+  function setQuick(i, m) {
+    var mins = quickMins().slice();
+    mins[i] = Math.max(1, Math.min(99, Math.round(m)));
+    settings.quick = mins.join(','); save();
+    showQuick();
+    syncPills();
+  }
+  for (var qi = 0; qi < quickBtns.length; qi++) {
+    quickBtns[qi].addEventListener('click', function (e) {
+      buzz(8);
+      openQuick(+e.currentTarget.dataset.quick);
+    });
+  }
   // any length you like: the Custom button, or simply tap the time
   pillCustom.addEventListener('click', function () { buzz(8); openCustom(pillCustom); });
   $('readout').addEventListener('click', function () { buzz(8); openCustom(null); });
@@ -2915,6 +3008,13 @@
     var done = function () { el.hidden = true; if (!sheetOpen) scrim.hidden = true; };
     if (instant) done(); else setTimeout(done, 560);
     if (sheetOpener && !instant) { try { sheetOpener.focus({ preventScroll: true }); } catch (e) {} }
+    // a quick duration's dial closed (set or not): back to Tune, the focus on that pill's button
+    if (el === sheetCustom && quickEdit !== null && !instant) {
+      var back = quickBtns[quickEdit];
+      tuneOpening();
+      openSheet(sheetSettings, btnSettings, back);
+      tuneEdges();
+    }
   }
   scrim.addEventListener('click', function () { closeSheet(); });
   var closers = document.querySelectorAll('.sheet-close');
@@ -3146,6 +3246,10 @@
   if (optSilent) optSilent.addEventListener('change', function (e) {
     settings.silentRing = e.target.checked; save();
     audio.setSilentRing(settings.silentRing);
+  });
+  $('opt-ends').addEventListener('change', function (e) {
+    settings.endsAt = e.target.checked; save();
+    showEnds();
   });
   $('opt-awake').addEventListener('change', function (e) {
     settings.keepAwake = e.target.checked; save();
@@ -3466,6 +3570,16 @@
     var ms = (wheelValue(wheelMin) * 60 + wheelValue(wheelSec)) * 1000;
     return Math.max(10000, ms);
   }
+  // The same sheet sets a quick duration (Tune's Time tab): its minutes only, 1 to 99, no rest.
+  // quickEdit is the pill being set (0 to 5), or null for the glass's own custom duration.
+  var quickEdit = null, customTitle = $('custom-title');
+  function quickMin() { return Math.max(1, wheelValue(wheelMin)); }
+  function customMode(i) {
+    quickEdit = i;
+    sheetCustom.classList.toggle('quick', i !== null);
+    customTitle.textContent = i === null ? 'Custom duration' : 'Quick duration ' + (i + 1);
+    wheelMin.setAttribute('aria-valuemin', i === null ? '0' : '1');
+  }
   var previewQueued = false;
   function previewCustom() {
     if (previewQueued) return;
@@ -3473,11 +3587,16 @@
     requestAnimationFrame(function () {
       previewQueued = false;
       var ms = customMs(), set = $('custom-set');
-      $('custom-preview').textContent = fmt(ms)[0] +
-        (draft.rest ? ', rest ' + draft.rest + (draft.rounds > 1 ? ', ×' + draft.rounds : '') : '');
-      // (read aloud: "Set 25 minutes, then rest 5 minutes, 4 rounds")
-      if (draft.rest) set.setAttribute('aria-label', 'Set ' + seqSpoken(ms, draft.rest * 60000, draft.rounds));
-      else set.removeAttribute('aria-label');
+      if (quickEdit !== null) {                          // "Set 10 min", read aloud "Set quick duration 3 to 10 minutes"
+        $('custom-preview').textContent = quickMin() + ' min';
+        set.setAttribute('aria-label', 'Set quick duration ' + (quickEdit + 1) + ' to ' + minutesSaid(quickMin()));
+      } else {
+        $('custom-preview').textContent = fmt(ms)[0] +
+          (draft.rest ? ', rest ' + draft.rest + (draft.rounds > 1 ? ', ×' + draft.rounds : '') : '');
+        // (read aloud: "Set 25 minutes, then rest 5 minutes, 4 rounds")
+        if (draft.rest) set.setAttribute('aria-label', 'Set ' + seqSpoken(ms, draft.rest * 60000, draft.rounds));
+        else set.removeAttribute('aria-label');
+      }
       wheelMin.setAttribute('aria-valuenow', wheelValue(wheelMin));
       wheelSec.setAttribute('aria-valuenow', wheelValue(wheelSec));
     });
@@ -3547,6 +3666,7 @@
     buzz(6);
   });
   function openCustom(opener) {
+    customMode(null);
     openSheet(sheetCustom, opener);
     var total = Math.round(T.durationMs / 1000);
     setWheel(wheelMin, Math.min(99, Math.floor(total / 60)), false);
@@ -3555,7 +3675,25 @@
     draft.rounds = seq.rounds;
     showDraft();
   }
+  /**
+   * Quick duration i, from Tune's Time tab: the same sheet, its minutes only. Tune closes behind it
+   * and comes back when it closes, set or not, with the focus on that pill's button.
+   */
+  function openQuick(i) {
+    customMode(i);
+    openSheet(sheetCustom, null);
+    setWheel(wheelMin, quickMins()[i], false);
+    setWheel(wheelSec, 0, false);
+    previewCustom();
+  }
   $('custom-set').addEventListener('click', function () {
+    if (quickEdit !== null) {
+      if (wheelValue(wheelMin) < 1) toast('Shortest is 1 minute');
+      setQuick(quickEdit, quickMin());
+      closeSheet();
+      buzz(12);
+      return;
+    }
     var raw = (wheelValue(wheelMin) * 60 + wheelValue(wheelSec)) * 1000;
     if (raw < 10000) toast('Shortest glass is 10 seconds');
     closeSheet();
@@ -4278,6 +4416,7 @@
   app.classList.toggle('zen-full', settings.zenFull);
   $('opt-chime').checked = settings.chime;
   $('opt-awake').checked = settings.keepAwake;
+  $('opt-ends').checked = settings.endsAt;
   $('opt-frame').checked = settings.frame;
   $('opt-layers').checked = settings.layers;
   $('opt-zen').checked = settings.zenFull;
@@ -4293,6 +4432,7 @@
   breathLayer(settings.breath);
   setMuted(settings.muted);
   setCharacter(settings.character);
+  showQuick();
   syncPills();
   hapticMountAll();
   zoom.style.transition = 'none';                     // arrive in place, not shrinking from the Zen size

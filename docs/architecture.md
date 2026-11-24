@@ -138,7 +138,8 @@ second sets the sand (with the material that follows it), the frame's
 finish, the frame, layered sand, the volume, the sand's sound, the ambience
 and its level and its fade before the end, the completion bowl, its rings
 and its level, and the sand's level to their records' defaults (the custom
-sand's colour is kept, for its swatch), saves once, and tells the engines only what differed, the look
+sand's colour is kept, for its swatch; the six quick durations and Show when
+it ends are kept, as the durations are), saves once, and tells the engines only what differed, the look
 behind one cross-fade. Everything else is kept, Sound in silent mode among it
 (how the phone treats the app: put back on, it could ring in a quiet room),
 and nothing is loaded again.
@@ -160,6 +161,26 @@ silent mode is the page's audio session, which `audio.js` sets when the
 sound is first unlocked and at once when the switch moves; with it off the
 app sets it at the launch too.
 
+The Time tab opens with the six quick durations (the setting `quick`,
+"1,5,10,15,30,60" as the app comes), then "The clock": Show when it ends
+(`endsAt`) and Keep screen awake. The six pills under the glass are made
+from `quick` and nothing else: `index.html` has six empty pills, and
+`app.js` (`showQuick`) writes each one's minutes, its `data-min` and its
+name, and the six buttons of the Time tab. A button opens the custom
+duration's own sheet in a mode of its own (`customMode`: its minutes only,
+1 to 99, no seconds and no rest, "Set 10 min"); Set saves `quick` and
+redraws the pills at once (`setQuick`), and the sheet closing, set or not,
+brings Tune back with the focus on that button. The lit pill is the first
+whose minutes are the glass's; the glass itself is never changed by a
+pill's number. Show when it ends is a span (`#ends`) put into the state
+line while a glass runs (not paused, turning, between two phases or done):
+`Date.now()` plus the time left, formatted by `Intl.DateTimeFormat` in the
+language's short time (`timeStyle: 'short'`), worked out again only when its minute changes and
+written only when its words do (`showEnds`, once a frame). It is hidden
+from a screen reader (the state line is a polite live region, and an end
+that moves, a glass on its side, would be read out every minute); the
+time's own label carries it instead.
+
 At the top of the Glass tab, a tap on a shape only shows it; "Use this
 shape" saves the setting `shape` and the session, and loads the page again,
 as another grain does. Before it reloads it puts `glass` in
@@ -178,7 +199,7 @@ controls.
 
 What the app keeps from one launch to the next is one JSON object in
 `localStorage`, under `hourglass.settings.v1`. The settings store holds it as
-a table of records, one for every saved key (41 today), in the order the
+a table of records, one for every saved key (43 today), in the order the
 keys are saved:
 
 - `id`, the key;
@@ -188,7 +209,8 @@ keys are saved:
   back (the material must be one of `HourglassPhysics.THEMES`, the sand one
   of `SANDS` or `'custom'`, the custom colour "h,s,l" or nothing, the finish
   one of `FINISHES`, the grain 1 or 2, the accelerometer's sign 1 or -1,
-  Tune's tab one of the four). A name is one of a table's only when the
+  Tune's tab one of the four, the quick durations six whole minute counts
+  of 1 to 99, `quickOf`: one bad count and all six are the default). A name is one of a table's only when the
   table has it as its own: a name every object has (`toString`, `valueOf`,
   `__proto__` ...) is none, and gives the default. It does not clamp: a value outside
   its range comes up as the default, not as the nearest end;
@@ -204,13 +226,14 @@ keys are saved:
   brass, Moonstone silver, Lapis Lazuli gold, Rose Quartz copper, Sea Glass
   driftwood), so that an old glass looks as it did.
 
-The last five are the Sound tab's (settings design 3.3), each with the sound
-as it was for its default, so a save from before them comes up sounding the
-same: `sandLevel` (0 to 1, Tune's Sand over 100, default 1), `bowlLevel` (0
-to 2, Tune's Bowl over 50, default 1), `bowlRings` ('once', 'three' or
-'tap'), `ambFade` (0 for off, or 60000, 300000 or 600000 ms) and
+After the shape come the Sound tab's five (settings design 3.3), each with
+the sound as it was for its default, so a save from before them comes up
+sounding the same: `sandLevel` (0 to 1, Tune's Sand over 100, default 1),
+`bowlLevel` (0 to 2, Tune's Bowl over 50, default 1), `bowlRings` ('once',
+'three' or 'tap'), `ambFade` (0 for off, or 60000, 300000 or 600000 ms) and
 `silentRing` (true). A level out of its range, or a choice that is none of
-its record's, is the default.
+its record's, is the default. The last two are the Time tab's: `quick`
+("1,5,10,15,30,60") and `endsAt` (false).
 
 `HourglassSettings.load(storage, search, reg)` gives the values: the
 defaults; over them the saved values of the right type; the version step
