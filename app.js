@@ -427,7 +427,10 @@
       if (!q) return;
       if (q.up && performance.now() - q.up > 600) { ringEat = null; return; }    // (the gesture is over)
       if (type === 'keyup') { if (q.key === e.key) { ringEaten(e); q.up = performance.now(); } return; }
-      if (q.key !== undefined) { if (type === 'click') ringEaten(e); return; }   // (a key's click: Enter or Space on a button)
+      if (q.key !== undefined) {                                                 // (a key's click: Enter on a button as it goes down, Space as it comes up)
+        if (type === 'click' && (!q.up || performance.now() - q.up < 50)) ringEaten(e);
+        return;
+      }
       if ((type === 'pointerup' || type === 'pointercancel') && e.pointerId === q.id) q.up = performance.now();
       if (type.indexOf('pointer') === 0 && e.pointerId !== q.id) return;
       ringEaten(e);
