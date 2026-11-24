@@ -31,6 +31,7 @@ var staticServer = require('./static-server.js');
 
 var REPO = require('./paths.js').ROOT;
 var seed = require('./seed.js');
+var tune = require('./tune.js');
 var PROBE = path.join(__dirname, 'replay-probe.js');
 var STREAMS = path.join(__dirname, 'replay-streams.js');
 
@@ -201,14 +202,10 @@ async function open(env, o) {
     },
     /** Tune > Real motion, switched on by a real tap on its row (the only way a person can; the row's haptic label lies over the switch). */
     realMotionOn: async function () {
-      await page.tap('#btn-settings');
-      await sleep(700);
-      await page.$eval('#opt-tilt', function (el) { el.scrollIntoView({ block: 'center' }); });
-      await sleep(200);
-      await page.tap('label[for="opt-tilt"]');
+      await tune.tap(page, 'label[for="opt-tilt"]');   // (Tune opened, the row's tab shown: lib/tune.js)
       await sleep(300);
-      await page.tap('#sheet-settings .sheet-close');
-      await sleep(700);
+      await tune.close(page);
+      await sleep(100);
       return page.evaluate(function () { return { on: window.Hourglass.grav.on, perms: window.__probe.perms }; });
     },
     mark: function () { return page.evaluate(function () { window.__probe.reset(); }); },

@@ -8,7 +8,7 @@
  *  OFF   the switch off: nothing under realsand/ is requested (by the page's own record, and at
  *        the network through a route, also after a run, Tune, a theme, layered sand and a Reset;
  *        NOGPU's same route is the control), no engine, the CPU Sim is the sim; the row "Real
- *        sand" sits in the Material group after Grain, "Off: the classic sand", with no "Copy a
+ *        sand" sits in the Sand tab's rows after Layered sand, before Grain, "Off: the classic sand", with no "Copy a
  *        report"; Grain and Real motion's crack sentence shown; Tune has 10 rows.
  *  NOGPU the switch on, the real engine, in this Chromium (navigator.gpu, but no adapter): the
  *        engine is loaded, does not start; the switch shows off, not disabled, "Needs WebGPU (iOS
@@ -366,16 +366,17 @@ async function testOff(s, env) {
             st.requested.length === 0 && !st.engine && st.cpu && !st.gpu && !st.real && !st.setting, JSON.stringify(st));
     var ui = await t.eval(function () {
       var row = document.getElementById('realsand-row'), el = document.getElementById('opt-realsand');
-      var prev = row.previousElementSibling;
+      var prev = row.previousElementSibling, next = row.nextElementSibling;
       return { tag: row.tagName, for: row.getAttribute('for'), title: row.querySelector('b').textContent,
-        role: el.getAttribute('role'), type: el.type, cls: el.className,
-        afterGrain: !!prev && prev.classList.contains('sub') && !!prev.querySelector('#grains'),
-        material: row.parentNode.classList.contains('rows-single'), last: row === row.parentNode.lastElementChild,
+        role: el.getAttribute('role'), type: el.type, cls: el.className, tab: window.__tune.where('#opt-realsand').name,
+        afterLayers: !!prev && prev.getAttribute('for') === 'opt-layers',
+        beforeGrain: !!next && next.id === 'grain-row' && !!next.nextElementSibling && !!next.nextElementSibling.querySelector('#grains'),
+        material: row.parentNode.classList.contains('rows-single'),
         rows: document.querySelectorAll('#sheet-settings .row').length };
     });
-    s.check('OFF: the row "Real sand", a labelled switch, sits in the Material group right after Grain\'s choices; Tune has 10 rows',
+    s.check('OFF: the row "Real sand", a labelled switch, sits in the Sand tab\'s rows right after Layered sand, then Grain and its choices; Tune has 10 rows',
             ui.tag === 'LABEL' && ui.for === 'opt-realsand' && ui.title === 'Real sand' && ui.role === 'switch' && ui.type === 'checkbox' &&
-            ui.cls === 'switch' && ui.afterGrain && ui.material && ui.last && ui.rows === 10, JSON.stringify(ui));
+            ui.cls === 'switch' && ui.tab === 'Sand' && ui.afterLayers && ui.beforeGrain && ui.material && ui.rows === 10, JSON.stringify(ui));
     s.check('OFF: off ("Off: the classic sand", data-state off); Grain shown with its note, and Real motion\'s crack sentence; no "Copy a report" link',
             !st.checked && !st.disabled && st.dstate === 'off' && st.note === 'Off: the classic sand' && st.grainShown && st.crackShown &&
             st.grainNote === 'Finer sand is more grains, and more work for the phone' && st.report === null,

@@ -16,20 +16,15 @@
  */
 'use strict';
 var H = require('./stubs/harness.js');
+var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 
 var REAL = process.argv.indexOf('--real') >= 0;
 var SETTINGS = 'hourglass.settings.v1';
 
+/** Tune open, on the tab that holds Real motion, the switch in view (lib/tune.js). */
 async function openTune(t) {
-  await t.page.tap('#btn-settings');
-  await t.page.waitForFunction(function () {
-    var s = document.getElementById('sheet-settings');
-    return s.classList.contains('open') && !s.hidden;
-  });
-  await sleep(650);                                // the sheet has slid in
-  await t.page.$eval('#opt-tilt', function (el) { el.scrollIntoView({ block: 'center' }); });
-  await sleep(150);
+  await tune.show(t, '#opt-tilt');
 }
 function state(t) {
   return t.eval(function () {
@@ -115,8 +110,8 @@ async function caseD(s, env) {
   await sleep(3200);
   var d = await state(t);
   s.check('(d) orientation only: the switch stays on', d.checked && d.on, JSON.stringify({ checked: d.checked, on: d.on }));
-  await t.page.tap('#sheet-settings .sheet-close');
-  await sleep(700);
+  await tune.close(t);
+  await sleep(100);
   // a hard shake reported without devicemotion is never felt
   await t.eval(function () {
     if (window.__motionStub) { window.__motion.x = 2; window.__motion.y = 1; }

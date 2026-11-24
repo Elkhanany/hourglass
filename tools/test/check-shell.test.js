@@ -22,7 +22,11 @@
  *    var with a pattern, catch without a binding, and a shorthand method; with strings, comments
  *    and regular expressions blanked first, so that a word inside them is not taken for code.
  *    It is a scan by line, not a parser: shorthand properties ({ a, b }), computed keys, a
- *    destructuring assignment and a parameter list over several lines are not seen.
+ *    destructuring assignment and a parameter list over several lines are not seen;
+ *  - whichever script is missing from the copy (a hole, offline), the last one, app.js, finds
+ *    what it lacks before it builds anything and says "Hourglass is updating. Open it again
+ *    with a connection." instead of throwing: the page's scripts are run here in its order, in
+ *    a bare context, once with each of the others left out.
  * Each rule has its control: the same check on a copy that breaks it must fail.
  *
  *   node tools/test/check-shell.test.js
@@ -257,6 +261,42 @@ check(inlineBad.length === 0, 'index.html\'s inline script' + (inline.length ===
 var c6 = inlineProblems(HTML.replace('</body>', '<!-- <script>const hidden = 1;</script> -->\n<script>const x = 1;</script>\n<script type="module">var y = 2;</script>\n<script type="application/json">{"const": 1}</script></body>'));
 check(added(c6, inlineBad).length === 2 && /const/.test(c6.join(';')) && /a module/.test(c6.join(';')),
   '... and that check finds a const in a script tag with no src, and an inline module, but not a script in a comment or a tag that holds data (control)', c6.join('; '));
+
+/* ---- 4. a script missing from the copy: app.js says so, and builds nothing ---- */
+var UPDATING = 'Hourglass is updating. Open it again with a connection.';
+/** The page's scripts run in order in a bare context, but `skip`: what app.js put on the page, warned, and what threw. */
+function launch(skip, appSrc) {
+  var notes = [], warns = [], threw = [];
+  function el() { return { style: {}, setAttribute: function () {}, appendChild: function () {} }; }
+  var box = {
+    console: { warn: function (m) { warns.push(String(m)); }, log: function () {}, info: function () {}, error: function () {} },
+    document: { createElement: el, getElementById: function () { return null; }, body: { appendChild: function (n) { notes.push(n.textContent); } } },
+    navigator: {}, location: { search: '' }
+  };
+  box.window = box;
+  vm.createContext(box);
+  scripts.forEach(function (f) {
+    if (f === skip) return;
+    try { vm.runInContext(f === 'app.js' && appSrc ? appSrc : read(f), box, { filename: f }); } catch (e) { threw.push(f + ': ' + String(e && e.message).split('\n')[0]); }
+  });
+  return { notes: notes, warns: warns, threw: threw };
+}
+function saysUpdating(r) {
+  return r.notes.length === 1 && r.notes[0] === UPDATING && r.warns.length === 1 && /missing Hourglass/.test(r.warns[0]) &&
+    !r.threw.some(function (t) { return t.indexOf('app.js: ') === 0; });
+}
+var others = scripts.slice(0, -1), holes = others.map(function (f) { return { f: f, r: launch(f) }; });
+var notSaid = holes.filter(function (h) { return !saysUpdating(h.r); }).map(function (h) { return h.f + ' (' + (h.r.threw.join('; ') || h.r.notes.join() || 'nothing said') + ')'; });
+check(others.length >= 4 && notSaid.length === 0, 'with any one of the scripts before it missing (' + others.join(', ') + '), app.js says "' + UPDATING + '", names what it lacks, and throws nothing',
+  notSaid.join(' | ') || holes.map(function (h) { return h.r.warns[0].replace(/^.*missing /, ''); }).join(' | '));
+var whole = launch(null);
+check(whole.notes.length === 0 && whole.warns.length === 0, '... and with none missing it says no such thing (it goes on to build the page, which is not here) (control)', whole.notes.concat(whole.warns).join(' | '));
+// control: a copy of app.js that does not ask for the last of them goes on without it, and throws
+var lastOther = others[others.length - 1], lastGlobal = (/missing (Hourglass\w+)/.exec(launch(lastOther).warns[0] || '') || [])[1] || '';
+var blind = app.split('\n').filter(function (l) { return !(lastGlobal && l.indexOf("out.push('" + lastGlobal + "')") >= 0); }).join('\n');
+var c7 = launch(lastOther, blind);
+check(blind !== app && !saysUpdating(c7) && c7.threw.some(function (t) { return t.indexOf('app.js: ') === 0; }),
+  '... and a copy of app.js that does not ask for ' + lastGlobal + ' goes on without ' + lastOther + ' and throws (control)', c7.threw.join('; '));
 
 console.log('check-shell: ' + (count - failures) + '/' + count + ' passed');
 if (failures) process.exitCode = 1;

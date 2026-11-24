@@ -52,10 +52,13 @@
  *   - a browser that refuses AudioBuffers below 22.05 kHz (older WebKit): the
  *     loops are drawn out to a whole multiple of their rate and the render is
  *     the same sound (the difference at least 60 dB under it)
+ *   - every ambience of the registry that makes a sound is measured: its
+ *     level alone and the clipper are held by name (LEN and CLIP), so one
+ *     added to the registry and to neither table fails
  *   - nothing clips: with the sand mix at full volume and the ambience at the
- *     top of its slider, in every character, over the ocean's and the drips'
- *     whole loops, what goes into the soft clipper stays under the end of its
- *     curve
+ *     top of its slider, in every character of the registry, over the ocean's
+ *     and the drips' whole loops, what goes into the soft clipper stays under
+ *     the end of its curve
  *   - a first hearing: Ocean's audition (12 s from its cue) holds one whole
  *     wave, Drips' (9 s) at least three drops, for five seeds
  *
@@ -450,6 +453,10 @@ async function main() {
       }
       Math.random = realRandom;
       out.master = master;
+      // what the registry holds, against what the two tables above name
+      out.characters = Object.keys(A.CHARACTERS);
+      out.sounding = A.ambiences().filter(function (r) { return !!AMB[r.id].layers; }).map(function (r) { return r.id; });
+      out.tables = { level: Object.keys(LEN), clip: Object.keys(CLIP) };
 
       // 4. a first hearing: what the audition holds, from the loops themselves
       function env(x, sr, w) {                         // RMS over windows of w seconds
@@ -488,6 +495,21 @@ async function main() {
       return out;
     });
 
+    // The levels and the clipper are measured by name (LEN and CLIP above), so an ambience added
+    // to the registry and to neither table would be measured by nothing: it must be in both.
+    /** The ambiences that make a sound and that a table does not name: [] when each is measured. */
+    function unmeasured(sounding, tables) {
+      var out = [];
+      sounding.forEach(function (id) {
+        if (tables.level.indexOf(id) < 0) out.push(id + ' has no level measured (LEN)');
+        if (tables.clip.indexOf(id) < 0) out.push(id + ' is not held under the clipper (CLIP)');
+      });
+      return out;
+    }
+    var un = unmeasured(amb.sounding, amb.tables), unMore = unmeasured(amb.sounding.concat(['x-new']), amb.tables);
+    report(un.length === 0 && amb.sounding.length >= 5 && unMore.join() === 'x-new has no level measured (LEN),x-new is not held under the clipper (CLIP)',
+           'every ambience of the registry that makes a sound is measured here, alone and behind the sand (' + amb.sounding.join(', ') +
+           '); one more in the registry and in neither table is found (control)', un.join('; ') || 'a new one gets its line in LEN and in CLIP, and its level\'s rule');
     var brook = amb.alone.brook;
     function ambShow(id) { var m = amb.alone[id]; return id + ' ' + m.rms + ' dBFS RMS, peak ' + m.peak + ' (' + m.rates.join('/') + ' Hz)'; }
     report(Math.abs(amb.alone.ocean.rms - brook.rms) <= 1 && Math.abs(amb.alone.waterfall.rms - brook.rms) <= 1,
@@ -514,9 +536,17 @@ async function main() {
     // would be cut flat. (The same sand and the same places in the loops every run: seeded.)
     function hottest(id) { return amb.clip.filter(function (c) { return c.ambience === id; }).reduce(function (w, c) { return c.into > w.into ? c : w; }); }
     var worst = amb.clip.reduce(function (w, c) { return c.into > w.into ? c : w; });
-    report(worst.into <= -0.3 && amb.clip.length === 30,
-           'nothing clips: sand at full volume, the ambience at the top of its slider, in all six characters (the clipper\'s input stays ≥ 0.3 dB under its end)',
-           'dB under the end, the nearest of six characters: ' + ['brook', 'rain', 'ocean', 'waterfall', 'drips'].map(function (id) {
+    // every character of the registry behind every ambience of CLIP: 30 renders today, and no fewer
+    /** What is wrong with the count of renders: '' when it is every character times every ambience, and at least the 30 of six and five. */
+    function countProblem(n, characters, ambiences) {
+      if (n !== characters * ambiences) return n + ' renders for ' + characters + ' characters times ' + ambiences + ' ambiences';
+      return n < 30 ? n + ' renders, fewer than the 30 of six characters and five ambiences' : '';
+    }
+    var nCh = amb.characters.length, nAm = amb.tables.clip.length, cp = countProblem(amb.clip.length, nCh, nAm);
+    report(worst.into <= -0.3 && cp === '' && countProblem(amb.clip.length - nAm, nCh, nAm) !== '' && countProblem(25, 5, 5) !== '',
+           'nothing clips: sand at full volume, the ambience at the top of its slider, in all ' + nCh + ' characters of the registry (' + amb.clip.length +
+           ' renders; the clipper\'s input stays ≥ 0.3 dB under its end)',
+           (cp ? cp + '; ' : '') + 'dB under the end, the nearest of ' + nCh + ' characters: ' + amb.tables.clip.map(function (id) {
              var h = hottest(id);
              return id + ' ' + h.into + ' (' + h.character + ', output peak ' + h.peak + ' dBFS)';
            }).join('; ') + '; output can reach ' + (20 * Math.log10(amb.master)).toFixed(2) + ' dBFS at most');

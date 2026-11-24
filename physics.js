@@ -65,6 +65,21 @@
    * neck (sand runs off glass that steep, upright or leaned), one bulge and
    * no second waist (a bed in flight moves whole columns), and an end wide
    * enough to pour into. f must be a pure function of u.
+   *
+   * The shapes are a registry: one addShape per glass (SHAPES by id,
+   * SHAPE_ORDER in the order they were added, the classic first). Beside
+   * the five fields above a record says:
+   *   offered    whether Tune shows the glass (not yet: one that still has
+   *              to show on a phone that its sand keeps time)
+   *   symmetry   'point': the glass is the same after a half turn. Both
+   *              sand engines turn it that way (here a turn is the lattice
+   *              read backwards; the GPU's maps p to 2c - p), so there is
+   *              no other value yet
+   *   equator    the u of its widest point (read off f the first time it
+   *              is asked for; 0.66 for the classic)
+   *   classic    true for the teardrop alone, which has no f
+   * checkShape(id, q, pace) says whether the sand can use a registered
+   * shape at a size, and why not, without building a Sim.
    */
   // What the shapes below are drawn with. A funnel and a closing curve meet
   // in a rounded corner (shMin); a curve built that way is then scaled so its
@@ -145,70 +160,115 @@
     };
   }
 
-  var SHAPES = {
-    classic: null,
-    // two cones base to base: straight flanks, a softened girdle half way, small rounded points
-    lozenge: {
-      id: 'lozenge', name: 'Lozenge', kR: 0.92, kH: 1.08,
-      f: shUnit(function (u) {
-        var c = 0.50, t = u / c, up = t * (1 + 0.07 * (1 - t)), d = 1 - u, m = 1 / (1 - c);
-        var down = Math.sqrt(m * m * d * d + 0.34 * d) / Math.sqrt(1 + 0.34 * (1 - c));   // a straight flank into a round point
-        return shMin(up, down, 7);
-      })
-    },
-    // the hourglass of the pictogram: two wide, nearly straight cones on low rounded bases
-    delta: {
-      id: 'delta', name: 'Delta', kR: 1.10, kH: 0.86,
-      f: shUnit(function (u) {
-        return shMin(Math.pow(u / 0.845, 1.04), shClose(u, 0.80, 2.2, 0.5), 10);
-      })
-    },
-    // the apothecary's ampoule: a short shoulder, a long body that barely bows, a round end
-    ampoule: {
-      id: 'ampoule', name: 'Ampoule', kR: 0.70, kH: 1.08,
-      f: shFlask(0.63, [[0, 0.4], [0.04, 1], [0.24, 1], [0.38, 0.10], [0.63, 0, 1]], 2.0, 0.5, 0.72)
-    },
-    // two horns, bells outward: a slim neck that flares late to a wide lip
-    trumpet: {
-      id: 'trumpet', name: 'Trumpet', kR: 1.00, kH: 1.10,
-      f: shUnit(function (u) {
-        return shMin(Math.pow(u / 0.87, 1.9), shClose(u, 0.78, 2.2, 0.5), 9);
-      })
-    },
-    // the Florence flask: a slender drawn neck, a steep shoulder, a full globe
-    florence: {
-      id: 'florence', name: 'Florence', kR: 0.84, kH: 1.08,
-      f: shFlask(0.70, [[0, 0.20], [0.11, 0.24], [0.34, 1], [0.46, 1], [0.70, 0, 1]], 2.0)
-    },
-    // the onion dome: a broad low swell, hollow shoulders, a small finial
-    onion: {
-      id: 'onion', name: 'Onion', kR: 1.05, kH: 1.10,
-      f: shUnit(function (u) {
-        var c = 0.50, w = Math.max(0, (u - c) / (1 - c));
-        return shMin(u / 0.49, shOgee(w, 0.15, 1.12, 0.9) * shTip(w, 12), 6);
-      })
-    },
-    // a bell: a round crown at the neck, a slow waist, a lip that flares to the rim
-    bell: {
-      id: 'bell', name: 'Bell', kR: 0.84, kH: 1.00,
-      f: shUnit(function (u) {
-        var c = 0.78, crown = 0.52 * (1 - Math.exp(-u / 0.24)), flare = u > 0.27 ? 0.48 * Math.pow((u - 0.27) / 0.51, 2.5) : 0;
-        var w = Math.max(0, (u - c) / (1 - c)), dome = 1.02 * Math.pow(Math.max(0, 1 - Math.pow(w, 1.9)), 0.62);
-        return shMin(crown + flare, dome, 5);
-      })
-    },
-    // the bottle gourd: a round body that draws in, without a second waist, to a smaller lobe
-    gourd: {
-      id: 'gourd', name: 'Gourd', kR: 0.90, kH: 1.10,
-      f: shUnit(function (u) {
-        var c = 0.535;
-        if (u <= c) return shSwell(u / c, 1.3);
-        var w = (u - c) / (1 - c), k = 0.56;
-        return (k + (1 - k) * 0.5 * (1 + Math.cos(Math.PI * Math.min(1, w / 0.66)))) * shTip(w, 4.5);
-      })
+  var SHAPES = {}, SHAPE_ORDER = [];
+  var SHAPE_FIELDS = ['id', 'name', 'kR', 'kH', 'f', 'classic', 'equator', 'symmetry', 'offered'];
+
+  /**
+   * Register a glass shape. The record is kept as it is given (and completed:
+   * `symmetry` 'point' and `offered` false where it says neither), by its id,
+   * after the shapes already there. What costs nothing to see is checked here,
+   * as the page loads, and refused by name: an id and a name, kR and kH, an f
+   * that is 0 at the neck, the symmetry both sand engines need, and a field
+   * that is none of a shape's (`offerd: true` would leave a glass not
+   * offered, without a word). What takes a walk along the curve or a lattice
+   * is left to checkShape: a curve made by shUnit is walked 20,000 times the
+   * first time it is asked for, and a page that never shows the glass never
+   * pays for it.
+   */
+  function addShape(rec) {
+    var what = 'addShape', k;
+    if (!rec || typeof rec !== 'object') throw new Error(what + ': a record is needed');
+    if (typeof rec.id !== 'string' || !rec.id) throw new Error(what + ': the record has no id');
+    what += ' "' + rec.id + '"';
+    if (rec.id in SHAPES) throw new Error(what + ': that id is taken');
+    for (k in rec) {
+      if (SHAPE_FIELDS.indexOf(k) < 0) throw new Error(what + ': ' + k + ' is no field of its record (' + SHAPE_FIELDS.join(', ') + ')');
     }
-  };
-  var SHAPE_ORDER = ['classic', 'lozenge', 'delta', 'ampoule', 'trumpet', 'florence', 'onion', 'bell', 'gourd'];
+    if (typeof rec.name !== 'string' || !rec.name) throw new Error(what + ': it has no name');
+    if (rec.symmetry !== undefined && rec.symmetry !== 'point') {
+      throw new Error(what + ': symmetry "' + rec.symmetry + '": both sand engines turn the glass by a half turn, so it must be the same after one (\'point\')');
+    }
+    if (rec.offered !== undefined && typeof rec.offered !== 'boolean') throw new Error(what + ': offered is ' + rec.offered + ', not true or false');
+    if (!(rec.kR > 0 && rec.kR < Infinity && rec.kH > 0 && rec.kH < Infinity)) throw new Error(what + ': kR is ' + rec.kR + ' and kH is ' + rec.kH + ' (both above 0)');
+    if (rec.classic) {
+      // the teardrop: profile() holds its curve, and only it may say so
+      if (rec.id !== 'classic' || rec.f !== undefined) throw new Error(what + ': only the teardrop, which has no f, is the classic glass');
+      if (!(rec.equator > 0 && rec.equator < 1)) throw new Error(what + ': its equator is ' + rec.equator + ' (the u of its widest point, between 0 and 1)');
+    } else {
+      if (typeof rec.f !== 'function') throw new Error(what + ': it has no f(u)');
+      if (rec.f(0) !== 0) throw new Error(what + ': f(0) is ' + rec.f(0) + ' (the neck is the classic glass\'s own: f must be 0 there)');
+      if (rec.equator !== undefined) throw new Error(what + ': its equator is read off f, so the record names none (only the classic glass, which has no f, says its own)');
+      Object.defineProperty(rec, 'equator', { enumerable: true, configurable: true, get: function () { return shapeEquator(rec); } });
+    }
+    if (rec.symmetry === undefined) rec.symmetry = 'point';
+    if (rec.offered === undefined) rec.offered = false;
+    SHAPES[rec.id] = rec;
+    SHAPE_ORDER.push(rec.id);
+    return rec;
+  }
+
+  // the classic teardrop, the glass the sand engine was fitted to (its curve is profile()'s own)
+  addShape({ id: 'classic', name: 'Classic', classic: true, kR: 1, kH: 1, equator: 0.66, offered: true });
+  // two cones base to base: straight flanks, a softened girdle half way, small rounded points
+  addShape({
+    id: 'lozenge', name: 'Lozenge', kR: 0.92, kH: 1.08, offered: true,
+    f: shUnit(function (u) {
+      var c = 0.50, t = u / c, up = t * (1 + 0.07 * (1 - t)), d = 1 - u, m = 1 / (1 - c);
+      var down = Math.sqrt(m * m * d * d + 0.34 * d) / Math.sqrt(1 + 0.34 * (1 - c));   // a straight flank into a round point
+      return shMin(up, down, 7);
+    })
+  });
+  // the hourglass of the pictogram: two wide, nearly straight cones on low rounded bases
+  addShape({
+    id: 'delta', name: 'Delta', kR: 1.10, kH: 0.86, offered: true,
+    f: shUnit(function (u) {
+      return shMin(Math.pow(u / 0.845, 1.04), shClose(u, 0.80, 2.2, 0.5), 10);
+    })
+  });
+  // the apothecary's ampoule: a short shoulder, a long body that barely bows, a round end
+  addShape({
+    id: 'ampoule', name: 'Ampoule', kR: 0.70, kH: 1.08, offered: true,
+    f: shFlask(0.63, [[0, 0.4], [0.04, 1], [0.24, 1], [0.38, 0.10], [0.63, 0, 1]], 2.0, 0.5, 0.72)
+  });
+  // two horns, bells outward: a slim neck that flares late to a wide lip
+  addShape({
+    id: 'trumpet', name: 'Trumpet', kR: 1.00, kH: 1.10, offered: false,
+    f: shUnit(function (u) {
+      return shMin(Math.pow(u / 0.87, 1.9), shClose(u, 0.78, 2.2, 0.5), 9);
+    })
+  });
+  // the Florence flask: a slender drawn neck, a steep shoulder, a full globe
+  addShape({
+    id: 'florence', name: 'Florence', kR: 0.84, kH: 1.08, offered: false,
+    f: shFlask(0.70, [[0, 0.20], [0.11, 0.24], [0.34, 1], [0.46, 1], [0.70, 0, 1]], 2.0)
+  });
+  // the onion dome: a broad low swell, hollow shoulders, a small finial
+  addShape({
+    id: 'onion', name: 'Onion', kR: 1.05, kH: 1.10, offered: true,
+    f: shUnit(function (u) {
+      var c = 0.50, w = Math.max(0, (u - c) / (1 - c));
+      return shMin(u / 0.49, shOgee(w, 0.15, 1.12, 0.9) * shTip(w, 12), 6);
+    })
+  });
+  // a bell: a round crown at the neck, a slow waist, a lip that flares to the rim
+  addShape({
+    id: 'bell', name: 'Bell', kR: 0.84, kH: 1.00, offered: true,
+    f: shUnit(function (u) {
+      var c = 0.78, crown = 0.52 * (1 - Math.exp(-u / 0.24)), flare = u > 0.27 ? 0.48 * Math.pow((u - 0.27) / 0.51, 2.5) : 0;
+      var w = Math.max(0, (u - c) / (1 - c)), dome = 1.02 * Math.pow(Math.max(0, 1 - Math.pow(w, 1.9)), 0.62);
+      return shMin(crown + flare, dome, 5);
+    })
+  });
+  // the bottle gourd: a round body that draws in, without a second waist, to a smaller lobe
+  addShape({
+    id: 'gourd', name: 'Gourd', kR: 0.90, kH: 1.10, offered: true,
+    f: shUnit(function (u) {
+      var c = 0.535;
+      if (u <= c) return shSwell(u / c, 1.3);
+      var w = (u - c) / (1 - c), k = 0.56;
+      return (k + (1 - k) * 0.5 * (1 + Math.cos(Math.PI * Math.min(1, w / 0.66)))) * shTip(w, 4.5);
+    })
+  });
 
   /** Where a shape is widest: the u of its largest f, the middle of a plateau. */
   var SHAPE_EQ = {};
@@ -291,6 +351,26 @@
     }
     var w = (u - c) / (1 - c);
     return g.R * Math.sqrt(1 - Math.pow(w, 2.3));
+  }
+
+  /**
+   * What can be said of a shape's curve at any size, from a walk along it in
+   * 2048 steps: f stays between 0 and 1, and it is one bulge (it never falls
+   * on the way to its widest point, and never rises after it). [] or the
+   * reasons.
+   */
+  function curveFaults(s) {
+    var N = 2048, eps = 1e-9, v = new Float64Array(N + 1), out = [], k, m = -1, a = -1, b = -1;
+    for (k = 0; k <= N; k++) {
+      v[k] = +s.f(k / N);
+      if (!(v[k] >= -eps && v[k] <= 1 + eps)) return ['f(' + k / N + ') is ' + v[k] + ' (f must stay between 0 and 1)'];
+      if (v[k] > m) m = v[k];
+    }
+    for (k = 0; k <= N; k++) if (v[k] >= m - eps) { if (a < 0) a = k; b = k; }
+    for (k = 1; k <= a; k++) if (v[k] < v[k - 1] - eps) { out.push('f falls before its widest point (at u = ' + k / N + '): one bulge only'); break; }
+    for (k = a + 1; k < b; k++) if (v[k] < m - eps) { out.push('f has a waist between two widest points (at u = ' + k / N + '): one bulge only'); break; }
+    for (k = b + 1; k <= N; k++) if (v[k] > v[k - 1] + eps) { out.push('f rises again beyond its widest point (at u = ' + k / N + '): one bulge only'); break; }
+    return out;
   }
 
   /* ======================================================================
@@ -619,10 +699,18 @@
   /* ---------------------------------------------------------------- *
    *  Vessel rasterisation
    * ---------------------------------------------------------------- */
-  Sim.prototype._buildVessel = function () {
-    var g = this.geo, W = this.W, H = this.H, cell = this.cell;
+  /**
+   * The glass on the lattice: which cells are inside it. From o.geo it fills
+   * o.cell (EMPTY inside, WALL elsewhere), o.rowMin and o.rowMax (each row's
+   * span inside; rowMin > rowMax where there is none), o.gateX0 and o.gateX1
+   * (the neck's row, closed: the gate) and o.topY (the first open row), and
+   * returns the cells inside one bulb. `o` is a Sim, or the bare lattice
+   * checkShape looks at.
+   */
+  function rasterise(o) {
+    var g = o.geo, W = o.W, H = o.H, cell = o.cell;
     var x, y, i, cap = 0;
-    this.topY = -1;
+    o.topY = -1;
     for (y = 0; y < H; y++) {
       var u = Math.abs(y + 0.5 - g.cy) / g.HB;
       var r = profile(u, g);
@@ -637,18 +725,24 @@
           cell[i] = WALL;
         }
       }
-      if (y === this.gateY) {
+      if (y === o.gateY) {
         // The neck gate: a one-row valve the timer opens grain by grain.
-        this.gateX0 = mn; this.gateX1 = mx;
+        o.gateX0 = mn; o.gateX1 = mx;
         for (x = mn; x <= mx; x++) cell[y * W + x] = WALL;
         mn = W; mx = -1;
       }
-      this.rowMin[y] = mn; this.rowMax[y] = mx;
+      o.rowMin[y] = mn; o.rowMax[y] = mx;
       if (mx >= mn) {
-        if (this.topY < 0) this.topY = y;
-        if (y < this.gateY) cap += mx - mn + 1;
+        if (o.topY < 0) o.topY = y;
+        if (y < o.gateY) cap += mx - mn + 1;
       }
     }
+    return cap;
+  }
+
+  Sim.prototype._buildVessel = function () {
+    var g = this.geo, W = this.W, H = this.H, cell = this.cell;
+    var x, y, i, cap = rasterise(this);
     this.capacity = cap;
     this.defaultGrains = Math.round(cap * 0.62);
     this.maxTotal = Math.round(cap * 0.86);
@@ -721,43 +815,75 @@
 
   /**
    * What the sand needs of a glass that is not the classic one (SHAPES), read
-   * off the lattice itself. A shape that fails is refused here, by name and
-   * by rule, before a grain is laid in it.
+   * off the lattice itself (`o`: what rasterise filled), for sand of the pace
+   * `pace` (Sim.setPace): every rule the glass breaks, in the engine's order,
+   * each in its own words; [] when the sand can use it. A Sim refuses a shape
+   * by the first of them, before a grain is laid in it.
    */
-  Sim.prototype._checkShape = function () {
-    var g = this.geo, W = this.W, H = this.H, N = W * H, cell = this.cell, gate = this.gateY;
-    var rowMin = this.rowMin, rowMax = this.rowMax, top = this.topY, y, i;
-    var span = this.gateX1 - this.gateX0 + 1;
+  function latticeFaults(o, pace) {
+    var g = o.geo, W = o.W, H = o.H, N = W * H, cell = o.cell, gate = o.gateY;
+    var rowMin = o.rowMin, rowMax = o.rowMax, top = o.topY, y, i, out = [];
+    var span = o.gateX1 - o.gateX0 + 1;
     function wd(r) { return rowMax[r] >= rowMin[r] ? rowMax[r] - rowMin[r] + 1 : 0; }
-    function no(rule) {
-      throw new Error('Sim: the glass shape "' + g.shape.id + '" cannot be used: ' + rule);
-    }
+    function no(rule) { out.push(rule); }
     // the neck is the classic glass's own, and the rows beside it are open across it
     // (the thread leaves anywhere across the gate, and a full lower bulb is told by the cell under it)
     if (span <= 0 || span !== 2 * g.RN) no('its neck is ' + span + ' cells wide, not ' + (2 * g.RN) + ' (f(0) must be 0)');
-    if (top < 0 || top >= gate - 4) no('it has no bulb');
-    if (rowMin[gate - 1] > this.gateX0 || rowMax[gate - 1] < this.gateX1 || rowMin[gate + 1] > this.gateX0 || rowMax[gate + 1] < this.gateX1) {
+    if (top < 0 || top >= gate - 4) { no('it has no bulb'); return out; }      // (and nothing more can be asked of it)
+    if (rowMin[gate - 1] > o.gateX0 || rowMax[gate - 1] < o.gateX1 || rowMin[gate + 1] > o.gateX0 || rowMax[gate + 1] < o.gateX1) {
       no('the rows beside the neck are narrower than the neck');
     }
     // one bulge: wider row by row from the neck to the widest, narrower from there to the end
     // (so every column is one span: a bed in flight moves whole columns, and would write sand into a second waist)
     var wy = gate - 1, wMax = 0;
     for (y = gate - 1; y >= top; y--) if (wd(y) > wMax) { wMax = wd(y); wy = y; }
-    for (y = gate - 1; y > wy; y--) if (wd(y - 1) < wd(y)) no('it narrows again between the neck and its widest row (row ' + (y - 1) + '): one bulge only');
-    for (y = wy; y > top; y--) if (wd(y - 1) > wd(y)) no('it widens again beyond its widest row (row ' + (y - 1) + '): one bulge only');
+    for (y = gate - 1; y > wy; y--) if (wd(y - 1) < wd(y)) { no('it narrows again between the neck and its widest row (row ' + (y - 1) + '): one bulge only'); break; }
+    for (y = wy; y > top; y--) if (wd(y - 1) > wd(y)) { no('it widens again beyond its widest row (row ' + (y - 1) + '): one bulge only'); break; }
     if (wMax > 2 * g.R - 1) no('its widest row is ' + wMax + ' cells, wider than R = ' + g.R + ' allows (f must not pass 1)');
     // the funnel: sand runs off glass, upright or leaned, only where it opens by no more than a cell a row
-    if (rowMin[gate - 1] < this.gateX0 - 1) no('its funnel opens by ' + (this.gateX0 - rowMin[gate - 1]) + ' cells in one row at the neck (at most 1)');
+    if (rowMin[gate - 1] < o.gateX0 - 1) no('its funnel opens by ' + (o.gateX0 - rowMin[gate - 1]) + ' cells in one row at the neck (at most 1)');
     for (y = gate - 1; y > wy; y--) {
-      if (rowMin[y] - rowMin[y - 1] > 1) no('its funnel opens by ' + (rowMin[y] - rowMin[y - 1]) + ' cells in one row (row ' + (y - 1) + '; at most 1)');
+      if (rowMin[y] - rowMin[y - 1] > 1) { no('its funnel opens by ' + (rowMin[y] - rowMin[y - 1]) + ' cells in one row (row ' + (y - 1) + '; at most 1)'); break; }
     }
     // the far end: sand is poured in from three rows under it, into three rows, 7 cells across at the classic size
     for (y = top + 3; y <= top + 5; y++) {
-      if (wd(y) < 7 * PACE + 2) no('its end is ' + wd(y) + ' cells wide ' + (y - top) + ' rows in, too pointed to pour into (at least ' + Math.ceil(7 * PACE + 2) + ')');
+      if (wd(y) < 7 * pace + 2) { no('its end is ' + wd(y) + ' cells wide ' + (y - top) + ' rows in, too pointed to pour into (at least ' + Math.ceil(7 * pace + 2) + ')'); break; }
     }
     // a turn of the glass is the lattice read backwards
-    for (i = 0; i < N >> 1; i++) if (cell[i] !== cell[N - 1 - i]) no('its two bulbs are not mirror images (cell ' + i + ')');
+    for (i = 0; i < N >> 1; i++) if (cell[i] !== cell[N - 1 - i]) { no('its two bulbs are not mirror images (cell ' + i + ')'); break; }
+    return out;
+  }
+
+  /** A Sim refuses a shape that fails (latticeFaults), by name and by its first broken rule, before a grain is laid in it. */
+  Sim.prototype._checkShape = function () {
+    var why = latticeFaults(this, PACE);
+    if (why.length) throw new Error('Sim: the glass shape "' + this.geo.shape.id + '" cannot be used: ' + why[0]);
   };
+
+  /**
+   * Whether the sand can use the registered shape `id` in a glass of scale
+   * `q` (1 if left out) with sand of the pace `pace` (Sim.setPace's; the one
+   * in force if left out): [] if it can, or the reasons. First what its curve
+   * says at any size (curveFaults), then the lattice's rules at this size:
+   * the first of those is what a Sim of that size and pace would refuse the
+   * shape with. Nothing is built but the lattice and nothing is thrown: an
+   * id that is not registered is a reason too. The classic glass needs no
+   * check.
+   */
+  function checkShape(id, q, pace) {
+    if (id === undefined || id === null || id === 'classic') return [];
+    var s = Object.prototype.hasOwnProperty.call(SHAPES, id) ? SHAPES[id] : null;
+    if (!s) return ['there is no glass shape "' + id + '"'];
+    try {
+      var out = curveFaults(s), g = makeGeometry(q, id);
+      var o = { geo: g, W: g.W, H: g.H, cell: new Uint8Array(g.W * g.H), rowMin: new Int16Array(g.H), rowMax: new Int16Array(g.H),
+                gateY: g.gateY, gateX0: 0, gateX1: -1, topY: 0 };
+      rasterise(o);
+      return out.concat(latticeFaults(o, pace === undefined ? PACE : (pace > 1 ? +pace : 1)));
+    } catch (e) {
+      return ['its f(u) cannot be asked: ' + (e && e.message ? e.message : e)];
+    }
+  }
 
   /* ---------------------------------------------------------------- *
    *  Motion and damage state. Everything is allocated here, once, so a
@@ -7038,6 +7164,8 @@
     profile: profile,
     SHAPES: SHAPES,
     SHAPE_ORDER: SHAPE_ORDER,
+    addShape: addShape,
+    checkShape: checkShape,
     EMPTY: EMPTY, WALL: WALL, REST: REST, MOVE: MOVE,
     STEP_HZ: STEP_HZ, DT: DT
   };

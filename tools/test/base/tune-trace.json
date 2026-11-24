@@ -1,0 +1,655 @@
+{
+  "from": "a1a6d69c75afe39067f5909da04b54d1c55a4b1f",
+  "what": "What every control that changes a setting saves, calls on the engines and buzzes, in order: in its own tap (now) and after it (later) (tools/test/lib/trace.js)",
+  "controls": [
+    {
+      "name": "open Tune",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "tab: glass",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"tuneTab":"glass"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "tab: sound",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"tuneTab":"sound"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "tab: time",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"tuneTab":"time"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "the look and sound put back: the first tap",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "the look and sound put back: the second tap",
+      "now": [
+        ["audio.unlock"],
+        ["save",{}],
+        ["buzz",12]
+      ],
+      "later": []
+    },
+    {
+      "name": "tab: sand",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"tuneTab":"sand"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "material: volcanic",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"theme":"volcanic"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setTheme","volcanic"]
+      ]
+    },
+    {
+      "name": "material: moonstone",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"theme":"moonstone"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setTheme","moonstone"]
+      ]
+    },
+    {
+      "name": "material: lapis",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"theme":"lapis"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setTheme","lapis"]
+      ]
+    },
+    {
+      "name": "material: rosequartz",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"theme":"rosequartz"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setTheme","rosequartz"]
+      ]
+    },
+    {
+      "name": "material: seaglass",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"theme":"seaglass"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setTheme","seaglass"]
+      ]
+    },
+    {
+      "name": "material: sahara",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"theme":"sahara"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setTheme","sahara"]
+      ]
+    },
+    {
+      "name": "frame: off",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"frame":false}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setFrame",false]
+      ]
+    },
+    {
+      "name": "frame: on",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"frame":true}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setFrame",true]
+      ]
+    },
+    {
+      "name": "layered sand: on",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"layers":true}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["sim.setLayers",true],
+        ["renderer.setLayers",true]
+      ]
+    },
+    {
+      "name": "layered sand: off",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"layers":false}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["sim.setLayers",false],
+        ["renderer.setLayers",false]
+      ]
+    },
+    {
+      "name": "character: warm",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"character":"warm"}],
+        ["audio.setCharacter","warm"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "character: pure",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"character":"pure"}],
+        ["audio.setCharacter","pure"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "character: chime",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"character":"chime"}],
+        ["audio.setCharacter","chime"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "character: bamboo",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"character":"bamboo"}],
+        ["audio.setCharacter","bamboo"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "character: dune",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"character":"dune"}],
+        ["audio.setCharacter","dune"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "character: asmr",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"character":"asmr"}],
+        ["audio.setCharacter","asmr"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "volume: 30",
+      "now": [
+        ["audio.setVolume",0.3],
+        ["save",{"volume":0.3}]
+      ],
+      "later": []
+    },
+    {
+      "name": "mute (the top bar)",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"muted":true}],
+        ["audio.setMuted",true],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "volume: 55, while muted",
+      "now": [
+        ["audio.setVolume",0.55],
+        ["save",{"volume":0.55,"muted":false}],
+        ["audio.setMuted",false],
+        ["save",{}]
+      ],
+      "later": []
+    },
+    {
+      "name": "ambience: brook",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambience":"brook"}],
+        ["audio.setAmbience","brook",true],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "ambience: rain",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambience":"rain"}],
+        ["audio.setAmbience","rain",true],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "ambience: ocean",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambience":"ocean"}],
+        ["audio.setAmbience","ocean",true],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "ambience: waterfall",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambience":"waterfall"}],
+        ["audio.setAmbience","waterfall",true],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "ambience: drips",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambience":"drips"}],
+        ["audio.setAmbience","drips",true],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "ambience level: 70",
+      "now": [
+        ["save",{"ambienceLevel":0.7}],
+        ["audio.setAmbienceLevel",0.7,true]
+      ],
+      "later": []
+    },
+    {
+      "name": "ambience: none",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambience":"none"}],
+        ["audio.setAmbience","none",true],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "completion bowl: off",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"chime":false}],
+        ["audio.setChimeEnabled",false],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "completion bowl: on",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"chime":true}],
+        ["audio.setChimeEnabled",true],
+        ["audio.chime",0],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "keep screen awake: off",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"keepAwake":false}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "keep screen awake: on",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"keepAwake":true}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "real motion: on",
+      "now": [
+        ["audio.unlock"],
+        ["motion.request"],
+        ["buzz",8]
+      ],
+      "later": [
+        ["motion.start"],
+        ["save",{"tilt":true}]
+      ]
+    },
+    {
+      "name": "real motion: off",
+      "now": [
+        ["audio.unlock"],
+        ["motion.stop"],
+        ["save",{"tilt":false}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "full Zen: on",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"zenFull":true}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "full Zen: off",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"zenFull":false}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "breathing pace: on",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"breath":true}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "breathing pattern: box",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"breathPattern":"box"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "breathing pattern: deep",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"breathPattern":"deep"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "breathing pattern: calm",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"breathPattern":"calm"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "breathing pace: off",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"breath":false}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "haptics: off",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"haptics":false}]
+      ],
+      "later": []
+    },
+    {
+      "name": "haptics: on",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"haptics":true}],
+        ["buzz",12],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "material, by the chip in the top bar: the next one",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"theme":"volcanic"}],
+        ["buzz",8]
+      ],
+      "later": [
+        ["renderer.setTheme","volcanic"]
+      ]
+    },
+    {
+      "name": "duration: 10 minutes (a pill)",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8],
+        ["save",{"durationMs":600000}],
+        ["audio.hush"]
+      ],
+      "later": [
+        ["remove","hourglass.session.v1"]
+      ]
+    },
+    {
+      "name": "grain: fine",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"grain":1}],
+        ["buzz",8],
+        ["remove","hourglass.session.v1"]
+      ],
+      "later": [
+        ["(the page is loaded again)"],
+        ["get","hourglass.settings.v1"],
+        ["Sim.setPace",1.414214],
+        ["new Sim",{"scale":1.527351,"seed":"(a seed)"}],
+        ["new Renderer"],
+        ["renderer.setFrame",true],
+        ["sim.setLayers",false],
+        ["renderer.setLayers",false],
+        ["new Audio"],
+        ["audio.volume =",0.55],
+        ["audio.muted =",false],
+        ["audio.character =","asmr"],
+        ["audio.chimeEnabled =",true],
+        ["audio.ambience =","none"],
+        ["audio.ambLevel =",0.7],
+        ["new Motion",{"sign":0}],
+        ["get","hourglass.openNow"],
+        ["sim.reset",17947],
+        ["get","hourglass.session.v1"],
+        ["audio.setCracked","intact"],
+        ["save",{}],
+        ["audio.setMuted",false],
+        ["save",{}],
+        ["audio.setCharacter","asmr"],
+        ["renderer.layout"],
+        ["save",{}],
+        ["renderer.setTheme","volcanic"],
+        ["remove","hourglass.session.v1"]
+      ]
+    },
+    {
+      "name": "grain: finest",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"grain":2}],
+        ["buzz",8],
+        ["remove","hourglass.session.v1"]
+      ],
+      "later": [
+        ["(the page is loaded again)"],
+        ["get","hourglass.settings.v1"],
+        ["Sim.setPace",2],
+        ["new Sim",{"scale":2.16,"seed":"(a seed)"}],
+        ["new Renderer"],
+        ["renderer.setFrame",true],
+        ["sim.setLayers",false],
+        ["renderer.setLayers",false],
+        ["new Audio"],
+        ["audio.volume =",0.55],
+        ["audio.muted =",false],
+        ["audio.character =","asmr"],
+        ["audio.chimeEnabled =",true],
+        ["audio.ambience =","none"],
+        ["audio.ambLevel =",0.7],
+        ["new Motion",{"sign":0}],
+        ["get","hourglass.openNow"],
+        ["sim.reset",35856],
+        ["get","hourglass.session.v1"],
+        ["audio.setCracked","intact"],
+        ["save",{}],
+        ["audio.setMuted",false],
+        ["save",{}],
+        ["audio.setCharacter","asmr"],
+        ["renderer.layout"],
+        ["save",{}],
+        ["renderer.setTheme","volcanic"],
+        ["remove","hourglass.session.v1"]
+      ]
+    },
+    {
+      "name": "grain: classic",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"grain":0}],
+        ["buzz",8],
+        ["remove","hourglass.session.v1"]
+      ],
+      "later": [
+        ["(the page is loaded again)"],
+        ["get","hourglass.settings.v1"],
+        ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
+        ["new Renderer"],
+        ["renderer.setFrame",true],
+        ["sim.setLayers",false],
+        ["renderer.setLayers",false],
+        ["new Audio"],
+        ["audio.volume =",0.55],
+        ["audio.muted =",false],
+        ["audio.character =","asmr"],
+        ["audio.chimeEnabled =",true],
+        ["audio.ambience =","none"],
+        ["audio.ambLevel =",0.7],
+        ["new Motion",{"sign":0}],
+        ["get","hourglass.openNow"],
+        ["sim.reset",8948],
+        ["get","hourglass.session.v1"],
+        ["audio.setCracked","intact"],
+        ["save",{}],
+        ["audio.setMuted",false],
+        ["save",{}],
+        ["audio.setCharacter","asmr"],
+        ["renderer.layout"],
+        ["save",{}],
+        ["renderer.setTheme","volcanic"],
+        ["remove","hourglass.session.v1"]
+      ]
+    },
+    {
+      "name": "Real sand: on",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"realSand":true}],
+        ["remove","hourglass.session.v1"],
+        ["buzz",8]
+      ],
+      "later": [
+        ["(the page is loaded again)"],
+        ["get","hourglass.settings.v1"],
+        ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
+        ["new Renderer"],
+        ["renderer.setFrame",true],
+        ["sim.setLayers",false],
+        ["renderer.setLayers",false],
+        ["new Audio"],
+        ["audio.volume =",0.55],
+        ["audio.muted =",false],
+        ["audio.character =","asmr"],
+        ["audio.chimeEnabled =",true],
+        ["audio.ambience =","none"],
+        ["audio.ambLevel =",0.7],
+        ["new Motion",{"sign":0}],
+        ["get","hourglass.openNow"],
+        ["sim.reset",8948],
+        ["get","hourglass.session.v1"],
+        ["audio.setCracked","intact"],
+        ["save",{}],
+        ["audio.setMuted",false],
+        ["save",{}],
+        ["audio.setCharacter","asmr"],
+        ["renderer.layout"],
+        ["save",{}],
+        ["renderer.setTheme","volcanic"],
+        ["remove","hourglass.session.v1"]
+      ]
+    }
+  ],
+  "saved": "{\"theme\":\"volcanic\",\"character\":\"asmr\",\"volume\":0.55,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.7,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"6\",\"v\":2,\"tuneTab\":\"sand\"}"
+}

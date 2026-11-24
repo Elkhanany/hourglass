@@ -23,7 +23,7 @@
   var missing = missingParts();
   if (missing.length) { updating(missing); return; }
 
-  /** The engines this script needs from the other scripts, by name: [] when all are there. */
+  /** The engines and the settings store this script needs from the other scripts, by name: [] when all are there. */
   function missingParts() {
     var w = window, P0 = w.HourglassPhysics || {}, out = [];
     ['Sim', 'Renderer', 'Spill'].forEach(function (k) {
@@ -31,6 +31,7 @@
     });
     if (typeof w.HourglassAudio !== 'function') out.push('HourglassAudio');
     if (typeof w.HourglassMotion !== 'function') out.push('HourglassMotion');
+    if (!w.HourglassSettings || typeof w.HourglassSettings.load !== 'function') out.push('HourglassSettings');
     return out;
   }
   /** Say that the app is updating, over the whole page (it touches nothing of the page's own). */
@@ -68,58 +69,18 @@
 
   /* ======================================================================
    *  Settings (persisted)
+   *
+   *  The settings store (app/settings.js) has a record for every saved key
+   *  and loads them: the saved values, the version step, the checks and the
+   *  repairs. This script reads and writes `settings`, and calls save()
+   *  after a change.
    * ==================================================================== */
-  var KEY = 'hourglass.settings.v1';
-  var settings = {
-    theme: 'sahara', character: 'asmr', volume: 0.8, muted: false,
-    chime: true, tilt: false, zenFull: false, haptics: true,
-    keepAwake: true, frame: true,
-    layers: false,                   // layered sand: two tones that settle into strata
-    ambience: 'none', ambienceLevel: 0.5,
-    breath: false, breathPattern: 'calm',
-    durationMs: 5 * 60000,
-    restMs: 0, rounds: 1,            // a work and rest sequence: the rest after each glass (0: none), and how often
-    motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
-    mendNotes: 0,                    // how often the "hold it still to mend" note was shown (the first three cracks)
-    hintCrack: false,                // the one-time "the glass can crack" note was shown
-    hintZen: 0,                      // how often the way back out of Zen has been said (three times at most)
-    grain: 0,                        // the sand's grain: 0 classic, 1 fine (twice the grains), 2 finest (four times)
-    hintMotion: 0,                   // how often the tilt icon has been pointed out (three times at most)
-    realSand: true,                  // Real sand: the sand simulated on the graphics chip (off: the classic sand); on by default from 1.10.0
-    realSandFails: 0,                // launches in a row at which Real sand did not start (it stops trying at 3)
-    realSandWhy: '',                 // ... and why the last one did not (or why this browser cannot have it)
-    realSandNa: '',                  // the user agent of a browser that could not have it: while it is this one, "Needs WebGPU", nothing loaded
-    realSandNaAt: 0,                 // ... and when that was found (ms since 1970): after seven days it is tried again all the same
-    realSandBuild: '',               // the engine build those three were found with: another build clears them, and it tries again
-    v: 2                             // the settings' version: used once, to turn Real sand on for a save from before it was the default
-  };
-  try {
-    var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (saved) {
-      for (var k in settings) {
-        if (Object.prototype.hasOwnProperty.call(saved, k) && typeof saved[k] === typeof settings[k]) {
-          settings[k] = saved[k];
-        }
-      }
-    }
-    // Version 2 (settings design 5.1): Real sand on, once, for a save without a version or of
-    // version 1. Every launch before 1.10.0 saved realSand: false, so such a save cannot tell
-    // "never touched" from "turned off"; from version 2 on, a saved false is the owner's choice.
-    if (saved && !(typeof saved.v === 'number' && saved.v >= 2)) settings.realSand = true;
-  } catch (e) { /* private mode: run with defaults */ }
-  settings.v = 2;                    // (the typed copy above took a saved 1 over the default)
-  if (!P.THEMES[settings.theme]) settings.theme = 'sahara';
-  if (settings.motionSign !== 1 && settings.motionSign !== -1) settings.motionSign = 0;
-  if (settings.grain !== 1 && settings.grain !== 2) settings.grain = 0;
-  // "./?t=300" (seconds) preselects a duration — used by the app shortcuts
-  var qt = /[?&]t=(\d{1,5})(?:&|$)/.exec(location.search);
-  if (qt) { settings.durationMs = +qt[1] * 1000; settings.restMs = 0; }
-  settings.durationMs = Math.max(10000, Math.min(5999000, settings.durationMs));
-  if (!(settings.restMs >= 10000 && settings.restMs <= 3600000)) settings.restMs = 0;
-  settings.rounds = settings.restMs ? Math.max(1, Math.min(12, settings.rounds | 0)) : 1;
-  function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch (e) {}
-  }
+  var Store = window.HourglassSettings;
+  // (localStorage is reached inside the store's own try: where storage is blocked, reaching it throws)
+  var settings = Store.load(function () { return localStorage; }, location.search, { themes: P.THEMES });
+  // "./?t=300" (seconds) preselects a duration — used by the app shortcuts (a saved session gives way to it)
+  var qt = Store.preset(location.search);
+  function save() { Store.save(settings); }
 
   /* ======================================================================
    *  Engines
@@ -1861,6 +1822,22 @@
   /** Dimmed controls give the glass the whole screen; it grows and settles back slowly. */
   function applyZoom() {
     zoom.style.transform = app.classList.contains('zen') ? '' : Z.normal;
+    placeTune();
+  }
+  /**
+   * Tune's sheet has one height on all four tabs: its top edge sits TUNE_GAP px under the neck
+   * of the glass as it is drawn (settings design 2.2), so the upper bulb, the neck and the
+   * stream stay in view while anything is chosen. The neck is the glass's centre at home: with
+   * the controls in place, where the zoom's transform puts it. styles.css reads --tune-top (and
+   * keeps the sheet's old limit on a phone on its side); the sheet is never made shorter than
+   * TUNE_MIN. Called with every layout (a resize, a rotation, the frame put on or taken off) and
+   * with Zen.
+   */
+  var TUNE_GAP = 44, TUNE_MIN = 220;
+  function placeTune() {
+    var neck = R0.cy + (app.classList.contains('zen') ? 0 : R0.dy);
+    var top = Math.min(Math.round(neck + TUNE_GAP), window.innerHeight - TUNE_MIN);
+    sheetSettings.style.setProperty('--tune-top', top + 'px');
   }
 
   /* ======================================================================
@@ -1974,12 +1951,19 @@
   /** `high`: show it up under the readout (a note about the glass must not cover the spot it is about). */
   function toast(msg, ms, high) {
     toastEl.textContent = msg;
-    // Said while Tune is open, it would lie on the rows it is about: there it
-    // sits in the sheet's head, just above them (and goes when the sheet goes).
-    var y = sheetOpen === sheetSettings ? sheetSettings.offsetTop + sheetSettings.querySelector('.sheet-body').offsetTop - 4 : 0;
+    // Said while Tune is open, it would lie on the rows it is about: there it sits just above
+    // the sheet, its lower edge 4 px over the sheet's top, in the gap under the glass's neck (and
+    // goes when the sheet goes). Where the sheet leaves no room above it (a phone on its side),
+    // at the top of the screen.
+    var y = sheetOpen === sheetSettings ? sheetSettings.offsetTop - 4 : 0, st = toastEl.style;
     toastEl.classList.toggle('high', y > 0);
-    toastEl.style.bottom = y > 0 ? 'calc(100% - ' + y + 'px)' : '';
     toastEl.classList.toggle('up', !!high && !(y > 0));
+    st.top = st.bottom = '';
+    if (y > 0) {
+      var room = safeInsets().t + 4;
+      if (y - toastEl.offsetHeight < room) { st.top = room + 'px'; st.bottom = 'auto'; }
+      else st.bottom = 'calc(100% - ' + y + 'px)';
+    }
     toastEl.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, ms || 2200);
@@ -2484,6 +2468,10 @@
   }
   function setTheme(id, soft) {
     settings.theme = id; save();
+    showTheme(id, soft);
+  }
+  /** The material shown: the page's colours, the chip's name, the glass (behind the cross-fade if `soft`), the cards. */
+  function showTheme(id, soft) {
     document.documentElement.dataset.theme = id;
     themeName.textContent = P.THEMES[id].short;
     if (soft) softSwap('theme', function () { renderer.setTheme(id); if (realEng) realEng.setPalette(); });
@@ -2545,6 +2533,7 @@
     if (sheetOpen === el) return;
     if (sheetOpen) closeSheet(true);
     sheetOpen = el; sheetOpener = opener || null;
+    scrim.classList.toggle('light', el === sheetSettings);   // behind Tune the glass stays in view, in its true colours
     scrim.hidden = false; el.hidden = false;
     void el.offsetHeight;                              // commit start state
     scrim.classList.add('open'); el.classList.add('open');
@@ -2556,7 +2545,8 @@
     if (!el) return;
     sheetOpen = null;
     el.classList.remove('open'); scrim.classList.remove('open');
-    if (toastEl.classList.contains('high')) toastEl.classList.remove('show');   // a toast in Tune's head fades with it
+    if (toastEl.classList.contains('high')) toastEl.classList.remove('show');   // a toast said above Tune fades with it
+    if (el === sheetSettings) resetDisarm();
     var done = function () { el.hidden = true; if (!sheetOpen) scrim.hidden = true; };
     if (instant) done(); else setTimeout(done, 560);
     if (sheetOpener && !instant) { try { sheetOpener.focus({ preventScroll: true }); } catch (e) {} }
@@ -2570,8 +2560,83 @@
     $('sim-where').textContent = real ? ' on the graphics chip' : '';
     $('spilled').textContent = sim.lost > 0 ? ' · ' + sim.lost.toLocaleString() + ' spilled' : '';
     openSheet(sheetSettings, btnSettings);
+    if (tuneBody) tuneBody.scrollTop = 0;              // on the tab last used, from its top
+    tuneEdges();
     buzz(8);
   });
+
+  /* ---- Tune's tabs ---------------------------------------------------- */
+  // Tune is four tabs at one height (settings design 2): Sand, Glass, Sound, Time. All four
+  // panels are in the page from the start and one shows; the sheet opens on the tab last used
+  // (settings.tuneTab), each tab from its top. Arrow keys move along the tab row. A page
+  // without the tab row is left as it is: nothing here needs it.
+  var tuneTabs = $('tune-tabs'), tuneBody = sheetSettings.querySelector('.sheet-body');
+  var tabBtns = tuneTabs ? tuneTabs.querySelectorAll('[role="tab"]') : [];
+  /** Show a tab's panel, and no other, from its top. A name the page has no tab for shows the first. */
+  function showTab(id) {
+    var i, on, panel, found = false;
+    for (i = 0; i < tabBtns.length; i++) if (tabBtns[i].dataset.tab === id) found = true;
+    if (!found && tabBtns.length) id = tabBtns[0].dataset.tab;
+    for (i = 0; i < tabBtns.length; i++) {
+      on = tabBtns[i].dataset.tab === id;
+      tabBtns[i].setAttribute('aria-selected', on ? 'true' : 'false');
+      tabBtns[i].tabIndex = on ? 0 : -1;
+      panel = $(tabBtns[i].getAttribute('aria-controls'));
+      if (panel) panel.hidden = !on;
+    }
+    if (tuneBody) tuneBody.scrollTop = 0;
+    tuneEdges();
+    resetDisarm();
+    return id;
+  }
+  /**
+   * Tune's edges (index.html: .edge-top, .edge-more). While the tab shown can still scroll down,
+   * its rows fade into the sheet's lower edge and a small chevron points down ('more-below' on
+   * the sheet); once it is scrolled from its top, its rows fade out under the tab row
+   * ('scrolled'). Within EDGE_SLACK px of either end counts as the end. Read again on a scroll, a
+   * tab shown and an opening; and, through a ResizeObserver, whenever the scroller changes size
+   * (a resize, a rotation) or a panel does (rows that appear or go: Grain with Real sand, "Copy a
+   * report", the breathing choice), which moves no scroll. A closed sheet has nothing to scroll
+   * and shows neither.
+   */
+  var EDGE_SLACK = 2;
+  function tuneEdges() {
+    if (!tuneBody) return;
+    var top = tuneBody.scrollTop, left = tuneBody.scrollHeight - tuneBody.clientHeight - top;
+    sheetSettings.classList.toggle('more-below', left > EDGE_SLACK);
+    sheetSettings.classList.toggle('scrolled', top > EDGE_SLACK);
+  }
+  if (tuneBody) {
+    tuneBody.addEventListener('scroll', tuneEdges, { passive: true });
+    if (window.ResizeObserver) {
+      var edgeWatch = new ResizeObserver(function () { tuneEdges(); });
+      edgeWatch.observe(tuneBody);
+      for (var ei = 0; ei < tuneBody.children.length; ei++) edgeWatch.observe(tuneBody.children[ei]);
+    }
+  }
+  /** A tab chosen (a tap, or a key on the tab row): shown, and remembered for the next opening. */
+  function chooseTab(id) {
+    id = showTab(id);
+    if (id !== settings.tuneTab) { settings.tuneTab = id; save(); }
+  }
+  if (tuneTabs) {
+    tuneTabs.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[role="tab"]') : null;
+      if (!b) return;
+      chooseTab(b.dataset.tab);
+      buzz(8);
+    });
+    tuneTabs.addEventListener('keydown', function (e) {
+      var n = tabBtns.length, i = Array.prototype.indexOf.call(tabBtns, e.target), j;
+      if (i < 0 || e.metaKey || e.ctrlKey || e.altKey) return;
+      j = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i + n - 1) % n :
+          e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;
+      if (j < 0) return;
+      e.preventDefault();
+      chooseTab(tabBtns[j].dataset.tab);
+      try { tabBtns[j].focus({ preventScroll: true }); } catch (err) {}
+    });
+  }
 
   /* ---- settings controls -------------------------------------------- */
   $('themes').addEventListener('click', function (e) {
@@ -2581,8 +2646,11 @@
   function setCharacter(id) {
     settings.character = id; save();
     audio.setCharacter(id);
+    showCharacter();
+  }
+  function showCharacter() {
     var b = document.querySelectorAll('#characters button');
-    for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-checked', b[i].dataset.character === id ? 'true' : 'false');
+    for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-checked', b[i].dataset.character === settings.character ? 'true' : 'false');
   }
   $('characters').addEventListener('click', function (e) {
     var b = e.target.closest('button');
@@ -2632,22 +2700,28 @@
     settings.keepAwake = e.target.checked; save();
     syncWakeLock();
   });
-  $('opt-frame').addEventListener('change', function (e) {
-    settings.frame = e.target.checked; save();
+  function swapFrame() {
     softSwap('frame', function () {
       renderer.setFrame(settings.frame);
       layout();                                        // the bare glass can sit larger
     });
+  }
+  $('opt-frame').addEventListener('change', function (e) {
+    settings.frame = e.target.checked; save();
+    swapFrame();
   });
   // Layered sand: the sand in the glass is laid in strata where it lies (or
   // goes back to one tone), behind the same slow cross-fade as a new material.
-  $('opt-layers').addEventListener('change', function (e) {
-    settings.layers = e.target.checked; save();
+  function swapLayers() {
     softSwap('layers', function () {
       sim.setLayers(settings.layers);
       renderer.setLayers(settings.layers);
       if (realEng) realEng.setPalette();               // (Real sand's colours come from the renderer's table)
     });
+  }
+  $('opt-layers').addEventListener('change', function (e) {
+    settings.layers = e.target.checked; save();
+    swapLayers();
   });
   // 'click', not 'change': iOS only shows its motion prompt from a direct tap
   optTilt.addEventListener('click', function (e) { setMotion(e.target.checked, true); });
@@ -2717,6 +2791,70 @@
     if (breath.on) breathBegin();
     buzz(8);
   });
+
+  /* ---- the look and the sound as they came ---------------------------- */
+  // The quiet link at the end of the Time tab (settings design 3.4). A first tap asks for a
+  // second one within three seconds; the second puts the look and the sound back as a new
+  // install has them: the material, the frame, layered sand, the volume, the sand's sound, the
+  // ambience and its level, the bowl. Everything else is kept: Real sand and the grain, the
+  // durations and a sequence, breathing, Zen, the screen kept awake, haptics, Real motion, the
+  // mute button, what the app has learned and hinted. Nothing is loaded again, and the running
+  // time is not touched.
+  var RESET_ASK = 'Put the look and sound back as they came', RESET_SURE = 'Tap again to put them back';
+  var RESET_MS = 3000, RESET_DOUBLE_MS = 400;        // how long it waits for the second tap; a double tap is one tap
+  var tuneReset = $('tune-reset'), resetText = $('tune-reset-text'), resetTimer = 0, resetArmedAt = 0;
+  function resetDisarm() {
+    clearTimeout(resetTimer);
+    if (!tuneReset || !resetText || tuneReset.getAttribute('data-state') === 'idle') return;
+    tuneReset.setAttribute('data-state', 'idle');
+    resetText.textContent = RESET_ASK;
+  }
+  /** What a new install has for a setting (its record's default). */
+  function settingDefault(key) {
+    for (var i = 0; i < Store.RECORDS.length; i++) if (Store.RECORDS[i].id === key) return Store.RECORDS[i].default;
+  }
+  /** The look and the sound back as they came: saved once, then each one that differed shown and told to its engine. */
+  function resetLook() {
+    var was = {
+      theme: settings.theme, frame: settings.frame, layers: settings.layers, volume: settings.volume,
+      character: settings.character, ambience: settings.ambience, ambienceLevel: settings.ambienceLevel, chime: settings.chime
+    };
+    // (each by its name: the settings store's check follows every settings.<name> in this file)
+    settings.theme = settingDefault('theme'); settings.frame = settingDefault('frame'); settings.layers = settingDefault('layers');
+    settings.volume = settingDefault('volume'); settings.character = settingDefault('character');
+    settings.ambience = settingDefault('ambience'); settings.ambienceLevel = settingDefault('ambienceLevel');
+    settings.chime = settingDefault('chime');
+    save();
+    // the look, behind one cross-fade
+    if (was.theme !== settings.theme) showTheme(settings.theme, true);
+    if (was.frame !== settings.frame) { $('opt-frame').checked = settings.frame; swapFrame(); }
+    if (was.layers !== settings.layers) { $('opt-layers').checked = settings.layers; swapLayers(); }
+    // the sound (nothing is auditioned, and the bowl is not rung)
+    if (was.volume !== settings.volume) { audio.setVolume(settings.volume); showVolume(); }
+    if (was.character !== settings.character) { audio.setCharacter(settings.character); showCharacter(); }
+    if (was.ambience !== settings.ambience) { audio.setAmbience(settings.ambience, false); showAmbience(); }
+    if (was.ambienceLevel !== settings.ambienceLevel) { audio.setAmbienceLevel(settings.ambienceLevel, false); showAmbience(); }
+    if (was.chime !== settings.chime) { audio.setChimeEnabled(settings.chime); $('opt-chime').checked = settings.chime; }
+  }
+  if (tuneReset && resetText) {
+    tuneReset.addEventListener('click', function () {
+      var now = performance.now();
+      if (tuneReset.getAttribute('data-state') !== 'armed') {
+        tuneReset.setAttribute('data-state', 'armed');
+        resetText.textContent = RESET_SURE;
+        resetArmedAt = now;
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(resetDisarm, RESET_MS);
+        buzz(8);
+        return;
+      }
+      if (now - resetArmedAt < RESET_DOUBLE_MS) return;   // the second half of a double tap: not an answer
+      resetLook();
+      buzz(12);
+      resetDisarm();
+      toast('Look and sound put back');
+    });
+  }
 
   /* ---- custom duration dial ----------------------------------------- */
   var wheelMin = $('wheel-min'), wheelSec = $('wheel-sec');
@@ -3464,7 +3602,7 @@
    *  and only where Tune's sheet is; its state is in data-state.
    * ==================================================================== */
   function versionLine() {
-    var body = sheetSettings && sheetSettings.querySelector('.sheet-body');
+    var body = $('panel-sand') || (sheetSettings && sheetSettings.querySelector('.sheet-body'));
     if (!body) return;
     var meta = document.querySelector('meta[name="hourglass-version"]');
     var mine = (meta && meta.getAttribute('content')) || 'unknown';
@@ -3539,6 +3677,7 @@
   showVolume();
   showAmbience();
   showBreath();
+  showTab(settings.tuneTab);                           // Tune will open on the tab last used
   breathLayer(settings.breath);
   setMuted(settings.muted);
   setCharacter(settings.character);

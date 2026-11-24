@@ -31,19 +31,16 @@
  */
 'use strict';
 var H = require('./stubs/harness.js');
+var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 
 var UPPER_FUNNEL = 6;            // upper bulb, left side, u ≈ 0.16
 
 async function realMotionOn(t) {
-  await t.page.tap('#btn-settings');
-  await sleep(700);
-  await t.page.$eval('#opt-tilt', function (el) { el.scrollIntoView({ block: 'center' }); });
-  await sleep(150);
-  await t.page.tap('#opt-tilt');
+  await tune.tap(t, '#opt-tilt');                  // (Tune opened, the switch's tab shown: lib/tune.js)
   await sleep(300);
-  await t.page.tap('#sheet-settings .sheet-close');
-  await sleep(700);
+  await tune.close(t);
+  await sleep(100);
 }
 
 /** A glass (60 s unless said) with Real motion on, the phone held still; returns the Date.now() it started at. */

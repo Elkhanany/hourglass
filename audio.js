@@ -85,8 +85,18 @@
   ];
 
   /*
+   * One icon family for the cards of the sounds in Tune: the same small
+   * hourglass in every card, and beside it what the sound is. A record's
+   * `icon` is what is drawn inside the card's <svg class="ic" viewBox="0 0 24
+   * 24">: ICON_GLASS and the sound's own mark (strokes on the 24 × 24 grid).
+   */
+  var ICON_GLASS = '<path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/>';
+
+  /*
    * Acoustic characters: how loud each layer is, the tone, and how the
-   * vessel is voiced.
+   * vessel is voiced. One defineCharacter per character, in the order of
+   * Tune's cards:
+   *   id, name, icon   what its card shows (and `id` is what the settings keep)
    *   whisper  the hush of the landing        beds   its fine crackle
    *   shake    the crackle of a shaken glass (as loud as `beds`, if left out)
    *   ticks    every grain struck one by one (the glass in hand's too);
@@ -97,43 +107,109 @@
    *            `vessel` how much the crackle, the grains, the pour and the
    *            slide do (0: the sand never rings the glass)
    *   tick     the pitch of every grain       bed    the pitch of the beds
+   *            (1 if left out)
    *   room, low, high, lp                     the room, and the tone
+   *   modes    its resonators: six rows [Hz, Q, gain, upward shift when the
+   *            cavity is full], one for each band of the graph; the thin
+   *            glass (MODES) if left out
    */
-  var CHARACTERS = {
-    asmr: {
-      name: 'Close-Miked ASMR',
-      whisper: 0.034, beds: 0.016, shake: 0.034, ticks: 0.19, grain: 2.1, body: 0.08, modal: 0.15, room: 0.10,
-      low: 0, high: 0, lp: 18000, send: 0, vessel: 0
-    },
-    warm: {
-      name: 'Warm Glass',
-      whisper: 0.026, beds: 0.011, ticks: 0.12, grain: 2.4, body: 0.10, modal: 0.20, room: 0.30,
-      low: 3, high: -6, lp: 8200, modes: MODES_WARM, send: 0.09, vessel: 1
-    },
-    pure: {
-      name: 'Pure Sand Whisper',
-      whisper: 0.046, beds: 0.012, ticks: 0.03, grain: 2.0, body: 0.03, modal: 0.045, room: 0.12,
-      low: -1, high: 0, lp: 15000, send: 0, vessel: 0
-    },
-    chime: {
-      name: 'Singing Glass',
-      whisper: 0.022, beds: 0.009, ticks: 0.17, grain: 2.2, body: 0, modal: 0.30, room: 0.36,
-      low: 0, high: 0, lp: 11000,
-      modes: MODES_CHIME, send: 0.05, vessel: 1, tick: 1.0, bed: 1
-    },
-    bamboo: {
-      name: 'Bamboo Rainstick',
-      whisper: 0.012, beds: 0.011, ticks: 0.20, grain: 2.3, body: 0, modal: 0.38, room: 0.22,
-      low: 2, high: -4, lp: 8500,
-      modes: MODES_BAMBOO, send: 0.11, vessel: 1, tick: 0.58, bed: 0.8
-    },
-    dune: {
-      name: 'Desert Dune',
-      whisper: 0.032, beds: 0.012, ticks: 0.07, grain: 2.0, body: 0, modal: 0.53, room: 0.26,
-      low: 5, high: -9, lp: 5200,
-      modes: MODES_DUNE, send: 0.25, vessel: 1, tick: 0.5, bed: 0.55
+  var CHARACTERS = {}, CHARACTER_ORDER = [];
+  var CHARACTER_NUMBERS = ['whisper', 'beds', 'ticks', 'grain', 'body', 'modal', 'room', 'low', 'high', 'lp', 'send', 'vessel'];
+  var CHARACTER_OPTIONAL = ['shake', 'tick', 'bed'];
+  var CARD_FIELDS = ['id', 'name', 'icon'];
+  var CHARACTER_FIELDS = CARD_FIELDS.concat(CHARACTER_NUMBERS, CHARACTER_OPTIONAL, ['modes']);
+
+  function isNumber(v) { return typeof v === 'number' && v - v === 0; }
+  /**
+   * A record says only what is read: a field nothing knows is a field
+   * misspelt (`mode` for `modes` would leave a character the thin glass, and
+   * `layer` for `layers` an ambience silent). Throws, naming it.
+   */
+  function checkFields(what, rec, known) {
+    for (var k in rec) {
+      if (known.indexOf(k) < 0) throw new Error(what + ': ' + k + ' is no field of its record (' + known.join(', ') + ')');
     }
-  };
+  }
+  /** What every card needs of a record: an id nothing else has, a name and an icon. Throws, naming `what`. */
+  function checkCard(what, rec, taken) {
+    if (!rec || typeof rec !== 'object') throw new Error(what + ': a record is needed');
+    if (typeof rec.id !== 'string' || !rec.id) throw new Error(what + ': the record has no id');
+    if (rec.id in taken) throw new Error(what + ' "' + rec.id + '": that id is taken');
+    if (typeof rec.name !== 'string' || !rec.name) throw new Error(what + ' "' + rec.id + '": it has no name');
+    if (typeof rec.icon !== 'string' || !rec.icon) throw new Error(what + ' "' + rec.id + '": it has no icon');
+  }
+  /**
+   * Register an acoustic character (the record is kept as it is given, and
+   * is what the engine reads). A record the graph could not play is refused
+   * here, when the page loads, by name: a number missing or not a number, a
+   * `modes` table that is not six rows of four numbers, or a field that is
+   * none of a character's.
+   */
+  function defineCharacter(rec) {
+    var what = 'defineCharacter', k, i, j, m;
+    checkCard(what, rec, CHARACTERS);
+    what += ' "' + rec.id + '"';
+    checkFields(what, rec, CHARACTER_FIELDS);
+    for (k = 0; k < CHARACTER_NUMBERS.length; k++) {
+      if (!isNumber(rec[CHARACTER_NUMBERS[k]])) throw new Error(what + ': ' + CHARACTER_NUMBERS[k] + ' is ' + rec[CHARACTER_NUMBERS[k]] + ', not a number');
+    }
+    for (k = 0; k < CHARACTER_OPTIONAL.length; k++) {
+      m = rec[CHARACTER_OPTIONAL[k]];
+      if (m !== undefined && !isNumber(m)) throw new Error(what + ': ' + CHARACTER_OPTIONAL[k] + ' is ' + m + ', not a number');
+    }
+    m = rec.modes;
+    if (m !== undefined) {
+      if (!m || m.length !== MODES.length) throw new Error(what + ': modes has ' + (m ? m.length : 'no') + ' rows; the graph has ' + MODES.length + ' bands');
+      for (i = 0; i < m.length; i++) {
+        if (!m[i] || m[i].length !== 4) throw new Error(what + ': row ' + i + ' of modes is not [Hz, Q, gain, shift]');
+        for (j = 0; j < 4; j++) if (!isNumber(m[i][j])) throw new Error(what + ': row ' + i + ' of modes holds ' + m[i][j] + ', not a number');
+        if (!(m[i][0] > 0 && m[i][1] > 0)) throw new Error(what + ': row ' + i + ' of modes needs a frequency and a Q above 0');
+      }
+    }
+    CHARACTERS[rec.id] = rec;
+    CHARACTER_ORDER.push(rec.id);
+    return rec;
+  }
+
+  defineCharacter({
+    id: 'asmr', name: 'Close-Miked ASMR',
+    icon: ICON_GLASS + '<path d="M18.9 9.4a3.6 3.6 0 0 1 0 5.2M20.6 8.3a5.6 5.6 0 0 1 0 7.4"/>',
+    whisper: 0.034, beds: 0.016, shake: 0.034, ticks: 0.19, grain: 2.1, body: 0.08, modal: 0.15, room: 0.10,
+    low: 0, high: 0, lp: 18000, send: 0, vessel: 0
+  });
+  defineCharacter({
+    id: 'warm', name: 'Warm Glass',
+    icon: ICON_GLASS + '<path d="M18.7 8.4l1.6-.85M19.6 12h1.8M18.7 15.6l1.6.85M5.3 8.4l-1.6-.85M4.4 12H2.6M5.3 15.6l-1.6.85"/>',
+    whisper: 0.026, beds: 0.011, ticks: 0.12, grain: 2.4, body: 0.10, modal: 0.20, room: 0.30,
+    low: 3, high: -6, lp: 8200, modes: MODES_WARM, send: 0.09, vessel: 1
+  });
+  defineCharacter({
+    id: 'pure', name: 'Pure Sand Whisper',
+    icon: ICON_GLASS + '<path stroke-width="1.45" d="M19.2 9.7h.01M20 12h.01M19.2 14.3h.01M4.8 9.7h.01M4 12h.01M4.8 14.3h.01"/>',
+    whisper: 0.046, beds: 0.012, ticks: 0.03, grain: 2.0, body: 0.03, modal: 0.045, room: 0.12,
+    low: -1, high: 0, lp: 15000, send: 0, vessel: 0
+  });
+  defineCharacter({
+    id: 'chime', name: 'Singing Glass',
+    icon: ICON_GLASS + '<path d="M18.9 9.4a3.6 3.6 0 0 1 0 5.2M5.1 9.4a3.6 3.6 0 0 0 0 5.2"/>',
+    whisper: 0.022, beds: 0.009, ticks: 0.17, grain: 2.2, body: 0, modal: 0.30, room: 0.36,
+    low: 0, high: 0, lp: 11000,
+    modes: MODES_CHIME, send: 0.05, vessel: 1, tick: 1.0, bed: 1
+  });
+  defineCharacter({
+    id: 'bamboo', name: 'Bamboo Rainstick',
+    icon: ICON_GLASS + '<path d="M3.8 4.6v14.8M20.2 4.6v14.8M3 9.5h1.6M3 14.5h1.6M19.4 9.5h1.6M19.4 14.5h1.6"/>',
+    whisper: 0.012, beds: 0.011, ticks: 0.20, grain: 2.3, body: 0, modal: 0.38, room: 0.22,
+    low: 2, high: -4, lp: 8500,
+    modes: MODES_BAMBOO, send: 0.11, vessel: 1, tick: 0.58, bed: 0.8
+  });
+  defineCharacter({
+    id: 'dune', name: 'Desert Dune',
+    icon: ICON_GLASS + '<circle cx="20.3" cy="6.7" r="1.6"/><path d="M1.6 19.4C2.7 18.1 3.9 17.5 5.4 17.8M18.6 17.8C20.1 17.5 21.3 18.1 22.4 19.4"/>',
+    whisper: 0.032, beds: 0.012, ticks: 0.07, grain: 2.0, body: 0, modal: 0.53, room: 0.26,
+    low: 5, high: -9, lp: 5200,
+    modes: MODES_DUNE, send: 0.25, vessel: 1, tick: 0.5, bed: 0.55
+  });
 
   /*
    * How a glass rings once it has been through something: [mode frequency ×,
@@ -1791,47 +1867,110 @@
   }
 
   /*
-   * Each ambience is one or more seamless loops, played together. `make(sr,
-   * seconds, ch, seed)` renders one channel; both channels get the same seed.
-   * It may return a function instead: the rest of the work, a step per call.
-   * `audition`: how long it plays when chosen (5 s if not given), counted from
-   * when it is heard; a layer's `cue(seconds, seed)`: where it starts then.
+   * Each ambience is one or more seamless loops, played together. One
+   * defineAmbience per ambience, in the order of Tune's cards: its `id`,
+   * `name` and `icon` (what its card shows), and its `layers`. A layer's
+   * `make(sr, seconds, ch, seed)` renders one channel; both channels get the
+   * same seed. It may return a function instead: the rest of the work, a step
+   * per call. `audition`: how long it plays when chosen (5 s if not given),
+   * counted from when it is heard; a layer's `cue(seconds, seed)`: where it
+   * starts then. An ambience without layers is silence (None).
    *
    * A loop needs no higher rate than its sound: the lower the rate, the longer
-   * the loop that fits. At most 8 MB of PCM for an ambience, and only the
-   * chosen one holds any.
+   * the loop that fits. At most 8 MB of PCM for an ambience (AMB_BYTES: every
+   * layer's two channels of 32-bit samples), and only the chosen one holds any.
    */
-  var AMBIENCES = {
-    none: { name: 'None' },
-    brook: { name: 'Brook', layers: [
+  var AMBIENCES = {}, AMBIENCE_ORDER = [];
+  var AMB_BYTES = 8e6;
+  var AMBIENCE_FIELDS = CARD_FIELDS.concat(['audition', 'layers']), LAYER_FIELDS = ['make', 'seconds', 'sr', 'cue'];
+
+  /** The PCM an ambience holds once it is made, in bytes: two channels of 32-bit samples per layer. */
+  function ambienceBytes(d) {
+    var n = 0, i;
+    for (i = 0; d.layers && i < d.layers.length; i++) n += Math.floor(d.layers[i].sr * d.layers[i].seconds) * 2 * 4;
+    return n;
+  }
+  /**
+   * Register an ambience (the record is kept as it is given, and is what the
+   * engine reads). One the engine could not make or hold is refused here,
+   * when the page loads, by name: a layer without its `make`, its length or
+   * its rate, more than 8 MB of PCM in all, or a field that is none of an
+   * ambience's or of a layer's.
+   */
+  function defineAmbience(rec) {
+    var what = 'defineAmbience', i, L;
+    checkCard(what, rec, AMBIENCES);
+    what += ' "' + rec.id + '"';
+    checkFields(what, rec, AMBIENCE_FIELDS);
+    if (rec.audition !== undefined && !(isNumber(rec.audition) && rec.audition > 0)) throw new Error(what + ': audition is ' + rec.audition + ', not a number of seconds');
+    if (rec.layers !== undefined) {
+      if (!rec.layers || !(rec.layers.length > 0)) throw new Error(what + ': layers is empty (leave it out for silence)');
+      for (i = 0; i < rec.layers.length; i++) {
+        L = rec.layers[i];
+        if (!L || typeof L.make !== 'function') throw new Error(what + ': layer ' + i + ' has no make(sr, seconds, ch, seed)');
+        checkFields(what + ', layer ' + i, L, LAYER_FIELDS);
+        if (!(isNumber(L.seconds) && L.seconds > 0)) throw new Error(what + ': layer ' + i + ' is ' + L.seconds + ' seconds long');
+        if (!(isNumber(L.sr) && L.sr > 0)) throw new Error(what + ': layer ' + i + ' has the sample rate ' + L.sr);
+        if (L.cue !== undefined && typeof L.cue !== 'function') throw new Error(what + ': the cue of layer ' + i + ' is not a function');
+      }
+      if (ambienceBytes(rec) > AMB_BYTES) {
+        throw new Error(what + ': ' + (ambienceBytes(rec) / 1e6).toFixed(2) + ' MB of PCM, more than ' + AMB_BYTES / 1e6 + ' (shorter loops, or lower rates)');
+      }
+    }
+    AMBIENCES[rec.id] = rec;
+    AMBIENCE_ORDER.push(rec.id);
+    return rec;
+  }
+
+  defineAmbience({ id: 'none', name: 'None', icon: ICON_GLASS });
+  defineAmbience({
+    id: 'brook', name: 'Brook',
+    icon: ICON_GLASS + '<path d="M1.6 18.75c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0M19 18.75c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0M1.6 16.25c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0M19 16.25c.6-.86 1.1-.86 1.7 0s1.1.86 1.7 0"/>',
+    layers: [
       { make: rawBrookFlow, seconds: 9.3, sr: PRE_SR },
       { make: rawBrookBloops, seconds: 14.3, sr: 24000 }       // ≤ 700 Hz: a lower rate is plenty
-    ] },
-    rain: { name: 'Rain', layers: [
+    ]
+  });
+  defineAmbience({
+    id: 'rain', name: 'Rain',
+    icon: ICON_GLASS + '<path d="M4.2 6.2l-1.1 2.8M4.2 12.2l-1.1 2.8M21 9l-1.1 2.8M21 15l-1.1 2.8"/>',
+    layers: [
       { make: rawRain, seconds: 7.9, sr: PRE_SR }
-    ] },
-    // Low-passed as they are, the loops need no more than these rates: 7.9 MB of PCM in all.
-    // 61.3 s and 23.3 s: the far loop comes round 0.63 of its length later each time, and
-    // the two line up again only after 4 hours. Heard first: one whole wave, swell to backwash.
-    ocean: { name: 'Ocean', audition: 12, layers: [
+    ]
+  });
+  // Low-passed as they are, the loops need no more than these rates: 7.9 MB of PCM in all.
+  // 61.3 s and 23.3 s: the far loop comes round 0.63 of its length later each time, and
+  // the two line up again only after 4 hours. Heard first: one whole wave, swell to backwash.
+  defineAmbience({
+    id: 'ocean', name: 'Ocean', audition: 12,
+    icon: ICON_GLASS + '<path d="M1.6 19.4c.2-2.9 1.4-4.9 3-4.9 1.2 0 1.7 1.2.9 2.1M2.3 12.6h.01M4.7 11.6h.01M22.4 19.4c-.2-2.9-1.4-4.9-3-4.9-1.2 0-1.7 1.2-.9 2.1M21.7 12.6h.01M19.3 11.6h.01"/>',
+    layers: [
       { make: rawSurf, seconds: 61.3, sr: 13000, cue: cueSurf },
       { make: rawSurfFar, seconds: 23.3, sr: 8000 }
-    ] },
-    waterfall: { name: 'Waterfall', layers: [
+    ]
+  });
+  defineAmbience({
+    id: 'waterfall', name: 'Waterfall',
+    icon: ICON_GLASS + '<path d="M3.4 4.6c-1.3 1.3-1.3 2.3 0 3.6s1.3 2.3 0 3.6-1.3 2.3 0 3.6M1.8 19.4c.5-1.1 1-1.6 1.6-1.6s1.1.5 1.6 1.6M20.6 4.6c-1.3 1.3-1.3 2.3 0 3.6s1.3 2.3 0 3.6-1.3 2.3 0 3.6M19 19.4c.5-1.1 1-1.6 1.6-1.6s1.1.5 1.6 1.6"/>',
+    layers: [
       { make: rawFallsSheet, seconds: 12.1, sr: 24000 },       // 121, 313 and 139 tenths share no factor
       { make: rawFallsPool, seconds: 31.3, sr: 12000 },        // all below 1.5 kHz: a low rate buys a long loop
       { make: rawFallsWash, seconds: 13.9, sr: 24000 }
-    ] },
-    // Nothing in a drop rings above 6 kHz and the trickle is duller still: 16 and 12 kHz are plenty,
-    // 7.98 MB of PCM in all. 21.7, 18.5 and 15.3 s: the three loops of drops line up again only after 7 days.
-    // Heard first: a drop from each loop, 1.2, 3 and 5.2 s in, and whatever else falls meanwhile.
-    drips: { name: 'Drips', audition: 9, layers: [
+    ]
+  });
+  // Nothing in a drop rings above 6 kHz and the trickle is duller still: 16 and 12 kHz are plenty,
+  // 7.98 MB of PCM in all. 21.7, 18.5 and 15.3 s: the three loops of drops line up again only after 7 days.
+  // Heard first: a drop from each loop, 1.2, 3 and 5.2 s in, and whatever else falls meanwhile.
+  defineAmbience({
+    id: 'drips', name: 'Drips', audition: 9,
+    icon: ICON_GLASS + '<path d="M3.5 6c.875 1.16 1.25 1.875 1.25 2.5a1.25 1.25 0 0 1-2.5 0c0-.625.375-1.34 1.25-2.5zM1.8 18.6a1.6 .7 0 1 0 3.2 0a1.6 .7 0 1 0-3.2 0M20.5 9.6c.875 1.16 1.25 1.875 1.25 2.5a1.25 1.25 0 0 1-2.5 0c0-.625.375-1.34 1.25-2.5zM19 18.6a1.6 .7 0 1 0 3.2 0a1.6 .7 0 1 0-3.2 0"/>',
+    layers: [
       { make: rawDripsA, seconds: 21.7, sr: 16000, cue: cueDrip(DRIPS.a, 1.2) },
       { make: rawDripsB, seconds: 18.5, sr: 16000, cue: cueDrip(DRIPS.b, 3) },
       { make: rawDripsC, seconds: 15.3, sr: 16000, cue: cueDrip(DRIPS.c, 5.2) },
       { make: rawDripsTrickle, seconds: 9.1, sr: 12000 }
-    ] }
-  };
+    ]
+  });
 
   function softClipCurve() {
     var n = 2048, c = new Float32Array(n), k = 1.5, norm = Math.tanh(k);
@@ -2000,8 +2139,21 @@
     if (!this._job && this._prepK >= PREP.length && this._prepTimer) { clearTimeout(this._prepTimer); this._prepTimer = 0; }
   };
 
+  // The registries. CHARACTERS and AMBIENCES are the records by id, as the engine reads
+  // them; characters() and ambiences() are what Tune's cards show, in their order.
   HourglassAudio.CHARACTERS = CHARACTERS;
   HourglassAudio.AMBIENCES = AMBIENCES;
+  function cards(all, order) {
+    var out = [], i;
+    for (i = 0; i < order.length; i++) out.push({ id: order[i], name: all[order[i]].name, icon: all[order[i]].icon });
+    return out;
+  }
+  /** The acoustic characters, in the order of their cards: [{ id, name, icon }]. */
+  HourglassAudio.characters = function () { return cards(CHARACTERS, CHARACTER_ORDER); };
+  /** The ambiences, in the order of their cards: [{ id, name, icon }]. */
+  HourglassAudio.ambiences = function () { return cards(AMBIENCES, AMBIENCE_ORDER); };
+  HourglassAudio.defineCharacter = defineCharacter;
+  HourglassAudio.defineAmbience = defineAmbience;
   // The synthesis itself, for offline tests and measurement.
   HourglassAudio._synth = { microBank: microBank, grainBed: grainBed, limitPeaks: limitPeaks, synthPat: synthPat,
                             synthTink: synthTink, mulberry32: mulberry32, BEDS: BEDS, PRE_SR: PRE_SR, SEED: SAND_SEED,

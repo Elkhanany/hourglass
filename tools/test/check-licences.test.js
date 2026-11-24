@@ -17,9 +17,11 @@
  * column a bare name is the app's (the repository's root) or else the lab's (lab/sand/).
  * And the project's own licence is stated one way: GPL-3.0-or-later (package.json, the README).
  * A file of the page or the lab that states it (a header's "License: GPL-3.0...") says
- * GPL-3.0-or-later, not the bare GPL-3.0. The engine's files (realsand/) still say GPL-3.0:
- * they change with the next engine build (docs/architecture.md, "Releasing", rule 3), the
- * README says what they mean until then, and this check counts them without failing.
+ * GPL-3.0-or-later, not the bare GPL-3.0. The page's files are the root's and the scripts
+ * index.html loads, wherever they live (app/settings.js). The engine's files (realsand/)
+ * still say GPL-3.0: they change with the next engine build (docs/architecture.md,
+ * "Releasing", rule 3), the README says what they mean until then, and this check counts them
+ * without failing.
  * Each rule has its control: the same check on a table or a tree that breaks it must fail.
  *
  *   node tools/test/check-licences.test.js
@@ -129,13 +131,24 @@ function bare(text) {
   return out;
 }
 var pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')), readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
-var OWN = fs.readdirSync(ROOT).filter(function (f) { return /\.(?:js|mjs|css|html|json)$/.test(f); }).concat(walk('lab/sand')).sort();
-var stated = [], bareOnes = [];
-OWN.forEach(function (f) {
-  var text = fs.readFileSync(path.join(ROOT, f), 'utf8');
-  if (/GPL-3\.0/.test(text)) stated.push(f);
-  bare(text).forEach(function (b) { bareOnes.push(f + ' ' + b); });
-});
+/** The files of the page and the lab: the root's, the scripts index.html loads wherever they live (`scripts`), and lab/sand/. */
+function ownFiles(scripts) {
+  var list = fs.readdirSync(ROOT).filter(function (f) { return /\.(?:js|mjs|css|html|json)$/.test(f); }).concat(walk('lab/sand'));
+  scripts.forEach(function (f) { if (list.indexOf(f) < 0) list.push(f); });
+  return list.sort();
+}
+/** Which of these files state the licence, and the lines that state it bare: { stated, bare }. text(f) gives a file's text. */
+function licenceIn(files, text) {
+  var out = { stated: [], bare: [] };
+  files.forEach(function (f) {
+    var t = text(f);
+    if (/GPL-3\.0/.test(t)) out.stated.push(f);
+    bare(t).forEach(function (b) { out.bare.push(f + ' ' + b); });
+  });
+  return out;
+}
+function textOf(f) { return fs.readFileSync(path.join(ROOT, f), 'utf8'); }
+var PAGE = paths.classicScripts(), OWN = ownFiles(PAGE), lic = licenceIn(OWN, textOf), stated = lic.stated, bareOnes = lic.bare;
 var engineBare = walk('realsand').filter(function (f) { return bare(fs.readFileSync(path.join(ROOT, f), 'utf8')).length; });
 check(pkg.license === OURS && /^## License\n+GPL-3\.0-or-later\./m.test(readme) && stated.length >= 10 && bareOnes.length === 0 &&
       (engineBare.length === 0 || /Where a file's header says GPL-3\.0, it\s+means this licence/.test(readme)),
@@ -145,6 +158,13 @@ var c5 = bare(' * Zero dependencies. License: GPL-3.0.\n * second line\n  Part o
     c6 = bare(' * License: GPL-3.0-or-later.\n  (GPL-3.0-or-later); "license": "GPL-3.0-or-later"\n');
 check(c5.length === 2 && /^line 1: /.test(c5[0]) && /^line 3: /.test(c5[1]) && c6.length === 0,
   '... and that check finds a header with the bare GPL-3.0, and none in one that says ' + OURS + ' (control)', c5.join('; '));
+// a script the page loads from a folder of its own is one of its files
+var inFolder = PAGE.filter(function (f) { return f.indexOf('/') >= 0; });
+var c7 = licenceIn(ownFiles(PAGE.concat(['control-only/piece.js'])), function (f) { return f === 'control-only/piece.js' ? '/*\n * License: GPL-3.0.\n */\n' : textOf(f); });
+check(PAGE.every(function (f) { return OWN.indexOf(f) >= 0; }) && added(c7.bare, bareOnes).length === 1 && /^control-only\/piece\.js line 2: /.test(added(c7.bare, bareOnes)[0]) &&
+      inFolder.every(function (f) { return ownFiles([]).indexOf(f) < 0; }),            // (the root's files and the lab's alone would leave them unread)
+  '... the scripts index.html loads are among those files wherever they live (' + (inFolder.join(', ') || 'none in a folder now') +
+  '), and one in a folder whose header has the bare GPL-3.0 is found (control)', added(c7.bare, bareOnes).join('; '));
 
 console.log('check-licences: ' + (count - failures) + '/' + count + ' passed');
 if (failures) process.exitCode = 1;

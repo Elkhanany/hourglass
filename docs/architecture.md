@@ -10,6 +10,7 @@ sound work is in [How it works](engines.md).
 ```
 index.html  styles.css      the page and its look (one screen, two sheets)
 app.js                      the controller: clock, gestures, Zen, settings, sessions
+app/settings.js             the settings store: a record for every saved key, load and save
 physics.js                  the sand simulation, the glass, cracks and spilled sand
 audio.js                    the procedural sound engine
 motion.js                   the phone's motion sensors
@@ -26,6 +27,7 @@ icons/                      app icons and iPhone launch screens (icons/splash)
 docs/                       the guide, how it works, the architecture, the tests, and the designs
 docs/images/                the pictures in the README and the install screenshots
 tools/icons.html            regenerates the icons from one SVG
+tools/audio-identity.js     run by hand: shows that a change to audio.js changed no sound
 tools/test/                 development-only tests (not part of the app)
 .github/                    the quick checks on every pull request, and the pull request template
 ```
@@ -93,11 +95,125 @@ pools of light take their width from the height (`--b1` to `--b3`), so the
 swell stays a halo round the glass instead of a band across the screen. A
 saved pattern this version does not know falls back to Calm.
 
+Tune (`#sheet-settings`) is four tabs, Sand, Glass, Sound and Time, at one
+height. Its top edge sits 44 px under the neck of the glass as it is drawn:
+`layout()` (and entering or leaving Zen) sets `--tune-top` on the sheet from
+the glass's centre at home, `R0.cy + R0.dy`, so the upper bulb, the neck and
+the stream stay in view while anything is chosen; the sheet is never less
+than 220 px tall, and a phone on its side keeps the old limit (the sheet's
+top 28 px under the safe area: the glass is beside it there). The tab row
+never moves; what a tab holds changes only how far it scrolls. All four
+panels are in `index.html`, one of them shown (the others `hidden`), so
+every button is there for the haptic labels at boot. Tune opens on the tab
+last used (the setting `tuneTab`), each tab from its top; a tap on a tab
+saves it and ticks, the arrow keys, Home and End move along the tab row.
+The tests find every control through this markup and nothing else, so a
+later Tune must keep three things: every control inside one
+`[role="tabpanel"]` inside `#sheet-settings`, each panel named by a tab's
+`aria-controls`, and a panel that is not shown having the `hidden`
+attribute. Behind Tune the scrim is 0.2 dark (0.5 behind the custom
+duration), so the colours above the sheet read true.
+
+The last thing in the Time tab is a quiet link, "Put the look and sound
+back as they came". Its first tap asks for a second within three seconds (a
+second tap sooner than 0.4 s, half of a double tap, is not an answer); the
+second sets the material, the frame, layered sand, the volume, the sand's
+sound, the ambience and its level and the completion bowl to their records'
+defaults, saves once, and tells the engines only what differed, the look
+behind one cross-fade. Everything else is kept, and nothing is loaded again.
+
 A toast said while Tune is open (the breathing hint, a Real motion message)
-would lie on the rows it is about, so it sits in the sheet's head instead,
-between the title and the close button, placed from where the sheet really
-is, and it fades there when the sheet is closed. Said anywhere else, a toast
-keeps its place above the controls.
+would lie on the rows it is about, so it sits just above the sheet, its
+lower edge 4 px over the sheet's top, placed from where the sheet really is
+(at the top of the screen on a phone on its side), and it fades when the
+sheet is closed. Said anywhere else, a toast keeps its place above the
+controls.
+
+## `app/settings.js`
+
+What the app keeps from one launch to the next is one JSON object in
+`localStorage`, under `hourglass.settings.v1`. The settings store holds it as
+a table of records, one for every saved key (32 today), in the order the
+keys are saved:
+
+- `id`, the key;
+- `default`, its value on a new install. Its type is the setting's type: a
+  saved value of another type is dropped;
+- `valid(value, reg)`, where a value must be checked: false puts the default
+  back (the material must be one of `HourglassPhysics.THEMES`, the grain 1 or
+  2, the accelerometer's sign 1 or -1, Tune's tab one of the four). It does not clamp: a value outside
+  its range comes up as the default, not as the nearest end;
+- `from(saved, reg)`, where a setting is made from older ones: the value for
+  a save that has no such key yet. A migration is keyed on its own key being
+  absent, never on a version, so that settings can ship in any order
+  ([settings design 5.1](design/settings.md)). It is handed the save as it
+  was read, before any type is checked, so it must stand any value under any
+  key; one that throws, or gives another type, costs its own key the
+  default. No record needs one yet.
+
+`HourglassSettings.load(storage, search, reg)` gives the values: the
+defaults; over them the saved values of the right type; the version step
+(the settings carry `v`; a save of no version, or of version 1, comes up with
+Real sand on, once, and the values then say version 2); the checks; and the
+repairs that read two keys (`?t=300` sets the duration and ends a saved
+sequence; a rest out of range is no rest; without a rest there is one
+round). `save(values)` writes them back. Storage that throws, or cannot be
+reached at all (private mode, storage blocked), runs with the defaults and
+saves nothing. The file reads nothing when it loads, so the tests load it in
+Node as it is.
+
+`app.js` keeps the loaded values as `settings`, writes them and calls
+`save()`. Everything that applies a setting stays in `app.js`, in its order:
+the grain's pace before the Sim is built, layers before the glass is filled,
+the sound engine's fields before the saved character and ambience are checked
+against the engine's own, and every control's handler, which saves, tells the
+engine and buzzes inside its tap (an iPhone ticks, and asks for motion, only
+from inside one). The store draws nothing and binds none of today's
+controls. For the plain switches of a later Tune it has
+`bindSwitch(el, key, after)`: the switch shows the loaded value from when it
+is bound, and when it flips, the value is set, saved, and `after(value)`
+called, in that order, inside the event.
+
+To add a setting: one record at the end of the table, after the ones there,
+with a `from` if an older save should come up with something other than the
+default; then its row, its handler, its line at the boot, its lines in the
+Tune trace's driver, and the two kept traces made again. The steps are in
+[Engines](engines.md#adding-a-sand-a-glass-shape-a-sound-or-a-setting).
+`settings-unit` needs no change for it.
+
+Three checks hold the store, and whatever is built on it, to what the app
+did before it. Each compares with a file in `tools/test/base/`, made from
+the last release before the store (1.11.0, whose Settings section is
+1.10.0's byte for byte; `tools/test/lib/base.js` names its commit; a suite run with `--base <commit>` makes its file again from
+that commit and compares):
+
+- the loader (`settings-unit`, in Node): the old Settings section of
+  `app.js`, kept byte for byte, and the store are run on the same 500 saved
+  states (keys missing, wrong types, values out of range, saves that are not
+  JSON, `?t=` queries, with and without a version, storage that throws) and
+  must give the same settings in the same order, the same saved JSON byte for
+  byte, and the same again on a second launch. So must the Settings section
+  `app.js` has today, the few lines that call the store, run as `app.js` runs
+  them: the storage handed over as a function (a blocked storage throws when
+  it is reached, and the store reaches it inside its own try), and the query
+  given to the preset (a shortcut starts a new glass over a saved session).
+  The old section knows the 31 keys the app had then: they are the store's
+  first records, in their order, and a record added since is left out of
+  this comparison. The suite also holds the names: every `settings.…` in
+  `app.js` is a record, and every record is named there;
+- the boot (`app-boot-trace`, in the browser): for five saved states, what
+  the app reads and saves and what it calls on the Sim, the Renderer, the
+  sound engine and the motion sensors until it has started, in order;
+- Tune (`app-tune-trace`, in the browser): for every control that changes a
+  setting, what its tap saves, calls and buzzes, and what follows (the
+  cross-fade, the answer to the motion question, the reload a grain makes).
+  The controls are named for what they set, not for the page's markup, so a
+  new Tune is compared with the same file. Every switch, choice and slider
+  of Tune's sheet must be one the trace drives.
+
+A setting or a control added on purpose changes the two traces: each suite,
+run with `--write` and no `--base`, writes its file from the tree just run,
+in a commit of its own whose diff is read.
 
 ## `sw.js`, `manifest.json`
 
@@ -123,8 +239,9 @@ one launch can run a file of the newer release beside the installed ones:
 the one case left in which two releases meet).
 Offline, a hole cannot be filled: the page then finds a script missing and
 says "Hourglass is updating. Open it again with a connection." instead of
-building anything (`app.js`'s pre-flight check; when `app.js` itself or the
-style sheet is the hole, the last lines of `index.html` say it), and the
+building anything (`app.js`'s pre-flight check, which `check-shell` tries by
+running the page's scripts with each one left out; when `app.js` itself or
+the style sheet is the hole, the last lines of `index.html` say it), and the
 next launch with a connection repairs the copy. Other paths under the scope
 (the launch
 screens, the install screenshots) are answered from the cache and refreshed
@@ -134,7 +251,7 @@ the app's page.
 The worker answers which release it serves: a message `{ type: 'version' }`
 with a port gets `{ version: VERSION }`. `index.html` says the page's own
 release in `<meta name="hourglass-version">`, equal to `VERSION`
-(`check-release`). The last line of Tune shows both, made by `app.js`:
+(`check-release`). The last line of Tune's Sand tab shows both, made by `app.js`:
 "Version 1.10.0" when they agree; "· offline copy not installed yet" with
 no worker or no answer within a second; "· update 1.11.0 ready: close and
 reopen" when a newer release was installed while the page ran; "· offline
@@ -184,7 +301,7 @@ as they are, without running Jekyll.
 When you change any shipped file, raise `VERSION` in `sw.js` (see Releasing,
 below): an installed copy changes only with `VERSION`. An installed app picks
 up a new release on its second launch after the deploy: the first launch runs
-the release it has and installs the new one meanwhile (Tune's last line then
+the release it has and installs the new one meanwhile (Tune's version line then
 says the update is ready), and the next one runs the new release.
 
 ## Releasing
@@ -210,7 +327,7 @@ the tests, the lab) needs none of this. For every change to a shipped file:
    match, and that every module and shader the engine loads is in `SHELL`.
 4. **A new, moved or removed file the page loads ships only once the phone
    runs release 1.10.0 or later**, the first with the snapshot worker: Tune's
-   last line shows its version with nothing after the number. Before it, an
+   version line shows its version with nothing after the number. Before it, an
    update interrupted on its way could leave the installed copy unable to
    start offline until one launch with a connection.
 5. **The check group, the suites the change touches, and every `app-*` and
@@ -218,7 +335,7 @@ the tests, the lab) needs none of this. For every change to a shipped file:
    Timing checks are judged on a quiet machine: a failure under load is run
    again alone before it counts.
 6. **After the merge, on a phone with the app installed:** open it once
-   with a connection, close it, and open it again; Tune's last line shows
+   with a connection, close it, and open it again; Tune's version line shows
    the new version and nothing after it. Then, in airplane mode, it opens
    and runs.
 
@@ -231,8 +348,9 @@ These hold until a change says otherwise, with its reason.
   tests only.
 - **Classic scripts for every file the page loads; ES modules only behind
   the WebGPU switch.** `index.html` loads `physics.js`, `audio.js`,
-  `motion.js` and `app.js` as classic ES5 scripts. A syntax error stops a
-  whole file, and an old parser rejects a file that holds `import()`, so
+  `motion.js`, `app/settings.js` and `app.js` as classic ES5 scripts. A
+  syntax error stops a whole file, and an old parser rejects a file that
+  holds `import()`, so
   `app.js` stays classic and appends `realsand/boot.mjs`, the only module
   the app loads, and only with the Real sand switch on where `navigator.gpu`
   exists. `check-shell` checks every classic script for module syntax,
@@ -253,7 +371,11 @@ These hold until a change says otherwise, with its reason.
   sand's level), and 7f71786's colour table (`sim-tone`: layered sand off is
   the table it always was). A change that only moves code passes them with
   no change of baseline; a change to the drawing that must change pixels
-  ships its new baseline in a commit of its own, reviewed.
+  ships its new baseline in a commit of its own, reviewed. What the app
+  does with its settings is pinned the same way, to files kept in
+  `tools/test/base/` (above, under `app/settings.js`): a Tune that changes
+  what a control does, on purpose, ships its new trace in a commit of its
+  own.
 - **Every shipped change raises `VERSION`** (above).
 - **The service worker takes over at once** (`skipWaiting`,
   `clients.claim`): an app on an iPhone's home screen is suspended far more

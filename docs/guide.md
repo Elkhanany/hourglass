@@ -40,43 +40,79 @@ be a pinch and every glass would run with the thin thread of the hour glass.)
 
 ## Tune
 
-**Tune** holds the rest:
+**Tune** holds the rest, in four tabs: **Sand**, **Glass**, **Sound** and
+**Time**. The sheet covers the lower half of the screen and stops just under
+the neck of the glass, on every tab, so the upper bulb, the neck and the
+stream stay in view and a new material, layered sand or breathing glow is
+seen as it is chosen. A tab too long for the sheet scrolls; the tab row
+stays where it is. While a tab has more below, its rows fade into the
+bottom of the sheet and a small arrow there points down; it goes once you
+reach the end. Tune opens on the tab used last, at its top. Tap outside
+the sheet, the close button or `Esc` to close it; on a keyboard the arrow
+keys move between the tabs.
+
+**Sand**
 
 - **Material**: Sahara Quartz, Volcanic Black, Moonstone, Lapis Lazuli (gold
-  flecks, gold caps), Rose Quartz (copper), Sea Glass (driftwood); **Frame** hides the
-  caps and posts so only the glass remains; **Layered sand** gives the sand a
-  second tone. A new glass is filled in a pattern drawn for it alone (bands
-  fine or bold, level or leaning, arched, waved or folded), what falls
-  settles into strata on the heap, and sand added with **Sand** arrives in
-  layers of the other tone. It is off by default, and with it off the sand is
-  exactly as it was. Turning the glass over tumbles the sand, and within
-  about four seconds it settles into a new pattern, drawn afresh for each
-  bulb at every turn. **Grain** is Classic, Fine (×2) or Finest (×4): how
-  many grains the same glass holds. Another grain is another lattice, so
-  choosing one builds the glass afresh behind a short fade; the running time
-  is kept, a crack is not. Finer sand is more work for the phone: if the
-  glass ever stutters on Finest, Fine has half as many grains for about a
-  third of the work. **Real sand** (on by default) runs the sand on the
-  phone's graphics chip instead (see "Real sand" below; "[Real sand: the
-  switch in Tune](engines.md#real-sand-the-switch-in-tune)" says how it
-  works); turning it on or off builds the glass
-  afresh, keeping the running time, and its note says how it is doing.
-  While Real sand runs, Grain is hidden (it sets the classic sand only), and
-  so is Real motion's line about cracking the glass.
-- **Acoustic character** (six voicings) and volume; **Ambience** (None,
-  Brook, Rain, Ocean, Waterfall or Drips behind the sand, with its own level;
-  the one you tap plays long enough to be heard); **Completion bowl**.
-- **Keep screen awake** while the sand is flowing, and for 12 s after it runs
-  out (Screen Wake Lock API).
-- **Real motion**: the sand feels what the phone feels. Lean it and the piles
-  slump, lay it on its side and the flow (and the clock) stop, turn it over
-  and the other bulb becomes the top. Walk and the falling thread sways;
-  shake it and the sand lifts and lands; twist it and the sand sloshes; spin
-  it flat on a table and the sand is pushed to both ends. Shaken hard for
-  about three seconds, in any direction, the glass creaks and then cracks.
+  flecks, gold caps), Rose Quartz (copper), Sea Glass (driftwood): each a
+  sand with its frame's finish. The name at the top of the screen steps
+  through them too.
+- **Layered sand** gives the sand a second tone. A new glass is filled in a
+  pattern drawn for it alone (bands fine or bold, level or leaning, arched,
+  waved or folded), what falls settles into strata on the heap, and sand
+  added with **Sand** arrives in layers of the other tone. It is off by
+  default, and with it off the sand is exactly as it was. Turning the glass
+  over tumbles the sand, and within about four seconds it settles into a new
+  pattern, drawn afresh for each bulb at every turn.
+- **Real sand** (on by default) runs the sand on the phone's graphics chip
+  (see "Real sand" below; "[Real sand: the switch in
+  Tune](engines.md#real-sand-the-switch-in-tune)" says how it works);
+  turning it on or off builds the glass afresh, keeping the running time,
+  and its note says how it is doing.
+- **Grain** is Classic, Fine (×2) or Finest (×4): how many grains the same
+  glass holds. It sets the classic sand, so it shows only while the classic
+  sand is the one that runs (Real sand off, or not available this time).
+  Another grain is another lattice, so choosing one builds the glass afresh
+  behind a short fade; the running time is kept, a crack is not. Finer sand
+  is more work for the phone: if the glass ever stutters on Finest, Fine has
+  half as many grains for about a third of the work.
+- **In the hand: Real motion**: the sand feels what the phone feels. Lean it
+  and the piles slump, lay it on its side and the flow (and the clock) stop,
+  turn it over and the other bulb becomes the top. Walk and the falling
+  thread sways; shake it and the sand lifts and lands; twist it and the sand
+  sloshes; spin it flat on a table and the sand is pushed to both ends.
+  With the classic sand, shaken hard for about three seconds, in any
+  direction, the glass creaks and then cracks (its note says so only then).
   An iPhone forgets its permission for this whenever the app is closed, so
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
+- At the foot (the last line of the Sand tab), how many grains there are,
+  and the version: "Version 1.13.0" when the copy installed for offline use is that same release. "Offline
+  copy not installed yet" after it means the app does not yet work offline
+  (open it once more with a connection); "update ... ready: close and
+  reopen" means a newer release has arrived, and the next launch runs it;
+  "offline copy" with another number means the installed copy is another
+  release than the page.
+
+**Glass**
+
+- **Show the frame**: the turned posts and caps around the glass. Off, only
+  the glass remains, a little larger.
+
+**Sound**
+
+- **Sound**: the volume (the speaker at the top of the screen mutes it).
+- **Ambience**: None, Brook, Rain, Ocean, Waterfall or Drips behind the
+  sand (the one you tap plays long enough to be heard), and its own level
+  under the cards while one is chosen.
+- **Sand sound**: six voicings of the falling sand.
+- **End of the glass: Completion bowl**, a soft singing-bowl bloom when the
+  last grain falls.
+
+**Time**
+
+- **Keep screen awake** while the sand is flowing, and for 12 s after it
+  runs out (Screen Wake Lock API).
 - **Breathing pace**: while the sand is running, the warm light behind the
   glass swells and brightens through the in-breath, holds, and fades through
   the out-breath, slowly and without a sound. Choose *Calm* (in 4 s, out 6 s:
@@ -85,13 +121,16 @@ be a pinch and every glass would run with the thin thread of the hour glass.)
   and the glow eases back to rest when the glass is paused, finished or
   reset. It works in Zen and Full Zen; with *Reduce Motion* the glow only
   brightens and dims.
-- **Full Zen**, **Haptics**.
-- At the foot, the version: "Version 1.11.0" when the copy installed for
-  offline use is that same release. "Offline copy not installed yet" after it
-  means the app does not yet work offline (open it once more with a
-  connection); "update ... ready: close and reopen" means a newer release
-  has arrived, and the next launch runs it; "offline copy" with another
-  number means the installed copy is another release than the page.
+- **Full Zen**: Zen hides the controls completely instead of dimming them.
+- **Buttons: Haptics**: a light tick from buttons and switches, where the
+  phone supports it (see "Browser notes" below for an iPhone).
+- **Put the look and sound back as they came**: tap it, then tap again
+  within three seconds ("Tap again to put them back"). The material, the
+  frame, layered sand, the volume, the sand sound, the ambience and its
+  level and the completion bowl go back to how the app came; everything
+  else stays as you set it (Real sand and the grain, the durations, work and
+  rest, breathing, Zen, the screen, haptics, Real motion, the mute button),
+  and the running glass carries on.
 
 The glass also remembers where it was: close or reload the page and a running
 timer carries on from the wall clock, a paused one comes back as it was left,
@@ -227,7 +266,7 @@ back, as any tap does).
 
 ## Real sand
 
-**Real sand**, in **Tune** under Material, after Grain, runs the sand on the
+**Real sand**, in **Tune**'s Sand tab under Material, runs the sand on the
 phone's graphics chip: the sand of the sand lab, every grain a point of a
 simulated continuum, in the same glass. It is on by default from version
 1.10.0, and the classic sand (the sand as it has always been) is the
@@ -377,7 +416,7 @@ The note under the switch says how it is doing:
 Around a lock or a switch to another app, a reset graphics chip is
 rebuilt without a word.
 
-To report how it does: with the switch on, Tune has **Copy a report** under
+To report how it does: with the switch on, Tune's Sand tab has **Copy a report** under
 it. Tap it and paste the report into your message, with what you did (which
 glass, the phone still or in the hand, Real motion on or off) and what you
 saw. It holds how long the start took, the stream's first fall from the neck

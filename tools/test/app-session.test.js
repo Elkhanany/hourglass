@@ -5,6 +5,9 @@
  *    breach and seed) and is drawn; the timer comes back within 100 ms.
  *  - Reset: no cracks, no spilled sand, a full new glass (total = grainsFor,
  *    nothing lost) within 0.8 s, and the crack's pixels are gone.
+ *  - The app's shortcut ("./?t=300", manifest.json) over a saved session of
+ *    the same glass: the session gives way to it (a new glass, idle, 5:00);
+ *    a plain launch before it, the control, picks the running glass up.
  *
  *   node tools/test/app-session.test.js [--root <dir>] [--port <n>]
  */
@@ -114,11 +117,42 @@ async function run(s, env, opts) {
   }
 }
 
+/**
+ * A launch by the app's shortcut over a saved session. The glass is started and left running;
+ * a plain launch brings it back (the control: the session is there to be had), and "./?t=300",
+ * which asks for the very duration the session has, starts a new glass all the same.
+ */
+async function shortcut(s, env) {
+  var t = await env.open({ motionStub: CFG.stub });
+  async function launch(query) {
+    await t.page.goto(env.url + query);
+    await t.page.waitForFunction(function () { return window.Hourglass && window.__mon && window.__mon.hooked; }, null, { timeout: 15000 });
+    await sleep(300);
+    return t.eval(function () {
+      var T = window.Hourglass.timer;
+      return { state: T.state, rem: Math.round(T.rem), durationMs: T.durationMs, session: localStorage.getItem('hourglass.session.v1') !== null };
+    });
+  }
+  try {
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1500);
+    var plain = await launch(''), asked = await launch('?t=300');
+    s.check('SHORTCUT: a plain launch picks the running 5-minute glass up again (control: the session is there)',
+            plain.state === 'running' && plain.durationMs === 300000 && plain.rem < 299000 && plain.session, JSON.stringify(plain));
+    s.check('SHORTCUT: "./?t=300" over that session is a new glass: idle, 5:00 to run, the session put away',
+            asked.state === 'idle' && asked.durationMs === 300000 && asked.rem === 300000 && !asked.session, JSON.stringify(asked));
+    s.check('SHORTCUT: no page or console errors', t.errors.length === 0, t.errors.slice(0, 3).join(' | '));
+  } finally {
+    await t.close();
+  }
+}
+
 async function main() {
   var s = new H.Suite('app-session');
   var env = await H.start();
   try {
     await run(s, env, {});
+    await shortcut(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {
@@ -127,5 +161,5 @@ async function main() {
   s.done();
 }
 
-module.exports = { CFG: CFG, run: run };
+module.exports = { CFG: CFG, run: run, shortcut: shortcut };
 if (require.main === module) main();

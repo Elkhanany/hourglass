@@ -1,5 +1,5 @@
 /*
- * Layered sand, in the app: the Tune switch (Material, after Frame).
+ * Layered sand, in the app: the Tune switch (the Sand tab: the first row under the materials).
  *   - off by default: the sim and the renderer have no layers, the colour
  *     table is the plain one, the main screen has not gained a button
  *   - the row: 'Layered sand' / 'Two tones that settle into strata as they
@@ -17,6 +17,7 @@
  */
 'use strict';
 var H = require('./stubs/harness.js');
+var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 
 /** What the page says about its layers (and enough of the glass to see that nothing else moved). */
@@ -35,32 +36,29 @@ function probe(t) {
     };
   });
 }
+/** Tune open on the tab that holds Layered sand, the row in view (lib/tune.js finds the tab from the page). */
 async function openTune(t) {
-  await t.page.tap('#btn-settings');
-  await sleep(700);
-  await t.page.$eval('#opt-layers', function (el) { el.scrollIntoView({ block: 'center' }); });
-  await sleep(250);
+  await tune.show(t, '#opt-layers');
 }
 async function closeTune(t) {
-  await t.page.tap('#sheet-settings .sheet-close');
-  await sleep(600);
+  await tune.close(t);
 }
 
 async function testSwitch(s, env) {
   var t = await env.open({ motionStub: true });
   var ui = await t.eval(function () {
-    var el = document.getElementById('opt-layers'), row = el.closest('.row'), rows = Array.prototype.slice.call(document.querySelectorAll('#sheet-settings .row'));
-    var frame = document.getElementById('opt-frame').closest('.row');
+    var el = document.getElementById('opt-layers'), row = el.closest('.row'), panel = row.closest('[role="tabpanel"]');
+    var tab = panel ? document.getElementById(panel.getAttribute('aria-labelledby')) : null;
     return {
       title: row.querySelector('b').textContent, note: row.querySelector('small').textContent,
       label: row.tagName === 'LABEL' && row.getAttribute('for') === 'opt-layers', role: el.getAttribute('role'), type: el.type,
-      afterFrame: rows.indexOf(row) === rows.indexOf(frame) + 1 && row.parentNode === frame.parentNode,
+      tab: tab ? tab.textContent.trim() : null, first: !!panel && panel.querySelector('.row') === row && row === row.parentNode.firstElementChild,
       material: row.parentNode.previousElementSibling.id === 'themes',
       top: document.querySelectorAll('#hud-top button').length, bottom: document.querySelectorAll('#hud-bottom button').length
     };
   });
   s.check('ROW: "Layered sand", with its note', ui.title === 'Layered sand' && ui.note === 'Two tones that settle into strata as they fall', JSON.stringify([ui.title, ui.note]));
-  s.check('ROW: a labelled switch like the others, after Frame in Material', ui.label && ui.role === 'switch' && ui.type === 'checkbox' && ui.afterFrame && ui.material, JSON.stringify(ui));
+  s.check('ROW: a labelled switch like the others, the first row of the Sand tab, right under the materials', ui.label && ui.role === 'switch' && ui.type === 'checkbox' && ui.tab === 'Sand' && ui.first && ui.material, JSON.stringify(ui));
   s.check('ROW: the main screen has not gained a button (4 top, one of them hidden; 12 bottom)', ui.top === 4 && ui.bottom === 12, ui.top + ' / ' + ui.bottom);
   var p0 = await probe(t);
   s.check('OFF by default: no layers in the sim or the renderer, nothing saved as on', !p0.checked && p0.sim === false && p0.ren === false && !p0.saved, JSON.stringify(p0));
@@ -72,7 +70,7 @@ async function testSwitch(s, env) {
     await openTune(t);
     var fit = await t.eval(function () {
       var el = document.getElementById('opt-layers'), row = el.closest('.row'), r = row.getBoundingClientRect(), sw = el.getBoundingClientRect();
-      var sm = row.querySelector('small').getBoundingClientRect(), body = document.querySelector('#sheet-settings .sheet-body');
+      var sm = row.querySelector('small').getBoundingClientRect(), body = window.__tune.scroller(row);   // what scrolls the row: the sheet's body
       return { w: window.innerWidth, row: [r.left, r.right, r.height], sw: [sw.left, sw.right], smRight: sm.right, over: body.scrollWidth - body.clientWidth, doc: document.documentElement.scrollWidth };
     });
     s.check('ROW: fits at ' + w + ' px (nothing clipped, the note clear of the switch)',
@@ -158,6 +156,10 @@ async function testReduced(s, env) {
  * Two changes within one cross-fade (it takes 0.38 s to come in): both happen.
  * Before, the second replaced the first: Layered sand tapped and then Frame, or
  * a material, left the switch on and the sand plain.
+ * (The clicks are a script's: since Tune has tabs, Layered sand and the frame's
+ * switch are a tab apart, and no finger is there in 150 ms. What is tried is the
+ * cross-fade's queue. The reset link does ask for three kinds of change in one
+ * tap: app-tune holds it to one cross-fade.)
  */
 async function testQuick(s, env) {
   var t = await env.open({ motionStub: true });

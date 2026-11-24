@@ -1,0 +1,55 @@
+  /* ======================================================================
+   *  Settings (persisted)
+   * ==================================================================== */
+  var KEY = 'hourglass.settings.v1';
+  var settings = {
+    theme: 'sahara', character: 'asmr', volume: 0.8, muted: false,
+    chime: true, tilt: false, zenFull: false, haptics: true,
+    keepAwake: true, frame: true,
+    layers: false,                   // layered sand: two tones that settle into strata
+    ambience: 'none', ambienceLevel: 0.5,
+    breath: false, breathPattern: 'calm',
+    durationMs: 5 * 60000,
+    restMs: 0, rounds: 1,            // a work and rest sequence: the rest after each glass (0: none), and how often
+    motionSign: 0,                   // the accelerometer's sign, once learned (0: not yet)
+    mendNotes: 0,                    // how often the "hold it still to mend" note was shown (the first three cracks)
+    hintCrack: false,                // the one-time "the glass can crack" note was shown
+    hintZen: 0,                      // how often the way back out of Zen has been said (three times at most)
+    grain: 0,                        // the sand's grain: 0 classic, 1 fine (twice the grains), 2 finest (four times)
+    hintMotion: 0,                   // how often the tilt icon has been pointed out (three times at most)
+    realSand: true,                  // Real sand: the sand simulated on the graphics chip (off: the classic sand); on by default from 1.10.0
+    realSandFails: 0,                // launches in a row at which Real sand did not start (it stops trying at 3)
+    realSandWhy: '',                 // ... and why the last one did not (or why this browser cannot have it)
+    realSandNa: '',                  // the user agent of a browser that could not have it: while it is this one, "Needs WebGPU", nothing loaded
+    realSandNaAt: 0,                 // ... and when that was found (ms since 1970): after seven days it is tried again all the same
+    realSandBuild: '',               // the engine build those three were found with: another build clears them, and it tries again
+    v: 2                             // the settings' version: used once, to turn Real sand on for a save from before it was the default
+  };
+  try {
+    var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (saved) {
+      for (var k in settings) {
+        if (Object.prototype.hasOwnProperty.call(saved, k) && typeof saved[k] === typeof settings[k]) {
+          settings[k] = saved[k];
+        }
+      }
+    }
+    // Version 2 (settings design 5.1): Real sand on, once, for a save without a version or of
+    // version 1. Every launch before 1.10.0 saved realSand: false, so such a save cannot tell
+    // "never touched" from "turned off"; from version 2 on, a saved false is the owner's choice.
+    if (saved && !(typeof saved.v === 'number' && saved.v >= 2)) settings.realSand = true;
+  } catch (e) { /* private mode: run with defaults */ }
+  settings.v = 2;                    // (the typed copy above took a saved 1 over the default)
+  if (!P.THEMES[settings.theme]) settings.theme = 'sahara';
+  if (settings.motionSign !== 1 && settings.motionSign !== -1) settings.motionSign = 0;
+  if (settings.grain !== 1 && settings.grain !== 2) settings.grain = 0;
+  // "./?t=300" (seconds) preselects a duration — used by the app shortcuts
+  var qt = /[?&]t=(\d{1,5})(?:&|$)/.exec(location.search);
+  if (qt) { settings.durationMs = +qt[1] * 1000; settings.restMs = 0; }
+  settings.durationMs = Math.max(10000, Math.min(5999000, settings.durationMs));
+  if (!(settings.restMs >= 10000 && settings.restMs <= 3600000)) settings.restMs = 0;
+  settings.rounds = settings.restMs ? Math.max(1, Math.min(12, settings.rounds | 0)) : 1;
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch (e) {}
+  }
+

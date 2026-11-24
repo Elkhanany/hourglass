@@ -15,9 +15,13 @@
  * seeds realSand: true to have it. opts.rawStorage seeds exactly what it is
  * given ({}: nothing saved, a first launch on a new phone).
  *
- * Each page is an iPhone 12 (390×844, DPR 3, mobile, touch) in Chromium.
- * Before any page script it gets tools/test/lib/profiles.js and page-init.js
- * (permission stubs, the motion driver, the invariant monitor).
+ * Each page is an iPhone 12 (390×844, DPR 3, mobile, touch) in Chromium;
+ * opts.viewport ({ width, height }) opens it as a phone of another size.
+ * Before any page script it gets tools/test/lib/profiles.js, page-init.js
+ * (permission stubs, the motion driver, the invariant monitor) and the page's
+ * side of lib/tune.js (window.__tune: where a control of Tune is). A suite
+ * reaches a control of Tune through lib/tune.js, which opens Tune and shows
+ * the control's tab; it never says itself which tab that is.
  *
  * The served tree is the app as it ships: every script index.html loads is
  * served as it is, and a tree that lacks one fails start() by name. The one
@@ -34,6 +38,7 @@ var playwright = null;              // loaded by start(), so the Node checks can
 var staticServer = require('../lib/static-server.js');
 var paths = require('../lib/paths.js');
 var seed = require('../lib/seed.js');
+var tune = require('../lib/tune.js');
 
 var REPO = paths.ROOT;
 var PROFILES = path.join(REPO, 'tools', 'test', 'lib', 'profiles.js');
@@ -218,14 +223,15 @@ async function open(env, o) {
   var dev = playwright.devices['iPhone 12'];
   var context = await env.browser.newContext({
     userAgent: dev.userAgent,
-    viewport: { width: 390, height: 844 },
-    screen: { width: 390, height: 844 },
+    viewport: o.viewport || { width: 390, height: 844 },
+    screen: o.viewport || { width: 390, height: 844 },
     deviceScaleFactor: 3, isMobile: true, hasTouch: true,
     reducedMotion: o.reducedMotion ? 'reduce' : 'no-preference',
     serviceWorkers: o.serviceWorkers ? 'allow' : 'block'
   });
   await context.addInitScript({ path: PROFILES });
   await context.addInitScript({ path: PAGE_INIT });
+  await context.addInitScript(tune.pageSide, tune.SHEET);     // the page's side of lib/tune.js: where a control of Tune is
   // every page: { v: 2, realSand: false } under what the test seeds (Real sand only when it asks
   // for it), or o.rawStorage as it is; once per test page, so a reload sees what the app saved
   await context.addInitScript(seed.seedOnce, seed.storageFor(o));

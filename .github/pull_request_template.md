@@ -38,4 +38,4 @@
 
 ## After the merge, on the phone
 
-For a release (nothing to fill in here): open the installed app online once, close it and open it again. Tune's last line shows the new version and nothing after the number. Then open it once in airplane mode: it opens and runs.
+For a release (nothing to fill in here): open the installed app online once, close it and open it again. The last line of Tune's Sand tab shows the new version and nothing after the number. Then open it once in airplane mode: it opens and runs.
