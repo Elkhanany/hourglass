@@ -16,7 +16,9 @@
  * given ({}: nothing saved, a first launch on a new phone).
  *
  * Each page is an iPhone 12 (390×844, DPR 3, mobile, touch) in Chromium;
- * opts.viewport ({ width, height }) opens it as a phone of another size.
+ * opts.viewport ({ width, height }) opens it as a phone of another size;
+ * opts.locale ('en-GB') and opts.timezoneId ('Europe/Berlin'), a phone of that
+ * language and time zone.
  * Before any page script it gets tools/test/lib/profiles.js, page-init.js
  * (permission stubs, the motion driver, the invariant monitor) and the page's
  * side of lib/tune.js (window.__tune: where a control of Tune is). A suite
@@ -227,7 +229,9 @@ async function open(env, o) {
     screen: o.viewport || { width: 390, height: 844 },
     deviceScaleFactor: 3, isMobile: true, hasTouch: true,
     reducedMotion: o.reducedMotion ? 'reduce' : 'no-preference',
-    serviceWorkers: o.serviceWorkers ? 'allow' : 'block'
+    serviceWorkers: o.serviceWorkers ? 'allow' : 'block',
+    // a phone's language and time zone, where a test asks for them (the browser's own otherwise)
+    locale: o.locale || undefined, timezoneId: o.timezoneId || undefined
   });
   await context.addInitScript({ path: PROFILES });
   await context.addInitScript({ path: PAGE_INIT });

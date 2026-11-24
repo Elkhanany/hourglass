@@ -141,6 +141,30 @@ keys move between the tabs.
 
 **Time**
 
+- **Quick durations**: the six pills under the glass, shown here as six
+  buttons in the same order (1, 5, 10, 15, 30 and 60 minutes as the app
+  comes). Touch one and the custom-duration dial opens with its minutes only;
+  turn it to any whole number of minutes from 1 to 99 and tap **Set**, and
+  the pill under the glass changes at once. Close the dial instead (its close
+  button, `Esc` or a tap above it) and the pill stays as it was. The six stay
+  in the order you set them, and two may hold the same number. A pill is lit
+  when its minutes are the glass's (the first of two the same); changing a
+  pill never changes the glass, set or running: it keeps its time, and if no
+  pill has its minutes any more, Custom is lit, as it is for any time of your
+  own.
+- **The clock: Show when it ends** (off as the app comes): while a glass
+  runs, the line under the time says when it will reach `00:00.0`, as
+  *Flowing · ends 14:35*, in the phone's own 12 or 24 hour style. It is the
+  end of the glass that is running now: sand added, a turn, a pause or a new
+  duration moves it, and it is gone while the glass is paused, turning or
+  finished. In a work and rest sequence it is the end of the phase that is
+  running (*Work · 1 of 4 · ends 14:35*), not of the whole sequence. Breathing
+  pace changes no time, so it changes no end. With *Real motion*, a glass
+  held on its side stands still, so its end moves later for as long as it
+  lies there. Zen dims it with the rest of the line, and on a short screen,
+  where that line is not shown, it is not shown either. A screen reader
+  hears the state as before; the end is in the time's own label ("Time
+  remaining, ends 14:35"), and is never read out by itself.
 - **Keep screen awake** while the sand is flowing, and for 12 s after it
   runs out (Screen Wake Lock API).
 - **Breathing pace**: while the sand is running, the warm light behind the
@@ -161,8 +185,9 @@ keys move between the tabs.
   Quartz; a colour of your own is kept for its swatch), the frame and its
   finish (walnut), layered sand, the volume, the sand sound, the ambience and its
   level and the completion bowl go back to how the app came; everything
-  else stays as you set it (Real sand and the grain, the glass's shape, the durations, work and
-  rest, breathing, Zen, the screen, haptics, Real motion, the mute button),
+  else stays as you set it (Real sand and the grain, the glass's shape, the durations and the
+  six quick durations, *Show when it ends*, work and rest, breathing, Zen, the screen, haptics,
+  Real motion, the mute button),
   and the running glass carries on.
 
 The glass also remembers where it was: close or reload the page and a running

@@ -97,7 +97,15 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the version step (Real sand on, once, for a save from before version 2); a
   record's `from` and the steps' order, on a made-up store, and an example
   for every `from` the app has, which must come up with something other
-  than the default; the names (every `settings.…` in `app.js` is a record,
+  than the default; the Time tab's two records (`quick` then `endsAt`,
+  right after the shape, "1,5,10,15,30,60" and false by default): saves of
+  1.13.0, 1.10.0 and 1.15.0 come up with both defaults and every other
+  setting as they give them, good sets of six (two the same, all 99) are
+  kept, and eighteen bad ones (five or seven counts, a nought, 100, a
+  fraction, "01", letters, spaces, not a string) are the default six as a
+  whole, and are saved so (a store that keeps any string, one that keeps a
+  set with bad counts in it, one with the two the other way round and one
+  whose switch is on by default must fail); the names (every `settings.…` in `app.js` is a record,
   every record but the version is named there, none is read by a computed
   name); `bindSwitch` (the loaded value shown as it binds; then set, save
   and the callback inside the event); and that the file reads nothing when
@@ -424,7 +432,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
   at boot, the reset link (what it puts back, the sand and its finish among it,
-  and what it keeps, the custom sand's colour among it; its first tap's
+  and what it keeps, the custom sand's colour, the six quick durations and
+  Show when it ends among it, a copy that puts those back must fail; its first tap's
   question said to a screen reader through a status drawn nowhere), each
   tab taking a tap 3 px above and below what is drawn of it (`--only
   target`, at 393 x 852 and 320 x 568, its reach clear of the close button,
@@ -440,6 +449,28 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   sand keeps it right; and Reduce Motion shows it without a fade. The
   suites reach a control of Tune through `lib/tune.js`, which opens the
   sheet and taps the tab whose panel holds it, read from the page.
+  `app-time` covers the Time tab's own rows (settings design 3.4, rows 1
+  and 2): its order (Quick durations, then The clock: Show when it ends,
+  Keep screen awake, then the rows that were there); the six quick
+  durations, each set in turn with the custom duration's dial in its
+  minutes-only mode, the pill under the glass changed at once, saved, Tune
+  back with the focus on that button, and the six as set after a reload;
+  the lit pill (the first of two the same; a pill changed while the glass
+  runs leaves it running with its time, the light follows the number,
+  none the same lights Custom); the dial closed three ways without Set
+  (nothing changes); the keyboard and the names a screen reader meets
+  ("Quick duration 3: 10 minutes, change", "Set quick duration 3 to 12
+  minutes"); the tab at 393 x 852, 375 x 667 and 320 x 568 (no sideways
+  scroll, nothing outside the sheet or cut, buttons of 44 px at least) and
+  six "99" pills under the glass at 320 px; and Show when it ends with a
+  clock the test sets and a fixed locale and time zone (en-GB in
+  Europe/Berlin, en-US in America/New_York): "Flowing · ends 14:34" and
+  "2:34 PM", the same over a minute boundary with nothing written to the
+  page, later after sand is added, right after a turn, gone while paused
+  and later by the pause, gone at the end, across midnight, the phase's end
+  in a work and rest sequence, the switch off giving today's words exactly
+  at every step, the switch in Tune, Zen and a short screen. Every check
+  has a control (`--only order|quick|lit|cancel|keys|fit|ends`).
   `app-look` covers the sand and the frame's finish chosen apart (release
   1.14.0): with nothing saved the glass and the page exactly as they were,
   the renderer's own bundle; each of the nine sands tapped in Tune over the
