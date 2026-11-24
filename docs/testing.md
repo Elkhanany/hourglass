@@ -419,9 +419,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   flipping exactly when the app asked for a tap, every control still doing
   its work once, and scrolling, pouring, carrying and pinching unchanged.
   `app-shape` covers the glass's shape (`--only pick,look,use,shapes,sand,full,old`):
-  the Glass tab's Shape section above the frame's, the seven offered shapes
+  the Glass tab's Shape section above the frame's, the nine offered shapes
   in their order, three a row, drawn at one scale, the one in use drawn
-  large; a tap that only shows a shape (nothing saved, nothing loaded
+  large, and a shape held back not shown (Trumpet, held on the test's page
+  alone, since Tune offers every shape); a tap that only shows a shape (nothing saved, nothing loaded
   again, the glass behind unchanged); "Use this shape" at 40 % of a
   5-minute glass (the page built again in the shape and Tune open again on
   the Glass tab, the time left kept within a frame, the sand the same share
@@ -429,10 +430,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   shape on the classic sand (a 60-minute glass filled to its cap, a 10 s
   glass out on time); the shapes drawn in the sand chosen in the Sand tab
   (not the material's) and repainted when it changes; the Sand button of a
-  full glass; and saves of 1.14.0 (sand, colour and finish, no shape),
-  1.13.0 and 1.10.0, and ones naming a held-back or unknown shape, as the
-  classic glass, every other setting as it was. Each check has a control.
-  About 6 minutes.
+  full glass (Delta's and Trumpet's at 60 minutes); and saves of 1.14.0 (sand, colour and finish, no shape),
+  1.13.0 and 1.10.0, and ones naming a held-back shape (held on its page)
+  or an unknown one, as the classic glass, every other setting as it was.
+  Each check has a control. About 7 minutes.
   `app-grain` covers the Grain choice: the three choices, Finest chosen
   while a glass runs (twice the scale, four times the grains, the time kept),
   the clock kept to the last grain, Sand adding time as fast, Classic again
@@ -535,7 +536,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `app.js`, the lab, the engine and its shaders name the same build stamp.
   `realsand-gpu` runs only when named (`node tools/test/run-all.js
   realsand-gpu`, about 47 minutes on a shared four-core machine, every core
-  busy): the app with Real sand
+  busy, when Tune offered seven shapes; about 5 minutes more for each shape
+  since): the app with Real sand
   and layered sand on the real engine, on Chromium's WebGPU in software
   (SwiftShader), loaded with `?offscreen=1`. Software runs the sand at a few
   hundredths of real time, so once the engine has started the page's clock

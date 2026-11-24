@@ -409,9 +409,9 @@ test('the registry: every record is whole, its f pure, 0 at the neck and 1 at it
     ok(s && typeof s.offered === 'boolean' && s.symmetry === 'point', id + ': offered is ' + (s && s.offered) + ', symmetry ' + (s && s.symmetry) + ' (true or false, and \'point\')');
     ok(!!s.classic === (id === 'classic'), id + ': says classic: ' + s.classic);
   });
-  // what Tune may show: the trumpet and the Florence flask wait for their flow test on a phone
+  // what Tune may show: every shape (the trumpet and the Florence flask since their sand was seen to flow and keep time)
   var offered = IDS.filter(function (id) { return P.SHAPES[id].offered; });
-  ok(offered.join() === 'classic,lozenge,delta,ampoule,onion,bell,gourd', 'offered: ' + offered.join(', '));
+  ok(offered.join() === 'classic,lozenge,delta,ampoule,trumpet,florence,onion,bell,gourd', 'offered: ' + offered.join(', '));
   IDS.slice(1).forEach(function (id) {
     var s = P.SHAPES[id], k, m = 0, at = 0, v;
     ok(s && s.id === id && typeof s.name === 'string' && s.name && typeof s.f === 'function', id + ': not { id, name, kR, kH, f }');
@@ -446,7 +446,8 @@ test('the registry: every record is whole, its f pure, 0 at the neck and 1 at it
     try { new Sim({ scale: 1.08, shape: id }); } catch (e2) { if (/no glass shape/.test(e2.message)) threw++; }
   });
   ok(threw === 10, 'unknown ids were refused ' + threw + ' times of 10');
-  return IDS.length + ' shapes: ' + IDS.join(', ') + '; offered: all but ' + IDS.filter(function (id) { return !P.SHAPES[id].offered; }).join(' and ');
+  var held = IDS.filter(function (id) { return !P.SHAPES[id].offered; });
+  return IDS.length + ' shapes: ' + IDS.join(', ') + '; offered: ' + (held.length ? 'all but ' + held.join(' and ') : 'all of them');
 });
 
 test('addShape: a whole record is added after the others and can be built; one that is not whole is refused by name and by rule, and adds nothing', function () {
