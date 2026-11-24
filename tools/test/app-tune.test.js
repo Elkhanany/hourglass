@@ -23,6 +23,10 @@
  *   KEYS      with the focus on a tab the arrows (round the ends), Home and End show and save
  *             the tab they move to and take the focus there, without a buzz; elsewhere they do
  *             nothing; Escape closes
+ *   FOCUS     with a keyboard the focus stays in an open sheet: Tab twenty times and Shift+Tab
+ *             twenty times from the close button never leave Tune (on the Sand and the Time
+ *             tab) nor the custom-duration sheet, and go round from the last control to the
+ *             first and back
  *   HAPTIC    on an iPhone's shape every button and switch row of all four panels, the tabs
  *             and the reset link carry their haptic label from the boot, before Tune is ever
  *             opened; a tab's tap and the link's taps tick
@@ -596,6 +600,76 @@ function toastOk(m) {
            detail: toastSays(m.up) + '; with Tune closed it is ' + (m.gone.shown ? 'STILL SHOWN' : 'gone') + ' ' + m.errors.slice(0, 2).join(' | ') };
 }
 
+/* ---- FOCUS ------------------------------------------------------------------------------- */
+/** From the close button of the open sheet `id`: Tab `n` times, then (from the close button again) Shift+Tab `n` times. */
+async function tabWalk(t, id, n) {
+  function where() {
+    return t.eval(function (id) {
+      var s = document.getElementById(id), a = document.activeElement;
+      var name = !a ? '' : a.id || (a.getAttribute('aria-label') || (a.textContent || '').replace(/\s+/g, ' ').trim()).slice(0, 24) || a.tagName;
+      // (the sheet's own stops, as Tab meets them: shown, enabled, in the tab order)
+      var stops = Array.prototype.filter.call(s.querySelectorAll('button, [href], input, select, textarea, [tabindex]'), function (c) {
+        return c.tabIndex >= 0 && !c.disabled && c.getClientRects().length && getComputedStyle(c).visibility !== 'hidden';
+      });
+      return { inside: !!a && a !== s && s.contains(a), name: name, at: stops.indexOf(a), stops: stops.length };
+    }, id);
+  }
+  var w = { fwd: [], back: [] };
+  for (var dir = 0; dir < 2; dir++) {
+    await t.eval(function (id) { document.querySelector('#' + id + ' .sheet-close').focus(); }, id);
+    await sleep(60);
+    w[dir ? 'back' : 'fwd'].push(await where());
+    for (var i = 0; i < n; i++) {
+      await t.page.keyboard.press(dir ? 'Shift+Tab' : 'Tab');
+      await sleep(40);
+      w[dir ? 'back' : 'fwd'].push(await where());
+    }
+  }
+  return w;
+}
+async function focus(env, o) {
+  var t = await env.open(o || {}), m = {};
+  try {
+    await sleep(600);
+    await tune.open(t);
+    await sleep(300);
+    m.sand = await tabWalk(t, 'sheet-settings', 20);
+    await tapTab(t, 'time');
+    m.time = await tabWalk(t, 'sheet-settings', 20);
+    await tune.close(t);
+    await sleep(700);
+    await t.page.tap('#readout');                      // the custom-duration sheet: the same open and close
+    await sleep(900);
+    m.custom = await tabWalk(t, 'sheet-custom', 20);
+    await t.page.keyboard.press('Escape');
+    await t.page.waitForFunction(function () { return document.getElementById('sheet-custom').hidden; }, null, { timeout: 4000 }).catch(function () {});
+    m.closed = await t.eval(function () { return document.getElementById('sheet-custom').hidden; });
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+/** A walk that never leaves the sheet, and goes round: Tab from its last stop to its first, Shift+Tab from its first to its last. */
+function walkOk(w) {
+  var all = w.fwd.concat(w.back), out = all.filter(function (r) { return !r.inside; });
+  var round = function (seq, from, to) {
+    for (var i = 1; i < seq.length; i++) if (seq[i - 1].at === from(seq[i - 1]) && seq[i].at === to(seq[i])) return true;
+    return false;
+  };
+  var fwdRound = round(w.fwd, function (r) { return r.stops - 1; }, function () { return 0; });
+  var backRound = round(w.back, function () { return 0; }, function (r) { return r.stops - 1; });
+  return { ok: out.length === 0 && fwdRound && backRound && all.length === 42,
+           detail: (out.length ? 'LEFT THE SHEET for ' + out.map(function (r) { return r.name; }).slice(0, 3).join(', ') + '; ' : '') +
+                   'Tab: ' + w.fwd.map(function (r) { return r.name; }).join(' > ') + (fwdRound ? ' (round from the last to the first)' : ' (NEVER ROUND)') +
+                   '; Shift+Tab: ' + w.back.map(function (r) { return r.name; }).join(' < ') + (backRound ? ' (round from the first to the last)' : ' (NEVER ROUND)') };
+}
+function focusOk(m) {
+  var sd = walkOk(m.sand), tm = walkOk(m.time), cu = walkOk(m.custom);
+  return {
+    tune: { ok: sd.ok && tm.ok, detail: 'Sand: ' + sd.detail + ' | Time: ' + tm.detail },
+    custom: { ok: cu.ok && m.closed && m.errors.length === 0, detail: cu.detail + (m.closed ? '; Escape closed it' : '; ESCAPE DID NOT CLOSE IT') + ' ' + m.errors.slice(0, 2).join(' | ') }
+  };
+}
+
 /* ---- RESET ------------------------------------------------------------------------------- */
 // A save with everything the reset names changed, and with what it must keep changed too (the
 // mute button, the grain, a sequence, breathing, Full Zen, the screen not kept awake, what the app
@@ -1158,6 +1232,15 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
           });
         }))] });
       }, keysOk);
+    }
+
+    if (wanted('focus')) {
+      var fo = focusOk(await focus(env));
+      s.check('FOCUS: in Tune (on the Sand and the Time tab), Tab twenty times and Shift+Tab twenty times from the close button never leave the sheet, and go round from its last control to its first and back', fo.tune.ok, fo.tune.detail);
+      s.check('FOCUS: the same in the custom-duration sheet, and Escape still closes it', fo.custom.ok, fo.custom.detail);
+      var noRound = function () { return focus(env, { routes: [broken(env, 'app.js', swap(/if \(e\.key === 'Tab'\) \{ if \(sheetOpen\) keepTabIn\(sheetOpen, e\); return; \}/, ''))] }); };
+      await control('FOCUS: a copy whose sheets let Tab go on to the page behind the scrim (Tune)', 'tune', noRound, focusOk);
+      await control('FOCUS: a copy whose sheets let Tab go on to the page behind the scrim (the custom-duration sheet)', 'custom', noRound, focusOk);
     }
 
     if (wanted('haptic')) {

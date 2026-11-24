@@ -3328,9 +3328,35 @@
   });
 
   /* ---- keyboard ----------------------------------------------------- */
+  /** What Tab can reach in a sheet, in the page's order: shown, enabled, not taken out of the tab order. */
+  function tabStops(el) {
+    var all = el.querySelectorAll('button, [href], input, select, textarea, [tabindex]'), out = [];
+    for (var i = 0; i < all.length; i++) {
+      var c = all[i];
+      if (c.tabIndex < 0 || c.disabled || !c.getClientRects().length || getComputedStyle(c).visibility === 'hidden') continue;
+      out.push(c);
+    }
+    return out;
+  }
+  /**
+   * A sheet is a dialog: with a keyboard, Tab from its last control goes round to its first, and
+   * Shift+Tab from its first to its last, so the focus never reaches the page behind the scrim.
+   * Only Tab is held: a finger and a screen reader reach what they always did.
+   */
+  function keepTabIn(el, e) {
+    var stops = tabStops(el);
+    if (!stops.length) return;
+    var at = document.activeElement, i = stops.indexOf(at);
+    var inside = at !== el && el.contains(at);
+    if (inside && (e.shiftKey ? i !== 0 : i !== stops.length - 1)) return;   // the page's own order, inside the sheet
+    e.preventDefault();
+    var to = e.shiftKey ? stops[stops.length - 1] : stops[0];
+    try { to.focus(); } catch (err) {}
+  }
   window.addEventListener('keydown', function (e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === 'Escape') { if (sheetOpen) closeSheet(); else setZen(false); return; }
+    if (e.key === 'Tab') { if (sheetOpen) keepTabIn(sheetOpen, e); return; }
     var tag = e.target && e.target.tagName;
     if (sheetOpen || tag === 'INPUT' || tag === 'BUTTON') return;
     var key = e.key.toLowerCase();
