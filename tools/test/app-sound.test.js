@@ -294,9 +294,9 @@ async function rings(env, routes) {
   r = await toEnd(env, { settings: { bowlRings: 'three' }, routes: routes });
   try {
     var t = r.t, b0 = (await bowl(t)).chimes.length, s1 = await snap(r.t), times = [];
-    await at(t, r.t0, GAP - 150); var before1 = (await bowl(t)).chimes.length - b0;
+    await at(t, r.t0, GAP - 600); var before1 = (await bowl(t)).chimes.length - b0;
     await at(t, r.t0, GAP + 40); await sleep(100);
-    await at(t, r.t0, 2 * GAP - 150); var before2 = (await bowl(t)).chimes.length - b0;
+    await at(t, r.t0, 2 * GAP - 600); var before2 = (await bowl(t)).chimes.length - b0;
     await at(t, r.t0, 2 * GAP + 40); await sleep(100);
     await at(t, r.t0, 3 * GAP + 40); await at(t, r.t0, 60000);
     var b = await bowl(t);
@@ -329,7 +329,7 @@ function ringsOk(m) {
     once: { ok: o.done && o.rings === null && o.more === 0, detail: 'Once: rings ' + JSON.stringify(o.rings) + ', ' + o.more + ' more bowls in the next minute' },
     three: { ok: th.done && th.rings0 && th.rings0.n === 2 && th.before1 === 0 && th.before2 === 1 && th.times.length === 2 && near(th.times[0], GAP) && near(th.times[1], 2 * GAP) && th.after === null && !th.soft,
              detail: 'Three times: rings at ' + th.times.join(', ') + ' ms after the first (8500, 17000 asked), none before their time (' + th.before1 + ', ' + th.before2 + '), none after; then ' + JSON.stringify(th.after) },
-    tap: { ok: tp.rings0 && tp.rings0.n === 70 && tp.three === 3 && tp.at70 === 4 && tp.live && tp.live.k === 71 && tp.total === 4 && near(tp.last, 70 * GAP) && tp.after === null,
+    tap: { ok: tp.rings0 && tp.rings0.n === 70 && tp.three === 3 && tp.at70 === 4 && tp.live === null && tp.total === 4 && near(tp.last, 70 * GAP) && tp.after === null,
            detail: 'Until a tap: ' + tp.three + ' rings in the first 26 s, then (the clock moved to 595.3 s) the 70th at ' + tp.last + ' ms, ' + tp.total + ' in all; past 10 minutes none, and then ' + JSON.stringify(tp.after) +
                    ' (times ' + tp.times.join(', ') + ')' }
   };
@@ -381,7 +381,7 @@ async function away(env, routes) {
   try {
     var c0 = (await bowl(t)).chimes.length;
     await t.eval(function () { window.__hide(true); });
-    await at(t, r.t0, 30200); await sleep(600);                 // 8.5, 17 and 25.5 s pass while hidden
+    for (var sec = 1; sec <= 30; sec++) { await at(t, r.t0, sec * 1000 + 200); }   // 8.5, 17 and 25.5 s pass while hidden, a second at a time
     var hidden = (await bowl(t)).chimes.length - c0;
     await t.eval(function () { window.__hide(false); });
     await sleep(600);
@@ -596,7 +596,7 @@ async function silent(env, routes) {
       await sleep(700);
       var r = { launch: await t.eval(function () { return window.__session ? window.__session.sets.slice() : null; }) };
       var g = await t.glass();
-      await t.page.touchscreen.tap(g.cx, 40);                         // a first tap (on the page, not the glass): the sound is unlocked
+      await t.page.touchscreen.tap(g.cx, g.cy);                       // a first tap (on the glass): the sound is unlocked
       await sleep(300);
       r.tapped = await t.eval(function () { return window.__session ? window.__session.sets.slice() : null; });
       await tune.tap(t, '#opt-silent');

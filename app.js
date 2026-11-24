@@ -415,7 +415,8 @@
     buzz(10);
   }, true);
   window.addEventListener('keydown', function (e) {
-    if (ringEat && ringEat.key === e.key) { ringEaten(e); return; }     // (a key held down repeats)
+    if (ringEat && ringEat.key === e.key && !ringEat.up) { ringEaten(e); return; }   // (a key held down repeats)
+    if (ringEat && ringEat.up) ringEat = null;                          // (that key has come up: its gesture is over)
     if (!ringsDue() || e.metaKey || e.ctrlKey || e.altKey || /^(Shift|Control|Alt|Meta|CapsLock)$/.test(e.key)) return;
     ringsStop(true);
     ringEat = { key: e.key, up: 0 };
