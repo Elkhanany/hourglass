@@ -680,9 +680,10 @@ function shapeProblems(store) {
   return out;
 }
 var offeredIds = Object.keys(SHAPES).filter(function (id) { return SHAPES[id].offered; }), heldIds = Object.keys(SHAPES).filter(function (id) { return !SHAPES[id].offered; });
-var sp = shapeProblems(S), lastRec = S.RECORDS[S.RECORDS.length - 1];
-check(sp.length === 0 && lastRec.id === 'shape' && lastRec.default === 'classic',
-  'the shape: the last record, \'classic\' by default; a save of 1.13.0 and one of 1.10.0 come up as the classic glass, every other setting as they give it; each offered shape (' + offeredIds.join(', ') +
+// (it was the last record until the Time tab's two came after it: it is found by its id)
+var sp = shapeProblems(S), shapeRec = S.RECORDS.filter(function (r) { return r.id === 'shape'; })[0] || {};
+check(sp.length === 0 && shapeRec.default === 'classic',
+  'the shape: a record, \'classic\' by default; a save of 1.13.0 and one of 1.10.0 come up as the classic glass, every other setting as they give it; each offered shape (' + offeredIds.join(', ') +
   ') as itself; one held back (' + heldIds.join(', ') + '), an unknown one, a number, an empty name and a name every object has as the classic glass', sp.join('; '));
 // controls: a store whose shape takes any name, and one that takes a shape held back
 function withShapeRecord(valid) {
@@ -733,6 +734,70 @@ var LOOSE = [
 ].map(function (c) { var n = inheritedProblems(c[1]).length; return c[0] + ': ' + n + (n >= INHERITED.length ? '' : ' (too few)'); });
 check(LOOSE.every(function (t) { return !/too few/.test(t); }),
   '... and a store that checks the theme, the sand or the finish the loose way (the table\'s entry, inherited or not) is found out, each on every one of the names (control)', LOOSE.join('; '));
+
+/* ---- 4d. the Time tab: the quick durations and "Show when it ends" -------------------------- */
+// Two records after the shape, in this order: `quick`, the six pills under the glass as six whole
+// minute counts of 1 to 99 joined by commas ("1,5,10,15,30,60" by default, today's six), and
+// `endsAt`, the switch that shows when the running glass ends (off by default). A save from before
+// them comes up with both defaults and every other setting as it gives it. A quick string that is
+// not six such counts (one too many or too few, a number out of range, not numbers, not a string)
+// is the default six as a whole: no pill of it is kept. Two the same are kept as they are.
+var QUICK_DEFAULT = '1,5,10,15,30,60';
+function quickLoad(store, saved) { return store.load(Storage(JSON.stringify(saved), 'ok').reach, '', REG_ALL); }
+var QUICK_GOOD = ['1,5,10,15,30,60', '25,5,50,10,90,3', '99,99,99,99,99,99', '1,1,1,1,1,1', '5,5,10,15,30,60', '60,30,15,10,5,1'];
+var QUICK_BAD = [['1,5,10,15,30', 'five counts'], ['1,5,10,15,30,60,90', 'seven'], ['0,5,10,15,30,60', 'a nought'], ['1,5,10,15,30,100', '100 minutes'],
+  ['1,5,10,-15,30,60', 'a count below nought'], ['1,5,10,15,30,6.5', 'a fraction'], ['1,5,10,15,30,1e1', 'a number in another notation'], ['01,5,10,15,30,60', 'a count written with a nought before it'],
+  ['a,b,c,d,e,f', 'no numbers'], ['1, 5, 10, 15, 30, 60', 'spaces'], ['1,5,10,15,30,60,', 'a comma more'], ['', 'an empty string'], ['toString', 'a name every object has'],
+  [[1, 5, 10, 15, 30, 60], 'an array'], [151030, 'a number'], [true, 'a boolean'], [null, 'null'], [{ 0: 1 }, 'an object']];
+/** What is wrong with a store's two Time records: [] when they hold. */
+function timeProblems(store) {
+  var out = [], keys = store.KEYS, dflt = {};
+  store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
+  var at = keys.indexOf('quick');
+  if (at < 0 || keys[at + 1] !== 'endsAt' || at !== keys.indexOf('shape') + 1) out.push('the two records are not quick then endsAt, right after shape: ' + keys.slice(-4).join(', '));
+  if (dflt.quick !== QUICK_DEFAULT) out.push('quick\'s default is ' + show(dflt.quick));
+  if (dflt.endsAt !== false) out.push('endsAt\'s default is ' + show(dflt.endsAt));
+  // a save from before them: both defaults, every other setting as it gives it
+  [[SAVE_1_13, 'a save of 1.13.0'], [SAVE_1_10, 'a save of 1.10.0'], [Object.assign({}, SAVE_1_13, { shape: 'delta', sand: 'garnet', finish: 'copper', sandColor: '185,0.5,0.5' }), 'a save of 1.15.0']].forEach(function (c) {
+    var old = quickLoad(store, c[0]), withTime = quickLoad(store, Object.assign({}, c[0], { quick: '25,5,50,10,90,3', endsAt: true }));
+    if (old.quick !== dflt.quick || old.endsAt !== dflt.endsAt) out.push(c[1] + ' came up with quick ' + show(old.quick) + ', endsAt ' + show(old.endsAt));
+    if (withTime.quick !== '25,5,50,10,90,3' || withTime.endsAt !== true) out.push(c[1] + ' with the two came up with quick ' + show(withTime.quick) + ', endsAt ' + show(withTime.endsAt));
+    keys.forEach(function (k) {
+      if (k === 'quick' || k === 'endsAt') return;
+      if (!Object.is(old[k], withTime[k])) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' without the two, ' + show(withTime[k]) + ' with them');
+    });
+  });
+  QUICK_GOOD.forEach(function (q) {
+    var v = quickLoad(store, { v: 2, quick: q, durationMs: 600000 });
+    if (v.quick !== q) out.push(show(q) + ' came up as ' + show(v.quick));
+  });
+  QUICK_BAD.forEach(function (c) {
+    var st = Storage(JSON.stringify({ v: 2, quick: c[0], endsAt: true, volume: 0.3 }), 'ok'), v = store.load(st.reach, '', REG_ALL);
+    store.save(v);
+    if (v.quick !== QUICK_DEFAULT || JSON.parse(st.data[KEY]).quick !== QUICK_DEFAULT) out.push(c[1] + ' (' + JSON.stringify(c[0]) + ') came up as ' + show(v.quick));
+    if (v.endsAt !== true || v.volume !== 0.3) out.push(c[1] + ': the other settings of that save were not kept');
+  });
+  [['yes', 'a string'], [1, 'a number'], [null, 'null']].forEach(function (c) {
+    var v = quickLoad(store, { v: 2, endsAt: c[0] });
+    if (v.endsAt !== false) out.push('endsAt ' + c[1] + ' came up as ' + show(v.endsAt));
+  });
+  return out;
+}
+var tp = timeProblems(S);
+check(tp.length === 0 && S.quickOf(QUICK_DEFAULT).join() === '1,5,10,15,30,60',
+  'the Time tab: quick then endsAt, right after the shape (\'' + QUICK_DEFAULT + '\' and false by default); a save of 1.13.0, 1.10.0 and 1.15.0 comes up with both defaults and every other setting as it gives it; ' +
+  QUICK_GOOD.length + ' good sets of six (two the same, all 99, in any order) kept as they are; ' + QUICK_BAD.length + ' bad ones (five, seven, a nought, 100, a fraction, 1e1, "01", letters, spaces, not a string ...) are the default six as a whole, and saved so',
+  tp.slice(0, 4).join('; ') + (tp.length > 4 ? ' (' + tp.length + ' in all)' : ''));
+// controls: a store that keeps any string, one that keeps the good pills of a bad set (a deliberate difference from the rule: all or none), and one with the two the other way round
+var tpAny = timeProblems(withValid('quick', undefined));
+var tpPart = timeProblems(variant(function (o) {
+  o.records.filter(function (r) { return r.id === 'quick'; })[0].valid = function (v) { return typeof v === 'string' && v.split(',').length === 6 && v.split(',').some(function (n) { return /^[1-9]\d?$/.test(n); }); };
+}));
+var tpOrder = timeProblems(variant(function (o) { var n = o.records.length, a = o.records[n - 1]; o.records[n - 1] = o.records[n - 2]; o.records[n - 2] = a; }));
+var tpOff = timeProblems(variant(function (o) { o.records.filter(function (r) { return r.id === 'endsAt'; })[0].default = true; }));
+check(tpAny.length >= QUICK_BAD.length - 8 && tpPart.length >= 3 && tpOrder.length >= 1 && tpOff.length >= 1,
+  '... and a store that keeps any quick string, one that keeps a set of six with some bad counts in it, one with endsAt before quick, and one whose endsAt is on by default are each found out (control)',
+  [tpAny.length, tpPart.length, tpOrder.length, tpOff.length].join(', ') + ' problems');
 
 /* ---- 5. save, a blocked storage, bindSwitch, loading ------------------------------------ */
 var st1 = Storage('{"v":2,"realSand":false,"theme":"lapis"}', 'ok'), v1 = S.load(st1.reach, '', REG);

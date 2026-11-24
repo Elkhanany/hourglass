@@ -47,6 +47,8 @@
  *       when it flips the value is set and saved, then after(value) called
  *   HourglassSettings.KEY, .VERSION, .RECORDS, .KEYS (the ids, in the order
  *       they are saved)
+ *   HourglassSettings.quickOf(text)     the six quick durations: "1,5,10,15,30,60" ->
+ *       [1, 5, 10, 15, 30, 60] (minutes), or null when the text is not six of 1 to 99
  *
  * Nothing is read when this file loads, so the tests load it in Node too.
  * License: GPL-3.0-or-later.
@@ -121,8 +123,22 @@
       valid: function (v, reg) { return !!reg.finishes && has.call(reg.finishes, v); },
       from: function (saved, reg) { return reg.finishOf(saved.theme); } },
     { id: 'shape', default: 'classic',           // the glass's shape: an id of reg.shapes that Tune offers (a shape held back comes up as the classic)
-      valid: function (v, reg) { var s = reg && reg.shapes; return !!s && has.call(s, v) && s[v].offered === true; } }
+      valid: function (v, reg) { var s = reg && reg.shapes; return !!s && has.call(s, v) && s[v].offered === true; } },
+    // The Time tab: the six durations under the glass, set by the person, and when the running glass ends.
+    { id: 'quick', default: '1,5,10,15,30,60',   // the six quick durations, in whole minutes, in the order they were set (one bad: all six the default)
+      valid: function (v) { return !!quickOf(v); } },
+    { id: 'endsAt', default: false }             // the state line says when the running glass ends: "Flowing · ends 14:35"
   ];
+
+  /**
+   * The six quick durations as they are kept, "1,5,10,15,30,60": [1, 5, 10, 15, 30, 60], or null
+   * when the text is not six whole minute counts from 1 to 99 (written plainly: no "05", no "1.0").
+   * Two may be the same number.
+   */
+  function quickOf(text) {
+    if (typeof text !== 'string' || !/^[1-9]\d?(,[1-9]\d?){5}$/.test(text)) return null;
+    return text.split(',').map(Number);
+  }
 
   /** A custom sand's colour as it is kept, "h,s,l": { h, s, l }, or null when the text is not one. */
   function colorOf(text) {
@@ -242,5 +258,6 @@
   store.STEPS = STEPS;
   store.repair = repair;
   store.colorOf = colorOf;
+  store.quickOf = quickOf;
   root.HourglassSettings = store;
 })(typeof window !== 'undefined' ? window : globalThis);
