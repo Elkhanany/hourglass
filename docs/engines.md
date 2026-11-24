@@ -792,7 +792,13 @@ agitation 0.60 against 0.71; shaken along the glass at 1.5 g and 5 Hz for
 agitation 0.93 against 0.87, and 21,900 slides a second at their fastest
 against 21,300 (a 1 minute glass: 39,000 against 36,000). Played through
 `audio.js`, the two engines' feeds for these motions sound within 3 dB of
-each other (the table in the design, section 8). Two things differ,
+each other (the table in the design, section 8). Measured again at build 7
+by realsand-gpu's SOUND case (three whole runs, WebGPU in software, a 10 s
+glass before its start): flicked along the glass, one thump of 0.0039 to
+0.0054 against the classic's 0.0043, agitation 0.54 to 0.67 against 0.71;
+shaken sideways at 1.5 g and 5 Hz for 1.5 s, no thump in any of the three
+runs, agitation 1.12 to 1.16 against 0.98; leaned 30°, the GPU bed did not
+move and nothing was heard. Two things differ,
 both because the sound is made from what the GPU sand did. A phone that moves
 without moving its sand makes no sand sound: carried at a walk the GPU bed
 lies still and is silent, where the classic sand shimmers (agitation 0.07
@@ -805,7 +811,12 @@ classic's 24,000) and, stood up again, lands back in the funnel with a
 thump (0.043), where the classic sand's heap runs back and lands nothing.
 
 The sound comes one to three frames after the sand's own motion (a
-readback's delay), a thump as the bed comes to rest. A sleeping glass is
+readback's delay), a thump as the bed comes to rest. The bed is read once
+a run, so when the engine runs less than once a frame (a phone that falls
+behind, the heat guard's calm pace) a landing can sound quieter or be
+missed: a known limit, still open, to be fixed in a later build by the
+engine recording the bed's fastest fall during a run (the design, section
+8). A sleeping glass is
 silent and sound never keeps it awake (the feeds are read from readbacks
 the frame makes anyway); a fresh bed (a fill, a transfer) settles unheard
 for 0.4 s. The landing buzz (Android) follows the thumps, as with the

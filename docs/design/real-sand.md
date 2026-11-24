@@ -744,6 +744,11 @@ moment for it, and every estimate tried either was louder than the fall could
 have been (by up to 5 to 11 dB at a run every 3 to 6 frames) or no better than
 the fastest speed seen. A phone runs a run every frame unless it falls
 behind or the heat guard calms it (the calm pace is a run every 2 frames).
+This is a known limit and it is still open: a landing can sound quieter, or
+be missed, when the engine runs less than once a frame. The fix is the
+engine's, in a later build: each run would record the bed's fastest fall
+during its own substeps, so that the readback carries the fall itself and
+not one snapshot of it. Build 7 does not.
 
 Measured against the classic sand on the same scripted motions (the app's
 10 s glass before its start, all the sand above; WebGPU in software, the
@@ -751,18 +756,35 @@ phone's motion played through the real `motion.js` to both engines). The
 three tables below were made at engine build 6, before the seven-in-ten rule
 above, by a probe that is not in the repository; the GPU's figures in them
 have not been measured again since the rule and are left out ("not measured
-again"): the rule removes exactly the falls a shaken bed's slip made, so the
+again"), all but the flick along the glass, which the SOUND case below
+measures: the rule removes exactly the falls a shaken bed's slip made, so the
 landings along the glass and the levels are the ones most likely to have
 changed. The classic sand's figures stand: its code has not changed. What
 can be measured again here is realsand-gpu's SOUND case (its own motions: a
 flick along the glass, a sideways shake of 1.5 g at 5 Hz for 1.5 s, a lean of
 30°), whose checks hold the GPU's thump and agitation within a factor of 2 of
-the classic sand's; its figures at build 7 (the engine has not changed since), with the sideways shake counted
-over several runs, are still to be written here.
+the classic sand's. Three whole runs of it at engine build 7, on WebGPU in
+software (a 10 s glass before its start; each run passed all its checks),
+measured:
+
+- flicked along the glass (2 g for 60 ms, then the stop): one thump in the
+  upper bulb in each run, of 0.0039 to 0.0054 (from a fastest fall of 49 to
+  58 cells/s), where the classic sand has one of 0.0043; no slam; the
+  agitation at its highest 0.54 to 0.67, where the classic's is 0.71. With
+  the readbacks unheard (the control) the same flick fed nothing.
+- shaken sideways at 1.5 g and 5 Hz for 1.5 s: no thump and no slam in any
+  of the three runs, as with the classic sand; the agitation at its highest
+  1.12 to 1.16, where the classic's is 0.98; the slides 26,600 to 29,400 in
+  all and 22,700 to 23,900 a second at their fastest, where the classic's
+  are 23,100 and 20,900. (The case does not log the share of points that
+  move.)
+- leaned 30° and back: the GPU bed did not move, and nothing was heard: no
+  landing, no slides, no agitation, where the classic sand's heap runs
+  (1,350 slides a second at their fastest).
 
 | motion | thumps: classic (number, summed E, largest) | GPU | agitation: classic (highest, summed over time) | GPU |
 |---|---|---|---|---|
-| a flick along the glass (2 g, 60 ms) | 1, 0.0043, 0.0043 | not measured again | 0.71, 0.23 | not measured again |
+| a flick along the glass (2 g, 60 ms) | 1, 0.0043, 0.0043 | 1, 0.0039 to 0.0054 (build 7, three runs) | 0.71, 0.23 | 0.54 to 0.67 (build 7, three runs); summed not measured again |
 | a flick sideways | none | not measured again | 0.43, 0.14 | not measured again |
 | 1.5 g at 5 Hz sideways, 3 s | none | not measured again | 0.87, 2.20 | not measured again |
 | 1.5 g at 5 Hz along the glass, 3 s | 10, 0.072, 0.013 | not measured again | 2.36, 3.61 | not measured again |
