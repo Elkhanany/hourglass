@@ -17,7 +17,14 @@
 // x 4; crowded as grains.mjs draws a grain sharp); [10] the brim, the highest point above the
 // line within 3 cells of the axis (grid y x 16; 0: none); [11] the depth of the lowest point below
 // the line (cells x 16; in an empty lower bulb, how far the stream's front has fallen: the lab's
-// Timer times the first fall with it); [12-15] unused
+// Timer times the first fall with it); [12-15] unused;
+// the beds, for the sound (app-sand.mjs, design 8): [16-21] the bulb above the line, [22-27] the
+// one on it or below, each over its points in a bed (crowded, as grains.mjs draws a grain sharp:
+// not the falling stream, not spray): [+0, +1] their summed velocity, x and y (cells/s x 4, each
+// point's speed capped at BedCap; signed, two's complement), [+2] how many they are, [+3] their
+// summed place across the glass from the neck's centre (cells x 16; signed), [+4] the summed
+// speed (cells/s x 4) and [+5] the number of those that move (faster than 2 % of a free fall
+// over the glass, as [7])
 @group(0) @binding(4) var<storage,read_write> tally: array<atomic<u32>>;
 // per column, the highest point at rest (slower than 2 cells/s and crowded; grid y x 16, 0: none):
 // [x] above the counting line, [gridSize.x + x] on it or below (the surfaces of the two beds)
@@ -37,8 +44,11 @@ const QueueBand = 0.1;
 // The words are summed first in the workgroup's own memory, then added to the tally once per
 // workgroup and word: one contended atomic on a word for every 64 points, not one for every point
 // (sums and maxima do not depend on the order, so the tally is the same).
-const Words = 12u;
+const Words = 28u;
 var<workgroup> w_tally: array<atomic<u32>, Words>;
+// a bed point's speed counts up to this (cells/s; a free fall over a bulb is under half of it),
+// so that the sums of 60,000 points stay inside 32 bits
+const BedCap = 2000.0;
 // words taken by their maximum; the others are sums
 fn isMax(k: u32) -> bool { return k == 5u || k == 9u || k == 10u || k == 11u; }
 
@@ -71,17 +81,32 @@ fn countPoint(p: Particle) {
     if (sampleDomain(x).z < -0.5) { atomicAdd(&w_tally[3], 1u); }
     let dt = g_simConstants.deltaTime;
     // the velocity, without the prediction of the next substep's field
-    let v = length(d / dt - g_simConstants.gravity * dt);
+    let vel = d / dt - g_simConstants.gravity * dt;
+    let v = length(vel);
     let vq = u32(min(v, 4000.0) * 4.0);
     atomicMax(&w_tally[5], vq);
     atomicAdd(&w_tally[6], vq);
     let g = length(g_simConstants.gravity);
-    if (v > 0.02 * sqrt(2.0 * max(g, 1.0) * f32(g_simConstants.gridSize.y))) { atomicAdd(&w_tally[7], 1u); }
+    let moves = v > 0.02 * sqrt(2.0 * max(g, 1.0) * f32(g_simConstants.gridSize.y));
+    if (moves) { atomicAdd(&w_tally[7], 1u); }
     // the metered neck's measures
     let ax = abs(x.x - g_simConstants.center.x);
     if (above && x.y < line + QueueBand && ax < g_simConstants.gate.y + 1.0) { atomicAdd(&w_tally[8], 1u); }
     let crowded = p.color.y >= Crowded;
     if (crowded) { atomicMax(&w_tally[9], vq); }
+    // the beds: each bulb's momentum, count, place across the glass, and what of it moves
+    if (crowded) {
+        let b = select(22u, 16u, above);
+        let vc = vel * min(1.0, BedCap / max(v, 1e-6));
+        atomicAdd(&w_tally[b], bitcast<u32>(i32(round(vc.x * 4.0))));
+        atomicAdd(&w_tally[b + 1u], bitcast<u32>(i32(round(vc.y * 4.0))));
+        atomicAdd(&w_tally[b + 2u], 1u);
+        atomicAdd(&w_tally[b + 3u], bitcast<u32>(i32(round(clamp(x.x - g_simConstants.center.x, -4096.0, 4096.0) * 16.0))));
+        if (moves) {
+            atomicAdd(&w_tally[b + 4u], u32(min(v, BedCap) * 4.0));
+            atomicAdd(&w_tally[b + 5u], 1u);
+        }
+    }
     let yq = u32(clamp(x.y, 0.0, f32(g_simConstants.gridSize.y)) * 16.0);
     if (above && ax < 3.0) { atomicMax(&w_tally[10], yq); }
     if (!above) { atomicMax(&w_tally[11], u32(clamp(line - x.y, 0.0, f32(g_simConstants.gridSize.y)) * 16.0)); }

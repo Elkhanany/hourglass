@@ -1582,10 +1582,11 @@
     S.slides += (sl - S.slides) * Math.min(1, dt * 10);
     leakRate += ((active ? f.leaked / dt / fine2 : 0) - leakRate) * (1 - Math.exp(-dt / 0.3));
     var bulk = running && sim.nTop > T.tailGrains;
-    // the slosh moves between the ears with the fuller bulb's field
+    // the slosh moves between the ears with the fuller bulb's field: to the side its sand runs to
+    // (a lean with the right edge low, the hiss in the right ear, where the landings there are too)
     var b = sim.nTop >= sim.nBottom ? 0 : 2, rho = sim.angle + grav.base;
     var fxp = sim.bf[b] * Math.cos(rho) - sim.bf[b + 1] * Math.sin(rho);
-    var pan = -0.6 * fxp / sim.G;
+    var pan = 0.6 * fxp / sim.G;
     if (pan > 0.65) pan = 0.65; else if (pan < -0.65) pan = -0.65;
     AU.dt = dt;
     AU.flow = bulk ? Math.max(S.flow, T.rate * 0.5 / fine2) : S.flow;
@@ -1608,6 +1609,11 @@
       }
       sim.nev = keep;
     }
+    // The bed is heard wherever its sand moved: this asks only whether the frame was stepped,
+    // never whether the glass runs, so an idle, paused or finished glass that is leaned, carried
+    // or shaken sounds as a running one does (the stream and the ambience are the running
+    // glass's: AU.flow, AU.ambient). Real sand fills the same record from what its sand did
+    // (inside real.submit, before this), and leaves it empty, its agitation 0, while it sleeps.
     AU.sim = active ? sim : null;
     AU.thump = active ? f.thump : null;  // beds landing [E0, x0, E1, x1]
     AU.slam = active ? f.slam : null;    // beds slammed into the far end [E, x]
@@ -3068,7 +3074,7 @@
    *  browser's WebGPU canvas cannot be read back). ?debug=sand shows the
    *  engine's figures for the owner's reports.
    * ==================================================================== */
-  var REALSAND_BUILD = '5';          // the engine's stamp this script was written for (realsand/build.mjs)
+  var REALSAND_BUILD = '6';          // the engine's stamp this script was written for (realsand/build.mjs)
   var REAL_TEST = /[?&]offscreen=1(?:&|$)/.test(location.search);
   var realEng = null;                // the engine: starting, live (then real === realEng), lost or rebuilding
   var realCls = null, realAttached = false, realDue = false, realRetries = 0, realState = 'off';

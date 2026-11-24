@@ -98,9 +98,36 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the sound engine's calls and levels, and the water ambiences: that each
   starts, switches and stops leaving nothing behind, their levels, that
   nothing clips behind the sand, their synthesis slices, and the fallback for
-  browsers that refuse low sample rates.
+  browsers that refuse low sample rates. `audio-levels` also holds the bed
+  of a glass that is moved while no stream runs (before the start, paused,
+  finished), fed what the classic sand gives the app for that motion:
+  silence at rest; a 1.5 g 5 Hz shake, 2 g up and down and a lean past the
+  slope each within 3 dB of the level it was built at, the lean louder on
+  its low side (leaned with the right edge low, in the right ear; a sand
+  reporting a quarter of the shake's feeds fails the level's
+  check, its control); the lean heard only where no stream runs (the
+  same slides under a running stream leave the rush at nothing); and a glass
+  that stands, turned over: through the turn and the sand's slide after it
+  the rush only falls after its peak, with no gap at the turn's end and no
+  second onset, while a running glass turned over keeps the turn's own rush
+  alone (its control). `audio-api`
+  also checks that one touch is enough, in a Chromium launched with its own
+  autoplay policy (sound only after a gesture, as on an iPhone; the page is
+  driven by an init script and reports on its console, since a script
+  evaluated from outside counts as a gesture): on a fresh page with the
+  glass idle the bed's feeds play nothing; after one touch that starts
+  nothing (the glass taken, moved and let go) the context runs and the same
+  feeds thump, rush and shimmer, with sound at the output; the same events
+  made by a script leave the context suspended (the control).
 - `app-*`: the app's own acceptance tests (permission, gestures, motion,
-  re-timing, session, the existing flow), on the app as it ships: every
+  re-timing, session, the existing flow), on the app as it ships
+  (`app-motion` also has the classic sand heard before the start: nothing at
+  rest; leaned past the slope, thousands of slides a second and the rush,
+  softly, in the ear of the side the sand runs to (leaned one way and then
+  the other, each against where the sand's centre went); shaken, the rush
+  and the shimmer; no stream and
+  no ambience in either; and the same lean under a running stream leaving
+  the rush at nothing, its control): every
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
   then served at `motion.js`'s path. Real sand is the app's default, and
@@ -147,13 +174,34 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   chip lost mid-run (the CPU sand at the same counts in the same frame, the
   clock untouched, the toast, then back), and what audio.js is given (the
   stream's flow from the grains released, landings after their fall, events
-  in range, poured sand landing in the top bulb, nothing for the thumps,
-  slams and slides, no landing buzz); a start that fails keeps the setting
-  and stops after three launches (an engine file that cannot be had with no
-  connection is not counted); a start made again in the same session that
-  finds no adapter keeps nothing, "Needs WebGPU" is believed for seven
-  days, and a start that took over gives the retries back; a stale build
-  stamp says it is updating;
+  in range, poured sand landing in the top bulb, and of the bed, in a glass
+  that is not moved, nothing: no thumps, slams or slides, no landing buzz);
+  the bed heard when the glass is moved (`sounds`), with the mock engine
+  saying what its sand does (`__mockEnv.feeds`: the frame record as an
+  engine fills it, written only in frames in which the engine ran;
+  `__mockEnv.tally`: fields merged into the mock chip's readbacks), the
+  phone shaken through the motion stub: before the start, running, paused
+  and finished, every thump and slam the engine reported is given to
+  `audio.update` in that frame and played, the slides at their rate, the
+  agitation and the landing buzz, with the stream and the ambience on only
+  while the glass runs, and each time the same shake with the engine saying
+  nothing gives nothing (the control); its sand still, the engine sleeps
+  within 1.5 s although it was reporting sound until then, and nothing more
+  is given (sand that moves keeps it awake and heard, the control), and a
+  jolt brings the sound back within 3 frames; hidden, no update at all, the
+  rush and the shimmer let go (back in view it is heard again); muted, or
+  with the volume at 0, the feeds come and the output is silence, read by an
+  analyser on the sound engine's last node (unmuted, it is not); and the
+  engine's own ears, with nothing said for it: the mock chip's readbacks
+  carry each bulb's bed, the upper one sliding within itself, then falling
+  as one body and stopped by the glass, and the real adapter's slides, agitation and
+  one landing, at the energy of that fall, reach `audio.update` and are
+  played (the same bed at rest in the records gives nothing); a start
+  that fails keeps the setting and stops after three launches (an engine
+  file that cannot be had with no connection is not counted); a start made
+  again in the same session that finds no adapter keeps nothing, "Needs
+  WebGPU" is believed for seven days, and a start that took over gives the
+  retries back; a stale build stamp says it is updating;
   a start held 4 s, as slow as an iPhone's home-screen web app opened cold
   (the CPU sand shown and running meanwhile, the boot veil held 1 s and no longer, the
   canvases cross-faded only once the engine has drawn, the clock's end not
@@ -282,21 +330,60 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   cases: a lost engine never ready nor taken over, a handover after the CPU
   caught up (by a transfer, the count never back up), a brief lock while the
   device opened, the picture drawn again while asleep, and one shader
-  library a page with the shaders' build checked.
+  library a page with the shaders' build checked; and the bed's sounds, the
+  mock solver saying what its sand does (`tools/test/lib/realsand-beds.js`
+  sums a bed from groups of points as the shader does): a bed that falls
+  and is stopped by the glass feeds one thump of the classic sand's energy
+  for that landing, in the frame its readback comes, before the start,
+  running, paused and (the lower bulb's) finished; one stopped at the far
+  end a slam; one that the field slowed, or that stopped sideways, nothing;
+  sand sliding within a bed the classic's slides at the calibrated share, in
+  every frame also when calm draws every other, and a bed moving as one body
+  none; a shaken bed's agitation, 0 again at rest; nothing at rest, hidden
+  or asleep, and a glass that sleeps as soon with sound in its readbacks as
+  without; each with its control (the same scene on an engine that hears
+  nothing, or the motion that must not sound). And the rules that keep the
+  sound to what a bed did: the plug of the stream under the neck of a glass
+  just started (5 points slowing from 59 to 27 cells/s, as the real engine
+  gave them) feeds nothing, where the same speeds of a bed land a thump;
+  sand sliding within a bed is heard while the bed is packed, not while it
+  is thrown loose or packs again, nor while it moves along the glass as a
+  body (across the glass it is: the control); sand sliding back down the
+  wall into a still bed (half its points moving, the bed's mean falling at
+  1.4 times the speed of the faintest landing) lands nothing, where the same
+  fall of the whole bed as one body lands a thump (the control); a landing is the same thump
+  at 60, 120 and 180 runs a second; after a second without readbacks the
+  agitation that had faded stays faded; and the same motion of the same GPU
+  bed is the same sound at the phone's, a tablet's, the Fine and the Finest
+  lattice.
   `realsand-shell` checks the service worker's shell for Real sand: every
   path in it exists (one missing would fail the whole install), every module
   `realsand/boot.mjs` loads and every shader of the engine is in it, and
   `app.js`, the lab, the engine and its shaders name the same build stamp.
   `realsand-gpu` runs only when named (`node tools/test/run-all.js
-  realsand-gpu`, 10 to 15 minutes, every core busy): the app with Real sand
+  realsand-gpu`, 15 to 20 minutes, every core busy): the app with Real sand
   and layered sand on the real engine, on Chromium's WebGPU in software
   (SwiftShader), loaded with `?offscreen=1`. Software runs the sand at a few
   hundredths of real time, so once the engine has started the page's clock
   is made virtual (its time, frames and timers driven by the test, a frame
   at a time, each once the chip has done the last), and the sand runs at
-  real time in it. Seven cases on 10 s glasses: the start and the handover;
+  real time in it. Eight cases on 10 s glasses: the start and the handover;
+  the bed's sounds before the start (nothing while asleep; flicked along the
+  glass as `motion.js` reports a flick, a thump of the energy of the bed's
+  fastest fall, fed within 6 frames of that fall and as loud as the classic
+  Sim's for the same flick, stepped in Node beside it, within a factor of 2
+  of the level `audio.js` plays, the agitation within a factor of 2;
+  nothing with the readbacks unheard, its control; thrown, the bed is not
+  heard as sliding: the slides fed are well under its motion within itself,
+  which was fed in full before; shaken sideways, no thump
+  and the agitation and slides within a factor of 2 of the classic's;
+  leaned, sound only as far as the sand moved);
   a glass to its end, its last grain crossing within one frame after
-  00:00.0 by the chip's own record, with no catch-up and no residue; Reset;
+  00:00.0 by the chip's own record, with no catch-up and no residue, and,
+  left alone from Start to the end, no thump or slam and next to no
+  agitation, the few crowded points under the neck never heard as a bed
+  (taken for one, the same readbacks' plug is heard as a bed: the
+  control); Reset;
   a Flip at 4 s; a pour, then real motion turning the glass over while sand
   is poured; 30 s hidden and caught up by one transfer; and the chip lost
   mid-run (the CPU sand at the same counts in the same frame, the clock

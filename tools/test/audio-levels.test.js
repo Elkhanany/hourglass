@@ -27,6 +27,21 @@
  *
  * Other new sounds are measured and printed, without limits.
  *
+ * The bed of a glass that is moved while no stream runs (idle before the start,
+ * paused, finished), fed what the classic sand gives the app for that motion
+ * (measured in the app on a phone-size glass: the numbers are in MOVED below):
+ *
+ *   - at rest, with nothing fed, the output is digital silence in all three
+ *   - a 1.5 g 5 Hz shake (slides 46,000 a second, agitation 1.08; paused, with
+ *     sand below, 56,000 and 1.05), 2 g up and down (thumps of E 0.1 at 4.5 Hz,
+ *     agitation 3, slides 15,000) and a lean past the slope (slides rising to
+ *     13,000 a second and dying away, toward the low side): each within 3 dB of
+ *     the level it was built at, the lean's louder in the ear on the low side.
+ *     The control: a sand that reported a quarter of the shake's feeds is more
+ *     than 3 dB under the shake's level, and so fails that check
+ *   - the lean is heard only where no stream runs: the same slides under a
+ *     running stream leave the rush at nothing, as they always did (the control)
+ *
  * The water ambiences (brook, rain, ocean, waterfall, drips), each through
  * the engine as the app plays it:
  *
@@ -236,6 +251,121 @@ async function main() {
       out.mixNew = rn; out.mixOld = ro;
       return out;
     });
+
+    /* ---- the bed of a moved glass with no stream --------------------------------- */
+    var bed = await page.evaluate(async function () {
+      var A = window.HourglassAudio, R = window.__render, every = window.__every, M = window.__metrics, base = window.__base, out = {};
+      var zero = new Float32Array(4);
+      /**
+       * 5 s of a glass that stands with no stream (below: sand in the lower bulb, as paused or
+       * finished; else all above, as before the start), fed feeds(t) from 1 s on; measured from
+       * 1.2 to 4.2 s, the mean of n renders. o.running: the same under a running stream.
+       */
+      async function moved(feeds, o, n) {
+        var sum = { rms: 0, peak: 0, left: 0, rush: 0 };
+        for (var r = 0; r < n; r++) {
+          var rush = 0;
+          var buf = await R(A, 5, function (a, off) {
+            a._cushion = o.below ? 1 : 0;
+            every(off, a, 0.1, 4.6, 1 / 60, function (a2, t) {
+              var f = t >= 1 ? feeds(t - 1) : {};
+              f.bottom = o.below ? 6000 : 0; f.fill = o.below ? 0.4 : 0;
+              if (o.running) { f.running = true; f.flow = 57; f.impacts = 57; }
+              base(a2, f);
+              if (t >= 1 && (a2._last.rush || 0) > rush) rush = a2._last.rush;
+            });
+          });
+          var m = M(buf, 1.2, 4.2), i0 = Math.floor(1.2 * 48000), i1 = Math.floor(4.2 * 48000), sl = 0, sr = 0;
+          for (var i = i0; i < i1; i++) { sl += buf.L[i] * buf.L[i]; sr += buf.R[i] * buf.R[i]; }
+          sum.rms += m.rms / n; sum.peak += m.peak / n; sum.rush += rush / n;
+          sum.left += 10 * Math.log10((sl + 1e-30) / (sr + 1e-30)) / n;
+        }
+        return { rms: +sum.rms.toFixed(1), peak: +sum.peak.toFixed(1), left: +sum.left.toFixed(1), rush: +sum.rush.toFixed(3) };
+      }
+      var none = function () { return {}; };
+      out.restIdle = await moved(none, {}, 1);
+      out.restBelow = await moved(none, { below: true }, 1);
+      // what the classic sand gives the app (a phone-size glass, measured in the app)
+      var MOVED = {
+        shake: function (t) { return { slides: 46000, agit: 1.08, rushPan: 0.6 * Math.sin(31 * t) }; },
+        shakeBelow: function (t) { return { slides: 56000, agit: 1.05, rushPan: 0.6 * Math.sin(31 * t) }; },
+        quarter: function (t) { return { slides: 11500, agit: 0.27, rushPan: 0.6 * Math.sin(31 * t) }; }
+      };
+      var LEAN = [4, 12, 13, 12, 11, 10, 10, 8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 3, 2, 0];    // thousands of slides a second, each sixth of a second
+      // (leaned with the right edge low: the sand runs to the right, and app.js says so: +0.41)
+      MOVED.lean = function (t) { return { slides: 1000 * (LEAN[Math.floor(t * 6)] || 0), rushPan: 0.41 }; };
+      var k = 0;
+      MOVED.upDown = function () { return { slides: 15000, agit: 3, thump: (k++ % 13) === 0 ? new Float32Array([0.1, 0.1, 0, 0]) : zero }; };
+      out.shake = await moved(MOVED.shake, {}, 3);
+      out.shakeBelow = await moved(MOVED.shakeBelow, { below: true }, 3);
+      out.quarter = await moved(MOVED.quarter, {}, 3);
+      out.lean = await moved(MOVED.lean, {}, 3);
+      out.leanBelow = await moved(MOVED.lean, { below: true }, 3);
+      out.upDown = await moved(MOVED.upDown, {}, 3);
+      out.leanRunning = await moved(MOVED.lean, { below: true, running: true }, 1);
+      /**
+       * A half turn of 2.6 s (the Flip button's) from 1 s on, the sand sliding through it and for
+       * 2.4 s after, as the classic sand's does: up to 60,000 slides a second mid-turn, 20,000 as
+       * the glass comes to rest, then down to nothing. What the rush is asked for, update by
+       * update. o.state: the glass's own while it turns ('running': a running glass turned).
+       */
+      async function turned(o) {
+        var asked = [];
+        await R(A, 7, function (a, off) {
+          a._cushion = 0;
+          every(off, a, 0.1, 6.8, 1 / 60, function (a2, t) {
+            var u = t - 1, f = { bottom: 0, fill: 0 };
+            if (o.running) { f.ambient = true; if (u < 0 || u >= 2.6) { f.running = true; f.flow = 57; f.impacts = 57; } }
+            if (u >= 0 && u < 2.6) {
+              var p = u / 2.6;
+              f.flipping = true; f.angle = Math.PI * p * p * (3 - 2 * p); f.spin = Math.PI * 6 * p * (1 - p) / 2.6;
+              f.slides = 1000 * (p < 0.5 ? 120 * p : 60 - 80 * (p - 0.5));
+            } else if (u >= 2.6) f.slides = Math.max(0, 20000 * (1 - (u - 2.6) / 2.4));
+            base(a2, f);
+            if (u >= 0) asked.push({ u: u, rush: a2._last.rush || 0, turning: !!f.flipping });
+          });
+        });
+        var peak = 0, at = 0, i, r = { peak: 0, lowest: 1, rise: 0, end: 0, after: 0, late: 0 };
+        for (i = 0; i < asked.length; i++) if (asked[i].rush > peak) { peak = asked[i].rush; at = i; }
+        r.peak = +peak.toFixed(3);
+        for (i = at; i < asked.length; i++) {
+          var x = asked[i];
+          // (from the peak until a second after the turn the sand slides at 12,000 a second and more)
+          if (x.u <= 3.6 && x.rush < r.lowest) r.lowest = x.rush;
+          if (i > at && x.rush - asked[i - 1].rush > r.rise) r.rise = x.rush - asked[i - 1].rush;
+          if (x.turning) r.end = x.rush; else if (asked[i - 1].turning) r.after = x.rush;
+          if (x.u >= 5.2 && x.rush > r.late) r.late = x.rush;
+        }
+        r.lowest = +r.lowest.toFixed(3); r.rise = +r.rise.toFixed(3); r.end = +r.end.toFixed(3); r.after = +r.after.toFixed(3);
+        return r;
+      }
+      out.flipIdle = await turned({});
+      out.flipRunning = await turned({ running: true });
+      return out;
+    });
+    // the levels these were built at (dBFS RMS at the default volume, the mean of several renders)
+    var BUILT = { shake: -37.9, shakeBelow: -34.0, lean: -45.2, leanBelow: -45.5, upDown: -38.5 };
+    function near(k) { return Math.abs(bed[k].rms - BUILT[k]) <= 3; }
+    function bshow(k) { return k + ' ' + bed[k].rms + ' dBFS RMS (built at ' + BUILT[k] + '), peak ' + bed[k].peak; }
+    report(bed.restIdle.rms <= -120 && bed.restBelow.rms <= -120, 'a glass with no stream, at rest, nothing fed: silence (before the start, and with sand below)',
+           'RMS ' + bed.restIdle.rms + ' and ' + bed.restBelow.rms + ' dBFS');
+    report(near('shake') && near('shakeBelow') && near('upDown'),
+           'moved with no stream, fed what the classic sand gives: a 1.5 g 5 Hz shake (before the start, and paused) and 2 g up and down sound within 3 dB of the level they were built at',
+           ['shake', 'shakeBelow', 'upDown'].map(bshow).join('; '));
+    report(BUILT.shake - bed.quarter.rms > 3, 'control: a sand that reported a quarter of the shake\'s feeds fails that check (more than 3 dB under the level the shake was built at)',
+           'a quarter of the feeds ' + bed.quarter.rms + ' dBFS, ' + (BUILT.shake - bed.quarter.rms).toFixed(1) + ' dB under');
+    report(near('lean') && near('leanBelow') && bed.lean.left <= -2 && bed.lean.rush > 0.05,
+           'a lean past the slope with no stream is heard, softly, toward the low side (within 3 dB of the level it was built at; leaned with the right edge low, louder in the right ear)',
+           ['lean', 'leanBelow'].map(bshow).join('; ') + '; right over left ' + (-bed.lean.left).toFixed(1) + ' dB; the rush asked for ' + bed.lean.rush);
+    report(bed.leanRunning.rush === 0, 'control: the same slides under a running stream leave the rush at nothing, as they always did',
+           'the rush asked for ' + bed.leanRunning.rush + ' (with no stream ' + bed.lean.rush + ')');
+    var fI = bed.flipIdle, fR = bed.flipRunning;
+    report(fI.peak > 0.2 && fI.lowest >= 0.05 && fI.rise <= 0.004 && fI.after <= fI.end + 0.004 && fI.late <= 0.001,
+           'a glass that stands, turned over (the Flip button before the start, or paused): the sand sliding through the turn and after it is heard without a gap: after its peak the rush only falls, it does not drop out at the turn\'s end and come back',
+           'the rush asked for: peak ' + fI.peak + ', never under ' + fI.lowest + ' until a second after the turn, ' + fI.end + ' on the turn\'s last frame and ' + fI.after + ' on the next, its largest rise after the peak ' + fI.rise + '; ' + fI.late + ' once the sand rests');
+    report(fR.end <= 0.02 && fR.after <= 0.004 && fR.peak > 0.2 && fR.lowest <= 0.004,
+           'control: a running glass turned over keeps the turn\'s own rush alone, as it always did: down to nothing as the turn ends, and nothing after under the stream',
+           'the rush asked for: peak ' + fR.peak + ', ' + fR.end + ' on the turn\'s last frame, ' + fR.after + ' on the next');
 
     /* ---- the water ambiences ---------------------------------------------------- */
     var amb = await page.evaluate(async function () {
