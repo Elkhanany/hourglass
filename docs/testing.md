@@ -386,7 +386,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the tabs as a screen reader meets them, the haptic labels on every button
   at boot, the reset link (what it puts back, the sand and its finish among it,
   and what it keeps, the custom sand's colour among it; its first tap's
-  question said to a screen reader through a status drawn nowhere), the focus kept in an open sheet by Tab and
+  question said to a screen reader through a status drawn nowhere), each
+  tab taking a tap 3 px above and below what is drawn of it (`--only
+  target`, at 393 x 852 and 320 x 568, its reach clear of the close button,
+  the next tab and the rows), the focus kept in an open sheet by Tab and
   Shift+Tab (`--only focus`, Tune and the custom-duration sheet), and the
   "more below" hint (`--only hint`): at 393 x 852 a tab that can scroll
   shows it at its top and in its middle and not at its end (every tab can, at that size); a

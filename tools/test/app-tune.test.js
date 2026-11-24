@@ -14,6 +14,9 @@
  *   TOP       the sheet's top edge is 44 px under the glass's neck at those three sizes (454,
  *             365 and 502 px down), again once the frame is switched off (the glass sits
  *             larger) and when the window changes size; its lower edge is the screen's
+ *   TARGET    each tab takes a tap 3 px above and 3 px below its drawn box (at 393 × 852 and
+ *             320 × 568), and its reach covers neither the close button, the gap to the next
+ *             tab, nor the rows under the tab row
  *   SIDE      a phone on its side keeps the old limit, 28 px from the top, on every tab
  *   FLOOR     a very short screen still gets 220 px of sheet
  *   SCRIM     behind Tune the scrim is light (0.2), behind the custom sheet as it was (0.5); a
@@ -598,6 +601,74 @@ async function toast(env, o) {
 function toastOk(m) {
   return { ok: above(m.up) && /Breathe in/.test(m.up.text) && !m.gone.shown && m.errors.length === 0,
            detail: toastSays(m.up) + '; with Tune closed it is ' + (m.gone.shown ? 'STILL SHOWN' : 'gone') + ' ' + m.errors.slice(0, 2).join(' | ') };
+}
+
+/* ---- TARGET ------------------------------------------------------------------------------ */
+// Each tab is drawn 36 px tall; it takes a tap over 44 (4 px more above and below), with nothing moved.
+var TARGET_SIZES = [[393, 852], [320, 568]], TARGET_ORDER = ['glass', 'sound', 'time', 'sand'];
+async function target(env, size, o) {
+  var t = await env.open(Object.assign({ viewport: { width: size[0], height: size[1] } }, o || {})), m = { size: size.join(' x '), taps: [] };
+  function boxes() {
+    return t.eval(function () {
+      var s = document.getElementById('sheet-settings'), r = function (el) { var b = el.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+      var o = { tabs: {}, close: r(s.querySelector('.sheet-close')), body: r(s.querySelector('.sheet-body')) };
+      Array.prototype.forEach.call(s.querySelectorAll('[role="tab"]'), function (b) { o.tabs[b.getAttribute('data-tab')] = r(b); });
+      return o;
+    });
+  }
+  /** What a finger at (x, y) would reach: the tab's key, 'close', or what else. */
+  function at(x, y) {
+    return t.eval(function (p) {
+      var el = document.elementFromPoint(p[0], p[1]);
+      if (el && el.classList.contains('haptic') && el._host) el = el._host;   // (an iPhone's label over a control: the control is what a tap reaches)
+      var tab = el && el.closest('[role="tab"]');
+      return tab ? tab.getAttribute('data-tab') : el && el.closest('.sheet-close') ? 'close' : el ? (el.id || el.className || el.tagName) : null;
+    }, [x, y]);
+  }
+  try {
+    await sleep(600);
+    await tune.open(t);
+    await sleep(400);
+    m.box = await boxes();
+    var B = m.box.tabs;
+    // the taps: 3 px above each tab, then 3 px below, each tab in turn (so each tap changes the tab shown).
+    // What is under the point is read first (the page's own hit test); the tap itself is a click at
+    // that exact point, not a touch, which the browser would move onto the nearest control by itself.
+    for (var e = 0; e < 2; e++) {
+      for (var i = 0; i < TARGET_ORDER.length; i++) {
+        var k = TARGET_ORDER[i], b = B[k], x = (b[0] + b[2]) / 2, y = e ? b[3] + 3 : b[1] - 3;
+        var hit = await at(x, y);
+        await t.page.mouse.click(x, y);
+        await tune.rest(t);
+        var sel = await t.eval(function () { var el = document.querySelector('#sheet-settings [role="tab"][aria-selected="true"]'); return el ? el.getAttribute('data-tab') : null; });
+        m.taps.push({ tab: k, where: e ? 'below' : 'above', y: y, hit: hit, selected: sel });
+      }
+    }
+    // what the reach must leave alone
+    var c = m.box.close, keys = Object.keys(B);
+    m.close = await at((c[0] + c[2]) / 2, (c[1] + c[3]) / 2);
+    m.closeEdge = await at(c[0] + 1, (c[1] + c[3]) / 2);
+    m.gaps = [];
+    for (var j = 0; j + 1 < keys.length; j++) {
+      var l = B[keys[j]], r2 = B[keys[j + 1]], gx = (l[2] + r2[0]) / 2;
+      m.gaps.push(await at(gx, l[1] - 3), await at(gx, (l[1] + l[3]) / 2), await at(gx, l[3] + 3));
+    }
+    m.rows = await at((m.box.body[0] + m.box.body[2]) / 2, m.box.body[1] + 1);
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+function targetOk(m) {
+  var missed = m.taps.filter(function (x) { return x.selected !== x.tab || x.hit !== x.tab; });
+  var B = m.box.tabs, reach = Object.keys(B).map(function (k) { return B[k][3] + 4; }), bodyTop = m.box.body[1];
+  var taps = { ok: missed.length === 0 && m.taps.length === 8,
+               detail: m.size + ': ' + (missed.length ? 'MISSED ' + missed.map(function (x) { return x.where + ' ' + x.tab + ' (the point is ' + x.hit + '\'s; shown: ' + x.selected + ')'; }).join(', ')
+                                                      : 'all eight taps (3 px above and below each of the four) chose their tab') + ' ' + m.errors.slice(0, 2).join(' | ') };
+  var clear = { ok: m.close === 'close' && m.closeEdge === 'close' && m.gaps.every(function (g) { return g && TARGET_ORDER.indexOf(g) < 0; }) && TARGET_ORDER.indexOf(m.rows) < 0 &&
+                    reach.every(function (y) { return y <= bodyTop; }),
+                detail: m.size + ': the close button reaches ' + m.close + ' (its edge ' + m.closeEdge + '); between the tabs ' + JSON.stringify(m.gaps) + '; the rows\' top ' + m.rows +
+                        '; the tabs reach down to ' + Math.max.apply(null, reach) + ', the rows start at ' + bodyTop };
+  return { taps: taps, clear: clear };
 }
 
 /* ---- FOCUS ------------------------------------------------------------------------------- */
@@ -1232,6 +1303,23 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
           });
         }))] });
       }, keysOk);
+    }
+
+    if (wanted('target')) {
+      for (var ts = 0; ts < TARGET_SIZES.length; ts++) {
+        var tg = targetOk(await target(env, TARGET_SIZES[ts]));
+        s.check('TARGET: at ' + TARGET_SIZES[ts].join(' x ') + ' a tap 3 px above and 3 px below each tab\'s drawn box chooses that tab', tg.taps.ok, tg.taps.detail);
+        s.check('TARGET: at ' + TARGET_SIZES[ts].join(' x ') + ' a tab\'s reach covers neither the close button, the gap to the next tab, nor the rows under the tab row', tg.clear.ok, tg.clear.detail);
+      }
+      for (var tc = 0; tc < TARGET_SIZES.length; tc++) {
+        await control('TARGET: a style sheet without the tabs\' reach (each tab takes taps only on what is drawn of it) at ' + TARGET_SIZES[tc].join(' x '), 'taps', (function (size) {
+          return function () {
+            return target(env, size, { routes: [broken(env, 'styles.css', function (src) {
+              return swap(/\.tabs button > \.haptic \{[^}]*\}/, '')(swap(/\.tabs button::before \{[^}]*\}/, '')(src));
+            })] });
+          };
+        })(TARGET_SIZES[tc]), targetOk);
+      }
     }
 
     if (wanted('focus')) {
