@@ -953,8 +953,11 @@ var BEFORE = {
   sheet: [0, 459, 393, 852], tabs: [16, 479, 329, 521], body: [16, 527, 377, 836],
   // (Sand's first control is its first sand since 1.14.0, measured at 393 x 852 with the edges taken out of the page;
   // it stands where the first material card stood, its top at 555)
-  row: { sand: [16, 555, 85, 644.05], glass: [16, 555, 377, 801], sound: [20, 541, 373, 571], time: [16, 558, 377, 616] }
+  row: { sand: [16, 555, 85, 644.05], glass: [16, 555, 377, 801], sound: [20, 541, 373, 571], time: [16, 555, 377, 644.25] }
 };
+// (The Time tab's first row is its six quick durations, .quick-pick, since they came: its top at
+// 555, 3 px above where Keep screen awake's row stood at 122a7fd, [16, 558, 377, 616], and taller;
+// the heading above it is where it was)
 // (1.15.0: the Glass tab's first row is its shape picker, .shape-pick, in the place where the
 // frame's row stood at 122a7fd: [16, 555, 377, 609.25] then; it is taller, and the frame's row is
 // now under it)
@@ -969,7 +972,7 @@ function edges(t) {
       var cs = getComputedStyle(el);
       return { box: R(el), opacity: +cs.opacity, events: cs.pointerEvents, hidden: el.getAttribute('aria-hidden'), fade: cs.transitionDuration, kids: el.querySelectorAll('*').length };
     }
-    var row = p ? p.querySelector('#sands button, .row, .slider-row, .shape-pick') : null;
+    var row = p ? p.querySelector('#sands button, .row, .slider-row, .shape-pick, .quick-pick') : null;
     return {
       tab: p ? p.getAttribute('data-tab') : null, scrolled: b.scrollTop, left: b.scrollHeight - b.clientHeight - b.scrollTop, length: b.scrollHeight, view: b.clientHeight,
       sheet: R(s), tabs: R(document.getElementById('tune-tabs')), body: R(b), row: row ? R(row) : null,
