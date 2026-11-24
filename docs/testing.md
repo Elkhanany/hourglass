@@ -106,9 +106,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   save from before version 2 with everything changed; Real motion left on; a
   damaged save; `?t=45` over a saved sequence; a glass in the Delta shape); a copy of `app.js` that gives
   the sound engine `muted` before `volume` must fail. `app-tune-trace`: what
-  each of the controls that change a setting (61, with the ten sands, the
-  custom sand's colour well and the six finishes of 1.14.0) saves, calls and buzzes in
-  its own tap, and what follows it (what the cross-fade sets, the answer to
+  each of the controls that change a setting (the ten sands, the custom
+  sand's colour well, the six finishes and the glass shapes among them; the
+  suite's check "the controls driven are the kept trace's" says how many)
+  saves, calls and buzzes in its own tap, and what follows it (what the cross-fade sets, the answer to
   the motion question, the boot after the reload a grain makes); a copy of
   `app.js` whose completion bowl saves after it has told the sound engine,
   and whose Haptics switch has lost its buzz, must fail at those. Every
