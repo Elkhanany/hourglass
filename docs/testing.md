@@ -91,7 +91,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   save from before version 2 with everything changed; Real motion left on; a
   damaged save; `?t=45` over a saved sequence); a copy of `app.js` that gives
   the sound engine `muted` before `volume` must fail. `app-tune-trace`: what
-  each of the 48 controls that change a setting saves, calls and buzzes in
+  each of the controls that change a setting (61, with the ten sands, the
+  custom sand's colour well and the six finishes of 1.14.0) saves, calls and buzzes in
   its own tap, and what follows it (what the cross-fade sets, the answer to
   the motion question, the boot after the reload a grain makes); a copy of
   `app.js` whose completion bowl saves after it has told the sound engine,
@@ -109,12 +110,18 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   section is the app before the store (release 1.10.0's, with its 31 keys,
   which release 1.11.0 kept byte for byte): a setting added to the store is
   not added to it, and it is not made again. The two traces were made from
-  release 1.11.0, whose new engine build (6) is in their saves, and last
-  made again (`--write`) from the tree that joined it with the new Tune
-  (release 1.13.0): against each side's file they differ only in what the
-  other side brought (the `tuneTab` key at the end of every full save and
-  the lines of the four tabs and the reset link's two taps; the build
-  stamp 6 in the saves and the boot's save of it).
+  release 1.11.0, whose new engine build (6) is in their saves, made again
+  (`--write`) from the tree that joined it with the new Tune (release
+  1.13.0), and last made again for release 1.14.0, the sand and the frame's
+  finish chosen apart: the keys `sand`, `sandColor` and `finish` at the end
+  of every full save, the six material cards' lines replaced by those of the
+  ten sands, the custom sand's colour well (a colour let go: `input`, then
+  `change`) and the six finishes, and the chip's line by the sand chip's.
+  Every other control's entry is as it was but for the boot after a reload
+  at the end of the walk, which now draws Volcanic Black over walnut (the
+  chip steps the sands alone) with `setLook` where it drew the volcanic
+  bundle. The trace's recorder writes a small record of plain values (the
+  look handed to `setLook`) as it is, where it wrote "(an object)".
   The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
@@ -166,6 +173,14 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Reset sweep; the drawn glass's wall on the shape's own curve, and as thick
   all along; the collars covering the ends; the layers their own half turn;
   the lights on the glass; cracks on it.
+- `look-unit`: the sands, in Node: the nine of `SANDS` (the first six the
+  sands of `THEMES`, field for field, their tables the renderer's own) and
+  `customSand` over a sweep of 6336 colours against what the colour table,
+  layered sand and the eye need; what `customSand.clamp` makes of a colour;
+  the theme `setLook` puts together from a sand and a theme's caps; the
+  six finishes (each a theme's caps, named by its material, and the swatch
+  Tune draws in its tones); and the page's colours and swatch of each sand
+  in `styles.css`. It is in GitHub's list.
 - `motion-*` and `audio-*`: the sensor pipeline (against a model of a phone
   being shaken, in each browser's sign convention) and its permission, and
   the sound engine's calls and levels, and the water ambiences: that each
@@ -344,21 +359,42 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   files on the page, the engine dropped from the cache; and a copy of
   `app.js` that does not ask for the settings store before it starts, which
   throws in the mixed copy (the words then come from the page's own last
-  lines; with those taken out as well, it says nothing). It needs
-  `origin/main` and 13a9772 from git
+  lines; with those taken out as well, it says nothing). And old saves
+  (`--only "old saves"`): each of the six materials, chosen with its own card
+  in release 1.13.0 and in release 1.10.0 (with layered sand on, the bowl
+  off and the rain), comes through the update to this tree with the same
+  colour table, caps and picture, drawn by the renderer's own bundle, saved
+  as that sand over its own finish, and every other setting as it was,
+  online and offline (what the app keeps of its Real sand engine aside); a
+  copy without the finish's migration is found out. It needs
+  `origin/main`, 5911e24 (release 1.10.0) and 13a9772 from git
   (`HOURGLASS_MAIN=<ref>` names another first release).
   `app-tune` covers Tune's four tabs: one panel shown and remembered, the
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
-  at boot, the reset link (what it puts back and what it keeps), and the
+  at boot, the reset link (what it puts back, the sand and its finish among it,
+  and what it keeps, the custom sand's colour among it), and the
   "more below" hint (`--only hint`): at 393 x 852 a tab that can scroll
   shows it at its top and in its middle and not at its end, Glass never; a
   scrolled tab fades its rows under the tab row; a finger on the hint
-  reaches the row under it; the sheet, the tab row and each tab's first row
-  stand where they did before the hint; Grain appearing or going with Real
+  reaches the row under it (the lowest point of the hint over a control
+  that does not load the page again); the sheet, the tab row and each tab's
+  first row stand where they did before the hint (Sand's first control, a
+  sand since 1.14.0, where the first material card stood); Grain appearing or going with Real
   sand keeps it right; and Reduce Motion shows it without a fade. The
   suites reach a control of Tune through `lib/tune.js`, which opens the
   sheet and taps the tab whose panel holds it, read from the page.
+  `app-look` covers the sand and the frame's finish chosen apart (release
+  1.14.0): with nothing saved the glass and the page exactly as they were,
+  the renderer's own bundle; each of the nine sands tapped in Tune over the
+  caps the frame had, and each of the six finishes under one sand (hidden
+  while the frame is off); one of the six over its own caps the bundle,
+  picture for picture; Custom with no colour made (a sea green, the well
+  shown), a colour let go in the well kept as asked and used clamped, the
+  well showing the colour used; a colour dragged (the table once a frame,
+  nothing drawn or saved until it is let go); the chip, with and without a
+  custom sand; `Hourglass.setTheme` as the material of old; reloads; and at
+  320 px four sands and three finishes a row. Each check has a control.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-ambience` covers the six
   ambience cards: the radio group as a screen reader meets it, two rows of
