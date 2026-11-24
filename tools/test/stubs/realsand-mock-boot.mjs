@@ -22,6 +22,19 @@
  * (loseIt), creates, starts, devices (devices opened), grains (its palettes and draws),
  * paletteFromLUT, hold (true: no GPU work completes, so runs are skipped), failDevice (true:
  * no device opens, as a rebuild that fails) }.
+ *
+ * The mock sand does not move when the glass is moved. A test says that it does, in two places
+ * on window.__mockEnv (both null by default):
+ *   tally   what the graphics chip reports of its sand: an object, or function (tally, frame)
+ *           returning one, merged into every readback the mock GPU returns ({ moving: 400 } keeps
+ *           the glass awake as moving sand does; the engine's own bed records go here too).
+ *   feeds   what the engine tells the sound of the bed, as the classic Sim's frame record holds
+ *           it: { thump: [E0, x0, E1, x1], slam: [E, x], slides: moves this frame, agit: 0 to 3 },
+ *           or function (frame) returning one (or null). The mock adapter writes it over the
+ *           record right after the real submit(), and only in a frame in which the engine made a
+ *           run with substeps: asleep, hidden, lost or held, the engine's own rules report
+ *           nothing. agitation() returns its agit in such a frame and 0 otherwise. fed counts
+ *           the frames it was written in.
  */
 import { RealSand, BUILD, paletteFromLUT } from './app-sand.mjs';
 import * as FI from './fill.mjs';
@@ -35,6 +48,7 @@ const MATERIAL = SOL.MATERIALS.coarse, PW = SOL.PARTICLE_WORDS;
 const env = window.__mockEnv = {
   V: { frame: 0 }, rnd: L.rng(M.seed || 5), plant: M.plant || {}, xferFrames: M.xferFrames || 1,
   hold: false, creates: 0, starts: 0, devices: 0, failDevice: false, solver: null, device: null, paletteFromLUT,
+  tally: null, feeds: null, fed: 0,
   parity: () => (window.Hourglass && window.Hourglass.realSand ? window.Hourglass.realSand.valve.parity : 0)
 };
 let q = [];
@@ -122,6 +136,9 @@ function makeEngine() {
       maxSpeed: 0, meanSpeed: 0, moving: (out.crossings > 0 || pl.flow > 1 || env.V.frame - this.uploadSim < 30) ? 20 : 0,
       crossings: out.crossings, start: out.start, refused: out.refused, upward: out.upward, queue: out.queue, crowdSpeed: 0,
       brim: Math.round(brimY * 16), lastCross: -1, deepest: out.below > 0 ? g._floor : 0 };
+    // what the test says the chip's sand is doing
+    const more = typeof env.tally === 'function' ? env.tally(t, env.V.frame) : env.tally;
+    if (more) Object.assign(t, more);
     const lag = 1 + Math.floor(env.rnd() * 3);
     lastRd = Math.max(lastRd, env.V.frame + lag);
     const due = lastRd - env.V.frame;
@@ -173,6 +190,22 @@ class MockSand extends RealSand {
     }
     return super.start();
   }
+  /** The frame's GPU work as ever, then what the test says the engine tells the sound (env.feeds), where the engine ran. */
+  submit(now) {
+    const runs = this.n.runs;
+    super.submit(now);
+    const ran = this.n.runs > runs && this._lastSteps > 0 && this.live && !this.hidden;
+    const F = ran ? (typeof env.feeds === 'function' ? env.feeds(env.V.frame) : env.feeds) : null;
+    this._mockAgit = 0;
+    if (!F) return;
+    const f = this.cpu.frame;
+    if (F.thump) f.thump.set(F.thump);
+    if (F.slam) f.slam.set(F.slam);
+    if (F.slides >= 0) f.slides = F.slides;
+    if (F.agit >= 0) this._mockAgit = F.agit;
+    env.fed++;
+  }
+  agitation() { return env.feeds ? (this._mockAgit || 0) : super.agitation(); }
 }
 window.__mockClass = MockSand;
 

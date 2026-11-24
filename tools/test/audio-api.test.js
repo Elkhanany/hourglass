@@ -30,6 +30,18 @@
  *  13. a browser that refuses AudioBuffers below 22.05 kHz (older WebKit),
  *      live: all three still play, at the least whole multiple of each rate
  *
+ * A glass that is moved before it is started:
+ *  14. one touch is enough. In a browser that plays sound only after a
+ *      gesture (Chromium with its own autoplay policy, as an iPhone has one;
+ *      every other case here runs with that policy lifted), on a fresh page
+ *      with the glass idle: the bed's feeds of a shaken glass, given to
+ *      update() through the app's own frame loop, play nothing before any
+ *      touch; after ONE touch, a finger that takes the glass and moves it a
+ *      little (it starts nothing), the context runs, the glass is still idle,
+ *      and the same feeds thump, rush and shimmer, with sound at the output.
+ *      The control, on another fresh page: the same events made by a script
+ *      (no gesture of the user's) leave the context suspended and silent
+ *
  *   node tools/test/audio-api.test.js [port | --port <n>]      (default $PORT, else 8803)
  */
 'use strict';
@@ -512,6 +524,114 @@ async function main() {
              l.rates.every(function (r, i) { return r >= 22050 && r % l.asked[i] === 0 && (l.asked[i] >= 22050 ? r === l.asked[i] : r < 2 * 22050); });
     }) && low.refused > 0, 'a browser that makes no buffer below 22.05 kHz still plays all three (the least whole multiple of each rate)',
            NEW_AMB.map(function (id) { var l = low[id]; return id + ': ' + (l.err || l.asked.join('/') + ' → ' + l.rates.join('/') + ' Hz'); }).join('; ') + '; ' + low.refused + ' buffers refused');
+
+    /* ---- 14. one touch is enough, where sound needs a gesture ------------------------- */
+    // Chromium's own autoplay policy: no sound before a gesture. Nothing here may be evaluated in
+    // the page from outside, nor a function exposed to it (both count as the user's gesture): the
+    // page is driven by an init script and tells what it saw on its console.
+    var strict = await chromium.launch();
+    try {
+      var sctx = await strict.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+      await sctx.addInitScript(seed.seedOnce, seed.storageFor({}));
+      /**
+       * In the page. The bed's feeds of a shaken glass (the classic sand's, 1.5 g at 5 Hz, with a
+       * landing now and then) go into the app's own updates for a while, twice: before anything,
+       * and after `how`: 'touch' (the first real touch that ends; the test sends it) or 'script'
+       * (the events of a touch, a click and a key, made by this script: no gesture of the user's).
+       */
+      var oneTouchPage = function (how) {
+        var W = { on: false, frames: 0, live: 0, thumps: 0, rush: 0, shimmer: 0, peak: 0, an: null, buf: new Float32Array(2048) };
+        function fed(ms, name, then) {
+          W.frames = W.live = W.thumps = 0; W.rush = W.shimmer = W.peak = 0; W.on = true;
+          setTimeout(function () {
+            var a = window.Hourglass.audio, ua = navigator.userActivation, r = document.getElementById('assembly').getBoundingClientRect();
+            W.on = false;
+            console.log('__tell ' + JSON.stringify({ stage: name, frames: W.frames, live: W.live, thumps: W.thumps, rush: W.rush, shimmer: W.shimmer, peak: W.peak,
+              ctx: a.ctx ? a.ctx.state : 'none', ready: a.ready, glass: window.Hourglass.timer.state, gesture: ua ? ua.hasBeenActive : null,
+              x: r.left + r.width / 2, y: r.top + r.height / 2 }));
+            if (then) then();
+          }, ms);
+        }
+        (function boot() {
+          if (!(window.Hourglass && window.Hourglass.audio)) { setTimeout(boot, 50); return; }
+          var a = window.Hourglass.audio, orig = a.update, thA = a._thumpAt, zero = new Float32Array(4), k = 0;
+          a.update = function (st) {
+            if (W.on) {
+              W.frames++;
+              st.agit = 1.08; st.slides = 46000; st.rushPan = 0.3;
+              st.thump = (k++ % 12) === 0 ? new Float32Array([0.3, 0.1, 0, 0]) : zero;
+            }
+            var r = orig.call(this, st);
+            if (W.on && this.ready && this.ctx.state === 'running') {
+              W.live++;
+              W.rush = Math.max(W.rush, this._last.rush || 0);
+              W.shimmer = Math.max(W.shimmer, (this._last.cS || 0) + (this._last.cG || 0));
+              if (!W.an) { W.an = this.ctx.createAnalyser(); W.an.fftSize = 2048; this.out.connect(W.an); }
+              W.an.getFloatTimeDomainData(W.buf);
+              for (var i = 0; i < W.buf.length; i++) { var v = W.buf[i] < 0 ? -W.buf[i] : W.buf[i]; if (v > W.peak) W.peak = v; }
+            }
+            return r;
+          };
+          a._thumpAt = function () { W.thumps++; return thA.apply(this, arguments); };
+          setTimeout(function () {
+            fed(800, 'before', function () {
+              var after = function () { setTimeout(function () { fed(1200, 'after'); }, 700); };   // (the context's start, the master's fade in)
+              if (how === 'touch') {
+                window.addEventListener('touchend', function te(e) { if (e.isTrusted) { window.removeEventListener('touchend', te, true); after(); } }, true);
+              } else {
+                // (on the body: the app's own listener for every gesture hears them, the glass and the buttons do not)
+                ['pointerdown', 'pointerup'].forEach(function (t) { document.body.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 7, isPrimary: true, clientX: 195, clientY: 60 })); });
+                ['mousedown', 'click'].forEach(function (t) { document.body.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: 195, clientY: 60 })); });
+                window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+                after();
+              }
+            });
+          }, 800);
+        })();
+      };
+      /** A fresh page run through both stages; onBefore(told) is where the test acts in between. */
+      var oneTouchRun = async function (how, onBefore) {
+        var p = await sctx.newPage(), told = {}, waiting = {};
+        p.on('pageerror', function (e) { errors.push('one touch: ' + e.message); });
+        p.on('console', function (m) {
+          var txt = m.text();
+          if (txt.indexOf('__tell ') !== 0) return;
+          var o = JSON.parse(txt.slice(7));
+          told[o.stage] = o;
+          if (waiting[o.stage]) waiting[o.stage](o);
+        });
+        await p.addInitScript(oneTouchPage, how);
+        var stage = function (name) { return told[name] ? Promise.resolve(told[name]) : new Promise(function (res) { waiting[name] = res; setTimeout(function () { res(null); }, 20000); }); };
+        await p.goto(BASE + '/');
+        var before = await stage('before');
+        if (before && onBefore) await onBefore(p, before);
+        var after = await stage('after');
+        await p.close();
+        return { before: before || {}, after: after || {} };
+      };
+      // one touch: a finger takes the glass by its waist, moves it 36 px and lets go
+      var touched = await oneTouchRun('touch', async function (p, b) {
+        var cdp1 = await sctx.newCDPSession(p);
+        var finger = function (type, x) {
+          return cdp1.send('Input.dispatchTouchEvent', { type: type, touchPoints: type === 'touchEnd' ? [] : [{ x: x, y: b.y, id: 1, radiusX: 2, radiusY: 2, force: 1 }] });
+        };
+        await finger('touchStart', b.x);
+        for (var mv = 1; mv <= 6; mv++) { await sleep(30); await finger('touchMove', b.x + 6 * mv); }
+        await sleep(60);
+        await finger('touchEnd');
+      });
+      var before = touched.before, after = touched.after;
+      report(before.frames >= 20 && before.ctx === 'none' && !before.ready && before.thumps === 0 && before.live === 0 && before.gesture === false && before.glass === 'idle',
+             'one touch: before any touch the bed\'s feeds play nothing (no context, no gesture yet: this browser plays sound only after one)', JSON.stringify(before));
+      report(after.ctx === 'running' && after.ready && after.gesture === true && after.glass === 'idle' && after.live >= 20 && after.thumps >= 2 &&
+             after.rush > 0.05 && after.shimmer > 0.05 && after.peak > 0.005,
+             'one touch: after ONE touch (a finger moving the glass a little, which starts nothing) the same feeds thump, rush and shimmer, with sound at the output',
+             JSON.stringify(after));
+      // the control: the events of a gesture without the user, on another fresh page
+      var noUser = (await oneTouchRun('script', null)).after;
+      report(noUser.ctx !== undefined && noUser.ctx !== 'none' && noUser.ctx !== 'running' && noUser.gesture === false && noUser.thumps === 0 && noUser.live === 0 && noUser.frames >= 20,
+             'one touch (control): the same events made by a script, with no gesture of the user\'s: the context is made but stays suspended, and nothing plays', JSON.stringify(noUser));
+    } finally { await strict.close(); }
 
     report(errors.length === 0, 'no page or console errors', errors.join(' | '));
   } finally {

@@ -23,7 +23,8 @@
  *   model put it at about 16 us (350 points' work), but the owner's iPhone's
  *   coarse 1-minute real-speed row leaves at most about 4 us a dispatch; the
  *   Benchmark's gpu ms/substep column is to settle it;
- * - a per-frame tally (counts, speeds) is read back for the HUD and tests;
+ * - a per-frame tally (counts, speeds; each bulb's bed, for the sound) is read back for the HUD,
+ *   the tests and the app;
  * - a metered neck, off unless a run is given the valve's words (valve.mjs):
  *   a throttle in a band just above the counting line (gridUpdate.wgsl), a
  *   membrane that lets a point cross the line only downward and only with a
@@ -45,11 +46,25 @@ const BUCKET = 6;
 // [5] upward crossings refused this run, [6] the substep of the run's last crossing (its frame
 // number + 1; 0: none); [7] unused
 const COUNTER_WORDS = 8;
-// the tally (tally.wgsl), summed afresh by each run
-const TALLY_WORDS = 16;
-// a readback slot: the counters, then the tally, then the post pass's 8 words (Solver.post)
-const READBACK_BYTES = 128;
+// the tally (tally.wgsl), summed afresh by each run: 16 words of counts and speeds, then 6 for
+// each bulb's bed (BED_WORDS: its momentum, count, place across the glass and what of it moves)
+const TALLY_WORDS = 28;
+const BED_AT = 16, BED_WORDS = 6;
 const POST_WORDS = 8;
+// a readback slot: the counters, then the tally, then the post pass's 8 words (Solver.post)
+const READBACK_BYTES = (COUNTER_WORDS + TALLY_WORDS + POST_WORDS) * 4;
+
+/**
+ * One bulb's bed from the tally's words (u unsigned, s signed, at o): its points in a bed (n: not
+ * the falling stream, not spray), their mean velocity (vx, vy: cells/s, the grid's frame, y up),
+ * their centre across the glass from the neck's (x: cells), and of those that move (faster than
+ * 2 % of a free fall over the glass) the number (sliding) and the summed speed (slide, cells/s).
+ * What the sound is made from (app-sand.mjs, design 8).
+ */
+function bedOf(u, s, o) {
+  const n = u[o + 2];
+  return { n, vx: n ? s[o] / 4 / n : 0, vy: n ? s[o + 1] / 4 / n : 0, x: n ? s[o + 3] / 16 / n : 0, sliding: u[o + 5], slide: u[o + 4] / 4 };
+}
 
 export async function createDevice() {
   if (!globalThis.navigator?.gpu) throw Object.assign(new Error('WebGPU is not available'), { code: 'nogpu' });
@@ -524,7 +539,7 @@ export class Solver {
     if (!slot) return null;
     slot.pending = true;
     return slot.buffer.mapAsync(GPUMapMode.READ).then(() => {
-      const u = new Uint32Array(slot.buffer.getMappedRange().slice(0)), t = COUNTER_WORDS;
+      const u = new Uint32Array(slot.buffer.getMappedRange().slice(0)), t = COUNTER_WORDS, i = new Int32Array(u.buffer);
       slot.buffer.unmap(); slot.pending = false;
       return { clamped: u[0], maxMove: u[1] / 1000, points: u[t], above: u[t + 1], below: u[t + 2], outside: u[t + 3], nan: u[t + 4],
         maxSpeed: u[t + 5] / 4, meanSpeed: u[t] ? u[t + 6] / 4 / u[t] : 0, moving: u[t + 7],
@@ -534,6 +549,8 @@ export class Solver {
         lastCross: u[6] ? u[6] - 1 - frame0 : -1,
         // the depth of the lowest point below the counting line, cells (the lab's Timer times the first fall with it)
         deepest: u[t + 11] / 16,
+        // the beds, for the sound: [the bulb above the line, the one on it or below] (bedOf)
+        beds: [bedOf(u, i, t + BED_AT), bedOf(u, i, t + BED_AT + BED_WORDS)],
         // the post pass's words (null: none)
         post: post ? Array.from(u.subarray(t + TALLY_WORDS, t + TALLY_WORDS + POST_WORDS)) : null };
     }, e => {

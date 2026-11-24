@@ -183,8 +183,8 @@ Tune trace's driver, and the two kept traces made again. The steps are in
 
 Three checks hold the store, and whatever is built on it, to what the app
 did before it. Each compares with a file in `tools/test/base/`, made from
-the last release before the store (1.10.0; `tools/test/lib/base.js` names
-its commit; a suite run with `--base <commit>` makes its file again from
+the last release before the store (1.11.0, whose Settings section is
+1.10.0's byte for byte; `tools/test/lib/base.js` names its commit; a suite run with `--base <commit>` makes its file again from
 that commit and compares):
 
 - the loader (`settings-unit`, in Node): the old Settings section of

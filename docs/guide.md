@@ -199,6 +199,24 @@ keeps: carry the glass off quickly and the sand is left behind for a moment,
 the falling thread with it; stop it dead, or let it strike an edge, and the
 sand surges on, piles against the glass and runs back to its slope.
 
+What you hear. Sand that moves is heard, whether the glass is running or
+not: before it is started, while it is paused and after it has run out, as
+much as while it runs. Shake it and the bed lifts and lands with a soft
+thump (a hard landing also buzzes, on Android), sand thrown against the far
+end of the glass clacks, and the stirred grains shimmer. Lean it past the
+sand's slope, or carry it about, and the sand slides with a soft hiss on the
+side it runs to: leaned to the right, in the right ear. In a glass that only
+stands there (not running) that hiss is heard from a small slide on, well
+under the stream's own level, and when such a glass is turned over (the Flip
+button before the start, or while paused) the slide is heard through the
+turn and on until the sand rests; under a running stream small slides stay
+beneath the stream, as they always did, and only a turned or shaken bed
+rushes. Nothing sounds while no sand moves.
+The stream and the ambience still begin only when the glass runs, and the
+mute button and the volume apply to all of it. On an iPhone the sound of
+each launch begins with the first touch that ends: any touch will do (a
+tap, the tilt icon, the glass taken and let go), and one is enough.
+
 ## Breaking it
 
 All of this is the classic sand's glass. While Real sand runs (the default
@@ -261,8 +279,27 @@ run), the glass and its frame, the six sands and layered sand, Flip,
 turning and spinning the glass, **Sand**, **Reset** with its one-second
 transition, work and rest, Real motion with the phone lying still or in the
 hand, the glass carrying on across reloads, the sound of the stream, the
-landings, the tail and the fill, the bowl, and every haptic but the landing
-buzz.
+landings, the tail and the fill, the bowl, and every haptic.
+
+What you hear of the sand itself, from version 1.11.0 (until then Real
+sand's bed was silent). What "Playing with the glass" says of the sound
+holds for Real sand too, and it is made from what the sand on the graphics
+chip did, a few frames after it did it: a bed that falls and lands thumps,
+one thrown against the far end clacks, sand sliding within its bed hisses
+on the side it runs to, and stirred sand shimmers, about as loud as the
+classic sand for the same motion, before the start, paused and finished as
+while it runs. A bed is the sand that lies together: the thin stream, the
+first grains on the floor of a glass just started and the last above its
+neck make no sound of a bed, so a glass that is started and left alone
+sounds of its stream only; and a bed that is thrown flies without a hiss
+and lands with its thump. A phone that moves without moving its sand makes no sound of
+sand: walked with, the sand on the chip lies still, and is silent, where
+the classic sand shimmers a little. And leaned, its heaps stand steeper
+than the classic sand's and hardly slide (one of the lab's known faults,
+below), so a lean alone is all but silent with Real sand for now, where the
+classic sand's avalanche hisses; a shake, a jolt, a flick or a turn is
+heard. A glass asleep (its sand at rest) is silent, and the sound never
+keeps it awake; a jolt wakes it and is heard as the sand moves.
 
 What it needs: WebGPU, which Safari has from iOS 26, also in a web app on
 the home screen. Without it the switch shows off and says *Needs WebGPU (iOS
@@ -349,8 +386,6 @@ What it leaves out for now:
 - The glass does not crack. A hard landing or a blow thumps and clacks;
   knocks, flicks and shaking do nothing to it. Cracks the glass already had
   stay, leak nothing and can be mended; Reset makes it whole.
-- The bed's landing thumps, the avalanche hiss and the bed's slams are
-  silent, and so is the landing buzz (Android).
 - The classic sand's glow, rim light and depth shading are not drawn; the
   grains are lit as in the sand lab.
 - **Grain** sets the classic sand only, so it is hidden while Real sand
@@ -404,7 +439,10 @@ and after each.
 
 - iOS Safari only starts audio from a user gesture. The app creates and resumes
   the audio context on the first touch, and resumes it again after an
-  interruption (call, lock screen, tab switch).
+  interruption (call, lock screen, tab switch). One touch is enough, also
+  one that starts nothing (the glass taken and let go); the sound begins as
+  that touch ends, so a glass dragged about in the very first touch of a
+  launch is silent until the finger lifts.
 - Real motion needs motion permission on iOS 13+; the switch asks for it, once
   for both sensors. An iPhone keeps that permission only until the app is
   closed, and a web app cannot change that, so with Real motion left on it
