@@ -136,9 +136,29 @@ back as they came". Its first tap asks for a second within three seconds (a
 second tap sooner than 0.4 s, half of a double tap, is not an answer); the
 second sets the sand (with the material that follows it), the frame's
 finish, the frame, layered sand, the volume, the sand's sound, the ambience
-and its level and the completion bowl to their records' defaults (the custom
+and its level and its fade before the end, the completion bowl, its rings
+and its level, and the sand's level to their records' defaults (the custom
 sand's colour is kept, for its swatch), saves once, and tells the engines only what differed, the look
-behind one cross-fade. Everything else is kept, and nothing is loaded again.
+behind one cross-fade. Everything else is kept, Sound in silent mode among it
+(how the phone treats the app: put back on, it could ring in a quiet room),
+and nothing is loaded again.
+
+The Sound tab holds, under the sand's sound cards, the sand's own level (one
+gain in `audio.js`, `gSand`, between the sand's faders and the bus: the bowl
+and the ambience do not pass it), and under the completion bowl its rings
+and its level. The rings are kept on the wall clock (`rings` in `app.js`:
+the first ring's time, the next ring's number and the last's) and rung from
+the frame loop, so a hidden page rings nothing and a ring whose time has
+passed is dropped, not played late. While the bowl is still to ring, a
+listener on the window that sees events first (capturing) takes the first
+pointer down or key and the rest of its gesture (its lift, the click, the
+touch and mouse events, the key's lift): it stops the bowl and goes no
+further. The ambience's fade before the end is worked out by `app.js` from
+the time left (`ambFadeShare`) and handed to the sound engine with every
+frame, which glides a gain after the ambience's bus (`ambEnd`) to it. Sound in
+silent mode is the page's audio session, which `audio.js` sets when the
+sound is first unlocked and at once when the switch moves; with it off the
+app sets it at the launch too.
 
 At the top of the Glass tab, a tap on a shape only shows it; "Use this
 shape" saves the setting `shape` and the session, and loads the page again,
@@ -158,7 +178,7 @@ controls.
 
 What the app keeps from one launch to the next is one JSON object in
 `localStorage`, under `hourglass.settings.v1`. The settings store holds it as
-a table of records, one for every saved key (36 today), in the order the
+a table of records, one for every saved key (41 today), in the order the
 keys are saved:
 
 - `id`, the key;
@@ -183,6 +203,14 @@ keys are saved:
   material (`HourglassPhysics.finishOf`: Sahara Quartz walnut, Volcanic Black
   brass, Moonstone silver, Lapis Lazuli gold, Rose Quartz copper, Sea Glass
   driftwood), so that an old glass looks as it did.
+
+The last five are the Sound tab's (settings design 3.3), each with the sound
+as it was for its default, so a save from before them comes up sounding the
+same: `sandLevel` (0 to 1, Tune's Sand over 100, default 1), `bowlLevel` (0
+to 2, Tune's Bowl over 50, default 1), `bowlRings` ('once', 'three' or
+'tap'), `ambFade` (0 for off, or 60000, 300000 or 600000 ms) and
+`silentRing` (true). A level out of its range, or a choice that is none of
+its record's, is the default.
 
 `HourglassSettings.load(storage, search, reg)` gives the values: the
 defaults; over them the saved values of the right type; the version step
