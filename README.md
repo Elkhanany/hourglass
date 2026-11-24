@@ -72,9 +72,10 @@ deep-water teal.
   **Grain** is hidden: turn Real sand off in **Tune** for the classic sand,
   its finer grains and a glass you can break and mend.
 - **Real sound.** The soft hush of sand landing, made of thousands of tiny
-  grains, the first grains ticking on bare glass, a singing bowl at the end,
-  and optional water behind it (a brook, rain, the ocean, a waterfall, or
-  drips in a grotto), all synthesised, nothing recorded.
+  grains, the first grains ticking on bare glass, a singing bowl at the end
+  (once, three times, or until a tap), and optional water behind it (a brook,
+  rain, the ocean, a waterfall, or drips in a grotto) that can fade out before
+  the end, each at its own level, all synthesised, nothing recorded.
 - **Zen.** Spread two fingers on the screen, or tap the moon, and the controls
   fade while the glass grows to fill the screen. Pinch them together to come
   back. Nothing else changes the view: not a tap, not playing with the glass,

@@ -263,6 +263,20 @@
           <input id="amb-level" type="range" min="0" max="100" step="1" value="50" aria-label="Ambience level">
           <output id="amb-out" for="amb-level">50</output>
         </label>
+        <!-- the ambience falls away over the glass's last stretch (shown with an ambience chosen) -->
+        <div class="rows rows-single" id="ambfade-rows" hidden>
+          <label class="row" for="opt-ambfade">
+            <span><b>Fade out before the end</b><small>The ambience falls away so the glass ends in quiet</small></span>
+            <input id="opt-ambfade" class="switch" type="checkbox" role="switch">
+          </label>
+          <div class="sub" id="ambfade-sub" hidden>
+            <div id="ambfades" class="segmented" role="radiogroup" aria-label="Fade out over">
+              <button type="button" role="radio" aria-checked="false" data-fade="60000" aria-label="Over the last minute">Last minute</button>
+              <button type="button" role="radio" aria-checked="true" data-fade="300000" aria-label="Over the last 5 minutes">Last 5 min</button>
+              <button type="button" role="radio" aria-checked="false" data-fade="600000" aria-label="Over the last 10 minutes">Last 10 min</button>
+            </div>
+          </div>
+        </div>
 
         <h3>Sand sound</h3>
         <div id="characters" class="segmented chars" role="radiogroup" aria-label="Sand sound">
@@ -273,12 +287,35 @@
           <button type="button" role="radio" aria-checked="false" data-character="bamboo"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><path d="M3.8 4.6v14.8M20.2 4.6v14.8M3 9.5h1.6M3 14.5h1.6M19.4 9.5h1.6M19.4 14.5h1.6"/></svg><span>Bamboo Rainstick</span></button>
           <button type="button" role="radio" aria-checked="false" data-character="dune"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/><circle cx="20.3" cy="6.7" r="1.6"/><path d="M1.6 19.4C2.7 18.1 3.9 17.5 5.4 17.8M18.6 17.8C20.1 17.5 21.3 18.1 22.4 19.4"/></svg><span>Desert Dune</span></button>
         </div>
+        <label class="slider-row worded tall" id="sand-level-row" for="sand-level">
+          <span class="lab"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 4.6h9.6M7.2 19.4h9.6M8.6 4.6C7.8 5.2 8.2 5.3 8.2 6.5C8.2 8.5 11.75 9 11.75 12S8.2 15.5 8.2 17.5C8.2 18.7 7.8 18.8 8.6 19.4M15.4 4.6C16.2 5.2 15.8 5.3 15.8 6.5C15.8 8.5 12.25 9 12.25 12S15.8 15.5 15.8 17.5C15.8 18.7 16.2 18.8 15.4 19.4"/></svg>Sand</span>
+          <input id="sand-level" type="range" min="0" max="100" step="1" value="100" aria-label="Sand level">
+          <output id="sand-level-out" for="sand-level">100</output>
+        </label>
 
         <h3>End of the glass</h3>
         <div class="rows">
           <label class="row" for="opt-chime">
             <span><b>Completion bowl</b><small>A soft singing-bowl bloom when the last grain falls</small></span>
             <input id="opt-chime" class="switch" type="checkbox" role="switch" checked>
+          </label>
+          <!-- how often it rings, and how loud (hidden while the bowl is off) -->
+          <div class="sub" id="bowl-sub">
+            <p class="sub-head" id="rings-head">Rings</p>
+            <div id="rings" class="segmented" role="radiogroup" aria-labelledby="rings-head">
+              <button type="button" role="radio" aria-checked="true" data-rings="once" aria-label="Once">Once</button>
+              <button type="button" role="radio" aria-checked="false" data-rings="three" aria-label="Three times, about 8 seconds apart">Three times</button>
+              <button type="button" role="radio" aria-checked="false" data-rings="tap" aria-label="Until a tap, for 10 minutes at most">Until a tap</button>
+            </div>
+            <label class="slider-row worded tall" id="bowl-level-row" for="bowl-level">
+              <span class="lab"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11.5h17c0 4.4-3.8 7.5-8.5 7.5s-8.5-3.1-8.5-7.5z"/><path d="M9 19h6"/><path d="M14.5 8.5l4-4"/></svg>Bowl</span>
+              <input id="bowl-level" type="range" min="0" max="100" step="1" value="50" aria-label="Bowl level">
+              <output id="bowl-level-out" for="bowl-level">50</output>
+            </label>
+          </div>
+          <label class="row" for="opt-silent">
+            <span><b>Sound in silent mode</b><small id="silent-note">On: plays with the ringer off. Off: follows the ringer switch, and other music plays on.</small></span>
+            <input id="opt-silent" class="switch" type="checkbox" role="switch" checked>
           </label>
         </div>
       </div>

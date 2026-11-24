@@ -121,7 +121,17 @@
       valid: function (v, reg) { return !!reg.finishes && has.call(reg.finishes, v); },
       from: function (saved, reg) { return reg.finishOf(saved.theme); } },
     { id: 'shape', default: 'classic',           // the glass's shape: an id of reg.shapes that Tune offers (a shape held back comes up as the classic)
-      valid: function (v, reg) { var s = reg && reg.shapes; return !!s && has.call(s, v) && s[v].offered === true; } }
+      valid: function (v, reg) { var s = reg && reg.shapes; return !!s && has.call(s, v) && s[v].offered === true; } },
+    // The Sound tab's own (settings design 3.3). Every default is the sound as it was before them.
+    { id: 'sandLevel', default: 1,               // the sand's own sounds, 0..1 (Tune's "Sand" 0..100); heard as level^1.5
+      valid: function (v) { return v >= 0 && v <= 1; } },
+    { id: 'bowlLevel', default: 1,               // the completion bowl, 0..2 (Tune's "Bowl" 0..100, 50 the bowl as it was)
+      valid: function (v) { return v >= 0 && v <= 2; } },
+    { id: 'bowlRings', default: 'once',          // how often the bowl rings at the end: once, three times, or until a tap
+      valid: function (v) { return v === 'three' || v === 'tap'; } },
+    { id: 'ambFade', default: 0,                 // the ambience fades out over the glass's last stretch (ms): 0 off, or 1, 5 or 10 minutes
+      valid: function (v) { return v === 60000 || v === 300000 || v === 600000; } },
+    { id: 'silentRing', default: true }          // sound with the ringer switched off (the page's audio session 'playback'); off: 'ambient'
   ];
 
   /** A custom sand's colour as it is kept, "h,s,l": { h, s, l }, or null when the text is not one. */

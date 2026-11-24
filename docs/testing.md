@@ -94,7 +94,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   which a blocked storage then throws from; the preset asked without the
   query); a record added after the old 31 is left out of the comparison, so
   a new setting changes nothing here, and one put among them is found out;
-  the version step (Real sand on, once, for a save from before version 2); a
+  the Sound tab's five keys (the five records after the shape, in their
+  order, the sound as it was by default; saves of 1.13.0, 1.10.0 and 1.15.1
+  come up with them and every other value as saved; each value of their
+  range kept, 28 out of it or of the wrong type and a name every object has
+  as the rings the default; seven stores with one thing wrong in them found
+  out); the version step (Real sand on, once, for a save from before version 2); a
   record's `from` and the steps' order, on a made-up store, and an example
   for every `from` the app has, which must come up with something other
   than the default; the names (every `settings.…` in `app.js` is a record,
@@ -226,7 +231,16 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the sound engine's calls and levels, and the water ambiences: that each
   starts, switches and stops leaving nothing behind, their levels, that
   nothing clips behind the sand, their synthesis slices, and the fallback for
-  browsers that refuse low sample rates. `audio-levels` renders every
+  browsers that refuse low sample rates; and the Sound tab's levels: the
+  Sand level at 100 is the sand as it was, to the last bits, against the
+  engine of d16fdcd (`HOURGLASS_SOUND_BASE` names another), at 50 the law
+  (50/100)^1.5 with the compressor and the clipper made plain, at 0 the sand
+  silent while the bowl and an ambience play as they do with no sand; the
+  Bowl level at 50 is the bowl as it was, at 100 with Sound at 100 its peak
+  printed and nothing into the clipper's end, at 0 silent; each with its
+  control (a gain of 0.99, a level heard as its plain value, the base engine,
+  a bowl or an ambience routed through the sand's gain, a bowl 30 dB over the top, a
+  copy that ignores the bowl's level). `audio-levels` renders every
   character of the registry behind every ambience its tables name, and an
   ambience that makes a sound and is in neither table (its level, the
   clipper) fails there instead of going unmeasured. A change to `audio.js` that should
@@ -424,7 +438,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
   at boot, the reset link (what it puts back, the sand and its finish among it,
-  and what it keeps, the custom sand's colour among it; its first tap's
+  the Sand and Bowl levels, the Rings and the fade before the end, each with
+  a control that leaves it as it was, and what it keeps, the custom sand's
+  colour and Sound in silent mode among it, with a control that puts silent
+  mode back on; its first tap's
   question said to a screen reader through a status drawn nowhere), each
   tab taking a tap 3 px above and below what is drawn of it (`--only
   target`, at 393 x 852 and 320 x 568, its reach clear of the close button,
@@ -452,7 +469,29 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   custom sand; `Hourglass.setTheme` as the material of old; reloads; and at
   320 px four sands and three finishes a row. Each check has a control.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
-  pour, flip, a restored session and Reduce Motion. `app-ambience` covers the six
+  pour, flip, a restored session and Reduce Motion. `app-sound` covers the
+  Sound tab's own rows (`--only layout,levels,rings,tap,away,rounds,awake,fade,silent`):
+  at 393 x 852, 375 x 667 and 320 x 568 the rows in the design's order and
+  words, nothing wider than the sheet, no sideways scroll, no word cut off,
+  44 px for every new control, each named for a screen reader, the bowl's
+  rows gone with the bowl off and the fade's with no ambience; the Sand and
+  Bowl sliders saved, told to the sound engine and shown again after a
+  reload; on a clock the test moves (Date.now() shifted): the rings of Once,
+  Three times (8.5 and 17 s after the first) and Until a tap (every 8.5 s,
+  the last within 10 minutes), the first tap on the glass, the first button
+  (Tune) and the first key (F) used up by stopping the bowl and the next one
+  working, nothing rung while the page is hidden and nothing late when it is
+  back (and nothing after 10 minutes away), a sequence's soft bowl once
+  between phases with the next phase not held and the last end ringing as
+  Rings says, the wake lock held for the rings only with Keep screen awake;
+  the fade's share at given times left for each length, a glass shorter
+  than twice the stretch, pause, sand added and a turn (the engine's gain
+  gliding, no step), the switch off as before and only a sequence's last
+  phase; and with `navigator.audioSession` stubbed, 'playback' or 'ambient'
+  at the launch, after the first tap and at once on the switch, and without
+  one a row that says the browser decides and nothing thrown. Each check has
+  a control, a copy of `app.js`, `audio.js` or the style sheet with that one
+  thing undone. About 6 minutes. `app-ambience` covers the six
   ambience cards: the radio group as a screen reader meets it, two rows of
   three from 320 to 430 px and in landscape, choosing, saving and restoring.
   `app-gestures` also covers Zen: none by itself, in by spreading two fingers

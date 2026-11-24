@@ -703,6 +703,12 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 .slider-row .lab { white-space: nowrap; font-size: 13.5px; color: var(--ink-2); }
 .slider-row .lab .ic { width: 17px; height: 17px; vertical-align: -3px; margin-right: 6px; color: var(--ink-3); }
 #amb-row { margin-top: 10px; }        /* the ambience's level, close under its cards */
+/* the Sound tab's own sliders (the sand's level, the bowl's): a finger's height to take a tap */
+.slider-row.tall input[type="range"] { height: 44px; }
+#sand-level-row { margin-top: 8px; }  /* the sand's level, close under its cards */
+#ambfade-rows { margin-top: 10px; }
+.rows .sub .sub-head { margin-top: 0; }
+.rows #bowl-level-row { margin: 6px 2px 0; }
 input[type="range"] {
   -webkit-appearance: none; appearance: none;
   width: 100%; height: 30px; margin: 0; background: transparent; touch-action: pan-y;
