@@ -33,6 +33,14 @@
  *             tap); the second puts back the eight settings it names and no other, tells the
  *             engines what differed and nothing else, in order, rings no bowl, says so above the
  *             sheet, and loads nothing again
+ *   HINT      at 393 × 852: a tab with more below shows it (its rows fade into the sheet's lower
+ *             edge, a small chevron under them) from the moment it is shown at its top, and not
+ *             once it is scrolled to its end; Glass, which does not scroll, never; a tab scrolled
+ *             from its top fades its rows out under the tab row; neither edge takes a tap (a
+ *             finger on the hint reaches the row under it) or is read out, and neither moves the
+ *             sheet, the tab row or any row from where they were at 122a7fd; rows that appear or
+ *             go (Grain with Real sand, "Copy a report") keep it right; with reduced motion they
+ *             appear and go without a fade
  *
  * Every check has its control: the same measurements on a copy of the app with that one thing
  * broken (a rule more in the style sheet, a listener more after app.js, an attribute changed in
@@ -763,6 +771,199 @@ function resetOk(m, save) {
   return { ask: ask, gives: gives, back: back, kept: kept, engines: engines, shown: shown, says: says, again: again };
 }
 
+/* ---- HINT -------------------------------------------------------------------------------- */
+// At 393 x 852, at 122a7fd (the Tune before its edges; measured with the same page, deviceScaleFactor
+// 2 and 3 alike): the sheet, the tab row, the scroller and each tab's first row (its first card,
+// row or slider row), [left, top, right, bottom] in CSS px. The edges are laid over the rows and
+// must move none of them.
+var HINT_SIZE = [393, 852];
+var BEFORE = {
+  sheet: [0, 459, 393, 852], tabs: [16, 479, 329, 521], body: [16, 527, 377, 836],
+  row: { sand: [16, 555, 131, 668], glass: [16, 555, 377, 609.25], sound: [20, 541, 373, 571], time: [16, 558, 377, 616] }
+};
+/** The edges as they are now: shown or not (their opacity, once a transition is done), where, and what they are. */
+function edges(t) {
+  return t.eval(function () {
+    var s = document.getElementById('sheet-settings'), b = s.querySelector('.sheet-body'), p = s.querySelector('[role="tabpanel"]:not([hidden])');
+    var top = s.querySelector('.edge-top'), more = s.querySelector('.edge-more'), mark = more ? more.querySelector('svg path, svg polyline') : null;
+    function R(el) { var r = el.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom].map(function (v) { return Math.round(v * 100) / 100; }); }
+    function look(el) {
+      if (!el) return null;
+      var cs = getComputedStyle(el);
+      return { box: R(el), opacity: +cs.opacity, events: cs.pointerEvents, hidden: el.getAttribute('aria-hidden'), fade: cs.transitionDuration, kids: el.querySelectorAll('*').length };
+    }
+    var row = p ? p.querySelector('.card, .row, .slider-row') : null;
+    return {
+      tab: p ? p.getAttribute('data-tab') : null, scrolled: b.scrollTop, left: b.scrollHeight - b.clientHeight - b.scrollTop, length: b.scrollHeight, view: b.clientHeight,
+      sheet: R(s), tabs: R(document.getElementById('tune-tabs')), body: R(b), row: row ? R(row) : null,
+      top: look(top), more: look(more), mark: mark ? R(mark) : null, markEvents: mark ? getComputedStyle(mark.ownerSVGElement).pointerEvents : null,
+      grain: (function () { var g = document.getElementById('grain-row'); return !!g && !g.hidden && g.getClientRects().length > 0; })(),
+      report: (function () { var a = document.getElementById('realsand-report'); return !!a && !a.hidden; })()
+    };
+  });
+}
+function scrollBody(t, where) {
+  return t.eval(function (w) {
+    var b = document.querySelector('#sheet-settings .sheet-body');
+    b.scrollTop = w === 'end' ? b.scrollHeight : w === 'middle' ? Math.round((b.scrollHeight - b.clientHeight) / 2) : typeof w === 'number' ? w : 0;
+    return b.scrollTop;
+  }, where);
+}
+/** Each tab at its top, then each tab that scrolls in its middle and at its end; then a finger on the hint's place. */
+async function hint(env, o) {
+  o = o || {};
+  var t = await env.open(Object.assign({ viewport: { width: HINT_SIZE[0], height: HINT_SIZE[1] } }, o.open || {})), m = { at: {}, middle: {}, end: {} };
+  try {
+    await sleep(700);
+    await tune.open(t);
+    for (var k = 0; k < TABS.length; k++) {
+      await tapTab(t, TABS[k]);
+      if (o.reduced) { m.at[TABS[k]] = await edges(t); continue; }      // (read at once: nothing may fade)
+      await sleep(400);
+      m.at[TABS[k]] = await edges(t);
+    }
+    if (o.reduced) {
+      // scrolled and back: each edge is there, or not, in the very frame after
+      await tapTab(t, 'sand');
+      await scrollBody(t, 'middle'); await t.eval(function () { return new Promise(function (r) { requestAnimationFrame(function () { r(); }); }); });
+      m.middle.sand = await edges(t);
+    } else {
+      for (k = 0; k < TABS.length; k++) {
+        if (m.at[TABS[k]].left <= 2) continue;
+        await tapTab(t, TABS[k]);
+        await scrollBody(t, 'middle'); await sleep(400);
+        m.middle[TABS[k]] = await edges(t);
+        await scrollBody(t, 'end'); await sleep(400);
+        m.end[TABS[k]] = await edges(t);
+      }
+      // a finger where the hint is, on the Sand tab at its top: the row or card under it answers
+      await tapTab(t, 'sand'); await sleep(400);
+      var e = await edges(t), pt = { x: (e.body[0] + e.body[2]) / 2, y: e.body[3] - 10 };
+      var STATE = function (q) {
+        var p = document.querySelector('#sheet-settings [role="tabpanel"]:not([hidden])'), hosts = p.querySelectorAll('.card, label.row'), host = null, i, r;
+        for (i = 0; i < hosts.length; i++) { r = hosts[i].getBoundingClientRect(); if (q.x >= r.left && q.x <= r.right && q.y >= r.top && q.y <= r.bottom) host = hosts[i]; }
+        var hit = document.elementFromPoint(q.x, q.y);
+        var name = !host ? null : host.dataset.themeId ? 'the ' + host.dataset.themeId + ' card' : 'the row of #' + host.htmlFor;
+        var on = !host ? null : host.dataset.themeId ? host.getAttribute('aria-checked') : String(document.getElementById(host.htmlFor).checked);
+        return { host: name, on: on, hit: hit ? (hit.closest('.edge') ? 'the hint' : hit.closest('.card, label.row') ? 'a row' : hit.tagName) : null };
+      };
+      m.tap = { at: pt, more: e.more ? e.more.opacity : null, before: await t.eval(STATE, pt) };
+      await t.touch.tap(pt.x, pt.y, 60);
+      await sleep(500);
+      m.tap.after = await t.eval(STATE, pt);
+    }
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+/**
+ * Rows that appear and go on the Sand tab, by the app's own paths: Real sand on, its engine held
+ * back (the row "starting": Grain hidden, "Copy a report" made and shown); then the engine failing
+ * to load while the tab is scrolled to its end (Grain appears under a scroll that does not move);
+ * then the switch turned off and on again (the page built afresh each time). The engine is held
+ * back before it is asked for: the app's script element for realsand/boot.mjs is kept out of the
+ * page until release() puts it in, and the network then refuses the file. (A request held open
+ * at the network would hold the page's load event too, and the page would never be opened.)
+ */
+async function hintRows(env, o) {
+  o = o || {};
+  var m = {};
+  var refuse = { url: '**/realsand/boot.mjs', handler: function (route) { route.abort('failed').catch(function () {}); } };
+  var holdBoot = function () {
+    var put = Node.prototype.appendChild;
+    window.__bootHeld = [];
+    Node.prototype.appendChild = function (el) {
+      if (el && el.tagName === 'SCRIPT' && /realsand\/boot\.mjs$/.test(el.src || '') && !window.__bootGo) { window.__bootHeld.push([this, el]); return el; }
+      return put.call(this, el);
+    };
+    window.__bootRelease = function () {
+      window.__bootGo = true;
+      var h = window.__bootHeld; window.__bootHeld = [];
+      h.forEach(function (x) { put.call(x[0], x[1]); });
+      return h.length;
+    };
+  };
+  function release() { return t.eval(function () { return window.__bootRelease ? window.__bootRelease() : -1; }); }
+  var t = await env.open({ viewport: { width: HINT_SIZE[0], height: HINT_SIZE[1] }, storage: { 'hourglass.settings.v1': { realSand: true } },
+                           init: holdBoot, routes: [refuse].concat(o.routes || []) });
+  async function sandTab(name) {
+    await tune.open(t); await tapTab(t, 'sand'); await sleep(400);
+    m[name] = await edges(t);
+    await scrollBody(t, 'end'); await sleep(400);
+    m[name + 'End'] = await edges(t);
+  }
+  async function flip() {
+    var loaded = t.page.waitForEvent('load', { timeout: 15000 });
+    await tune.tap(t, '#opt-realsand');
+    await loaded;
+    await t.page.waitForFunction(function () { return window.Hourglass && window.__mon && window.__mon.hooked; }, null, { timeout: 15000 });
+    await sleep(700);
+  }
+  try {
+    await sleep(700);
+    await sandTab('held');
+    m.released = await release(); await sleep(900);
+    m.failed = await edges(t);
+    await scrollBody(t, 'end'); await sleep(400);
+    m.failedEnd = await edges(t);
+    await flip();                                      // off: the classic sand, Grain shown
+    await sandTab('off');
+    await flip();                                      // on again: held back again, Grain hidden
+    await sandTab('on');
+  } finally { await t.close(); }
+  return m;
+}
+function op(e, which) { return e && e[which] ? e[which].opacity : -1; }
+function showsHint(e) { return op(e, 'more') >= 0.99 && e.left > 2; }
+function noHint(e) { return op(e, 'more') <= 0.01; }
+function edgeSays(e) { return e ? e.tab + ' ' + Math.round(e.scrolled) + '/' + (e.length - e.view) + ' px: hint ' + op(e, 'more') + ', top edge ' + op(e, 'top') : 'not read'; }
+function hintOk(m) {
+  var at = m.at, scrolls = TABS.filter(function (k) { return at[k] && at[k].left > 2; });
+  var e0 = at.sand || {}, more = e0.more || {}, top = e0.top || {};
+  var placeBad = TABS.filter(function (k) {
+    var e = at[k];
+    return !e || !same(e.sheet, BEFORE.sheet, 0.5) || !same(e.tabs, BEFORE.tabs, 0.5) || !same(e.body, BEFORE.body, 0.5) || !e.row || !same(e.row, BEFORE.row[k], 0.5);
+  });
+  var tap = m.tap || {}, b = tap.before || {}, a = tap.after || {};
+  return {
+    tabs: { ok: scrolls.join() === 'sand,sound,time' && scrolls.every(function (k) { return showsHint(at[k]) && op(at[k], 'top') <= 0.01; }) && noHint(at.glass) && op(at.glass, 'top') <= 0.01,
+            detail: TABS.map(function (k) { return edgeSays(at[k]); }).join('; ') },
+    middle: { ok: Object.keys(m.middle).join() === 'sand,sound,time' && Object.keys(m.middle).every(function (k) { var e = m.middle[k]; return showsHint(e) && op(e, 'top') >= 0.99 && e.scrolled > 2; }),
+              detail: Object.keys(m.middle).map(function (k) { return edgeSays(m.middle[k]); }).join('; ') || 'no tab scrolled' },
+    end: { ok: Object.keys(m.end).join() === 'sand,sound,time' && Object.keys(m.end).every(function (k) { var e = m.end[k]; return noHint(e) && e.left <= 2 && op(e, 'top') >= 0.99; }),
+           detail: Object.keys(m.end).map(function (k) { return edgeSays(m.end[k]); }).join('; ') || 'no tab scrolled' },
+    what: { ok: more.hidden === 'true' && top.hidden === 'true' && more.events === 'none' && top.events === 'none' && e0.markEvents === 'none' && top.kids === 0 &&
+                !!e0.mark && near(more.box[3], e0.body[3], 0.5) && near(top.box[1], e0.body[1], 0.5) && more.box[3] - more.box[1] >= 24 && top.box[3] - top.box[1] <= 24 &&
+                e0.mark[1] >= e0.body[3] - 1 && e0.mark[3] <= e0.sheet[3] && e0.mark[2] - e0.mark[0] <= 16,
+            detail: 'the hint ' + JSON.stringify(more) + ', its chevron ' + JSON.stringify(e0.mark) + ' (pointer-events ' + e0.markEvents + ') under the rows\' lower edge at ' + e0.body[3] +
+                    '; the top edge ' + JSON.stringify(top) },
+    tap: { ok: tap.more >= 0.99 && !!b.host && a.host === b.host && a.on !== b.on && b.hit !== 'the hint',
+           detail: 'a finger at ' + JSON.stringify(tap.at) + ' on the hint (shown: ' + tap.more + '): under it ' + b.host + ' (hit test: ' + b.hit + '), ' + b.on + ' → ' + a.on },
+    place: { ok: placeBad.length === 0,
+             detail: placeBad.length ? 'MOVED on ' + placeBad.map(function (k) { var e = at[k] || {}; return k + ': sheet ' + JSON.stringify(e.sheet) + ', tabs ' + JSON.stringify(e.tabs) + ', rows in ' + JSON.stringify(e.body) + ', first row ' + JSON.stringify(e.row); }).join('; ')
+                                     : 'on all four tabs as at 122a7fd: the sheet ' + JSON.stringify(BEFORE.sheet) + ', the tab row ' + JSON.stringify(BEFORE.tabs) + ', the rows in ' + JSON.stringify(BEFORE.body) +
+                                       ', the first rows at ' + TABS.map(function (k) { return k + ' ' + at[k].row[1]; }).join(', ') },
+    errors: { ok: m.errors.length === 0, detail: m.errors.slice(0, 2).join(' | ') }
+  };
+}
+function hintRowsOk(m) {
+  var steps = ['held', 'heldEnd', 'failed', 'failedEnd', 'off', 'offEnd', 'on', 'onEnd'];
+  var want = {
+    held: function (e) { return !e.grain && e.report && showsHint(e); }, heldEnd: function (e) { return !e.grain && noHint(e) && e.left <= 2; },
+    failed: function (e) { return m.released === 1 && e.grain && showsHint(e) && near(e.scrolled, m.heldEnd.scrolled, 1); }, failedEnd: function (e) { return e.grain && noHint(e) && e.left <= 2; },
+    off: function (e) { return e.grain && showsHint(e); }, offEnd: function (e) { return e.grain && noHint(e); },
+    on: function (e) { return !e.grain && showsHint(e); }, onEnd: function (e) { return !e.grain && noHint(e); }
+  };
+  var bad = steps.filter(function (k) { return !m[k] || !want[k](m[k]); });
+  return { ok: bad.length === 0,
+           detail: (bad.length ? 'WRONG at ' + bad.join(', ') + ': ' : '') + steps.map(function (k) { var e = m[k]; return k + ' (Grain ' + (e && e.grain ? 'shown' : 'hidden') + ') ' + edgeSays(e); }).join('; ') + '; engine let go ' + m.released + ' time(s)' };
+}
+function hintReducedOk(m) {
+  var s = m.at.sand || {}, g = m.at.glass || {}, mid = m.middle.sand || {};
+  return { ok: s.more && s.more.fade === '0s' && s.top.fade === '0s' && showsHint(s) && noHint(g) && op(mid, 'top') >= 0.99 && showsHint(mid),
+           detail: 'fades ' + (s.more ? s.more.fade + ' and ' + s.top.fade : 'not read') + '; read at once: ' + [s, g, mid].map(edgeSays).join('; ') };
+}
+
 /* ---- the run ----------------------------------------------------------------------------- */
 function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].ok; }); }
 (async function () {
@@ -1042,6 +1243,42 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       await control('RESET: a copy that says it done in the usual place, on the rows', 'says', function () {
         return reset(env, { open: { routes: [broken(env, 'styles.css', add('#toast.high { bottom: calc(var(--sab) + 172px) !important; top: auto !important; }'))] } });
       }, resetOk);
+    }
+
+    if (wanted('hint')) {
+      var hn = hintOk(await hint(env));
+      s.check('HINT: at 393 x 852 Sand, Sound and Time, shown at their top, show that there is more below, with no top edge; Glass, which does not scroll, shows neither', hn.tabs.ok, hn.tabs.detail);
+      s.check('HINT: scrolled to the middle, the rows fade out under the tab row and the hint still shows', hn.middle.ok, hn.middle.detail);
+      s.check('HINT: scrolled to the end (within 2 px), the hint is gone and the top edge stays', hn.end.ok, hn.end.detail);
+      s.check('HINT: the hint lies over the rows\' lower edge, its chevron under them; both edges are hidden from a screen reader and take no pointer', hn.what.ok, hn.what.detail);
+      s.check('HINT: a finger on the hint reaches the row under it', hn.tap.ok, hn.tap.detail);
+      s.check('HINT: the sheet, the tab row, the rows\' box and every tab\'s first row stand where they stood at 122a7fd', hn.place.ok, hn.place.detail);
+      s.check('HINT: no page or console errors', hn.errors.ok, hn.errors.detail);
+      var hr = hintRowsOk(await hintRows(env));
+      s.check('HINT: rows that appear and go keep it right: Grain appearing under a tab scrolled to its end (Real sand failing to start) brings the hint back; Real sand turned off and on again, it is right at the top and at the end', hr.ok, hr.detail);
+      var hd = hintReducedOk(await hint(env, { reduced: true, open: { reducedMotion: true } }));
+      s.check('HINT: with reduced motion the edges appear and go at once, without a fade', hd.ok, hd.detail);
+      var css = function (rule) { return function () { return hint(env, { open: { routes: [broken(env, 'styles.css', add(rule))] } }); }; };
+      await control('HINT: a hint drawn always (a style sheet that never hides it) shows on Glass and at the end', 'tabs', css('#sheet-settings .edge-more { opacity: 1 !important; }'), hintOk);
+      await control('HINT: ... and the same copy, scrolled to the end', 'end', css('#sheet-settings .edge-more { opacity: 1 !important; }'), hintOk);
+      await control('HINT: a style sheet with no top edge cuts the rows hard under the tab row', 'middle', css('#sheet-settings .edge-top { opacity: 0 !important; }'), hintOk);
+      await control('HINT: a hint that takes taps (pointer-events put back to auto) stops the finger', 'tap', css('#sheet-settings .edge-more { pointer-events: auto !important; }'), hintOk);
+      await control('HINT: a page whose hint a screen reader would read (aria-hidden taken off it) is found out', 'what', function () {
+        return hint(env, { open: { routes: [broken(env, 'index.html', swap(/<div class="edge edge-more" aria-hidden="true">/, '<div class="edge edge-more">'))] } });
+      }, hintOk);
+      await control('HINT: an edge that takes room moves the rows', 'place', css('#sheet-settings .edge-top { margin-bottom: 0 !important; }'), hintOk);
+      await control('HINT: a copy that reads the scroll only when it moves (not when a tab is opened or shown) shows no hint on a tab opened at its top', 'tabs', function () {
+        return hint(env, { open: { routes: [broken(env, 'app.js', function (src) {
+          return [/var edgeWatch = new ResizeObserver\(function \(\) \{ tuneEdges\(\); \}\);/, /tuneEdges\(\);\n    resetDisarm\(\);/, /tuneEdges\(\);\n    buzz\(8\);/]
+            .reduce(function (out, re, i) { return swap(re, ['var edgeWatch = { observe: function () {} };', 'resetDisarm();', 'buzz(8);'][i])(out); }, src);
+        })] } });
+      }, hintOk);
+      await control('HINT: a page with no ResizeObserver (rows that change are not seen) misses Grain appearing', null, function () {
+        return hintRows(env, { routes: [broken(env, 'index.html', before(function () { window.ResizeObserver = undefined; }))] });
+      }, hintRowsOk);
+      await control('HINT: a style sheet that fades the edges with reduced motion too', null, function () {
+        return hint(env, { reduced: true, open: { reducedMotion: true, routes: [broken(env, 'styles.css', add('#sheet-settings .edge { transition: opacity 0.25s !important; }'))] } });
+      }, hintReducedOk);
     }
   } catch (e) {
     s.check('the suite ran to its end', false, String(e && e.stack || e).split('\n').slice(0, 4).join(' '));

@@ -45,7 +45,9 @@ be a pinch and every glass would run with the thin thread of the hour glass.)
 the neck of the glass, on every tab, so the upper bulb, the neck and the
 stream stay in view and a new material, layered sand or breathing glow is
 seen as it is chosen. A tab too long for the sheet scrolls; the tab row
-stays where it is. Tune opens on the tab used last, at its top. Tap outside
+stays where it is. While a tab has more below, its rows fade into the
+bottom of the sheet and a small arrow there points down; it goes once you
+reach the end. Tune opens on the tab used last, at its top. Tap outside
 the sheet, the close button or `Esc` to close it; on a keyboard the arrow
 keys move between the tabs.
 
@@ -84,8 +86,8 @@ keys move between the tabs.
   An iPhone forgets its permission for this whenever the app is closed, so
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
-- At the foot, how many grains there are, and the version: "Version 1.13.0"
-  when the copy installed for offline use is that same release. "Offline
+- At the foot (the last line of the Sand tab), how many grains there are,
+  and the version: "Version 1.13.0" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;

@@ -350,7 +350,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `app-tune` covers Tune's four tabs: one panel shown and remembered, the
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
-  at boot, and the reset link (what it puts back and what it keeps). The
+  at boot, the reset link (what it puts back and what it keeps), and the
+  "more below" hint (`--only hint`): at 393 x 852 a tab that can scroll
+  shows it at its top and in its middle and not at its end, Glass never; a
+  scrolled tab fades its rows under the tab row; a finger on the hint
+  reaches the row under it; the sheet, the tab row and each tab's first row
+  stand where they did before the hint; Grain appearing or going with Real
+  sand keeps it right; and Reduce Motion shows it without a fade. The
   suites reach a control of Tune through `lib/tune.js`, which opens the
   sheet and taps the tab whose panel holds it, read from the page.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
