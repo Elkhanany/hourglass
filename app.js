@@ -1052,6 +1052,21 @@
     }
   }
 
+  /*
+   * A glass with no room for more sand says so on its Sand button: it reads "Full" (a tap still
+   * says "The glass is full"). A 60-minute glass of a shape that holds less under its neck is
+   * full from the start (sim.maxTotal is its fill); any glass is once poured to the brim.
+   */
+  var sandFull = false, sandWord = btnSand.querySelector('span');
+  function showSandRoom() {
+    var full = sim.total >= sim.maxTotal;
+    if (full === sandFull) return;
+    sandFull = full;
+    btnSand.classList.toggle('full', full);
+    btnSand.setAttribute('aria-label', full ? 'The glass is full' : 'Add sand. Hold to pour.');
+    if (sandWord) sandWord.textContent = full ? 'Full' : 'Sand';
+  }
+
   /* ======================================================================
    *  Real motion (optional)
    *
@@ -1231,6 +1246,7 @@
     var dtMs = now - lastFrame;
     lastFrame = now;
     if (dtMs <= 0) return;
+    showSandRoom();
     // Real sand has drawn its first frame: it takes over between two frames, in a quiet one (not
     // inside a Reset's sweep, a turn, a pour, or while a hand has the glass or it moves on its own:
     // the engine's bed settled upright, and the cross-fade must not join a bed that has slid)

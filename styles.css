@@ -397,6 +397,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 .act.held { color: var(--accent); }
 .act .dots { stroke-width: 2.3; }
 .act[disabled] { opacity: 0.35; pointer-events: none; }
+.act.full .ic { opacity: 0.4; }      /* no room for more sand (app.js: showSandRoom) */
 .act.primary {
   justify-self: center;
   width: 64px; height: 64px; border-radius: 50%;
