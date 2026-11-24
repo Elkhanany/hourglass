@@ -31,8 +31,8 @@
  *                 inside the store's own try: where storage is blocked,
  *                 reaching localStorage itself throws)
  *       search    location.search ("?t=300" preselects a duration)
- *       reg       what the checks need: { themes: HourglassPhysics.THEMES,
- *                 shapes: HourglassPhysics.SHAPES }
+ *       reg       what the checks need: { themes, sands, finishes, finishOf, shapes }
+ *                 of HourglassPhysics
  *   HourglassSettings.save(values)      to the storage of the last load
  *   HourglassSettings.preset(search)    "?t=300": { durationMs }, else null
  *   HourglassSettings.bindSwitch(el, key, after)   a plain switch of Tune:
@@ -103,9 +103,25 @@
     { id: 'v', default: 2 },                     // the settings' version (see STEPS)
     { id: 'tuneTab', default: 'sand',            // the tab of Tune last shown: Tune opens on it
       valid: function (v) { return v === 'glass' || v === 'sound' || v === 'time'; } },
+    // From 1.14.0 the sand and the frame's finish are chosen apart. A save from before has only
+    // the material (`theme`): its sand is the sand of that name, and its finish that one's caps.
+    { id: 'sand', default: 'sahara',             // an id of the sands, or 'custom' (a sand made from sandColor)
+      valid: function (v, reg) { return v === 'custom' || (!!reg.sands && has.call(reg.sands, v)); },
+      from: function (saved) { return saved.theme; } },
+    { id: 'sandColor', default: '',              // the custom sand's colour as it was asked for, "h,s,l" (degrees, then two shares of 1)
+      valid: function (v) { return !!colorOf(v); } },
+    { id: 'finish', default: 'walnut',           // the frame's finish: an id of the finishes
+      valid: function (v, reg) { return !!reg.finishes && has.call(reg.finishes, v); },
+      from: function (saved, reg) { return reg.finishOf(saved.theme); } },
     { id: 'shape', default: 'classic',           // the glass's shape: an id of reg.shapes that Tune offers (a shape held back comes up as the classic)
       valid: function (v, reg) { var s = reg && reg.shapes; return !!s && has.call(s, v) && s[v].offered === true; } }
   ];
+
+  /** A custom sand's colour as it is kept, "h,s,l": { h, s, l }, or null when the text is not one. */
+  function colorOf(text) {
+    var m = /^(\d+(?:\.\d+)?),(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)$/.exec(text);
+    return m && +m[1] < 360 && +m[2] <= 1 && +m[3] <= 1 ? { h: +m[1], s: +m[2], l: +m[3] } : null;
+  }
 
   /** "./?t=300" (seconds) preselects a duration; the app's shortcuts use it. { durationMs }, or null. */
   function preset(search) {
@@ -115,14 +131,17 @@
 
   /**
    * The repairs that read two keys: "?t=300" ends a saved sequence; a rest out of range is no
-   * rest; without a rest there is one round.
+   * rest; without a rest there is one round. The custom sand without a colour is the material's
+   * sand. (The material, `theme`, is kept as it was saved: app.js sets it with the sand while
+   * that is one of the six.)
    */
-  function repair(values, search) {
+  function repair(values, search, reg) {
     var p = preset(search);
     if (p) { values.durationMs = p.durationMs; values.restMs = 0; }
     values.durationMs = Math.max(10000, Math.min(5999000, values.durationMs));
     if (!(values.restMs >= 10000 && values.restMs <= 3600000)) values.restMs = 0;
     values.rounds = values.restMs ? Math.max(1, Math.min(12, values.rounds | 0)) : 1;
+    if (values.sand === 'custom' && !colorOf(values.sandColor)) values.sand = reg && reg.sands && has.call(reg.sands, values.theme) ? values.theme : 'sahara';
   }
 
   /**
@@ -201,5 +220,6 @@
   store.make = make;                 // (for the tests: STEPS, repair and make build other stores)
   store.STEPS = STEPS;
   store.repair = repair;
+  store.colorOf = colorOf;
   root.HourglassSettings = store;
 })(typeof window !== 'undefined' ? window : globalThis);

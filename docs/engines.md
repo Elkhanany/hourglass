@@ -1026,15 +1026,24 @@ it again with a connection." as it does for a missing file. The reason is
 in the console (`defineCharacter "tin": lp is undefined, not a number`), and
 `node tools/test/check-registry.test.js` stops with it, without a browser.
 
-**A sand (a material).** A record in `THEMES` in `physics.js`: the grain
-tables of the sand (`sand`) and of its companion tone for layered sand
-(`sand2`), the glints, how the sand takes the light, the glass's tint, the
-caps and the glow behind the glass. Its id goes into `THEME_ORDER` in `app.js` (the order the name at
-the top steps through), its card into Tune's `#themes` in `index.html` (with
-`data-theme-id` and its `orb`), and the page's own colours under
-`[data-theme="…"]` and `.orb-…` in `styles.css`. Real sand needs nothing:
-its palette comes from the Renderer's table. A saved theme the app does not
-know falls back to Sahara.
+**A sand.** A record in `SANDS` in `physics.js`, and its id in `SAND_ORDER`
+(the order Tune shows the sands in, and the name at the top steps through):
+the grain tables of the sand (`sand`) and of its companion tone for layered
+sand (`sand2`), the glints, how the sand takes the light, the glass's tint,
+the glow behind the glass, and `ui`, what the page wears with it (the accent,
+its ink, the glow and the three stops of its swatch). The first six are the
+sands of `THEMES`, the same tables. Its button goes into Tune's `#sands` in
+`index.html` (`data-sand` and its `orb`), and the page's own colours under
+`[data-theme="…"]` and `.orb-…` in `styles.css`; `look-unit` checks the
+record against what the colour table, layered sand and the eye need, and the
+style sheet against its `ui`. `customSand(h, s, l)` makes a whole record from
+one colour (the custom sand), and `customSand.clamp` is the colour it really
+uses. A frame's finish is one of `FINISHES` (the caps of one of the six
+`THEMES`); `Renderer.setLook({ sand, material })` puts a sand over the caps
+of a theme, and the app hands one of the six over its own caps to
+`setTheme`, the renderer's own bundle. Real sand needs nothing: its palette
+comes from the Renderer's table. A saved sand or finish the app does not
+know falls back to Sahara Quartz and walnut.
 
 **A glass shape.** One `addShape` in `physics.js`, after the others:
 `addShape({ id: 'thimble', name: 'Thimble', kR: 0.8, kH: 0.9, offered:

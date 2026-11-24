@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /*
  * The Tune trace: what every control that changes a setting does, in order (lib/trace.js).
- * Every control of Tune (the four tabs, the reset link's two taps, the six materials, Frame,
- * Layered sand, the six characters, the volume, the six ambiences and their level, the
- * completion bowl, Keep screen awake, Real motion, Full Zen, Breathing pace and its three
- * patterns, Haptics, the three grains, Real sand), and the mute button, the material chip and
- * a duration pill, which save too.
+ * Every control of Tune (the four tabs, the reset link's two taps, the ten sands and the
+ * custom sand's colour well, Frame and its six finishes, Layered sand, the six characters, the
+ * volume, the six ambiences and their level, the completion bowl, Keep screen awake, Real
+ * motion, Full Zen, Breathing pace and its three patterns, Haptics, the three grains, Real
+ * sand), and the mute button, the sand chip and a duration pill, which save too.
  *
  * For each: what its own tap does before it returns (now: the save, the calls on the sound
  * engine, the Sim, the Renderer and the sensors, the buzz), and what follows (later: what the
@@ -103,7 +103,7 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
 
     // what the trace sees: the places where the order matters most
     var vol = byName(kept, 'volume: 30'), muted = byName(kept, 'volume: 55, while muted'), hOn = byName(kept, 'haptics: on'), hOff = byName(kept, 'haptics: off');
-    var chime = byName(kept, 'completion bowl: on'), tiltOn = byName(kept, 'real motion: on'), mat = byName(kept, 'material: lapis'), grain = byName(kept, 'grain: fine');
+    var chime = byName(kept, 'completion bowl: on'), tiltOn = byName(kept, 'real motion: on'), mat = byName(kept, 'sand: lapis'), fin = byName(kept, 'finish: gold'), walnut = byName(kept, 'finish: walnut'), well = byName(kept, 'sand: custom, a colour of its own (the well, let go)'), grain = byName(kept, 'grain: fine');
     var real = byName(kept, 'Real sand: on'), lay = byName(kept, 'layered sand: on');
     s.check('the kept trace sees: the volume told to the sound engine before it is saved, and un-muting inside it',
             names(vol.now).join() === 'audio.setVolume,save' && first(vol.now, 'save')[1].volume === 0.3 &&
@@ -113,11 +113,15 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
             names(chime.now).join() === 'audio.unlock,save,audio.setChimeEnabled,audio.chime,buzz' && chime.now[4][1] === 8 &&
             JSON.stringify(hOn.now.slice(-2)) === '[["buzz",12],["buzz",8]]' && names(hOff.now).indexOf('buzz') < 0,
             JSON.stringify(chime.now) + ' ' + JSON.stringify(hOn.now) + ' ' + JSON.stringify(hOff.now));
-    s.check('... Real motion asked inside the tap, and saved once it is granted; a material saved in the tap and set behind the cross-fade; layers set on the Sim, then the Renderer',
+    s.check('... Real motion asked inside the tap, and saved once it is granted; a sand or a finish saved in the tap and set behind the cross-fade (a sand over another\'s caps put together by setLook, one of the six over its own caps the renderer\'s own bundle); the colour well set at once, as it is let go; layers set on the Sim, then the Renderer',
             names(tiltOn.now).indexOf('motion.request') >= 0 && names(tiltOn.now).indexOf('save') < 0 && names(tiltOn.later).join() === 'motion.start,save' &&
-            names(mat.now).join() === 'audio.unlock,save,buzz' && JSON.stringify(mat.later) === '[["renderer.setTheme","lapis"]]' &&
+            names(mat.now).join() === 'audio.unlock,save,buzz' && first(mat.now, 'save')[1].sand === 'lapis' && !('finish' in first(mat.now, 'save')[1]) &&
+            JSON.stringify(mat.later) === '[["renderer.setLook",{"sand":"lapis","material":"sahara"}]]' &&
+            names(fin.now).join() === 'audio.unlock,save,buzz' && first(fin.now, 'save')[1].finish === 'gold' && JSON.stringify(fin.later) === '[["renderer.setLook",{"sand":"sahara","material":"lapis"}]]' &&
+            JSON.stringify(walnut.later) === '[["renderer.setTheme","sahara"]]' &&
+            names(well.now).join() === 'save,renderer.setLook' && typeof first(well.now, 'renderer.setLook')[1].sand === 'object' && /^\d/.test(first(well.now, 'save')[1].sandColor) &&
             names(lay.later).join() === 'sim.setLayers,renderer.setLayers',
-            JSON.stringify(tiltOn) + ' ' + JSON.stringify(mat) + ' ' + JSON.stringify(lay));
+            JSON.stringify(tiltOn) + ' ' + JSON.stringify(mat) + ' ' + JSON.stringify(fin) + ' ' + JSON.stringify(walnut) + ' ' + JSON.stringify(well) + ' ' + JSON.stringify(lay));
     s.check('... a grain and Real sand: saved, the session put away, and the page loaded again with the setting (Sim.setPace before the Sim)',
             names(grain.now).join() === 'audio.unlock,save,buzz,remove' && first(grain.later, 'Sim.setPace') && names(grain.later).indexOf('Sim.setPace') < names(grain.later).indexOf('new Sim') &&
             names(real.now).join() === 'audio.unlock,save,remove,buzz' && first(real.now, 'save')[1].realSand === true && names(real.later).indexOf('new Sim') > 0,

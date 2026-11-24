@@ -374,9 +374,9 @@ async function testOff(s, env) {
         material: row.parentNode.classList.contains('rows-single'),
         rows: document.querySelectorAll('#sheet-settings .row').length };
     });
-    s.check('OFF: the row "Real sand", a labelled switch, sits in the Sand tab\'s rows right after Layered sand, then Grain and its choices; Tune has 10 rows',
+    s.check('OFF: the row "Real sand", a labelled switch, sits in the Sand tab\'s rows right after Layered sand, then Grain and its choices; Tune has 11 rows',
             ui.tag === 'LABEL' && ui.for === 'opt-realsand' && ui.title === 'Real sand' && ui.role === 'switch' && ui.type === 'checkbox' &&
-            ui.cls === 'switch' && ui.tab === 'Sand' && ui.afterLayers && ui.beforeGrain && ui.material && ui.rows === 10, JSON.stringify(ui));
+            ui.cls === 'switch' && ui.tab === 'Sand' && ui.afterLayers && ui.beforeGrain && ui.material && ui.rows === 11, JSON.stringify(ui));
     s.check('OFF: off ("Off: the classic sand", data-state off); Grain shown with its note, and Real motion\'s crack sentence; no "Copy a report" link',
             !st.checked && !st.disabled && st.dstate === 'off' && st.note === 'Off: the classic sand' && st.grainShown && st.crackShown &&
             st.grainNote === 'Finer sand is more grains, and more work for the phone' && st.report === null,
@@ -1353,6 +1353,33 @@ async function testCrash(s, env) {
     });
     s.check('CRASH (THEME): a theme chosen while the GPU sand runs: its grains take the Renderer\'s new table at once (and it is not the old one)',
             th.calls >= 1 && th.before && th.after && th.changed && th.n > 0, JSON.stringify(th));
+    // the sands of 1.14.0 while the GPU sand runs: a new sand, a colour of one's own, and a colour dragged in the well
+    // (the drag's table at most once a frame), each takes the Renderer's table at once; a finish leaves the grains as they are
+    var sd = await t.eval(function () {
+      return new Promise(function (resolve) {
+        var Hg = window.Hourglass, G = window.__mockEnv.grains, R = Hg.renderer, out = {};
+        var same = function (a, b) { return a.length === b.length && a.every(function (x, i) { return x === b[i]; }); };
+        function step(name, fn) {
+          var n0 = G.palettes, p0 = Array.from(G.pal);
+          fn();
+          var p1 = Array.from(G.pal);
+          out[name] = { calls: G.palettes - n0, after: same(p1, Array.from(window.__mockEnv.paletteFromLUT(R.lut, R.isMica))), changed: !same(p0, p1) };
+        }
+        step('garnet', function () { Hg.setSand('garnet'); });
+        step('gold', function () { Hg.setFinish('gold'); });
+        step('coral', function () { Hg.setSand({ h: 8, s: 0.75, l: 0.62 }); });
+        var n0 = G.palettes, p0 = Array.from(G.pal);
+        for (var i = 0; i < 20; i++) Hg.dragSand({ h: 120 + i, s: 0.5, l: 0.45 });
+        requestAnimationFrame(function () { requestAnimationFrame(function () {
+          var p1 = Array.from(G.pal);
+          out.drag = { calls: G.palettes - n0, after: same(p1, Array.from(window.__mockEnv.paletteFromLUT(R.lut, R.isMica))), changed: !same(p0, p1) };
+          resolve(out);
+        }); });
+      });
+    });
+    s.check('CRASH (SANDS): while the GPU sand runs, a new sand (Red Garnet) and a colour of one\'s own each give its grains the Renderer\'s new table at once (not the old one); a finish changes no grain\'s colour; twenty colours dragged in one frame give it the dragged table, once or twice, not twenty times',
+            sd.garnet.calls >= 1 && sd.garnet.after && sd.garnet.changed && sd.gold.after && !sd.gold.changed && sd.coral.calls >= 1 && sd.coral.after && sd.coral.changed &&
+            sd.drag.calls >= 1 && sd.drag.calls <= 2 && sd.drag.after && sd.drag.changed, JSON.stringify(sd));
     // the layers switch while the GPU sand is live (paused): the re-tone is a transfer that moves no grain
     var la0 = await t.eval(function () {
       var Hg = window.Hourglass, rs = Hg.realSand, pl = window.__mockEnv.solver.plant;

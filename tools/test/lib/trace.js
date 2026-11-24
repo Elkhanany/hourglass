@@ -48,7 +48,7 @@ function recorder() {
   var T = window.__trace = { id: Math.random(), log: [], at: 0, mode: 'all', depth: 0, boot: null, bootSaved: null };
   // once the page runs: the calls a setting causes (everything else is the frame loop's, or,
   // like layout(), the window's: it comes with every resize and load)
-  var LATER = { 'renderer.setTheme': 1, 'renderer.setFrame': 1, 'renderer.setLayers': 1, 'sim.setLayers': 1,
+  var LATER = { 'renderer.setTheme': 1, 'renderer.setLook': 1, 'renderer.setFrame': 1, 'renderer.setLayers': 1, 'sim.setLayers': 1,
     'audio.setVolume': 1, 'audio.setMuted': 1, 'audio.setCharacter': 1, 'audio.setChimeEnabled': 1, 'audio.setAmbience': 1,
     'audio.setAmbienceLevel': 1, 'audio.chime': 1, 'motion.request': 1, 'motion.start': 1, 'motion.stop': 1 };
   var NO_ARGS = { 'renderer.layout': 1 };
@@ -63,6 +63,12 @@ function recorder() {
     if (v === undefined) return '(undefined)';
     if (typeof v === 'function') return '(a function)';
     if (Array.isArray(v)) return v.length <= 8 && v.every(plain) ? v.map(arg) : '(an array)';
+    // a small record of plain values (the look given to setLook: { sand, material }, a colour { h, s, l })
+    var ks = Object.getPrototypeOf(v) === Object.prototype ? Object.keys(v) : null, o = {};
+    if (ks && ks.length <= 6 && ks.every(function (k) { var x = v[k]; return plain(x) || (x && Object.getPrototypeOf(x) === Object.prototype && Object.keys(x).length <= 6 && Object.keys(x).every(function (q) { return plain(x[q]); })); })) {
+      ks.forEach(function (k) { o[k] = arg(v[k]); });
+      return o;
+    }
     return '(an object)';
   }
   function args(a) { return Array.prototype.map.call(a, arg); }
@@ -229,6 +235,8 @@ async function boot(env, st) {
 /* ---- the Tune trace -------------------------------------------------------------------- */
 function click(sel) { return { click: sel }; }
 function slide(sel, v) { return { slide: sel, value: v }; }
+/** A colour input: its value set, then 'input' and 'change', as a finger lets go of the phone's picker. */
+function pick(sel, v) { return { slide: sel, value: v, change: true }; }
 // Every control of Tune, and the three of the top bar and the pills that save too. `wait`:
 // what must have happened before the next one (default: the cross-fade, the sweep and a
 // reload over). The names are the settings', not the page's: a new Tune is driven by its own
@@ -254,14 +262,27 @@ var DRIVE = [
   ['the look and sound put back: the first tap', click('#tune-reset')],
   ['the look and sound put back: the second tap', click('#tune-reset'), 'slow'],
   ['tab: sand', click('#tune-tabs [data-tab="sand"]')],
-  ['material: volcanic', click('#themes [data-theme-id="volcanic"]')],
-  ['material: moonstone', click('#themes [data-theme-id="moonstone"]')],
-  ['material: lapis', click('#themes [data-theme-id="lapis"]')],
-  ['material: rosequartz', click('#themes [data-theme-id="rosequartz"]')],
-  ['material: seaglass', click('#themes [data-theme-id="seaglass"]')],
-  ['material: sahara', click('#themes [data-theme-id="sahara"]')],
+  ['sand: volcanic', click('#sands [data-sand="volcanic"]')],
+  ['sand: moonstone', click('#sands [data-sand="moonstone"]')],
+  ['sand: lapis', click('#sands [data-sand="lapis"]')],
+  ['sand: rosequartz', click('#sands [data-sand="rosequartz"]')],
+  ['sand: seaglass', click('#sands [data-sand="seaglass"]')],
+  ['sand: garnet', click('#sands [data-sand="garnet"]')],
+  ['sand: olivine', click('#sands [data-sand="olivine"]')],
+  ['sand: amethyst', click('#sands [data-sand="amethyst"]')],
+  ['sand: custom, its first colour', click('#sands [data-sand="custom"]')],
+  ['sand: custom, a colour of its own (the well, let go)', pick('#sand-color', '#c05a8c')],
+  ['sand: sahara', click('#sands [data-sand="sahara"]')],
+  ['sand: custom again, the colour kept', click('#sands [data-sand="custom"]')],
+  ['sand: sahara, again', click('#sands [data-sand="sahara"]')],
   ['frame: off', click('#opt-frame')],
   ['frame: on', click('#opt-frame')],
+  ['finish: brass', click('#finishes [data-finish="brass"]')],
+  ['finish: silver', click('#finishes [data-finish="silver"]')],
+  ['finish: gold', click('#finishes [data-finish="gold"]')],
+  ['finish: copper', click('#finishes [data-finish="copper"]')],
+  ['finish: driftwood', click('#finishes [data-finish="driftwood"]')],
+  ['finish: walnut', click('#finishes [data-finish="walnut"]')],
   ['layered sand: on', click('#opt-layers')],
   ['layered sand: off', click('#opt-layers')],
   ['character: warm', click('#characters [data-character="warm"]')],
@@ -295,7 +316,7 @@ var DRIVE = [
   ['breathing pace: off', click('#opt-breath')],
   ['haptics: off', click('#opt-haptics')],
   ['haptics: on', click('#opt-haptics')],
-  ['material, by the chip in the top bar: the next one', click('#btn-theme')],
+  ['sand, by the chip in the top bar: the next one', click('#btn-theme')],
   ['duration: 10 minutes (a pill)', click('#durations .pill[data-min="10"]')],
   ['shape: lozenge, looked at', click('#shapes [data-shape="lozenge"]')],
   ['shape: ampoule, looked at', click('#shapes [data-shape="ampoule"]')],
@@ -314,7 +335,7 @@ var DRIVE = [
 var CONTROLS = DRIVE.map(function (d) { return d[0]; });
 // what holds or changes a setting in Tune's sheet: every switch, every choice of a group, every
 // slider, every tab, and every button but the one that closes the sheet (the reset link is one)
-var HOLDERS = '.switch, [role="switch"], [role="radio"], [role="tab"], input[type="checkbox"], input[type="range"], select, button:not(.sheet-close)';
+var HOLDERS = '.switch, [role="switch"], [role="radio"], [role="tab"], input[type="checkbox"], input[type="range"], input[type="color"], select, button:not(.sheet-close)';
 
 function state(page) {
   return page.evaluate(function () {
@@ -350,7 +371,10 @@ async function tune(env, only) {
       if (!el) return { missing: true };
       T.tap(function () {
         if (act.click) el.click();
-        else { el.value = String(act.value); el.dispatchEvent(new Event('input', { bubbles: true })); }
+        else {
+          el.value = String(act.value); el.dispatchEvent(new Event('input', { bubbles: true }));
+          if (act.change) el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
       });
       return { earlier: earlier, now: T.take() };
     }, a);

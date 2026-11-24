@@ -18,8 +18,11 @@
  * were made again from it then. Release 1.11.0 kept its Settings section byte for byte but
  * moved the engine's build stamp from 5 to 6, which the app saves at the boot and with Tune's
  * last save, so the two traces were made again from it, changed in those saves alone. They
- * were last written (--write) from the tree that joined it with the new Tune, release 1.13.0:
- * the tuneTab key and the lines of Tune's tabs added, nothing else.) The two traces, run with
+ * were written (--write) from the tree that joined it with the new Tune, release 1.13.0: the
+ * tuneTab key and the lines of Tune's tabs added, nothing else; and last for release 1.14.0:
+ * the sand, sandColor and finish keys, the lines of the sands, the colour well and the
+ * finishes in place of the six materials', and the boot at the walk's end drawing the sand the
+ * sand chip left over walnut.) The two traces, run with
  * --write and no --base, are written
  * from the tree just run: that is how a setting or a control added on purpose gets into them,
  * in a commit of its own whose diff is read (the new key, the new control's lines, nothing

@@ -37,6 +37,11 @@
  *     is updating. Open it again with a connection.", builds nothing and throws no error, and
  *     with a connection again it runs. (From a snapshot worker, R1 and later, a copy is never
  *     mixed: that is UPGRADE and FAILED INSTALL.)
+ *  6. OLD SAVES: each of the six materials, saved by release 1.13.0 (origin/main) and by release
+ *     1.10.0 (5911e24) through their own cards, comes through the update to this tree with the
+ *     same sand, caps and picture and every other setting as it was, online and offline (the
+ *     sand and the frame's finish are chosen apart from 1.14.0 on). Its control: a copy of this
+ *     tree whose finish is not made from the old material.
  * The controls, each a check above that must fail: a page with no worker (the version line says
  * more than the number); the offline launch with the hole (a 504, no Hourglass.sim); the failed
  * install under 13a9772's worker, v1.9.0, a release before the snapshot worker (an empty cache of the
@@ -54,7 +59,7 @@
  * 13a9772 (a shallow clone), the suite fails and says how to fetch it.
  *
  *   node tools/test/app-upgrade.test.js [--port <n>] [--only <case>]    (default port: $PORT, else 8711;
- *   cases: upgrade overtaken vary "failed install" hole lab interrupted)
+ *   cases: upgrade overtaken vary "failed install" hole lab interrupted "old saves")
  */
 'use strict';
 var fs = require('fs'), os = require('os'), path = require('path'), vm = require('vm'), cp = require('child_process');
@@ -795,14 +800,129 @@ async function caseInterrupted(s, browser, T) {
 }
 
 /* ---- the run ------------------------------------------------------------------------------ */
+/* ---- 6. OLD SAVES: a material saved by 1.13.0 and by 1.10.0, through the update ---------- */
+// Release 1.14.0 chooses the sand and the frame's finish apart. A save written by a release before
+// it has the material alone (`theme`), and must come through the update looking as it did: the same
+// sand in the same colour table, the same caps, the same static picture, and every other setting
+// as it was, online and offline. The save is written by the old release itself: its own card for
+// the material tapped, with layered sand on, the bowl off and the rain behind the sand.
+var OLD_RELEASES = [['1.13.0', MAIN], ['1.10.0', '5911e24']];
+var MATERIALS = { sahara: 'walnut', volcanic: 'brass', moonstone: 'silver', lapis: 'gold', rosequartz: 'copper', seaglass: 'driftwood' };
+/** What the page shows of the look: the renderer's colour table and static layers (hashes), whose theme it is, the save. */
+function lookNow(page) {
+  return page.evaluate(function () {
+    function hash(a) { var h = 2166136261 >>> 0, i; for (i = 0; i < a.length; i++) { h ^= a[i]; h = Math.imul(h, 16777619) >>> 0; } return h; }
+    function layers() {
+      return ['c-back', 'c-front', 'c-light'].map(function (id) {
+        var c = document.getElementById(id), x = c.getContext('2d');
+        return hash(new Uint32Array(x.getImageData(0, 0, c.width, c.height).data.buffer));
+      }).join(' ');
+    }
+    var Hg = window.Hourglass, R = Hg.renderer, P = window.HourglassPhysics, out = { lut: hash(R.lut), layers: layers(), id: R.theme.id };
+    out.bundle = R.theme === P.THEMES[R.theme.id];
+    out.cap = JSON.stringify(R.theme.cap);
+    out.data = document.documentElement.getAttribute('data-theme');
+    out.accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+    out.saved = localStorage.getItem('hourglass.settings.v1');
+    // the same picture drawn afresh by the renderer's own bundle of that theme (the static layers depend on the page's layout)
+    R.setTheme(R.theme.id);
+    out.bundleLayers = layers();
+    out.bundleLut = hash(R.lut);
+    return out;
+  });
+}
+/** One old release installed, one material chosen in it, then this tree: what the old app showed and saved, and the new app online and offline. */
+async function oldSave(browser, T, rel, m, tree) {
+  var ctx = await newContext(browser), r = { rel: rel, m: m };
+  try {
+    serve(T.olds[rel].dir);
+    await online(ctx);
+    var L = await install(ctx, T.olds[rel].version);
+    // the person's taps in the old release, each its own control (the old page's sheet need not be open for a click)
+    await L.page.evaluate(function (m) {
+      document.querySelector('[data-theme-id="' + m + '"]').click();
+      document.getElementById('opt-layers').click();
+      document.getElementById('opt-chime').click();
+      document.querySelector('[data-ambience="rain"]').click();
+    }, m);
+    await sleep(1600);                         // (the cross-fade, and the layers)
+    L = await launch(ctx);                     // the old release again, from its save
+    await sleep(600);
+    r.old = await lookNow(L.page);
+    r.oldProblems = problems(L);
+    // this tree in its place: a launch that installs it, then one under it, then one offline
+    serve(tree);
+    L = await launch(ctx);
+    await update(L.page);
+    L = await launch(ctx);
+    await sleep(600);
+    r.online = await lookNow(L.page);
+    r.onlineProblems = problems(L);
+    r.onlineRelease = (await marks(L.page)).release;
+    await offline(ctx);
+    L = await launch(ctx);
+    await sleep(600);
+    r.offline = await lookNow(L.page);
+    r.offlineProblems = problems(L);
+    r.offlineRelease = (await marks(L.page)).release;
+  } finally {
+    await ctx.close();
+    await up();
+  }
+  return r;
+}
+/** What is wrong with one material's way through the update: [] when nothing. */
+function oldSaveWrong(r) {
+  var out = [], old = r.old, oldSaved = JSON.parse(old.saved || '{}');
+  if (r.oldProblems.length) out.push('the old release: ' + r.oldProblems.join('; '));
+  if (old.id !== r.m || !old.bundle || oldSaved.theme !== r.m || oldSaved.layers !== true || oldSaved.chime !== false || oldSaved.ambience !== 'rain')
+    out.push('the old release did not save the material and the three: ' + JSON.stringify({ id: old.id, saved: oldSaved }));
+  ['online', 'offline'].forEach(function (k) {
+    var n = r[k], saved = JSON.parse((n && n.saved) || '{}'), why = [];
+    if (r[k + 'Problems'].length) why.push(r[k + 'Problems'].join('; '));
+    if (r[k + 'Release'] !== T_RELEASE) why.push('the page is ' + r[k + 'Release']);
+    if (n.id !== r.m || !n.bundle || n.cap !== old.cap || n.lut !== old.lut || n.layers !== n.bundleLayers || n.lut !== n.bundleLut || n.data !== old.data || n.accent !== old.accent)
+      why.push('the look: ' + JSON.stringify({ id: n.id, bundle: n.bundle, cap: n.cap === old.cap, lut: [old.lut, n.lut], layers: n.layers === n.bundleLayers, data: n.data, accent: [old.accent, n.accent] }));
+    if (saved.sand !== r.m || saved.finish !== r.MATERIAL_FINISH || saved.sandColor !== '') why.push('saved as ' + [saved.sand, saved.finish, JSON.stringify(saved.sandColor)].join(' / '));
+    // (what the app keeps of its Real sand engine, not a setting: a new engine build starts it afresh)
+    var lost = Object.keys(oldSaved).filter(function (key) { return !/^realSand(Build|Fails|Why|Na|NaAt)$/.test(key) && JSON.stringify(oldSaved[key]) !== JSON.stringify(saved[key]); });
+    if (lost.length) why.push('changed: ' + lost.map(function (key) { return key + ' ' + JSON.stringify(oldSaved[key]) + ' → ' + JSON.stringify(saved[key]); }).join(', '));
+    if (why.length) out.push(k + ': ' + why.join('; '));
+  });
+  return out;
+}
+var T_RELEASE = null;
+async function caseOldSaves(s, browser, T) {
+  T_RELEASE = T.release;
+  for (var i = 0; i < OLD_RELEASES.length; i++) {
+    var rel = OLD_RELEASES[i][0], bad = [], seen = [];
+    for (var m in MATERIALS) {
+      var r = await oldSave(browser, T, rel, m, T.tree);
+      r.MATERIAL_FINISH = MATERIALS[m];
+      var w = oldSaveWrong(r);
+      if (w.length) bad.push(m + ': ' + w.join(' | '));
+      else seen.push(m + ' (' + r.online.lut + ')');
+    }
+    s.check('OLD SAVES: each of the six materials saved by release ' + rel + ' (' + OLD_RELEASES[i][1] + ', with layered sand on, the bowl off and the rain) comes through the update with the same sand (the colour table), the same caps and the same picture, drawn by the renderer\'s own bundle, saved as that sand over its own finish, and every other setting as it was: online and offline',
+            bad.length === 0, bad.length ? bad.slice(0, 2).join(' || ') : seen.join(', '));
+  }
+  // control: this tree without the finish's migration (an old save comes up with walnut caps, whatever its material)
+  var r2 = await oldSave(browser, T, '1.13.0', 'lapis', T.noFinish.dir);
+  r2.MATERIAL_FINISH = 'gold';
+  var w2 = oldSaveWrong(r2);
+  s.check('OLD SAVES: control: a copy of this tree whose finish is not made from the old material shows Lapis Lazuli over walnut after the update, and the check above fails on it',
+          T.noFinish.found === 1 && w2.length > 0 && /the look/.test(w2.join()), 'found ' + T.noFinish.found + '; ' + w2.join(' | '));
+}
+
 async function main() {
   var s = new H.Suite('app-upgrade'), browser = null, T = null, why = null;
   try {
     try {
       git(['rev-parse', '--verify', '--quiet', MAIN + '^{commit}']);
       git(['rev-parse', '--verify', '--quiet', BEFORE_R1 + '^{commit}']);
+      git(['rev-parse', '--verify', '--quiet', OLD_RELEASES[1][1] + '^{commit}']);
     } catch (e) {
-      why = 'needs ' + MAIN + ' and ' + BEFORE_R1 + ' (git fetch origin main; in a shallow clone, git fetch --unshallow)';
+      why = 'needs ' + MAIN + ', ' + OLD_RELEASES[1][1] + ' and ' + BEFORE_R1 + ' (git fetch origin main; in a shallow clone, git fetch --unshallow)';
     }
     if (why) { s.check('the upgrade suite ' + why, false); return; }
     var argRoot = process.argv.indexOf('--root') > 0 ? path.resolve(process.argv[process.argv.indexOf('--root') + 1]) : (process.env.HOURGLASS_ROOT || ROOT);
@@ -824,6 +944,9 @@ async function main() {
     T.oldWorker = worker(T.old);
     T.oldBad = nextRelease(T.old, 'old-bad', true);
     T.lab = labOtherBuild(copyTree(T.tree, 'lab'));
+    T.olds = {};
+    OLD_RELEASES.forEach(function (o) { var d = o[1] === MAIN ? T.main : archive(o[1], 'old-' + o[0]); T.olds[o[0]] = { dir: d, version: worker(d).version }; });
+    T.noFinish = without(T.tree, 'no-finish', 'app/settings.js', 'from: function (saved, reg) { return reg.finishOf(saved.theme); } }', '}');
     T.oldLab = copyTree(T.tree, 'old-lab');
     fs.rmSync(path.join(T.oldLab, 'lab', 'sand'), { recursive: true, force: true });
     fs.cpSync(path.join(T.old, 'lab', 'sand'), path.join(T.oldLab, 'lab', 'sand'), { recursive: true });
@@ -834,7 +957,7 @@ async function main() {
     await up();
     browser = await require('playwright').chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required', '--disable-webgl'] });
     var cases = [['UPGRADE', caseUpgrade], ['OVERTAKEN', caseOvertaken], ['VARY', caseVary], ['FAILED INSTALL', caseFailedInstall],
-      ['HOLE', caseHole], ['HOLE', caseHoleOwn], ['LAB', caseLab], ['INTERRUPTED', caseInterrupted]];
+      ['HOLE', caseHole], ['HOLE', caseHoleOwn], ['LAB', caseLab], ['INTERRUPTED', caseInterrupted], ['OLD SAVES', caseOldSaves]];
     var only = process.argv.indexOf('--only') > 0 ? process.argv[process.argv.indexOf('--only') + 1].toUpperCase() : null;
     for (var i = 0; i < cases.length; i++) {
       if (only && cases[i][0] !== only) continue;

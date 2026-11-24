@@ -116,12 +116,28 @@ later Tune must keep three things: every control inside one
 attribute. Behind Tune the scrim is 0.2 dark (0.5 behind the custom
 duration), so the colours above the sheet read true.
 
+The look is two choices, from release 1.14.0: the sand (Tune's Sand tab,
+`#sands`: the nine of `HourglassPhysics.SANDS` and Custom, a sand made from
+one colour by `customSand`, set in the well under the swatches, the colour
+input itself) and the frame's finish (the Glass tab, `#finishes`: the caps of
+the six themes, `FINISHES`, hidden while the frame is off). `app.js` hands
+the renderer one of the six sands over its own caps as the bundle it has
+always drawn (`renderer.setTheme`), so the six looks of before are the same
+pictures, pixel for pixel; any other pair is put together by
+`renderer.setLook({ sand, material })`, and Real sand's palette follows each
+change, since it is the renderer's colour table. A colour being dragged in
+the well changes the table at most once a frame (`setLook` with `live`) and
+draws the glass and frame once it is let go, then saved. The chip at the top
+steps through the sands. `Hourglass.setTheme(id)` is still the material of
+before (that sand over its own caps), for the tests and for the curious.
+
 The last thing in the Time tab is a quiet link, "Put the look and sound
 back as they came". Its first tap asks for a second within three seconds (a
 second tap sooner than 0.4 s, half of a double tap, is not an answer); the
-second sets the material, the frame, layered sand, the volume, the sand's
-sound, the ambience and its level and the completion bowl to their records'
-defaults, saves once, and tells the engines only what differed, the look
+second sets the sand (with the material that follows it), the frame's
+finish, the frame, layered sand, the volume, the sand's sound, the ambience
+and its level and the completion bowl to their records' defaults (the custom
+sand's colour is kept, for its swatch), saves once, and tells the engines only what differed, the look
 behind one cross-fade. Everything else is kept, and nothing is loaded again.
 
 At the top of the Glass tab, a tap on a shape only shows it; "Use this
@@ -142,15 +158,17 @@ controls.
 
 What the app keeps from one launch to the next is one JSON object in
 `localStorage`, under `hourglass.settings.v1`. The settings store holds it as
-a table of records, one for every saved key (33 today), in the order the
+a table of records, one for every saved key (36 today), in the order the
 keys are saved:
 
 - `id`, the key;
 - `default`, its value on a new install. Its type is the setting's type: a
   saved value of another type is dropped;
 - `valid(value, reg)`, where a value must be checked: false puts the default
-  back (the material must be one of `HourglassPhysics.THEMES`, the grain 1 or
-  2, the accelerometer's sign 1 or -1, Tune's tab one of the four). It does not clamp: a value outside
+  back (the material must be one of `HourglassPhysics.THEMES`, the sand one
+  of `SANDS` or `'custom'`, the custom colour "h,s,l" or nothing, the finish
+  one of `FINISHES`, the grain 1 or 2, the accelerometer's sign 1 or -1,
+  Tune's tab one of the four). It does not clamp: a value outside
   its range comes up as the default, not as the nearest end;
 - `from(saved, reg)`, where a setting is made from older ones: the value for
   a save that has no such key yet. A migration is keyed on its own key being
@@ -158,7 +176,11 @@ keys are saved:
   ([settings design 5.1](design/settings.md)). It is handed the save as it
   was read, before any type is checked, so it must stand any value under any
   key; one that throws, or gives another type, costs its own key the
-  default. No record needs one yet.
+  default. Two records have one (release 1.14.0): `sand`, which a save from
+  before takes from its material (`theme`), and `finish`, the caps of that
+  material (`HourglassPhysics.finishOf`: Sahara Quartz walnut, Volcanic Black
+  brass, Moonstone silver, Lapis Lazuli gold, Rose Quartz copper, Sea Glass
+  driftwood), so that an old glass looks as it did.
 
 `HourglassSettings.load(storage, search, reg)` gives the values: the
 defaults; over them the saved values of the right type; the version step
@@ -166,7 +188,7 @@ defaults; over them the saved values of the right type; the version step
 Real sand on, once, and the values then say version 2); the checks; and the
 repairs that read two keys (`?t=300` sets the duration and ends a saved
 sequence; a rest out of range is no rest; without a rest there is one
-round). `save(values)` writes them back. Storage that throws, or cannot be
+round; a custom sand without a colour is its material's sand). `save(values)` writes them back. Storage that throws, or cannot be
 reached at all (private mode, storage blocked), runs with the defaults and
 saves nothing. The file reads nothing when it loads, so the tests load it in
 Node as it is.

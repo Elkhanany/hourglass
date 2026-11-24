@@ -48,8 +48,8 @@ the brim.
 **Tune** holds the rest, in four tabs: **Sand**, **Glass**, **Sound** and
 **Time**. The sheet covers the lower half of the screen and stops just under
 the neck of the glass, on every tab, so the upper bulb, the neck and the
-stream stay in view and a new material, layered sand or breathing glow is
-seen as it is chosen. A tab too long for the sheet scrolls; the tab row
+stream stay in view and a new sand, finish, layered sand or breathing glow
+is seen as it is chosen. A tab too long for the sheet scrolls; the tab row
 stays where it is. While a tab has more below, its rows fade into the
 bottom of the sheet and a small arrow there points down; it goes once you
 reach the end. Tune opens on the tab used last, at its top. Tap outside
@@ -58,10 +58,20 @@ keys move between the tabs.
 
 **Sand**
 
-- **Material**: Sahara Quartz, Volcanic Black, Moonstone, Lapis Lazuli (gold
-  flecks, gold caps), Rose Quartz (copper), Sea Glass (driftwood): each a
-  sand with its frame's finish. The name at the top of the screen steps
-  through them too.
+- **Colour**: the sand itself, chosen apart from the frame (from release
+  1.14.0). Nine sands: Sahara Quartz, Volcanic Black, Moonstone, Lapis Lazuli,
+  Rose Quartz, Sea Glass, Red Garnet, Olivine and Amethyst, and **Custom**, a
+  sand made from any colour. Tap Custom and the sand turns sea green, and a
+  row **Your colour** appears under the swatches: tap its circle to open the
+  phone's colour picker, and the sand follows the colour as you move it. The
+  circle shows the colour the sand really uses: a very pale or very dark
+  colour is softened so the sand still shows against the dark room. The
+  colour is kept when you choose another sand, and Custom brings it back.
+  The name at the top of the screen steps through the nine sands (and your
+  own, once you have made one); the frame keeps its finish.
+  A glass set up before 1.14.0 keeps its look: its material's sand, and its
+  frame's finish (Volcanic Black keeps its brass caps, Lapis Lazuli its gold,
+  and so on).
 - **Layered sand** gives the sand a second tone. A new glass is filled in a
   pattern drawn for it alone (bands fine or bold, level or leaning, arched,
   waved or folded), what falls settles into strata on the heap, and sand
@@ -92,7 +102,7 @@ keys move between the tabs.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.13.0" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.14.0" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;
@@ -115,6 +125,9 @@ keys move between the tabs.
   phone.
 - **Show the frame**: the turned posts and caps around the glass. Off, only
   the glass remains, a little larger.
+- **Finish** (under it, while the frame is shown): what the caps and posts
+  are made of, whatever the sand: Walnut (the default), Brass, Silver, Gold,
+  Copper or Driftwood.
 
 **Sound**
 
@@ -142,8 +155,9 @@ keys move between the tabs.
 - **Buttons: Haptics**: a light tick from buttons and switches, where the
   phone supports it (see "Browser notes" below for an iPhone).
 - **Put the look and sound back as they came**: tap it, then tap again
-  within three seconds ("Tap again to put them back"). The material, the
-  frame, layered sand, the volume, the sand sound, the ambience and its
+  within three seconds ("Tap again to put them back"). The sand (Sahara
+  Quartz; a colour of your own is kept for its swatch), the frame and its
+  finish (walnut), layered sand, the volume, the sand sound, the ambience and its
   level and the completion bowl go back to how the app came; everything
   else stays as you set it (Real sand and the grain, the glass's shape, the durations, work and
   rest, breathing, Zen, the screen, haptics, Real motion, the mute button),
@@ -283,7 +297,7 @@ back, as any tap does).
 
 ## Real sand
 
-**Real sand**, in **Tune**'s Sand tab under Material, runs the sand on the
+**Real sand**, in **Tune**'s Sand tab under the sands, runs the sand on the
 phone's graphics chip: the sand of the sand lab, every grain a point of a
 simulated continuum, in the same glass. It is on by default from version
 1.10.0, and the classic sand (the sand as it has always been) is the

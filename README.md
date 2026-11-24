@@ -26,13 +26,17 @@ loaded from anywhere else: no libraries, no fonts, no audio files.
   also offer **Install** in the address bar. A burst of mouse clicks knocks
   on the glass (classic sand).
 
-## Six sands
+## The sands
 
 ![The six sands: Sahara quartz, volcanic black, moonstone, lapis lazuli, rose quartz and sea glass](docs/images/sands.jpg)
 
 Sahara Quartz in walnut, Volcanic Black in brushed brass, Moonstone in
 frosted silver, Lapis Lazuli in gold, Rose Quartz in copper and Sea Glass in
-driftwood. Tap the name at the top to change it, or choose in **Tune**. With
+driftwood. Since 1.14.0 the sand and the frame are chosen apart: three more
+sands (Red Garnet, Olivine and Amethyst), a sand made from any colour you
+pick, and the frame's finish (walnut, brass, silver, gold, copper or
+driftwood) in Tune's Glass tab. Tap the name at the top to change the sand,
+or choose in **Tune**. With
 **Layered sand** on, each has a companion tone: Sahara's gold with a deeper
 sienna, Volcanic Black with pumice grey, Moonstone with its blue shadow, Lapis
 Lazuli with seams of old gold, Rose Quartz with a dustier rose, Sea Glass with
@@ -117,7 +121,7 @@ deep-water teal.
 | Zen: the glass fills the screen | Spread two fingers, or the moon icon | |
 | Back from Zen | Pinch two fingers together | `Esc` |
 | Mute | Speaker icon | `M` |
-| Sand, glass, sound and time: material, frame, ambience, motion, breathing, screen | **Tune** (four tabs) | arrow keys between the tabs |
+| Sand, glass, sound and time: sand, frame and its finish, ambience, motion, breathing, screen | **Tune** (four tabs) | arrow keys between the tabs |
 
 ## Documents
 

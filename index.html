@@ -62,7 +62,7 @@
   <!-- top HUD: readout -->
   <header id="hud-top" class="hud">
     <div class="top-row">
-      <button id="btn-theme" class="chip" type="button" aria-label="Change material">
+      <button id="btn-theme" class="chip" type="button" aria-label="Change sand">
         <span class="swatch" aria-hidden="true"></span><span id="theme-name">Sahara Quartz</span>
       </button>
       <div class="top-actions">
@@ -151,34 +151,27 @@
          Neither is a control: they take no taps and a screen reader passes them by. -->
     <div class="edge edge-top" aria-hidden="true"></div>
     <div class="sheet-body">
-      <!-- Sand: the sand itself, and how it feels in the hand -->
+      <!-- Sand: the sand itself (nine, and one made from any colour), and how it feels in the hand -->
       <div id="panel-sand" class="tab-panel" role="tabpanel" aria-labelledby="tab-sand" data-tab="sand">
-        <h3>Material</h3>
-        <div id="themes" class="cards" role="radiogroup" aria-label="Material">
-          <button class="card" type="button" role="radio" aria-checked="true" data-theme-id="sahara">
-            <span class="orb orb-sahara" aria-hidden="true"></span>
-            <b>Sahara Quartz</b><small>Walnut</small>
-          </button>
-          <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="volcanic">
-            <span class="orb orb-volcanic" aria-hidden="true"></span>
-            <b>Volcanic Black</b><small>Brushed brass</small>
-          </button>
-          <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="moonstone">
-            <span class="orb orb-moonstone" aria-hidden="true"></span>
-            <b>Moonstone</b><small>Frosted silver</small>
-          </button>
-          <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="lapis">
-            <span class="orb orb-lapis" aria-hidden="true"></span>
-            <b>Lapis Lazuli</b><small>Gold</small>
-          </button>
-          <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="rosequartz">
-            <span class="orb orb-rosequartz" aria-hidden="true"></span>
-            <b>Rose Quartz</b><small>Copper</small>
-          </button>
-          <button class="card" type="button" role="radio" aria-checked="false" data-theme-id="seaglass">
-            <span class="orb orb-seaglass" aria-hidden="true"></span>
-            <b>Sea Glass</b><small>Driftwood</small>
-          </button>
+        <h3>Colour</h3>
+        <div id="sands" class="sands" role="radiogroup" aria-label="Sand">
+          <button type="button" role="radio" aria-checked="true" data-sand="sahara"><span class="orb orb-sahara" aria-hidden="true"></span><span class="nm">Sahara Quartz</span></button>
+          <button type="button" role="radio" aria-checked="false" data-sand="volcanic"><span class="orb orb-volcanic" aria-hidden="true"></span><span class="nm">Volcanic Black</span></button>
+          <button type="button" role="radio" aria-checked="false" data-sand="moonstone"><span class="orb orb-moonstone" aria-hidden="true"></span><span class="nm">Moonstone</span></button>
+          <button type="button" role="radio" aria-checked="false" data-sand="lapis"><span class="orb orb-lapis" aria-hidden="true"></span><span class="nm">Lapis Lazuli</span></button>
+          <button type="button" role="radio" aria-checked="false" data-sand="rosequartz"><span class="orb orb-rosequartz" aria-hidden="true"></span><span class="nm">Rose Quartz</span></button>
+          <button type="button" role="radio" aria-checked="false" data-sand="seaglass"><span class="orb orb-seaglass" aria-hidden="true"></span><span class="nm">Sea Glass</span></button>
+          <button type="button" role="radio" aria-checked="false" data-sand="garnet"><span class="orb orb-garnet" aria-hidden="true"></span><span class="nm">Red Garnet</span></button>
+          <button type="button" role="radio" aria-checked="false" data-sand="olivine"><span class="orb orb-olivine" aria-hidden="true"></span><span class="nm">Olivine</span></button>
+          <button type="button" role="radio" aria-checked="false" data-sand="amethyst"><span class="orb orb-amethyst" aria-hidden="true"></span><span class="nm">Amethyst</span></button>
+          <button type="button" role="radio" aria-checked="false" data-sand="custom"><span class="orb orb-custom" id="orb-custom" aria-hidden="true"></span><span class="nm">Custom</span></button>
+        </div>
+        <!-- the custom sand's colour: the colour input itself, drawn as a circle (a finger opens the phone's own picker) -->
+        <div class="rows rows-single" id="sandcolor-rows" hidden>
+          <div class="row" id="sandcolor-row">
+            <span><b>Your colour</b><small>The circle shows the colour the sand really uses. Very pale or very dark colours are softened so the sand stays visible.</small></span>
+            <input id="sand-color" class="well" type="color" value="#40bfbf" aria-label="Your sand's colour">
+          </div>
         </div>
 
         <div class="rows rows-single" id="rows-sand">
@@ -233,6 +226,18 @@
             <span><b>Show the frame</b><small>Turned posts and caps around the glass</small></span>
             <input id="opt-frame" class="switch" type="checkbox" role="switch" checked>
           </label>
+          <!-- the finish of the caps and posts, chosen apart from the sand (hidden while the frame is off) -->
+          <div class="sub" id="finish-sub">
+            <p class="sub-head" id="finish-head">Finish</p>
+            <div id="finishes" class="finishes" role="radiogroup" aria-labelledby="finish-head">
+              <button type="button" role="radio" aria-checked="true" data-finish="walnut"><span class="cap cap-walnut" aria-hidden="true"></span><span class="nm">Walnut</span></button>
+              <button type="button" role="radio" aria-checked="false" data-finish="brass"><span class="cap cap-brass" aria-hidden="true"></span><span class="nm">Brass</span></button>
+              <button type="button" role="radio" aria-checked="false" data-finish="silver"><span class="cap cap-silver" aria-hidden="true"></span><span class="nm">Silver</span></button>
+              <button type="button" role="radio" aria-checked="false" data-finish="gold"><span class="cap cap-gold" aria-hidden="true"></span><span class="nm">Gold</span></button>
+              <button type="button" role="radio" aria-checked="false" data-finish="copper"><span class="cap cap-copper" aria-hidden="true"></span><span class="nm">Copper</span></button>
+              <button type="button" role="radio" aria-checked="false" data-finish="driftwood"><span class="cap cap-driftwood" aria-hidden="true"></span><span class="nm">Driftwood</span></button>
+            </div>
+          </div>
         </div>
       </div>
 
