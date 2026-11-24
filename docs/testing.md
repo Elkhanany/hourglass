@@ -65,9 +65,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `sim-perf`) and `realsand-gpu` are run by hand, as above, and their
   results go in the pull request (`.github/pull_request_template.md`).
 - `settings-unit`, `app-boot-trace` and `app-tune-trace` hold the settings
-  store (`app/settings.js`), and whatever is built on it, to what the app did
-  before it, each against a file kept in `tools/test/base/` (see
-  [the architecture](architecture.md#appsettingsjs)). `settings-unit`, in
+  store (`app/settings.js`), and whatever is built on it, each against a
+  file kept in `tools/test/base/` (see
+  [the architecture](architecture.md#appsettingsjs)): `settings-unit` to
+  the app before the store, the two traces to their reviewed record. `settings-unit`, in
   Node, in a moment: the records are well formed, and the first 31 are the
   old settings' keys and defaults in their order; the old Settings section
   of `app.js`, kept byte for byte, and the store give the same on 500 saved
@@ -116,16 +117,22 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   switch, choice and slider of Tune's sheet must be one the trace drives
   (`DRIVE` in `tools/test/lib/trace.js`), so a control added to Tune and not
   to the driver fails instead of going untraced; a copy of the page with one
-  switch more must be found out. Run with `--base <commit>` (or
-  `HOURGLASS_BASE=<commit>`), each makes its file again from that commit's
-  tree and compares; with `--write` as well it writes it from that commit.
-  The two traces run with `--write` alone write their file from the tree
-  just run: that is how a setting or a control added on purpose gets its new
-  trace, in a commit of its own whose diff is read (the new key in the
-  saves, the new control's lines, and nothing else). The kept Settings
+  switch more must be found out. The two kept traces are the reviewed
+  record of the tree named in each file's `from`, not a recording of the
+  app before the store: run with `--write`, a trace suite writes its file
+  from the tree just run, and that is how a setting or a control added on
+  purpose gets its new trace, in a commit of its own that says what changed
+  and nothing else (the new key in the saves, the new control's lines),
+  whose diff is read. Run with `--base <commit>` (or
+  `HOURGLASS_BASE=<commit>`), a trace suite also runs that commit's tree and
+  prints how it differs from the kept trace, as a report for whoever makes
+  a trace again; it passes and fails nothing, since an older commit cannot
+  have the keys and controls added since. `settings-unit --base <commit>`
+  is its own: the kept section must be that commit's (with `--write`, it is
+  written from it). The kept Settings
   section is the app before the store (release 1.10.0's, with its 31 keys,
   which release 1.11.0 kept byte for byte): a setting added to the store is
-  not added to it, and it is not made again. The two traces were made from
+  not added to it, and it is not made again. The two traces were first made from
   release 1.11.0, whose new engine build (6) is in their saves, made again
   (`--write`) from the tree that joined it with the new Tune (release
   1.13.0), and last made again for release 1.14.0, the sand and the frame's

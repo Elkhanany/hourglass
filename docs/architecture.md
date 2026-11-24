@@ -219,11 +219,17 @@ Tune trace's driver, and the two kept traces made again. The steps are in
 [Engines](engines.md#adding-a-sand-a-glass-shape-a-sound-or-a-setting).
 `settings-unit` needs no change for it.
 
-Three checks hold the store, and whatever is built on it, to what the app
-did before it. Each compares with a file in `tools/test/base/`, made from
-the last release before the store (1.11.0, whose Settings section is
-1.10.0's byte for byte; `tools/test/lib/base.js` names its commit; a suite run with `--base <commit>` makes its file again from
-that commit and compares):
+Three checks hold the store, and whatever is built on it, each to a file in
+`tools/test/base/`. The loader's file is the app before the store: the
+Settings section of the last release before it (1.11.0, whose section is
+1.10.0's byte for byte; `tools/test/lib/base.js` names its commit). The two
+traces are a reviewed record: each holds the tree named in its file's
+`from`. They were first made from that release, then made again whenever a
+setting or a control was added on purpose, each time in a commit of its own
+that says what changed and nothing else; that chain of commits is what ties
+them to the app before the store. (A trace suite run with `--base <commit>`
+also runs that commit and prints how it differs from the kept trace: a
+report for whoever makes a trace again, which passes and fails nothing.)
 
 - the loader (`settings-unit`, in Node): the old Settings section of
   `app.js`, kept byte for byte, and the store are run on the same 500 saved
@@ -237,9 +243,13 @@ that commit and compares):
   given to the preset (a shortcut starts a new glass over a saved session).
   The old section knows the 31 keys the app had then: they are the store's
   first records, in their order, and a record added since is left out of
-  this comparison. The suite also holds the names: every `settings.…` in
+  this comparison. Two differences are made on purpose, and held: a saved
+  theme that is a name every object has (`toString`, `valueOf` ...) is the
+  default material, where the old section kept it; and where reading the
+  storage throws, the store writes nothing, where the old section wrote the
+  defaults. The suite also holds the names: every `settings.…` in
   `app.js` is a record, and every record is named there;
-- the boot (`app-boot-trace`, in the browser): for five saved states, what
+- the boot (`app-boot-trace`, in the browser): for six saved states, what
   the app reads and saves and what it calls on the Sim, the Renderer, the
   sound engine and the motion sensors until it has started, in order;
 - Tune (`app-tune-trace`, in the browser): for every control that changes a
@@ -250,8 +260,8 @@ that commit and compares):
   of Tune's sheet must be one the trace drives.
 
 A setting or a control added on purpose changes the two traces: each suite,
-run with `--write` and no `--base`, writes its file from the tree just run,
-in a commit of its own whose diff is read.
+run with `--write`, writes its file from the tree just run, in a commit of
+its own that says what changed and nothing else, and whose diff is read.
 
 ## `sw.js`, `manifest.json`
 
