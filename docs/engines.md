@@ -61,6 +61,10 @@ section, is in [Real sand: the design](design/real-sand.md).
   mirror-like at a glance, so the sand darkens softly where it meets the
   glass. The room stays put while the glass turns, so highlights slide across
   it. Without WebGL the app falls back to a drawn glass on 2-D canvas.
+  The classic teardrop is drawn by the shader's own formula; every other
+  shape is drawn by a second program that reads its inner and outer surface
+  from a small table made from the shape's curve when the glass is built (a
+  device that refuses that program gets the drawn glass of the same shape).
 - **Sand stays inside the glass.** The lattice only knows whole cells, so
   grains, motion streaks and the glow are all clipped at half-cell resolution
   to the same smooth inner surface the glass is drawn with.
@@ -826,7 +830,7 @@ imports the same files.
 | `app-sand.mjs` | `RealSand`, the adapter: every member of the CPU `Sim` that `app.js` and `audio.js` use, with the same types; the frame's `submit`, fills, transfers, the swap frame, the Reset's sweep, the sound record (the stream from the ledger, the bed from the readbacks), start-up, loss and rebuild, `stats()` and `audit()` |
 | `valve.mjs` | the ledger (the sand above the neck in the app's whole grains) and the controller that meters the neck once a frame; pure JavaScript |
 | `solver.mjs`, `shaders/` | the PB-MPM solver on WebGPU and its WGSL: the neck's throttle and membrane, the tally (with each bulb's bed, for the sound), the flip pass, appends, readbacks, the tone pass |
-| `glass.mjs` | the glass on the solver's grid, built from the app's own geometry (`makeGeometry`, `profile` of `physics.js`), with the neck's warp |
+| `glass.mjs` | the glass on the solver's grid, built from the app's own geometry (`makeGeometry`, `profile` of `physics.js`), with the neck's warp; the neck is widened for the solver only up to the bulb's widest row (from build 7), so that in every shape the bulb's far end, where the sand lies, is the glass the app draws |
 | `fill.mjs` | fills: the lattice, and `fromLattice`, the GPU bed laid where the CPU sand's grains are, each with its grain's colour seed |
 | `grains.mjs` | the grains drawn: the palette from the Renderer's colour table, the warp, the room's light, the sweep |
 | `layers.mjs`, `shaders/tone.wgsl` | layered sand on the GPU: the layer schedule, fresh tones as grains come to rest, the pattern after a turn |
@@ -1076,8 +1080,15 @@ true`): its curve stays in `profile()`, so its numbers never move.
 - What picks it up: `P.SHAPES[id]` and `P.SHAPE_ORDER`; `new P.Sim({ shape:
   id })` and the Renderer on it; `P.makeGeometry(q, id)` with `P.profile(u,
   g)` for its outline, the classic's too; Real sand, which takes the glass
-  from the same geometry. Tune offers no shapes yet; when it does, it lists
-  the records with `offered`.
+  from the same geometry. Tune's Glass tab lists the records with
+  `offered`, in `SHAPE_ORDER`, and the setting `shape` (app/settings.js)
+  takes only one of those: a save that names another comes up as the
+  classic glass. The app builds its Sim in the shape only when
+  `checkShape` says the sand can use it at that size and grain; otherwise
+  the classic glass. The session saved for the running glass names its
+  shape and what the glass holds when full for its time, so that a glass
+  restored into another shape keeps its time (the sand counted anew as the
+  same share of the new full glass, the pace scaled with it).
 - What checks it: `check-registry` (the record is whole, and `checkShape`
   at the phone's size); `sim-shape` and `render-shape`, which take every
   registered shape through every case with no change to either (`node
@@ -1085,6 +1096,11 @@ true`): its curve stays in `profile()`, so its numbers never move.
   also holds a registered glass to a size near the classic's (`kR` 0.60 to
   1.15, `kH` 0.60 to 1.10, 0.65 to 1.25 of its capacity), and pins which
   shapes are offered, so offering one is changed there on purpose.
+  `app-shape` takes each offered shape through the app (filled to its cap,
+  a glass run out on time, the picker, the time kept when the shape
+  changes), and `realsand-fill`, `realsand-adapter` and `realsand-gpu` take
+  every shape through Real sand. Offering Trumpet or Florence waits for the
+  lab's flow test on a phone: both have a long narrow tube above the neck.
 
 **A sound character.** One `defineCharacter` in `audio.js`, after the
 others, and its card in Tune. The record: `id` (what the settings keep),

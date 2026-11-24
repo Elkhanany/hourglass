@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /*
- * The boot trace: what the app does with its settings as it starts, in order, for five saved
+ * The boot trace: what the app does with its settings as it starts, in order, for six saved
  * states (lib/trace.js: nothing saved; a save from before version 2 with everything changed; a
- * version-2 save with Real motion left on; a damaged save; "?t=45" over a saved sequence).
+ * version-2 save with Real motion left on; a damaged save; "?t=45" over a saved sequence; a glass
+ * of another shape).
  *
  * For each, everything app.js reads and writes in storage and calls on the Sim (Sim.setPace,
  * the constructor, setLayers, reset, ...), the Renderer (setFrame, setLayers, setTheme, ...),
@@ -26,7 +27,7 @@ var H = require('./stubs/harness.js');
 var base = require('./lib/base.js');
 var trace = require('./lib/trace.js');
 
-var WHAT = 'What the app reads, saves and calls on its engines as it starts, in order, for five saved states (tools/test/lib/trace.js)';
+var WHAT = 'What the app reads, saves and calls on its engines as it starts, in order, for six saved states (tools/test/lib/trace.js)';
 function names(list) { return (list || []).map(function (e) { return e[0]; }); }
 /** Whether the names come in this order in a trace (each after the one before). */
 function inOrder(list, wanted) {

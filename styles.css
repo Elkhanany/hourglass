@@ -110,6 +110,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 button:focus-visible, input:focus-visible, .wheel:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 3px;
 }
+.sheet:focus { outline: none; }      /* (a sheet given the focus itself, as Tune open again after a reload) */
 [hidden] { display: none !important; }
 
 #app {
@@ -415,6 +416,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 .act.held { color: var(--accent); }
 .act .dots { stroke-width: 2.3; }
 .act[disabled] { opacity: 0.35; pointer-events: none; }
+.act.full .ic { opacity: 0.4; }      /* no room for more sand (app.js: showSandRoom) */
 .act.primary {
   justify-self: center;
   width: 64px; height: 64px; border-radius: 50%;
@@ -620,6 +622,43 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
     radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.7), transparent 29%),
     linear-gradient(160deg, #cdb2ea, #9670c4 55%, #4d3273);
 }
+
+/* Shape (the Glass tab): the shape looked at, large, beside the shapes Tune offers, three a row,
+   each drawn at one scale; a tap only looks, "Use this shape" keeps it (app.js: showShapes) */
+.shape-pick { display: grid; grid-template-columns: 31% 1fr; gap: 8px; align-items: start; }
+.shape-preview {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px;
+  padding: 10px 4px 10px; border-radius: 20px;
+  background: var(--raise); box-shadow: inset 0 0 0 1px var(--hair);
+}
+.shape-preview .shape-art { width: 72px; height: 128px; flex: none; }
+.shape-preview b { font-size: 14px; font-weight: 500; }
+.shape-use {
+  margin-top: 6px; min-height: 44px; width: 100%; padding: 4px 6px; border-radius: 14px;
+  font-size: 12.5px; font-weight: 500; line-height: 1.15;
+  background: var(--accent); color: var(--accent-ink);
+  transition: background 0.2s, color 0.2s, transform 0.12s;
+}
+.shape-use:active { transform: scale(0.97); }
+.shape-use[data-state="in-use"] { background: transparent; color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--hair); cursor: default; }
+.shape-use[data-state="in-use"]:active { transform: none; }
+.shapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; align-content: start; }
+.shapes button {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-height: 44px; padding: 6px 2px 5px; border-radius: 14px;
+  background: var(--raise); box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--ink-2);
+  transition: background 0.2s, box-shadow 0.25s, color 0.2s, transform 0.12s;
+}
+.shapes button:active { transform: scale(0.96); }
+.shapes .shape-art { width: 36px; height: 52px; flex: none; }
+.shapes b { font-size: 11.5px; font-weight: 400; white-space: nowrap; }
+.shapes button[aria-checked="true"] { background: var(--raise-2); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.shapes button.in-use b::after { content: ""; display: inline-block; width: 4px; height: 4px; margin: 0 0 2px 4px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+.shape-art .bore { fill: rgba(236, 231, 223, 0.05); stroke: rgba(236, 231, 223, 0.62); stroke-width: 1.1; stroke-linejoin: round; }
+.shape-preview .shape-art .bore { stroke-width: 1.4; }
+.shape-art .sand { fill: var(--shape-sand, var(--accent)); opacity: 0.9; }
+.shape-note { margin: 8px 6px 2px; font-size: 12.5px; line-height: 1.4; color: var(--ink-3); }
 
 .segmented {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px;
