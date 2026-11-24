@@ -98,12 +98,16 @@ async function run(s, env) {
     s.check('TAP: the readout opens the custom sheet and flips', f6 && custom);
     var f7 = await tapOn(t, '#sheet-custom .sheet-close', 800), closed = await t.eval(function () { return document.getElementById('sheet-custom').hidden; });
     s.check('TAP: Close asks for no tap: the sheet closes, its switch stays as it was', !f7 && closed, 'flipped ' + f7 + ', closed ' + closed);
-    // Tune: a card, a switch row
+    // Tune: a sand, a finish, a switch row
     await tapOn(t, '#btn-settings', 900);
-    await tune.show(t, '#themes [data-theme-id="lapis"]');
-    var theme = function () { return t.eval(function () { return document.querySelector('#themes [aria-checked="true"]').dataset.themeId; }); };
-    var th0 = await theme(), f8 = await tapOn(t, '#themes [data-theme-id="lapis"]', 600), th1 = await theme();
-    s.check('TAP: a material card is chosen by one tap, with its flip', f8 && th0 === 'sahara' && th1 === 'lapis', th0 + ' → ' + th1);
+    await tune.show(t, '#sands [data-sand="lapis"]');
+    var theme = function () { return t.eval(function () { return document.querySelector('#sands [aria-checked="true"]').dataset.sand; }); };
+    var th0 = await theme(), f8 = await tapOn(t, '#sands [data-sand="lapis"]', 600), th1 = await theme();
+    s.check('TAP: a sand is chosen by one tap, with its flip', f8 && th0 === 'sahara' && th1 === 'lapis', th0 + ' → ' + th1);
+    await tune.show(t, '#finishes [data-finish="gold"]');
+    var finish = function () { return t.eval(function () { return document.querySelector('#finishes [aria-checked="true"]').dataset.finish; }); };
+    var fi0 = await finish(), f8b = await tapOn(t, '#finishes [data-finish="gold"]', 600), fi1 = await finish();
+    s.check('TAP: a finish is chosen by one tap, with its flip', f8b && fi0 === 'walnut' && fi1 === 'gold', fi0 + ' → ' + fi1);
     await tune.show(t, 'label[for="opt-frame"]');
     var checked = function (id) { return t.eval(function (q) { return document.getElementById(q).checked; }, id); };
     var fr0 = await checked('opt-frame'), f9 = await tapOn(t, 'label[for="opt-frame"]', 700), fr1 = await checked('opt-frame');

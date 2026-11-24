@@ -2442,7 +2442,6 @@
   btnMute.addEventListener('click', function () { setMuted(!settings.muted); buzz(8); });
   btnZen.addEventListener('click', function () { buzz(8); if (setZen(true)) zenHint(); });
 
-  var THEME_ORDER = ['sahara', 'volcanic', 'moonstone', 'lapis', 'rosequartz', 'seaglass'];
   /**
    * Change something about the instrument behind a slow cross-fade. What is
    * asked for while the fade comes in waits with it and happens once the
@@ -2502,7 +2501,8 @@
   function lookToRenderer(live) {
     var material = P.FINISHES[settings.finish].theme;
     if (settings.sand === material) renderer.setTheme(material);
-    else renderer.setLook({ sand: sandAsked(), material: material }, live);
+    else if (live) renderer.setLook({ sand: sandAsked(), material: material }, true);
+    else renderer.setLook({ sand: sandAsked(), material: material });
     if (realEng) realEng.setPalette();
   }
   /**
@@ -2510,7 +2510,7 @@
    * the style sheet (data-theme); the custom sand's are set on the root element. Its name is
    * on the chip, and the controls that choose it show it chosen.
    */
-  function showSand() {
+  function showSand(live) {
     var rec = sandRecord(), root = document.documentElement, ui = rec.ui;
     if (rec.id === 'custom') {
       root.removeAttribute('data-theme');
@@ -2523,11 +2523,41 @@
       ['--accent', '--accent-ink', '--glow', '--glow-a'].forEach(function (k) { root.style.removeProperty(k); });
     }
     themeName.textContent = rec.name;
-    var cards = document.querySelectorAll('#themes .card');
-    for (var i = 0; i < cards.length; i++) {
-      var id = cards[i].dataset.themeId;
-      cards[i].setAttribute('aria-checked', settings.sand === id && settings.finish === P.finishOf(id) ? 'true' : 'false');
+    checkOne('#sands [data-sand]', 'sand', settings.sand);
+    // the custom sand's swatch wears its colour once there is one (until then the colours of every sand)
+    var c = Store.colorOf(settings.sandColor), orb = $('orb-custom'), well = $('sand-color'), cr;
+    if (orb) {
+      if (c) { cr = P.customSand(c.h, c.s, c.l).ui.orb; orb.style.background = 'radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.6), transparent 29%), linear-gradient(160deg, ' + cr[0] + ', ' + cr[1] + ' 55%, ' + cr[2] + ')'; }
+      else orb.style.background = '';
     }
+    if ($('sandcolor-rows')) $('sandcolor-rows').hidden = settings.sand !== 'custom';
+    if (well && c && !live) well.value = hexOf(P.customSand.clamp(c.h, c.s, c.l));   // (the colour really used, not the one asked)
+    checkOne('#finishes [data-finish]', 'finish', settings.finish);
+    showFinishRow();
+  }
+  /** The finish is chosen only while there is a frame to wear it. */
+  function showFinishRow() { if ($('finish-sub')) $('finish-sub').hidden = !settings.frame; }
+  /** In a group of radios, the one whose data-<key> is `value` is the one checked. */
+  function checkOne(sel, key, value) {
+    var b = document.querySelectorAll(sel);
+    for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-checked', b[i].dataset[key] === value ? 'true' : 'false');
+  }
+  /** "#rrggbb" of a colour { h, s, l } (hue in degrees, two shares of 1), and back. */
+  function hexOf(c) {
+    var sat = c.s, l = c.l, k = function (n) { return (n + c.h / 30) % 12; }, a = sat * Math.min(l, 1 - l);
+    var f = function (n) { var v = Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)))); return (v < 16 ? '0' : '') + v.toString(16); };
+    return '#' + f(0) + f(8) + f(4);
+  }
+  function hslOfHex(hex) {
+    var m = /^#([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return null;
+    var v = parseInt(m[1], 16), r = (v >> 16) / 255, g = ((v >> 8) & 255) / 255, b = (v & 255) / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn, h = 0, sat = 0;
+    if (d > 1e-9) {
+      sat = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      h = mx === r ? ((g - b) / d + (g < b ? 6 : 0)) * 60 : mx === g ? ((b - r) / d + 2) * 60 : ((r - g) / d + 4) * 60;
+    }
+    return { h: h, s: sat, l: l };
   }
   var dragRaf = 0, dragging = false;                   // a colour being dragged (dragSand): the next frame shows it
   /** The look the settings name is shown, saved, and given to the renderer: behind the fade, or at once. */
@@ -2575,7 +2605,7 @@
       dragRaf = 0;
       if (!dragging) return;
       dragging = false;
-      showSand();
+      showSand(true);
       lookToRenderer(true);
       dirty = true;
     });
@@ -2596,9 +2626,33 @@
     settings.finish = P.finishOf(id);
     lookChosen(soft);
   }
+  // The chip in the top bar steps through the sands: the nine, then the custom one once a
+  // colour has been made. The frame keeps its finish.
   btnTheme.addEventListener('click', function () {
-    setTheme(THEME_ORDER[(THEME_ORDER.indexOf(settings.theme) + 1) % THEME_ORDER.length], true);
+    var order = P.SAND_ORDER.concat(Store.colorOf(settings.sandColor) ? ['custom'] : []);
+    setSand(order[(order.indexOf(settings.sand) + 1) % order.length], true);
     buzz(8);
+  });
+  // The sands of Tune. Custom with no colour made yet starts from a sea green, so that the tap
+  // shows at once and the well below it is there to change it.
+  var CUSTOM_FIRST = { h: 185, s: 0.5, l: 0.5 };
+  if ($('sands')) $('sands').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-sand]');
+    if (!b) return;
+    var id = b.dataset.sand;
+    if (id === 'custom' && !Store.colorOf(settings.sandColor)) setSand(CUSTOM_FIRST, true);
+    else setSand(id, true);
+    buzz(8);
+  });
+  // The well: the colour input itself. While a finger moves in the phone's picker the sand
+  // follows by its colour table (dragSand); when it is let go the glass is drawn again, saved.
+  if ($('sand-color')) {
+    $('sand-color').addEventListener('input', function (e) { var c = hslOfHex(e.target.value); if (c) dragSand(c); });
+    $('sand-color').addEventListener('change', function (e) { var c = hslOfHex(e.target.value); if (c) setSand(c); });
+  }
+  if ($('finishes')) $('finishes').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-finish]');
+    if (b) { setFinish(b.dataset.finish, true); buzz(8); }
   });
 
   /* ---- duration pills ----------------------------------------------- */
@@ -2753,10 +2807,6 @@
   }
 
   /* ---- settings controls -------------------------------------------- */
-  $('themes').addEventListener('click', function (e) {
-    var c = e.target.closest('.card');
-    if (c) { setTheme(c.dataset.themeId, true); buzz(8); }
-  });
   function setCharacter(id) {
     settings.character = id; save();
     audio.setCharacter(id);
@@ -2822,6 +2872,7 @@
   }
   $('opt-frame').addEventListener('change', function (e) {
     settings.frame = e.target.checked; save();
+    showFinishRow();
     swapFrame();
   });
   // Layered sand: the sand in the glass is laid in strata where it lies (or
@@ -2944,7 +2995,7 @@
     if (was.theme !== settings.theme || was.sand !== settings.sand || was.finish !== settings.finish) {
       showSand(); softSwap('look', function () { lookToRenderer(false); });     // (the custom colour is kept for its swatch)
     }
-    if (was.frame !== settings.frame) { $('opt-frame').checked = settings.frame; swapFrame(); }
+    if (was.frame !== settings.frame) { $('opt-frame').checked = settings.frame; showFinishRow(); swapFrame(); }
     if (was.layers !== settings.layers) { $('opt-layers').checked = settings.layers; swapLayers(); }
     // the sound (nothing is auditioned, and the bowl is not rung)
     if (was.volume !== settings.volume) { audio.setVolume(settings.volume); showVolume(); }

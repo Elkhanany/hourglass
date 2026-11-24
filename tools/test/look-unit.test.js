@@ -321,7 +321,7 @@ test('setLook: any sand over any of the six caps; what is left out stays; `live`
 });
 
 /* ---- the frame's finishes ---- */
-test('the six finishes are the six themes\' caps, named by their material, and finishOf goes back', function () {
+test('the six finishes are the six themes\' caps, named by their material, and finishOf goes back; each swatch is drawn in its caps\' tones', function () {
   var WANT = [['walnut', 'Walnut', 'sahara'], ['brass', 'Brass', 'volcanic'], ['silver', 'Silver', 'moonstone'],
               ['gold', 'Gold', 'lapis'], ['copper', 'Copper', 'rosequartz'], ['driftwood', 'Driftwood', 'seaglass']];
   ok(js(P.FINISH_ORDER) === js(WANT.map(function (w) { return w[0]; })) && js(Object.keys(P.FINISHES)) === js(P.FINISH_ORDER), 'FINISH_ORDER is ' + P.FINISH_ORDER);
@@ -337,6 +337,13 @@ test('the six finishes are the six themes\' caps, named by their material, and f
     ok(r.theme.cap === P.THEMES[w[2]].cap && r.theme.sand === P.SANDS.garnet.sand, w[0] + ': Red Garnet over it does not wear its caps');
   });
   ok(P.finishOf('garnet') === null && P.finishOf('toString') === null && P.finishOf(undefined) === null, 'finishOf a sand that is no theme is not null');
+  // Tune's swatch of each finish is drawn in its caps' own three tones (styles.css .cap-<id>)
+  var css = fs.readFileSync(path.join(paths.ROOT, 'styles.css'), 'utf8');
+  WANT.forEach(function (w) {
+    var c = P.THEMES[w[2]].cap, m = new RegExp('\\.cap-' + w[0] + '\\s*\\{\\s*background:\\s*linear-gradient\\(180deg, rgb\\(([\\d, ]+)\\), rgb\\(([\\d, ]+)\\) 55%, rgb\\(([\\d, ]+)\\)\\)').exec(css);
+    ok(m, w[0] + ': no swatch .cap-' + w[0] + ' in styles.css');
+    ok(js([m[1], m[2], m[3]]) === js([c.hi, c.mid, c.lo].map(function (x) { return x.join(', '); })), w[0] + ': the swatch is ' + m.slice(1, 4).join(' / ') + ', the caps ' + js([c.hi, c.mid, c.lo]));
+  });
   return WANT.map(function (w) { return w[1] + ' (' + w[2] + ')'; }).join(', ');
 });
 
