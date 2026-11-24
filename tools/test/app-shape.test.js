@@ -15,7 +15,8 @@
  *            again in Delta and Tune comes back open on the Glass tab at once, Delta in use;
  *            the time left is what it was (within a frame), the sand counted anew as the same
  *            share of Delta's full glass, as much of it above the neck as the clock asks (within
- *            a grain), and the glass runs out at 00:00.0 on time
+ *            a grain), and the glass runs out at 00:00.0 on time; the focus is on Tune itself, so no
+ *            button wears a focus ring that no tap asked for
  *   SHAPES   in each shape Tune offers, on the classic sand: a 60-minute glass filled to its cap
  *            (the clock's full glass for that shape), all of it above the neck; a 10 s glass run
  *            to its end, the last grain out as the readout reaches 00:00.0, on time
@@ -244,7 +245,9 @@ async function use(env, o) {
     await sleep(700);
     m.tune = await t.eval(function () {
       var s = document.getElementById('sheet-settings'), sel = document.querySelector('#tune-tabs [aria-selected="true"]');
-      return { open: !s.hidden && s.classList.contains('open'), tab: sel ? sel.dataset.tab : null, flag: sessionStorage.getItem('hourglass.openNow') };
+      var f = document.activeElement, cs = f ? getComputedStyle(f) : null;
+      return { open: !s.hidden && s.classList.contains('open'), tab: sel ? sel.dataset.tab : null, flag: sessionStorage.getItem('hourglass.openNow'),
+               focus: f ? (f.id || f.className || f.tagName) : '', ring: !!cs && cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 };
     });
     m.pick = await picker(t);
     m.saved = JSON.parse(await saved(t));
@@ -268,6 +271,8 @@ function useOk(m) {
     tune: { ok: m.tune.open && m.tune.tab === 'glass' && !m.tune.flag && m.pick.list.filter(function (x) { return x.inUse; }).map(function (x) { return x.id; }).join() === 'delta' &&
                 m.pick.big === 'delta' && m.pick.use.text === 'In use',
             detail: JSON.stringify(m.tune) + '; in use ' + m.pick.list.filter(function (x) { return x.inUse; }).map(function (x) { return x.id; }).join() + ', ' + m.pick.use.text },
+    // (no tap came before the reload: a button given the focus would wear its ring)
+    focus: { ok: m.tune.focus === 'sheet-settings' && !m.tune.ring, detail: 'the focus on ' + m.tune.focus + (m.tune.ring ? ', with a ring' : ', no ring') },
     time: { ok: Math.abs(keptMs) <= FRAME && Math.abs(b.rem / b.dur - 0.6) < 0.02,
             detail: 'left ' + (b.rem / 1000).toFixed(3) + ' s at ' + (100 - 100 * b.rem / b.dur).toFixed(1) + ' % run (set to 40 % ' + ((b.at - m.setAt) / 1000).toFixed(2) + ' s before); ' + ((a.at - b.at) / 1000).toFixed(2) + ' s later ' + (a.rem / 1000).toFixed(3) + ' s: ' + keptMs.toFixed(1) + ' ms off' },
     // (within a grain of what the clock asked at the restore: it may have let through as much more as
@@ -438,6 +443,7 @@ async function main() {
       var us = useOk(await use(env));
       s.check('USE: "Use this shape" builds the page again in Delta, saved, the glass still running', us.built.ok, us.built.detail);
       s.check('USE: Tune is open again at once on the Glass tab, Delta in use', us.tune.ok, us.tune.detail);
+      s.check('USE: ... with the focus on Tune itself, and no focus ring on a button', us.focus.ok, us.focus.detail);
       s.check('USE: changed at 40 % of a 5-minute glass, the time left is kept within a frame', us.time.ok, us.time.detail);
       s.check('USE: the sand is counted anew as the same share of Delta\'s full glass, as much above the neck as the clock asks (within a grain)', us.sand.ok, us.sand.detail);
       s.check('USE: ... and the glass runs out at 00:00.0 on time, the last grain with it', us.end && us.end.ok, us.end && us.end.detail);
@@ -446,6 +452,9 @@ async function main() {
       }, useOk);
       await control('a copy that does not open Tune again after the reload', 'tune', function () {
         return use(env, Object.assign({ short: true }, app(swap('  if (reopen === \'glass\') {', '  if (false) {'))));
+      }, useOk);
+      await control('a copy that gives the focus to the close button after the reload', 'focus', function () {
+        return use(env, Object.assign({ short: true }, app(swap('openSheet(sheetSettings, btnSettings, sheetSettings);', 'openSheet(sheetSettings, btnSettings);'))));
       }, useOk);
     }
     if (wanted('shapes')) {

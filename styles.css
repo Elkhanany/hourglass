@@ -92,6 +92,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 button:focus-visible, input:focus-visible, .wheel:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 3px;
 }
+.sheet:focus { outline: none; }      /* (a sheet given the focus itself, as Tune open again after a reload) */
 [hidden] { display: none !important; }
 
 #app {

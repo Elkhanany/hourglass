@@ -2581,7 +2581,11 @@
   $('readout').addEventListener('click', function () { buzz(8); openCustom(null); });
 
   /* ---- sheets ------------------------------------------------------- */
-  function openSheet(el, opener) {
+  /**
+   * `focusOn`: where the focus goes instead of the close button (Tune open again after the reload
+   * of "Use this shape": no tap came first, so a button given the focus would wear its ring).
+   */
+  function openSheet(el, opener, focusOn) {
     if (sheetOpen === el) return;
     if (sheetOpen) closeSheet(true);
     sheetOpen = el; sheetOpener = opener || null;
@@ -2589,7 +2593,7 @@
     scrim.hidden = false; el.hidden = false;
     void el.offsetHeight;                              // commit start state
     scrim.classList.add('open'); el.classList.add('open');
-    var c = el.querySelector('.sheet-close');
+    var c = focusOn || el.querySelector('.sheet-close');
     if (c) setTimeout(function () { try { c.focus({ preventScroll: true }); } catch (e) {} }, 60);
   }
   function closeSheet(instant) {
@@ -3852,7 +3856,9 @@
     showTab('glass');
     tuneOpening();
     sheetSettings.style.transition = 'none'; scrim.style.transition = 'none';
-    openSheet(sheetSettings, btnSettings);
+    // (the focus on the sheet itself, which a screen reader reads as the dialog, and no ring)
+    sheetSettings.setAttribute('tabindex', '-1');
+    openSheet(sheetSettings, btnSettings, sheetSettings);
     tuneEdges();
     requestAnimationFrame(function () { requestAnimationFrame(function () { sheetSettings.style.transition = ''; scrim.style.transition = ''; }); });
   }
