@@ -146,6 +146,10 @@
       </button>
     </div>
 
+    <!-- Tune's edges, drawn over the rows (app.js: tuneEdges): the rows fade out under the tab row once a
+         tab is scrolled, and into the sheet's lower edge, with a chevron, while there is more below.
+         Neither is a control: they take no taps and a screen reader passes them by. -->
+    <div class="edge edge-top" aria-hidden="true"></div>
     <div class="sheet-body">
       <!-- Sand: the sand itself, and how it feels in the hand -->
       <div id="panel-sand" class="tab-panel" role="tabpanel" aria-labelledby="tab-sand" data-tab="sand">
@@ -302,6 +306,9 @@
         <!-- the look and the sound as they came: a second tap within three seconds does it (app.js) -->
         <button id="tune-reset" class="quiet-link" type="button" data-state="idle"><span id="tune-reset-text">Put the look and sound back as they came</span></button>
       </div>
+    </div>
+    <div class="edge edge-more" aria-hidden="true">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 9.5l5.5 5 5.5-5"/></svg>
     </div>
   </section>
 

@@ -14,6 +14,8 @@
   --hair: rgba(255, 255, 255, 0.085);
   --panel: rgba(24, 25, 28, 0.58);
   --panel-solid: #17181b;
+  --sheet-rgb: 22, 23, 26;                      /* a sheet's own colour (Tune's edges are painted from it) */
+  --sheet-a: 0.86;
   --raise: rgba(255, 255, 255, 0.055);
   --raise-2: rgba(255, 255, 255, 0.10);
 
@@ -431,7 +433,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   display: flex; flex-direction: column;
   padding: 8px calc(var(--sar) + 16px) calc(var(--sab) + 16px) calc(var(--sal) + 16px);
   border-radius: 30px 30px 0 0;
-  background: rgba(22, 23, 26, 0.86);
+  background: rgba(var(--sheet-rgb), var(--sheet-a));
   -webkit-backdrop-filter: blur(34px) saturate(170%);
   backdrop-filter: blur(34px) saturate(170%);
   box-shadow: inset 0 0 0 1px var(--hair), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 -24px 70px rgba(0, 0, 0, 0.6);
@@ -479,6 +481,28 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 .tab-panel > h3:first-child { margin-top: 6px; }
+/* Tune's edges (app.js: tuneEdges sets .scrolled and .more-below on the sheet). Once a tab is
+   scrolled from its top the rows fade out under the tab row; while it can scroll further down
+   they fade into the sheet's lower edge and a small chevron under them points down. Each is laid
+   over the scroller and painted from the sheet's own colour: no mask on the scrolling element,
+   which an iPhone would repaint at every step of a momentum scroll. Each sits in the flow with a
+   negative margin as tall as itself, so it takes no room: the sheet, the tab row and every row
+   stand where they did. Neither takes a tap. */
+.edge {
+  flex: none; position: relative; z-index: 2; pointer-events: none;
+  opacity: 0; transition: opacity 0.25s var(--ease);
+}
+.edge-top {
+  height: 16px; margin-bottom: -16px;
+  background: linear-gradient(rgba(var(--sheet-rgb), var(--sheet-a)) 15%, rgba(var(--sheet-rgb), 0));
+}
+.edge-more {
+  height: 44px; margin-top: -44px;
+  background: linear-gradient(rgba(var(--sheet-rgb), 0), rgba(var(--sheet-rgb), 0.5) 45%, rgba(var(--sheet-rgb), var(--sheet-a)));
+}
+/* under the rows, in the sheet's own margin, never on a row's text; the icons' line, quiet */
+.edge-more .ic { position: absolute; left: 50%; bottom: -13px; width: 20px; height: 20px; margin-left: -10px; color: var(--ink-3); stroke-width: 1.7; }
+.sheet.scrolled .edge-top, .sheet.more-below .edge-more { opacity: 1; }
 
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .card {
@@ -779,6 +803,7 @@ input[type="range"]::-moz-range-thumb {
 }
 @media (prefers-reduced-motion: reduce) {
   .hud, .sheet, #scrim, #toast, .pill, .act, .card { transition-duration: 0.01s !important; }
+  .edge { transition: none; }                                 /* Tune's edges appear and go, nothing fades */
   #zoom, #t-frac { transition-duration: 0.01s !important; }   /* the glass does not grow or shrink either */
   #breath, #breath.in { transform: none; }                    /* a breath only brightens and dims */
   #app.zen .hud > * { pointer-events: none; }                 /* dim at once: they take no taps */

@@ -2561,6 +2561,7 @@
     $('spilled').textContent = sim.lost > 0 ? ' · ' + sim.lost.toLocaleString() + ' spilled' : '';
     openSheet(sheetSettings, btnSettings);
     if (tuneBody) tuneBody.scrollTop = 0;              // on the tab last used, from its top
+    tuneEdges();
     buzz(8);
   });
 
@@ -2584,8 +2585,34 @@
       if (panel) panel.hidden = !on;
     }
     if (tuneBody) tuneBody.scrollTop = 0;
+    tuneEdges();
     resetDisarm();
     return id;
+  }
+  /**
+   * Tune's edges (index.html: .edge-top, .edge-more). While the tab shown can still scroll down,
+   * its rows fade into the sheet's lower edge and a small chevron points down ('more-below' on
+   * the sheet); once it is scrolled from its top, its rows fade out under the tab row
+   * ('scrolled'). Within EDGE_SLACK px of either end counts as the end. Read again on a scroll, a
+   * tab shown and an opening; and, through a ResizeObserver, whenever the scroller changes size
+   * (a resize, a rotation) or a panel does (rows that appear or go: Grain with Real sand, "Copy a
+   * report", the breathing choice), which moves no scroll. A closed sheet has nothing to scroll
+   * and shows neither.
+   */
+  var EDGE_SLACK = 2;
+  function tuneEdges() {
+    if (!tuneBody) return;
+    var top = tuneBody.scrollTop, left = tuneBody.scrollHeight - tuneBody.clientHeight - top;
+    sheetSettings.classList.toggle('more-below', left > EDGE_SLACK);
+    sheetSettings.classList.toggle('scrolled', top > EDGE_SLACK);
+  }
+  if (tuneBody) {
+    tuneBody.addEventListener('scroll', tuneEdges, { passive: true });
+    if (window.ResizeObserver) {
+      var edgeWatch = new ResizeObserver(function () { tuneEdges(); });
+      edgeWatch.observe(tuneBody);
+      for (var ei = 0; ei < tuneBody.children.length; ei++) edgeWatch.observe(tuneBody.children[ei]);
+    }
   }
   /** A tab chosen (a tap, or a key on the tab row): shown, and remembered for the next opening. */
   function chooseTab(id) {
