@@ -11,6 +11,12 @@
  * index.html's <meta name="hourglass-version" content="X.Y.Z">, the page's own release (Tune's
  * last line reads it), must be there and equal VERSION.
  *
+ * And the VERSION that an installed copy reads from the server's sw.js (served(): the worker's own
+ * reading of sw.js's text, taken from sw.js itself and run here on that text) is the VERSION that
+ * running sw.js gives. A line the worker cannot read (double quotes, another VERSION named in a
+ * comment above it, a value built from parts) would pass every other gate, and then no installed
+ * copy would ever take that release: each install would find "the server has null now".
+ *
  * HOURGLASS_MAIN=<ref> compares with another ref than origin/main. Without that ref (a clone
  * with no remote, or a shallow one) the check fails and says how to fetch it.
  * Each rule has its control: the same rule on a made-up change that breaks it must fail.
@@ -35,6 +41,24 @@ function worker(src) {
   var ctx = { self: { addEventListener: function () {}, location: { origin: 'http://x' } }, URL: URL };
   vm.runInNewContext(src, ctx);
   return { version: ctx.VERSION, shell: ctx.SHELL || [] };
+}
+/**
+ * What the worker reads as the server's release from a sw.js text: sw.js's own served(), run on
+ * that text (its fetch answers with it). A promise of the VERSION it reads, or null.
+ */
+function servedFrom(src) {
+  var ctx = { self: { addEventListener: function () {}, location: { origin: 'http://x', href: 'http://x/sw.js' } }, URL: URL, Promise: Promise };
+  ctx.fetch = function () { return Promise.resolve({ ok: true, status: 200, text: function () { return Promise.resolve(src); } }); };
+  vm.runInNewContext(src, ctx);
+  if (typeof ctx.served !== 'function') return Promise.reject(new Error('sw.js has no served()'));
+  return Promise.resolve(ctx.served());
+}
+/** [] when the worker reads from a sw.js text the VERSION that running it gives; else the problem. */
+function readProblems(src) {
+  var ran = worker(src).version;
+  return servedFrom(src).then(function (read) {
+    return read === ran ? [] : ['the worker reads VERSION ' + read + ' from sw.js\'s text, but running sw.js gives ' + ran];
+  }, function (e) { return ['the worker\'s reading could not be run: ' + e.message]; });
 }
 /** 'hourglass-v1.10.0' or '1.10.0' → [1, 10, 0]; null if it is not one. */
 function semver(v) {
@@ -135,5 +159,24 @@ var wrong = cases.filter(function (c) {
 check(wrong.length === 0, 'the rule on ' + cases.length + ' made-up trees (control): ' + cases.filter(function (c) { return c[1]; }).length + ' must fail, each with its own problem only, ' +
   cases.filter(function (c) { return !c[1]; }).length + ' must pass', wrong.length ? 'wrong: ' + wrong.join(' | ') : '');
 
-console.log('check-release: ' + (count - failures) + '/' + count + ' passed');
-if (failures) process.exitCode = 1;
+/* ---- the VERSION the worker reads from the server's sw.js ---- */
+var SW_SRC = fs.readFileSync(paths.SW, 'utf8');
+var lineM = /^[ \t]*var[ \t]+VERSION[ \t]*=.*$/m.exec(SW_SRC), line = lineM ? lineM[0] : '\u0000', ver = worker(SW_SRC).version;   // (no such line: each copy is sw.js itself, and the control fails)
+var READ_CONTROLS = [
+  ['VERSION in double quotes', SW_SRC.replace(line, 'var VERSION = "' + ver + '";')],
+  ['a comment above it that names another VERSION', SW_SRC.replace(line, "// (for example: VERSION = 'hourglass-vX.Y.Z')\n" + line)],
+  ['a VERSION built from parts', SW_SRC.replace(line, "var VERSION = 'hourglass-v' + '" + ver.replace(/^hourglass-v/, '') + "';")]
+];
+readProblems(SW_SRC).then(function (p) {
+  check(p.length === 0, 'the worker reads from sw.js\'s text (its own served(), run on that text) the VERSION that running sw.js gives: ' + ver, p.join(' | '));
+  return Promise.all(READ_CONTROLS.map(function (c) { return c[1] === SW_SRC ? Promise.resolve(['(the copy is sw.js itself)']) : readProblems(c[1]); }));
+}).then(function (got) {
+  var missed = READ_CONTROLS.filter(function (c, i) { return got[i].length !== 1 || /the copy is|could not be run/.test(got[i][0]); }).map(function (c) { return c[0]; });
+  check(missed.length === 0, '... and a copy of sw.js with ' + READ_CONTROLS.map(function (c) { return c[0]; }).join(', with ') + ' fails that (control)',
+    missed.length ? 'passed: ' + missed.join(', ') : got.map(function (g) { return g[0]; }).join(' | '));
+}).catch(function (e) {
+  check(false, 'the worker\'s reading of sw.js could be checked', String(e && e.stack || e).split('\n')[0]);
+}).then(function () {
+  console.log('check-release: ' + (count - failures) + '/' + count + ' passed');
+  if (failures) process.exitCode = 1;
+});

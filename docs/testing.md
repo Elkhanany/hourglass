@@ -36,8 +36,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   licence says GPL-3.0-or-later. `check-release`: a branch that changes a shipped file
   (`sw.js` or a path of its `SHELL`) raises `VERSION` above both the
   merge-base's and `origin/main`'s, as a version number, and `index.html`
-  has its `hourglass-version` meta, equal to it; it needs `origin/main`
-  (`HOURGLASS_MAIN=<ref>` names another). `check-harness`: the test guards
+  has its `hourglass-version` meta, equal to it; and the `VERSION` an
+  installed copy reads from the server's `sw.js` (the worker's own
+  `served()`, taken from `sw.js` and run on its text) is the one running
+  `sw.js` gives (copies with the line in double quotes, with a comment above
+  it naming another `VERSION`, or with the value built from parts must
+  fail); it needs `origin/main` (`HOURGLASS_MAIN=<ref>` names another). `check-harness`: the test guards
   themselves: `tools/test/lib/paths.js` reads the page's scripts from
   `index.html`, a suite that still reads one `physics.js` fails at once, the
   browser harness refuses a tree that lacks a script the page loads, naming
