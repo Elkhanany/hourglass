@@ -49,8 +49,8 @@ function sha(s) { return crypto.createHash('sha256').update(s).digest('hex'); }
 var STORE_FILE = paths.script('settings.js');
 require(path.join(ROOT, STORE_FILE));
 var S = globalThis.HourglassSettings;
-var THEMES = require('./lib/load-physics.js').P.THEMES;
-var REG = { themes: THEMES };
+var PH = require('./lib/load-physics.js').P, THEMES = PH.THEMES;
+var REG = { themes: THEMES, sands: PH.SANDS, finishes: PH.FINISHES, finishOf: PH.finishOf };      // (what app.js hands the store)
 var KEY = 'hourglass.settings.v1';
 
 // the kept section: pinned, so that a change to it is made on purpose
@@ -478,7 +478,8 @@ check(fBad.length === 0 && M.VERSION === 3 && calls.length > 0 && calls.every(Bo
 // the key), and the value it must come up with, which is not the default (a `from` that reads a
 // misspelt older key gives the default without a word). None has one yet.
 var FROM = {
-  // sand: [{ v: 2, theme: 'lapis' }, 'blue']
+  sand: [{ v: 2, theme: 'lapis' }, 'lapis'],
+  finish: [{ v: 2, theme: 'lapis' }, 'gold']
 };
 /** What is wrong between a store's `from` records and their examples: [] when each has one that holds. */
 function fromProblems(store, examples) {
@@ -511,6 +512,46 @@ check(f1.join() === 'caps has a from and no example' && f2.length === 1 && /^cap
       f3.length === 3 && /posts: its example comes up with the default/.test(f3[0]) && /caps: its example holds the key itself/.test(f3[1]) && /an example for frame/.test(f3[2]),
   '... and a `from` without an example, one that reads a misspelt key, an example that proves nothing and one for a record without a `from` are each found (control, a made-up store)',
   [f1.join('; '), f2.join('; '), f3.join('; ')].join(' | '));
+
+// the look (1.14.0): the sand and the frame's finish, chosen apart. A save from before has the
+// material alone: each of the six comes up as its own sand over its own caps, every other key as
+// it was; a saved sand and finish are kept; a custom sand needs its colour, or it is the material's
+// sand; what is no sand, no finish or no colour is the default.
+var SIX_CAPS = { sahara: 'walnut', volcanic: 'brass', moonstone: 'silver', lapis: 'gold', rosequartz: 'copper', seaglass: 'driftwood' };
+/** What is wrong with a store's look: [] when every case holds. */
+function lookProblems(store) {
+  var out = [];
+  Object.keys(SIX_CAPS).forEach(function (m) {
+    [{ theme: m, volume: 0.3, frame: false }, { v: 2, realSand: false, theme: m, volume: 0.3, frame: false, tuneTab: 'glass' }].forEach(function (saved) {
+      var r = loadOf(store, saved), back = JSON.parse(r.json);
+      if (r.values.sand !== m || r.values.finish !== SIX_CAPS[m] || r.values.sandColor !== '' || r.values.theme !== m || r.values.volume !== 0.3 || r.values.frame !== false)
+        out.push('material ' + m + (saved.v ? ' (v2)' : '') + ': ' + [r.values.sand, r.values.finish, r.values.theme, r.values.volume, r.values.frame].join());
+      if (back.sand !== m || back.finish !== SIX_CAPS[m]) out.push('material ' + m + ': saved as ' + back.sand + '/' + back.finish);
+    });
+  });
+  [
+    [{ v: 2, theme: 'lapis', sand: 'garnet', finish: 'copper' }, 'garnet,copper,,lapis', 'a sand and a finish saved'],
+    [{ v: 2, theme: 'lapis', sand: 'custom', sandColor: '185,0.5,0.5', finish: 'silver' }, 'custom,silver,185,0.5,0.5,lapis', 'a custom sand with its colour'],
+    [{ v: 2, theme: 'volcanic', sand: 'custom', finish: 'gold' }, 'volcanic,gold,,volcanic', 'a custom sand without a colour: the material\'s sand'],
+    [{ v: 2, theme: 'granite', sand: 'custom', sandColor: 'red' }, 'sahara,walnut,,sahara', 'a custom sand with no colour over a theme that is none'],
+    [{ v: 2, theme: 'moonstone', sand: 'quartz', finish: 'tin', sandColor: '400,2,1' }, 'sahara,walnut,,moonstone', 'no sand, no finish, no colour: the defaults'],
+    [{ v: 2, theme: 'moonstone', sand: 7, finish: null }, 'sahara,walnut,,moonstone', 'the wrong types: the defaults, no migration'],
+    [{ v: 2, theme: 'toString' }, 'sahara,walnut,,toString', 'a theme that is a name every object has: no sand, no finish of it']
+  ].forEach(function (c) {
+    var r = loadOf(store, c[0]), got = [r.values.sand, r.values.finish, r.values.sandColor, r.values.theme].join();
+    if (got !== c[1]) out.push(c[2] + ': ' + got);
+  });
+  return out;
+}
+var lp = lookProblems(S);
+check(lp.length === 0, 'the look: a save of each of the six materials (with and without a version) comes up as that sand over that material\'s caps, saved so, with every other key as it was; a saved sand and finish are kept; a custom sand needs its colour; what is no sand, finish or colour is the default (19 cases)', lp.join('; '));
+var lookCtl = [
+  ['a finish made as the material\'s name', variant(function (o) { o.records.filter(function (r) { return r.id === 'finish'; })[0].from = function (saved) { return saved.theme; }; })],
+  ['no sand made from the material', variant(function (o) { o.records.filter(function (r) { return r.id === 'sand'; })[0].from = undefined; })],
+  ['no custom sand fallback', variant(function (o) { o.repair = function (values, search, reg) { var keep = values.sand; S.repair(values, search, reg); values.sand = keep; }; })],
+  ['a colour not checked', variant(function (o) { o.records.filter(function (r) { return r.id === 'sandColor'; })[0].valid = undefined; })]
+].map(function (c) { return c[0] + ': ' + lookProblems(c[1]).length; });
+check(lookCtl.every(function (t) { return !/: 0$/.test(t); }), '... and four stores with one thing wrong in the look are each found out (control)', lookCtl.join('; '));
 
 /* ---- 4. the names app.js uses ----------------------------------------------------------- */
 /** The keys a controller binds with bindSwitch(el, 'key', …) in its code: the second argument, a string. */
