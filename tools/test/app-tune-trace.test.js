@@ -129,11 +129,11 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
             names(real.now).join() === 'audio.unlock,save,remove,buzz' && first(real.now, 'save')[1].realSand === true && names(real.later).indexOf('new Sim') > 0,
             JSON.stringify(grain.now) + ' ' + JSON.stringify(real.now));
 
-    // the reset link, tapped where the sand, the volume and the ambience level differ from the defaults: one save of what it put back, the engine told, the look behind the cross-fade
+    // the reset link, tapped where the sand, the volume, the ambience level and the Sound tab's four (the Sand level, the Bowl level, Rings and the fade) differ from the defaults: one save of what it put back, the engine told, the look behind the cross-fade
     var reset = byName(kept, 'the look and sound put back: the second tap'), resetSave = first(reset && reset.now, 'save');
-    s.check('... the reset link\'s second tap, after the look and the sound were changed: one save that puts back the sand, the volume and the ambience level, the sound engine told each, its buzz (12), and the look set behind the cross-fade',
-            !!resetSave && JSON.stringify(resetSave[1]) === '{"theme":"sahara","volume":0.8,"ambienceLevel":0.5,"sand":"sahara"}' &&
-            names(reset.now).join() === 'audio.unlock,save,audio.setVolume,audio.setAmbienceLevel,buzz' && JSON.stringify(reset.later) === '[["renderer.setTheme","sahara"]]',
+    s.check('... the reset link\'s second tap, after the look and the sound were changed: one save that puts back the sand, the volume, the ambience level, the Sand and Bowl levels, Rings and the fade, the sound engine told each of the four levels, its buzz (12), and the look set behind the cross-fade',
+            !!resetSave && JSON.stringify(resetSave[1]) === '{"theme":"sahara","volume":0.8,"ambienceLevel":0.5,"sand":"sahara","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0}' &&
+            names(reset.now).join() === 'audio.unlock,save,audio.setVolume,audio.setAmbienceLevel,audio.setSandLevel,audio.setBowlLevel,buzz' && JSON.stringify(reset.later) === '[["renderer.setTheme","sahara"]]',
             JSON.stringify(reset));
 
     /* ---- control: a copy that changes the order in two handlers, and has a switch more in Tune ---- */
