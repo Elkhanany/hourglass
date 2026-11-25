@@ -204,7 +204,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   first paint); in the Tune trace five new entries (the background Light,
   Device, Daytime and Dark, and the moon button), and the reset link's second
   tap, whose save also puts back the background and which tells the renderer
-  the dark look (`setPaper`); no other entry changed. A traced page is at
+  the dark look (`setPaper`); and the boots after the five reloads of the
+  walk between the moon button and the reset (two shapes used, the three
+  grains), which now open in the light look the button left (`setPaper`
+  true); no other entry changed. `renderer.setPaper` is one of the calls a
+  setting causes (kept after the boot, as `setTheme` is). A traced page is at
   noon (the recorder sets the hour of `new Date()`), so Daytime traces the
   same at any hour of the run.
   The two traces use three ports: the suite's own and the next two.

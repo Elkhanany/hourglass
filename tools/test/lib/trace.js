@@ -48,7 +48,7 @@ function recorder() {
   var T = window.__trace = { id: Math.random(), log: [], at: 0, mode: 'all', depth: 0, boot: null, bootSaved: null };
   // once the page runs: the calls a setting causes (everything else is the frame loop's, or,
   // like layout(), the window's: it comes with every resize and load)
-  var LATER = { 'renderer.setTheme': 1, 'renderer.setLook': 1, 'renderer.setFrame': 1, 'renderer.setLayers': 1, 'sim.setLayers': 1,
+  var LATER = { 'renderer.setTheme': 1, 'renderer.setLook': 1, 'renderer.setFrame': 1, 'renderer.setPaper': 1, 'renderer.setLayers': 1, 'sim.setLayers': 1,
     'audio.setVolume': 1, 'audio.setMuted': 1, 'audio.setCharacter': 1, 'audio.setChimeEnabled': 1, 'audio.setAmbience': 1,
     'audio.setAmbienceLevel': 1, 'audio.chime': 1, 'motion.request': 1, 'motion.start': 1, 'motion.stop': 1,
     'audio.setSandLevel': 1, 'audio.setBowlLevel': 1, 'audio.setSilentRing': 1 };
