@@ -49,14 +49,29 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   that needs no browser is either in GitHub's list or in the check's own
   list of the eight left to a run by hand.
   `check-registry`: the sound cards of `index.html` and the
-  registry of `audio.js` say the same (the ids, names and icons of
+  registry of `sound/audio.js` say the same (the ids, names and icons of
   `HourglassAudio.characters()` and `.ambiences()`, in order, each card a
   choice of its group); a character, an ambience or a glass shape that is
   not whole is refused by name (`defineCharacter`, `defineAmbience`,
   `addShape`), and so is one with a field nothing reads, which is a field
   misspelt (the fields the records hold are pinned to the fields a record
-  may); and the shapes of `physics.js` are whole records that `checkShape`
-  finds nothing wrong with.
+  may); and the shapes of `glass/shapes.js` are whole records that
+  `checkShape` finds nothing wrong with.
+  `check-pieces`: the seven pieces of `HourglassPhysics` (`glass/` and
+  `sand/`, in the order `index.html` loads them) fit together. Each piece's
+  top-level names are found exactly (its text run without its wrapper in a
+  fresh context, with Node's `vm`, no parser); every name it uses that
+  another piece declares (comments, strings and regular expressions blanked,
+  a name after `.` and an object key left out) must be in its import line,
+  and every import must be exported, on the same `P` or `_`, by a piece
+  loaded before it; every export is a name the piece declares; and each
+  piece says it ran and, but the first, waits for the one before it, which
+  is also run: with each piece left out in turn, no piece after it adds a
+  name. A failure names the piece, the name and the line. Its controls: an
+  import line without one name, the pieces in reverse order, an import from
+  the wrong namespace, an export of a name not declared, a name read in code
+  but only named in a comment or a string, a piece that does not wait and
+  one that does not say it ran.
 - On GitHub, every pull request and every push to `main` runs the check
   group and the Node suites that take seconds (`.github/workflows/checks.yml`
   lists them; about three minutes, no browser and no `npm install`). The
@@ -741,7 +756,54 @@ stretch was spent, telling the app's own work from that.
 
 The earlier versions some suites compare with (the baselines), and what each
 pins, are listed under *Standing decisions* in
-[Architecture](architecture.md#standing-decisions).
+[Architecture](architecture.md#standing-decisions). They are read from git
+as they were (`git show f446085:physics.js`, `f446085:audio.js`), at the
+paths those commits had.
+
+### Where the tests find the app's files
+
+`tools/test/lib/paths.js` is the one place a test learns a path from. The
+page's scripts come from `index.html` itself: `classicScripts()` lists the
+classic scripts in document order, `script('motion.js')` finds the one of
+that name wherever it lives (`motion/motion.js`), `physicsParts()` the
+scripts that make `HourglassPhysics` (the seven pieces), `physicsSource()`
+their texts joined into one program, the same as the page's script tags run
+one after another, and `piece(f)` the text of one file. `lib/load-physics.js`
+loads that program for the Node suites (`L.P`, `L.loadIsolated(src)`,
+`L.baseline()`). There is no `L.PHYSICS`: a suite written for one
+`physics.js` fails at once, saying what to use. So a file that moves or is
+cut into pieces needs its `<script>` tag and its `SHELL` line, and no suite
+changes.
+
+### A branch that still edits physics.js
+
+`tools/split-physics.js` cut `physics.js` into the pieces, and is kept for a
+branch made before the cut. It needs the acorn parser, which is not a
+dependency of the app or of the tests; put it in a folder of its own:
+
+```bash
+npm install --prefix /tmp/acorn acorn@8.18.0
+ACORN=/tmp/acorn/node_modules/acorn node tools/split-physics.js <physics.js> <outRoot>
+```
+
+It cuts the file at its own banners, takes every import and export from a
+scope walk of the code (nobody writes those lines), refuses a cut in which a
+piece would read a name from a piece loaded after it, and checks what it
+wrote: each section in its piece byte for byte, the same public names, and a
+Sim stepped 400 times to the same lattice. The recipe for such a branch:
+
+1. Merge the last `physics.js` before the cut into the branch's
+   (`git merge-file`, with the common ancestor as the base), or merge `main`
+   into the branch before the cut.
+2. Run `tools/split-physics.js` on the result into the branch's tree (the
+   root): it writes the seven pieces with the branch's new imports and
+   exports; remove `physics.js`.
+3. Find the branch's tests that name `physics.js` or read `L.PHYSICS`, and
+   port them in the same commit: `L.physicsSource()` where a test serves or
+   reads the whole text, `paths.piece('sand/sim.js')` for one piece.
+4. Run `node tools/test/run-all.js check-` (`check-pieces` above all) and
+   the branch's own suites on the pieces (`render-shape` and
+   `render-regression` at least) before calling it done.
 
 ## Lab: sand test page
 
