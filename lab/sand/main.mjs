@@ -2149,6 +2149,16 @@ window.__lab = {
     return out;
   },
   heapAngle: o => heapAngle(o),
+  /** The sand as it lies, every word of every point (a plain array, for a test to keep): { n, data }. */
+  async snapshot() { const d = await solver.readParticles(); return { n: solver.count, data: Array.from(d.subarray(0, solver.count * PARTICLE_WORDS)) }; },
+  /** Put a snapshot's sand back where it lay (the grids cleared); o.gate: the neck shut for that many seconds from now. */
+  restore(s, o = {}) {
+    const data = new Float32Array(s.data), sides = solver.upload(data, s.n);
+    fillCount = s.n; lastFill = { data, n: s.n, sides };
+    if (o.gate !== undefined) gateUntil = simTime + o.gate;
+    lastTally = null; resetRate();
+    return sides;
+  },
   /** The surface push's field (solver.readLoad): pushed, nodes pushed now; running, nodes with a
    *  memory; maxNeck, the largest push within the neck zone's outer radius (cells/s²); sumPush; max;
    *  where, the first 60 nodes pushed: [x, y relative to the neck (cells), push, distance to the glass]. */
