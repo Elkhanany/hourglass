@@ -201,7 +201,8 @@ keys move between the tabs.
     and 17 s later) or *Until a tap* (again every 8.5 s, for 10 minutes at
     most). While the bowl is still to ring again, the first tap anywhere, or
     the first key, only stops it: it does nothing else (it does not start a
-    new glass or press the button it lands on). The next one works as always.
+    new glass or press the button it lands on). The next one works as always,
+    however soon it comes.
     The rings keep the screen on only with *Keep screen awake* on. Nothing
     can ring while the phone is locked or the app is in the background; come
     back and a ring whose time has passed is not played late, the next comes

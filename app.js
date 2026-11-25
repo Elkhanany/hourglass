@@ -455,30 +455,39 @@
     if (due >= rings.n) ringsStop(); else rings.k = due + 1;
   }
   // The tap that stops the bowl is used up: seen first (on the window, capturing), it goes no
-  // further, nor do the rest of its gesture (its pointer's moves and lift, the click and the
-  // touch and mouse events that follow it) or the key's own lift and click.
-  var ringEat = null;                // { id: the pointer, up: when it lifted (0: still down) } or { key }
+  // further, nor does the rest of that one gesture: its pointer's moves and lift, its touch's
+  // events, and the mouse events and the click that follow its lift, or the key's own repeats,
+  // lift and click. The next gesture is never eaten: a new pointer down (a finger, a mouse
+  // button), a new touch or another key gets through as always, however soon it comes.
+  var ringEat = null;                // { id: the pointer, touch: its touch's identifier, up: when it lifted (0: still down) } or { key, up }
   function ringEaten(e) {
     onGesture();                     // (what every gesture does still happens: the sound unlocked, the wake lock asked for)
     e.stopImmediatePropagation();
     if (e.cancelable) e.preventDefault();
   }
+  /** The touch event is the eaten gesture's own touch (a new finger's is not). */
+  function ringTouch(e, q) {
+    var c = e.changedTouches || [];
+    for (var i = 0; i < c.length; i++) if (c[i].identifier === q.touch) return true;
+    return false;
+  }
   window.addEventListener('pointerdown', function (e) {
+    if (ringEat && (ringEat.up || ringEat.key !== undefined || e.pointerId !== ringEat.id)) ringEat = null;   // (a new gesture: never eaten)
     if (!ringsDue()) return;
     ringsStop(true);
-    ringEat = { id: e.pointerId, up: 0 };
+    ringEat = { id: e.pointerId, touch: null, up: 0 };
     ringEaten(e);
     buzz(10);
   }, true);
   window.addEventListener('keydown', function (e) {
     if (ringEat && ringEat.key === e.key && !ringEat.up) { ringEaten(e); return; }   // (a key held down repeats)
-    if (ringEat && ringEat.up) ringEat = null;                          // (that key has come up: its gesture is over)
+    if (ringEat && (ringEat.up || ringEat.key !== e.key)) ringEat = null;           // (another key, or that one again: a new gesture)
     if (!ringsDue() || e.metaKey || e.ctrlKey || e.altKey || /^(Shift|Control|Alt|Meta|CapsLock)$/.test(e.key)) return;
     ringsStop(true);
     ringEat = { key: e.key, up: 0 };
     ringEaten(e);
   }, true);
-  ['pointermove', 'pointerup', 'pointercancel', 'touchstart', 'touchmove', 'touchend', 'mousedown', 'mouseup', 'click', 'keyup', 'contextmenu'].forEach(function (type) {
+  ['pointermove', 'pointerup', 'pointercancel', 'touchstart', 'touchmove', 'touchend', 'touchcancel', 'mousedown', 'mouseup', 'click', 'keyup', 'contextmenu'].forEach(function (type) {
     window.addEventListener(type, function (e) {
       var q = ringEat;
       if (!q) return;
@@ -488,8 +497,14 @@
         if (type === 'click' && (!q.up || performance.now() - q.up < 50)) ringEaten(e);
         return;
       }
-      if ((type === 'pointerup' || type === 'pointercancel') && e.pointerId === q.id) q.up = performance.now();
-      if (type.indexOf('pointer') === 0 && e.pointerId !== q.id) return;
+      if (type.indexOf('pointer') === 0) {                                       // (its own pointer only, until it lifts)
+        if (e.pointerId !== q.id || q.up) return;
+        if (type !== 'pointermove') q.up = performance.now();
+      } else if (type.indexOf('touch') === 0) {                                  // (its own touch only: the first to start after its pointer went down)
+        if (q.touch === null && type === 'touchstart' && !q.up) q.touch = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].identifier : -1;
+        else if (!ringTouch(e, q)) return;
+        if (type === 'touchend' || type === 'touchcancel') { ringEaten(e); ringEat = null; return; }   // (a touch's lift cancelled: no mouse events, no click follow it)
+      }
       ringEaten(e);
       if (type === 'click') ringEat = null;
     }, true);
