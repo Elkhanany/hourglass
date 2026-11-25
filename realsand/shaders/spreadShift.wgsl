@@ -6,8 +6,9 @@
 // position correction only: the velocity is left alone, so it cannot throw the
 // sand; where the sand is thin (a free surface, spray) nothing moves. With the
 // metered neck on, no step carries a point across the counting line.
-// It also sums each bulb's bed at the end of the substep, for the sound's
-// fastest fall (bedPeak, below; prepare.wgsl keeps the fastest).
+// At the substeps the solver asks it to (while a fall is possible, never at a
+// run's last), it also sums each bulb's bed at the substep's end, for the
+// sound's fastest fall (bedPeak, below; prepare.wgsl keeps the fastest).
 // Shared include: see ../LICENSES.md.
 //-----------------------------------------------------------------------------
 //!include common.inc
@@ -18,11 +19,12 @@
 @group(0) @binding(2) var<storage,read_write> particles: array<Particle>;
 @group(0) @binding(3) var<storage> fine: array<i32>;
 @group(0) @binding(4) var<storage> g_domain: array<vec4f>;
-// the beds at each substep's end, for the sound (solver.mjs PEAK_*): [0-4] the bulb above the
-// counting line, [5-9] the one on it or below, each over its points in a bed (crowded, as
-// tally.wgsl counts them): [+0, +1] their summed velocity, x and y, [+2] the summed velocity along
-// this substep's field (each cells/s x 4, a point's speed capped at BedCap; signed, two's
-// complement), [+3] how many they are, [+4] how many of them move (as tally.wgsl's [7]). The next
+// the beds at this substep's end, for the sound (solver.mjs PEAK_*), summed only while spread.w is
+// 1 (solver.mjs run: while the app says a fall is possible, and never at a run's last substep,
+// which the tally has): [0-3] the bulb above the counting line, [4-7] the one on it or below,
+// each over its points in a bed (crowded, as tally.wgsl counts them): [+0, +1] their summed
+// velocity, x and y (each cells/s x 4, a point's speed capped at BedCap; signed, two's
+// complement), [+2] how many they are, [+3] how many of them move (as tally.wgsl's [7]). The next
 // substep's prepare.wgsl turns them into the bed's fall and clears them; the words after them
 // are the fastest falls, prepare's alone.
 @group(0) @binding(5) var<storage,read_write> bedPeak: array<atomic<u32>>;
@@ -31,20 +33,31 @@ const FineScale = 100000.0;
 // as tally.wgsl's
 const Crowded = 0.6;
 const BedCap = 2000.0;
-const BedSums = 10u;
-var<workgroup> w_bed: array<atomic<u32>, BedSums>;
+// in the workgroup's memory, three words a bulb: x, y, and the count with the moving count above
+// bit 16 (a workgroup has 64 points), split into the two words when added to bedPeak
+var<workgroup> w_bed: array<atomic<u32>, 6>;
 
 @compute @workgroup_size(64)
 fn csMain(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) li: u32) {
-    if (li < BedSums) { atomicStore(&w_bed[li], 0u); }
-    workgroupBarrier();
-    // (no return before the last barrier: every invocation of the workgroup must reach it)
-    if (id.x < count[0]) { shiftPoint(id.x); }
-    workgroupBarrier();
-    if (li < BedSums) {
-        let v = atomicLoad(&w_bed[li]);
-        if (v != 0u) { atomicAdd(&bedPeak[li], v); }
-    }
+    // (spread.w is the same for every invocation: the barriers below are in uniform control flow)
+    if (g_simConstants.spread.w > 0.5) {
+        if (li < 6u) { atomicStore(&w_bed[li], 0u); }
+        workgroupBarrier();
+        // (no return before the last barrier: every invocation of the workgroup must reach it)
+        if (id.x < count[0]) { shiftPoint(id.x, true); }
+        workgroupBarrier();
+        if (li < 6u) {
+            let v = atomicLoad(&w_bed[li]);
+            if (v != 0u) {
+                let b = li / 3u; let w = li % 3u;
+                if (w < 2u) { atomicAdd(&bedPeak[b * 4u + w], v); }
+                else {
+                    atomicAdd(&bedPeak[b * 4u + 2u], v & 0xffffu);
+                    if ((v >> 16u) != 0u) { atomicAdd(&bedPeak[b * 4u + 3u], v >> 16u); }
+                }
+            }
+        }
+    } else if (id.x < count[0]) { shiftPoint(id.x, false); }
 }
 
 // a point in a bed: its velocity at the substep's end (as tally.wgsl takes it, without the
@@ -54,24 +67,21 @@ fn sumBed(p: Particle) {
     let x = p.position; let d = p.displacement;
     if (!(x.x == x.x && x.y == x.y && d.x == d.x && d.y == d.y) || abs(x.x) > 1e9 || abs(d.x) > 1e9 || abs(d.y) > 1e9) { return; }
     let dt = g_simConstants.deltaTime;
-    let gv = g_simConstants.gravity;
-    let vel = d / dt - gv * dt;
+    let vel = d / dt - g_simConstants.gravity * dt;
     let v = length(vel);
     let vc = vel * min(1.0, BedCap / max(v, 1e-6));
-    let g = length(gv);
-    let down = select(vec2f(0.0), gv / g, g > 1e-6);
-    let b = select(5u, 0u, x.y > g_simConstants.neckY);
+    let g = length(g_simConstants.gravity);
+    let b = select(3u, 0u, x.y > g_simConstants.neckY);
     atomicAdd(&w_bed[b], bitcast<u32>(i32(round(vc.x * 4.0))));
     atomicAdd(&w_bed[b + 1u], bitcast<u32>(i32(round(vc.y * 4.0))));
-    atomicAdd(&w_bed[b + 2u], bitcast<u32>(i32(round(dot(vc, down) * 4.0))));
-    atomicAdd(&w_bed[b + 3u], 1u);
-    if (v > 0.02 * sqrt(2.0 * max(g, 1.0) * f32(g_simConstants.gridSize.y))) { atomicAdd(&w_bed[b + 4u], 1u); }
+    let moves = v > 0.02 * sqrt(2.0 * max(g, 1.0) * f32(g_simConstants.gridSize.y));
+    atomicAdd(&w_bed[b + 2u], select(1u, 0x10001u, moves));
 }
 
-fn shiftPoint(i: u32) {
+fn shiftPoint(i: u32, beds: bool) {
     var p = particles[i];
     if (p.enabled == 0.0 || p.material != f32(MaterialSand)) { return; }
-    sumBed(p);
+    if (beds) { sumBed(p); }
     // spread.x: how far a crowded point steps (per unit of excess density times its gradient)
     let k = g_simConstants.spread.x;
     // spread.y: the others' density above which a point is crowded (an even 2 x 2 bed gives about 0.75)

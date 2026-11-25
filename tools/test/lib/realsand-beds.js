@@ -44,14 +44,13 @@
   }
   /**
    * bed with its fastest fall since the last readback (solver.mjs bedOf's peak): the bed `at` (as
-   * bed() gives it) at the end of substep k of the run read back (below 0: of a run before it),
-   * measured along the field's direction `down` (a unit vector; default [0, -1], the glass
-   * upright); at null: none kept.
+   * bed() gives it) at the end of substep k of the run read back (below 0: of a run before it), its
+   * fall measured toward the glass's floor (-y), as the engine measures it; at null: none kept.
    */
-  function withPeak(b, at, k, down) {
-    var d = down || [0, -1], out = {};
+  function withPeak(b, at, k) {
+    var out = {};
     for (var key in b) out[key] = b[key];
-    out.peak = at && at.n ? { u: Math.max(0, at.vx * d[0] + at.vy * d[1]), vx: at.vx, vy: at.vy, n: at.n, share: at.sliding / at.n, k: k } : null;
+    out.peak = at && at.n ? { u: Math.max(0, -at.vy), vx: at.vx, vy: at.vy, n: at.n, share: at.sliding / at.n, k: k } : null;
     return out;
   }
   /** A bed of n points at rest. */

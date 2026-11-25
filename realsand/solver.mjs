@@ -25,8 +25,9 @@
  *   Benchmark's gpu ms/substep column is to settle it;
  * - a per-frame tally (counts, speeds; each bulb's bed, for the sound) is read back for the HUD,
  *   the tests and the app;
- * - each bulb's bed at its fastest fall within a run, at any substep's end (spreadShift sums it,
- *   prepare keeps the fastest; no dispatch of its own), read back with the tally, for the sound;
+ * - each bulb's bed at its fastest fall toward the glass's floor within a run, at a substep's end
+ *   (spreadShift sums it, prepare keeps the fastest; no dispatch of its own; only in a run given
+ *   set.beds), read back with the tally, for the sound;
  * - a metered neck, off unless a run is given the valve's words (valve.mjs):
  *   a throttle in a band just above the counting line (gridUpdate.wgsl), a
  *   membrane that lets a point cross the line only downward and only with a
@@ -53,11 +54,13 @@ const COUNTER_WORDS = 8;
 const TALLY_WORDS = 28;
 const BED_AT = 16, BED_WORDS = 6;
 const POST_WORDS = 8;
-// each bulb's bed at its fastest fall (spreadShift.wgsl sums the beds at every substep's end,
-// prepare.wgsl keeps the fastest along the substep's field): the buffer's first 10 words are the
-// sums, then PEAK_BED words a bed (prepare.wgsl's header), kept across runs until a readback
-// copies them, so that a fall in a run that found no free readback slot is read with the next
-const PEAK_SUMS = 10, PEAK_BED = 6, PEAK_WORDS = PEAK_SUMS + 2 * PEAK_BED;
+// each bulb's bed at its fastest fall toward the glass's floor (spreadShift.wgsl sums the beds at
+// a substep's end while set.beds is on, prepare.wgsl keeps the fastest): the buffer's first 8
+// words are the sums, then PEAK_BED words a bed (prepare.wgsl's header), kept across runs until a
+// readback copies them, so that a fall in a run that found no free readback slot is read with the next
+const PEAK_SUMS = 8, PEAK_BED = 6, PEAK_WORDS = PEAK_SUMS + 2 * PEAK_BED;
+// (spread.w in a substep's uniforms: spreadShift sums the beds at that substep's end)
+const BEDS_WORD = 43;
 // a readback slot: the counters, then the tally, then the post pass's 8 words (Solver.post), then
 // the beds' fastest falls
 const READBACK_BYTES = (COUNTER_WORDS + TALLY_WORDS + POST_WORDS + 2 * PEAK_BED) * 4;
@@ -67,11 +70,12 @@ const READBACK_BYTES = (COUNTER_WORDS + TALLY_WORDS + POST_WORDS + 2 * PEAK_BED)
  * the falling stream, not spray), their mean velocity (vx, vy: cells/s, the grid's frame, y up),
  * their centre across the glass from the neck's (x: cells), and of those that move (faster than
  * 2 % of a free fall over the glass) the number (sliding) and the summed speed (slide, cells/s).
- * peak: the bed at its fastest fall since the last readback (words at pk), measured at the end
- * of a substep other than a run's last: u, its mean velocity along that substep's field (cells/s,
- * falling), vx, vy, its mean velocity, n, its points, share, the share of them that move, k, the
- * substep of this run at whose end it was (0 first; below 0: in a run before, read back with
- * none); null: none kept (no substep but a run's last, or the spread pass off).
+ * peak: the bed at its fastest fall toward the glass's floor since the last readback (words at
+ * pk), measured at the end of a substep other than a run's last, in a run given set.beds: u, its
+ * mean velocity along -y (cells/s, falling), vx, vy, its mean velocity, n, its points, share, the
+ * share of them that move, k, the substep of this run at whose end it was (0 first; below 0: in a
+ * run before, read back with none); null: none kept (no run with set.beds, no substep but a run's
+ * last, no fall, or the spread pass off).
  * What the sound is made from (app-sand.mjs, design 8).
  */
 function bedOf(u, s, o, pk, frame0) {
@@ -480,6 +484,10 @@ export class Solver {
    * flip is set; then counters[3], the points above at the run's start, is the last tally's
    * count above (below, in a run that flipped: those are now above) and counters[2, 4, 5, 6] are
    * cleared. The readback carries what valve.mjs onReadback takes.
+   *
+   * set.beds: the beds are summed at the end of each substep but the last, and each bed's
+   * fastest fall kept for the readback (bedOf's peak; app-sand.mjs gives it while a fall is
+   * possible: otherwise it costs nothing).
    */
   run(steps, set, fieldAt, after, neck = null) {
     const d = this.device, b = this.buffers, P = this.pipelines, G = this.groups;
@@ -488,6 +496,9 @@ export class Solver {
     for (let s = 0; s < Math.max(steps, 1); s++) {
       const f = fieldAt(s);
       for (let it = 0; it < its; it++) this.writeSlot(s * MAX_IT + it, set, f, it, this.frame + s, neck, s);
+      // the beds summed at this substep's end (spreadShift.wgsl reads its first iteration's slot):
+      // only while set.beds says a fall is possible, and never at the run's last substep (its tally has it)
+      if (set.beds && s < steps - 1) this.uf[s * MAX_IT * SLOT / 4 + BEDS_WORD] = 1;
     }
     d.queue.writeBuffer(b.uniforms, 0, this.uniformData, 0, Math.max(steps, 1) * MAX_IT * SLOT);
     const enc = d.createCommandEncoder({ label: 'lab frame' });
@@ -506,9 +517,9 @@ export class Solver {
     const frame0 = this.frame;
     enc.clearBuffer(b.tally);
     enc.clearBuffer(b.surface);
-    // the beds' sums afresh (the last run's last substep is in its tally); after a flip the bulbs
-    // have traded places, so the fastest falls kept from before it go too
-    enc.clearBuffer(b.bedPeak, 0, (flip ? PEAK_WORDS : PEAK_SUMS) * 4);
+    // after a flip the bulbs have traded places, so the fastest falls kept from before it go (the
+    // sums are always taken up within their run: none is made at its last substep)
+    if (flip) enc.clearBuffer(b.bedPeak);
     const pass = enc.beginComputePass({ label: 'lab PB-MPM' });
     const go = (pipe, group, slot, size) => {
       pass.setPipeline(pipe); pass.setBindGroup(0, group, [slot * SLOT]); this.dispatched++;

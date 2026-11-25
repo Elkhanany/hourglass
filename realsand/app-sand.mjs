@@ -133,9 +133,32 @@ const SAMPLES = 64;                        // the app's field samples kept (half
 //  sand's, read at create: CLASSIC.TAU_T, CLASSIC.IDLE_T);
 //  HOLD_MS: a readback's slides are fed until the next comes, this long at most; MUTE_MS: a fresh
 //  bed (a fill, a transfer) settles unheard this long; TURN_W: turned faster than this (rad/s), a
-//  bed neither lands nor heats (as the classic sand's, which a turn leaves calm)
+//  bed neither lands nor heats (as the classic sand's, which a turn leaves calm);
+//  LIFT_G, LIFT_S: a fall is possible from a substep whose field departs from the glass's plain
+//  gravity by LIFT_G (g; a bed lifts only once the field toward its floor is about gone, a
+//  1 g departure; modes.mjs's jolt is 0.3 g) until LIFT_S of simulated time after it (a bed thrown
+//  up at 100 cells/s is back on its floor within 0.1 s): only then does the engine keep the beds'
+//  fastest falls between readbacks (solver.mjs set.beds), which a resting or running glass never pays for
 const SND = Object.freeze({ E_MIN: 0.0015, FALL_S: 0.15, BODY: 0.7, BED_MIN: 40, BED_SHARE: 0.03, SLIDE_K: 16, CAL_S: 0.65, PACK_LO: 0.75, PACK_HI: 0.95, PACK_T: 1, AXIS: 0.9,
-  HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5 });
+  HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5, LIFT_G: 0.3, LIFT_S: 0.5 });
+
+/**
+ * A run's field (_runSound's q) along the unit direction (dx, dy) from the end of its substep k
+ * to the run's end, times that time (cells/s): how much the field sped up a fall since then (a k
+ * before the run, or a run without its substeps' fields: the run's mean field over that time).
+ */
+function pushSince(q, k, dx, dy) {
+  const f = q.f;
+  if (!f || f.length !== q.n || !(k >= 0)) return (q.ax * dx + q.ay * dy) * Math.max(0, q.n - 1 - k) / q.hz;
+  let p = 0;
+  for (let j = k + 1; j < q.n; j++) p += f[j].gravity[0] * dx + f[j].gravity[1] * dy;
+  return p / q.hz;
+}
+/** Whether a bed moving at (vx, vy), speed sp, at the end of the run's substep k went with that substep's field (as a readback's fall must: within 60 degrees of it). */
+function alongField(q, k, vx, vy, sp) {
+  const g = q.f && q.f.length === q.n && k >= 0 && k < q.n ? q.f[k].gravity : [q.ax, q.ay], a = Math.hypot(g[0], g[1]) || 1;
+  return vx * g[0] + vy * g[1] >= 0.5 * sp * a;
+}
 
 /**
  * The classic sand's values RealSand goes by, read once at create from its namespace (sand/sim.js,
@@ -268,9 +291,10 @@ export class RealSand {
     // the bed's sounds: what the readbacks since the last frame said (thump, slam), the slides'
     // rate (grain-cell moves a second) of the newest, each grid bulb's bed at the last readback
     // (prev), how packed it has lately been (pack), whether it was thrown loose and has not packed
-    // again (loose) and its fall under way (fall), and the counts for the report
+    // again (loose) and its fall under way (fall), the simulated time until which a fall is
+    // possible (liftUntil: SND.LIFT_S), and the counts for the report
     this._snd = { thump: new Float32Array(4), slam: new Float32Array(2), rate: 0, rateAt: -Infinity, heardAt: -Infinity, fedAt: 0,
-      prev: [null, null], fall: [null, null], pack: [0, 0], loose: [false, false], gen: -1, parity: -1, muteUntil: -Infinity, n: { thumps: 0, slams: 0 } };
+      prev: [null, null], fall: [null, null], pack: [0, 0], loose: [false, false], gen: -1, parity: -1, muteUntil: -Infinity, liftUntil: -Infinity, n: { thumps: 0, slams: 0 } };
     this._tally = null; this._gen = 0;
     this._fall = { from: null, wallFrom: null, s: NaN, wall: NaN, floor: this._floorDepth(), log: [] };
     this._losses = []; this._lostInfo = null;
@@ -1167,6 +1191,8 @@ export class RealSand {
     const w = v.run({ steps, now: wall, simDt: steps / hz });
     const fields = this._fields(steps, perfNow, hz);
     const set = this._set(hz);
+    // (the beds' fastest falls between readbacks, only while a fall is possible: _fields)
+    set.beds = this.simTime - steps / hz < this._snd.liftUntil;
     const gen = this._gen, parity = v.parity;
     this._toneField = fields[fields.length - 1];
     w.snd = this._runSound(steps, hz, fields);
@@ -1202,11 +1228,15 @@ export class RealSand {
   _fields(steps, perfNow, hz) {
     const n = Math.max(1, steps), out = new Array(n), P = this.valve.parity;
     const p1 = perfNow, p0 = this._lastRunPerf === null ? p1 - 1000 / 60 : Math.max(this._lastRunPerf, p1 - 250);
+    let lift = 0;
     for (let k = 0; k < n; k++) {
-      const t = p0 + (p1 - p0) * (k + 1) / n;
-      out[k] = this._fieldOf(this._sampleAt(t), P);
+      const t = p0 + (p1 - p0) * (k + 1) / n, smp = this._sampleAt(t);
+      out[k] = this._fieldOf(smp, P);
+      if (smp) lift = Math.max(lift, Math.hypot(smp.ax, smp.ay));
     }
     this.simTime += steps / hz;
+    // (a field this far from plain gravity can lift a bed: a fall is possible for a while)
+    if (lift >= SND.LIFT_G * this.cpu.G) this._snd.liftUntil = this.simTime + SND.LIFT_S;
     return out;
   }
   /** The solver's field from an app sample (vessel frame, y down, app cells/s^2) in parity P: grid y up, solver cells. */
@@ -1678,8 +1708,8 @@ export class RealSand {
 
   /**
    * What a run's readback will need of the run: its simulated time, its substeps and their rate,
-   * its mean field and the direction of plain gravity (grid frame, y up), and whether the glass
-   * was being turned.
+   * its mean field, each substep's field (f) and the direction of plain gravity (grid frame, y
+   * up), and whether the glass was being turned.
    */
   _runSound(steps, hz, fields) {
     if (!(steps > 0)) return null;
@@ -1687,7 +1717,7 @@ export class RealSand {
     const n = Math.min(steps, fields.length);
     for (let k = 0; k < n; k++) { gx += fields[k].gravity[0]; gy += fields[k].gravity[1]; w = Math.max(w, Math.abs(fields[k].omega)); }
     const th = this.angle + this.tilt, rl = Math.sqrt(this._lam > 0 ? this._lam : LAM0);
-    return { dt: steps / hz, n: steps, hz, ax: gx / n, ay: gy / n, sx: Math.sin(th), sy: -Math.cos(th), turn: this.flipping || w > SND.TURN_W * rl };
+    return { dt: steps / hz, n: steps, hz, ax: gx / n, ay: gy / n, f: fields, sx: Math.sin(th), sy: -Math.cos(th), turn: this.flipping || w > SND.TURN_W * rl };
   }
 
   /**
@@ -1702,11 +1732,13 @@ export class RealSand {
    *    slowed it), has landed with the speed u it fell at: E = u^2 / (2 G HB), the classic's
    *    energy of a bed landing at u (its kinetic energy a grain over G times the bulb's height).
    *    On the side gravity holds the sand to, a thump; on the far end, a slam; its place, the
-   *    bed's centre across the bulb. Between readbacks the engine keeps each bed's fastest fall
-   *    along the field at any substep's end (bed.peak, solver.mjs bedOf): a fall goes at least
-   *    that fast; a fall no readback saw starts from it, by the same tests; and a fall that lands
-   *    before the next readback lands then, the glass having taken its speed since that substep
-   *    (so a slow pace, a run of many substeps, hears the landing a readback a frame does). A bed stopped sideways lands nothing, as the classic sand's
+   *    bed's centre across the bulb. Between readbacks, while a fall is possible (SND.LIFT_G),
+   *    the engine keeps each bed's fastest fall toward the glass's floor at a substep's end
+   *    (bed.peak, solver.mjs bedOf; toward the floor, not along the field, which a flick turns
+   *    round while it throws the bed up): a fall goes at least that fast; a fall no readback saw
+   *    starts from it, by the same tests in that substep's field; and a fall that lands before the
+   *    next readback lands then, the glass having taken its speed since that substep less what the
+   *    field gave it (so a slow pace, a run of many substeps, hears the landing a readback a frame does). A bed stopped sideways lands nothing, as the classic sand's
    *    slip does not; nor does sand that slides down the glass's wall into the rest of the bed,
    *    the bed's mean falling while half of it is still (a fall once started that speeds up goes on).
    *  - slides: the bed's motion within itself, the summed speed of its moving points beyond the
@@ -1756,20 +1788,24 @@ export class RealSand {
       if (bed.sliding > 3) rate += pk * Math.max(0, bed.slide - bed.sliding * Math.max(sp, still)) / Math.sqrt(Math.max(SND.SLIDE_K * SND.SLIDE_K, bed.n / calPpg));
       // a landing
       let E = 0, F = S.fall[gb], fromPeak = false;
-      // the bed's fastest fall since the last readback (none: the tally's alone, as a mock's), and
-      // how long before the run's end it was (s; from a run read back with none, longer)
+      // the bed's fastest fall toward the glass's floor since the last readback (none: the tally's
+      // alone, as a mock's, or no fall was possible), and how long before the run's end it was (s;
+      // from a run read back with none, longer)
       const P0 = bed.peak && bed.peak.n >= nMin && q.n > 0 && q.hz > 0 ? bed.peak : null;
       const tP = P0 ? Math.max(0, q.n - 1 - P0.k) / q.hz : 0;
       if (q.turn) F = null;
       else if (P0) {
         const psp = Math.hypot(P0.vx, P0.vy);
+        // (a motion under way the other way, the bed thrown up the glass, has turned round since: the
+        // field took it, and the fall is a new one)
+        if (F && P0.vx * F.dx + P0.vy * F.dy < 0) F = null;
         if (F) {
           // (a fall under way went faster between the readbacks than they showed)
           const up = P0.vx * F.dx + P0.vy * F.dy;
-          if (up > F.u && up > sp) { F.u = up; F.t = tP; F.push = (q.ax * F.dx + q.ay * F.dy) * tP; fromPeak = true; }
-        } else if (psp > sp && psp >= uMin && P0.u >= 0.5 * psp && Math.abs(P0.vy) >= 0.707 * psp && P0.share >= SND.BODY) {
-          // (a fall no readback saw: the same tests as a readback's, along the substep's own field)
-          F = { u: psp, dx: P0.vx / psp, dy: P0.vy / psp, push: (q.ax * P0.vx + q.ay * P0.vy) / psp * tP, t: tP };
+          if (up > F.u && up > sp) { F.u = up; F.t = tP; F.push = pushSince(q, P0.k, F.dx, F.dy); fromPeak = true; }
+        } else if (psp > sp && psp >= uMin && P0.u >= 0.707 * psp && P0.share >= SND.BODY && alongField(q, P0.k, P0.vx, P0.vy, psp)) {
+          // (a fall no readback saw: the same tests as a readback's, in the substep's own field)
+          F = { u: psp, dx: P0.vx / psp, dy: P0.vy / psp, push: pushSince(q, P0.k, P0.vx / psp, P0.vy / psp), t: tP };
           fromPeak = true;
         }
       }
