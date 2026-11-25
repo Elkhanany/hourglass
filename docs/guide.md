@@ -211,7 +211,10 @@ keys move between the tabs.
     The rings keep the screen on only with *Keep screen awake* on. Nothing
     can ring while the phone is locked or the app is in the background; come
     back and a ring whose time has passed is not played late, the next comes
-    on its time. Between the phases of work and rest the bowl rings once, as
+    on its time. A glass that ran out while the phone slept rings its bowl as
+    you come back, and the rings are counted from that bowl (*Until a tap*
+    still ends 10 minutes after the glass ran out). If the phone's clock is
+    set back to before the end, the rings end. Between the phases of work and rest the bowl rings once, as
     before: *Rings* is for the last end. Reset, another duration, a turn or a
     new start stop it too.
   - **Bowl**: the bowl's level, 0 to 100. 50 is the bowl as it always was,

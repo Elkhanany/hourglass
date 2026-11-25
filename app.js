@@ -383,7 +383,9 @@
   function finish(over) {
     if (seq.rest) seq.phase = 2 * seq.rounds;   // a sequence is over: turned again, it starts from its first glass
     endWall = Date.now();            // before setState: the wake lock covers the ending
-    ringsBegin(endWall - (over > 0 ? over : 0) + BOWL_AT);
+    // the rings are counted from the bowl as it is rung now (late, when the end was found late: after
+    // a sleep), so that the next is never crowded on it; Until a tap still ends 10 minutes after the end
+    ringsBegin(endWall + BOWL_AT, endWall - (over > 0 ? over : 0) + BOWL_AT);
     setState('done');
     audio.chime(BOWL_AT / 1000);     // after the last grain has landed
     audio.end(BOWL_AT / 1000);       // the stream flows on to the bowl, then recedes under it
@@ -420,7 +422,9 @@
    * phase is never held up. The rings keep their times on the wall clock and are rung from the
    * frame loop, so nothing rings while the page is hidden (a locked phone, another app): back
    * on screen, a ring whose time has passed is dropped, not played late, and the rings end at
-   * their 10 minutes whatever happened meanwhile. While the bowl is still to ring again, the
+   * their 10 minutes whatever happened meanwhile. A glass found run out late (after a sleep)
+   * rings its bowl then, and the rings are counted from that bowl; a clock set back to before
+   * the end ends them (and lets the screen go). While the bowl is still to ring again, the
    * first tap (on the glass, a button, anywhere), or the first key, only stops it: it is used
    * up, and does nothing else. Reset, another duration, a turn and a start stop it too. The
    * screen is kept awake for the rings only when Keep screen awake is on.
@@ -430,10 +434,11 @@
   var rings = null;                  // { t0: the first ring's time (Date.now()), k: the next ring's number, n: the last's }
   /** The ring numbers after the first, for a choice: 'three' 1 and 2; 'tap' up to 10 minutes; 'once' none. */
   function ringsLast(choice) { return choice === 'three' ? 2 : choice === 'tap' ? Math.floor(RING_MAX / RING_GAP) : 0; }
-  function ringsBegin(t0) {
+  function ringsBegin(t0, end) {
     ringsStop();
     var n = ringsHeard() ? ringsLast(settings.bowlRings) : 0;
-    if (n) rings = { t0: t0, k: 1, n: n };
+    if (settings.bowlRings === 'tap' && end !== undefined) n = Math.min(n, Math.floor((end + RING_MAX - t0) / RING_GAP));   // (no later than 10 minutes after the end)
+    if (n > 0) rings = { t0: t0, k: 1, n: n };
   }
   /**
    * The bowl can be heard: on, the app not muted, Sound and Bowl above 0. Only then do the rings
@@ -456,6 +461,7 @@
     if (!rings || document.hidden) return;
     if (T.state !== 'done') { ringsStop(); return; }
     var now = Date.now(), due = Math.floor((now - rings.t0) / RING_GAP);   // the last ring whose time has come
+    if (now < endWall - 1000) { ringsStop(); return; }                     // (the clock was set back to before the end: no ring would come for as long, so none does)
     if (due < rings.k) return;
     if (due > rings.n) { ringsStop(); return; }                             // (over while away)
     if (now - (rings.t0 + due * RING_GAP) <= RING_LATE) audio.chime(0);     // (those before it, long past, are dropped; so is it, if it is late too)
@@ -1871,6 +1877,8 @@
    * ==================================================================== */
   var ZEN_SETTLE = 1500;             // ms: the fade into Zen (styles.css), after which the dim controls take no taps
   var END_AWAKE = 12000, endWall = -1e9;
+  /** The glass ended less than END_AWAKE ago (a clock set back to before the end is not "just"). */
+  function justEnded() { var ago = Date.now() - endWall; return ago >= -1000 && ago < END_AWAKE; }
   var zenSince = 0;
   /** Enter or leave Zen. True if that changed anything. */
   function setZen(on) {
@@ -2319,7 +2327,7 @@
   var awakeNote = $('awake-note');
   function wantAwake() {
     return settings.keepAwake && !document.hidden &&
-      (T.state === 'running' || (T.state === 'done' && (Date.now() - endWall < END_AWAKE || ringsDue())));
+      (T.state === 'running' || (T.state === 'done' && (justEnded() || ringsDue())));
   }
   function showAwake() {
     awakeNote.textContent =
