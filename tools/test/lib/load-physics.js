@@ -5,7 +5,7 @@
  *   var L = require('./lib/load-physics.js');
  *   L.P                     HourglassPhysics from this checkout (also on globalThis)
  *   L.physicsSource()       its source: the scripts index.html loads for it, joined
- *                           (lib/paths.js; today physics.js alone)
+ *                           (lib/paths.js; today the seven pieces of glass/ and sand/)
  *   L.loadIsolated(src)     another copy, from a source string, in its own vm context
  *   L.baseline([rev])       HourglassPhysics as it was at a git revision (f446085,
  *                           the last version before motion), for identity tests
@@ -30,7 +30,7 @@ paths.physicsParts().forEach(function (f) { require(path.join(ROOT, f)); });
 var P = globalThis.HourglassPhysics;
 
 /**
- * Run a physics.js source string in a fresh vm context and return its
+ * Run a source string (the pieces joined, or an older physics.js) in a fresh vm context and return its
  * HourglassPhysics. Nothing is shared with this process's copy: two
  * versions can run side by side from the same seed.
  */

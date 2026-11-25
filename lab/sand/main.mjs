@@ -67,7 +67,7 @@ const RES_NAME = { S: 'coarse', M: 'medium', L: 'fine' };
 const AMOUNTS = { minute: 2800, quarter: 10000, full: 24000 };   // the app's grains (scale 1.08)
 const AMOUNT_NAME = { minute: '1-minute', quarter: 'quarter', full: 'full' };
 const APP_CAPACITY = 28099;                            // grains one bulb of the app's phone glass holds
-const APP_G = 3300;                                    // physics.js: this.G, cells/s² on the app's lattice
+const APP_G = 3300;                                    // sand/sim.js: this.G, cells/s² on the app's lattice
 const REAL_HEIGHT_MM = 110;                            // the glass, end to end inside, as drawn on a phone
 const MM_PER_PX = 0.16;                                // app.js: an iPhone CSS px
 const KPX = MM_PER_PX * 1e-3 / 9.81;                   // g per px/s² of the glass's acceleration on screen
@@ -1123,7 +1123,7 @@ function rgba(c, a) { return `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`; }
 const TINT = [255, 233, 204];
 const WOOD = { hi: [112, 70, 42], mid: [70, 41, 23], lo: [30, 17, 9] };
 let drawnKey = '';
-/** The glass, back (behind the sand) and front (its wall, rims and wooden caps): physics.js _drawBack/_drawFront, simplified. */
+/** The glass, back (behind the sand) and front (its wall, rims and wooden caps): glass/renderer.js _drawBack/_drawFront, simplified. */
 function drawGlass(force) {
   if (!glass || ROTOR) return;
   const kk = kNow();

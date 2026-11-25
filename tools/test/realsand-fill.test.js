@@ -13,7 +13,7 @@
  * lab/sand/main.mjs glassFelt, copied below) on a recorded flick, a shake and a steady push, at
  * app speed (played back as a slowed film) and at real speed.
  *
- * Each glass shape (physics.js SHAPES), built as Real sand builds it in the app (from the app's
+ * Each glass shape (glass/shapes.js SHAPES), built as Real sand builds it in the app (from the app's
  * makeGeometry at a phone's scale and its profile): the field is the same after a half turn,
  * point for point (both engines turn the glass that way); the neck's widening never reaches
  * past the bulb's widest row (beyond it the simulated wall is the drawn wall, warp 1 on every

@@ -164,9 +164,9 @@ function page(tags) { return '<!doctype html><html><head><meta charset="utf-8"><
     check(pA.length === 1 && pA[0].indexOf('index.html loads ' + gone + ', which is not in') === 0 && startErr && startErr.indexOf(gone) >= 0,
       '... and refuses a copy without ' + gone + ', naming it, before any server or browser starts (control)', startErr);
     var withPiece = Object.assign({}, whole);
-    withPiece['index.html'] = whole['index.html'].replace(/(<script src="\.\/app\.js")/, '<script src="./glass/cracks.js" defer></script>\n$1');
+    withPiece['index.html'] = whole['index.html'].replace(/(<script src="\.\/app\.js")/, '<script src="./glass/frames.js" defer></script>\n$1');
     var pB = H.treeProblems(tree('newpiece', withPiece));
-    check(pB.length === 1 && /glass\/cracks\.js/.test(pB[0]), '... and one whose index.html names a piece that is not there (control)', pB.join('; '));
+    check(pB.length === 1 && /glass\/frames\.js/.test(pB[0]), '... and one whose index.html names a piece that is not there (control)', pB.join('; '));
     var si = H.standInPaths(paths.ROOT), siCut = H.standInPaths(cutDir), stub = path.join(__dirname, 'stubs', 'motion-stub.js');
     check(Object.keys(si).join() === '/' + gone && si['/' + gone] === stub && Object.keys(siCut).join() === '/motion/motion.js' && siCut['/motion/motion.js'] === stub,
       'the motion stub is served at motion.js\'s own path (/' + gone + '), and follows it when it moves (/motion/motion.js) (control)', JSON.stringify(Object.keys(siCut)));

@@ -1,7 +1,7 @@
 /*
  * Hourglass sand engine: RealSand, the app's adapter (design section 4).
  *
- * The app (app.js) knows one sand, the CPU Sim of physics.js, through about sixty members.
+ * The app (app.js) knows one sand, the CPU Sim of sand/sim.js, through about sixty members.
  * RealSand has the same members, so that app.js can point its one variable `sim` at it while
  * Real sand runs; behind them the sand is the GPU engine of this folder, with its metered neck.
  * The CPU Sim stays alive, not stepped: it is the glass's model (its geometry, capacity, cracks
@@ -97,7 +97,7 @@ const MATERIAL = MATERIALS.coarse;
 const QUEUE = QUEUE_DEFAULT;               // frames of GPU work in flight at most (2)
 const SETTLE_S = 0.4;                      // a fresh bed settles this long, neck shut, when adopted
 const XFER_TIMEOUT_MS = 1000;              // a transfer's readback not back by then is abandoned (7.6)
-const IMPACT_V = 700;                      // px/s: a blow from this speed thumps (physics.js impV[0])
+const IMPACT_V = 700;                      // px/s: a blow from this speed thumps (sand/sim.js impV[0])
 const LIFECYCLE_MS = 1000;                 // a loss within this long of becoming visible is a lifecycle event (7.9)
 const REBUILD_MS = 2000;                   // after a loss that is not, rebuild after this long
 const LOSS_WINDOW_MS = 600000;             // a second such loss within 10 minutes is final
@@ -106,8 +106,8 @@ const DT = 1 / 120;                        // the app's step
 const RC = 0.36;                           // a grain's radius, solver cells (the lab's)
 const BLUR = 1;                            // a grain in flight streaks over one display frame
 const SAMPLES = 64;                        // the app's field samples kept (half a second at 120 Hz)
-const EV_CAP = 48;                         // landings a frame for the audio (physics.js EV_CAP)
-// The bed's sounds (design 8), on the classic Sim's scale (physics.js _landing, _stepMotion):
+const EV_CAP = 48;                         // landings a frame for the audio (sand/sim.js EV_CAP)
+// The bed's sounds (design 8), on the classic Sim's scale (sand/sim.js _landing, _stepMotion):
 //  E_MIN: a landing under this energy is not heard (audio.js thump: 1.3 sqrt(E) under 0.05);
 //  FALL_S: a bed that lands has lost half its speed within this long (simulated s) of its
 //  fastest, however many runs a second the display asks for;
@@ -131,7 +131,7 @@ const EV_CAP = 48;                         // landings a frame for the audio (ph
 //  points crowded, against how packed it has lately been: a memory of PACK_T s), less as it
 //  loosens, and once it is under PACK_LO not at all until it has packed again; nor while it
 //  moves as a body along the glass's axis (AXIS of its speed) faster than a landing is heard
-//  from; TAU_T: the agitation's memory, s (physics.js MOT.tauT), IDLE_T: under this, with the
+//  from; TAU_T: the agitation's memory, s (sand/sim.js MOT.tauT), IDLE_T: under this, with the
 //  bed at rest, it is 0 (MOT.idleT);
 //  HOLD_MS: a readback's slides are fed until the next comes, this long at most; MUTE_MS: a fresh
 //  bed (a fill, a transfer) settles unheard this long; TURN_W: turned faster than this (rad/s), a
@@ -157,7 +157,7 @@ function libraryFor(Lib, base) {
 }
 const SWEEP_MIN = 0.05;                    // app cells^2: a grain drawn this near the neck in the sweep's first half is swallowed (the CPU's 0.2 px^2)
 const THREAD_MAX = 1024;                   // the sweep's thread: grains drawn at most
-const DEVELOP_MS = 4000;                   // after a turn, sand coming to rest is laid in its new pattern this long (physics.js LAY.settle)
+const DEVELOP_MS = 4000;                   // after a turn, sand coming to rest is laid in its new pattern this long (sand/sim.js LAY.settle)
 
 /** An Error for start(): code, message, and whether a capability is missing (the setting is then cleared). */
 function startError(code, message, capability = false, cause = null) {
@@ -652,7 +652,7 @@ export class RealSand {
     const k = v.pourable(n, { maxTotal: this.cpu.maxTotal, room: this._fillDue ? undefined : room, inlet: this._fillDue ? undefined : g.cy + g.HBc });
     if (!k) return 0;
     const r = v.pour(k);
-    // layered sand: poured in layers of their own, each in the other tone (physics.js _pourLayer)
+    // layered sand: poured in layers of their own, each in the other tone (sand/sim.js _pourLayer)
     const bits = this.layers ? this._lay.plan.pourBits(r.grains) : -1;
     if (r.points && sol) {
       const recs = this._pourPoints(r.points, bits);
@@ -921,7 +921,7 @@ export class RealSand {
   }
 
   /**
-   * The Reset transition (design 6.5), beside the Renderer's (physics.js setSweep): kind 1, the
+   * The Reset transition (design 6.5), beside the Renderer's (glass/renderer.js setSweep): kind 1, the
    * old sand drawn into the neck (frozen: draw-only runs); 2, the new bed (the fill reset()
    * made between the two) revealed from the neck up under a rising surface, with the thread
    * that pours it; 0, done. p runs from 0 to 1 in each.
@@ -936,7 +936,7 @@ export class RealSand {
   /**
    * How far from the neck the farthest grain lies, squared, grid cells (the drawn glass's): each
    * bed taken as filling its bulb from where it rests (the top from the neck, the lower from its
-   * far end) with its points, plus one app cell, as the CPU's sweep adds one (physics.js _swFar).
+   * far end) with its points, plus one app cell, as the CPU's sweep adds one (glass/renderer.js _swFar).
    */
   _farthest() {
     const g = this.glass, v = this.valve, per = PPC * PPC;
@@ -968,7 +968,7 @@ export class RealSand {
     return { n: m, ys, ax };
   }
 
-  /** The sweep's look for grains.mjs encode (grid units), as physics.js _sweepOut and _sweepIn draw it. */
+  /** The sweep's look for grains.mjs encode (grid units), as glass/renderer.js _sweepOut and _sweepIn draw it. */
   _sweepLook() {
     const sw = this._sweep, g = this.glass, s = this.s;
     if (!sw) return null;
@@ -1521,7 +1521,7 @@ export class RealSand {
     const g = this.glass, j = Math.min(g.H - 1, Math.max(0, Math.floor(y))), k = g.warp ? g.warp[j] : 1;
     return [this.cpu.W / 2 + (x - g.cx) * k / this.s, this.cpu.H / 2 - (y - g.cy) / this.s];
   }
-  /** The lower heap's width at its surface, app cells (a layer is so many rows of it: physics.js _layer). */
+  /** The lower heap's width at its surface, app cells (a layer is so many rows of it: sand/sim.js _layer). */
   _heapWide() { const g = this.glass; return 2 * g.halfDrawn(Math.max(0, this._drop(this.nBottom))) / this.s; }
 
   /** The tone pass of a run (solver.mjs post, after its tally): its flags, the schedule's table, each bulb's new pattern. */
@@ -1564,7 +1564,7 @@ export class RealSand {
 
   /**
    * A swap with layered sand: each bulb takes a pattern of its own as its sand comes to rest
-   * (the CPU Sim's, drawn at its completeFlip: physics.js _turned), in the share of tone 1 the
+   * (the CPU Sim's, drawn at its completeFlip: sand/sim.js _turned), in the share of tone 1 the
    * bulb held at the swap, for 4 s; the heap's next layers are laid another way too.
    */
   _turnedLayers() {
@@ -1633,7 +1633,7 @@ export class RealSand {
   }
 
   /* ---------------------------------------------------------------------------------------- *
-   *  Sounds (design 8): the beds. What the classic Sim's record says of a moved glass (physics.js:
+   *  Sounds (design 8): the beds. What the classic Sim's record says of a moved glass (sand/sim.js:
    *  frame.thump, frame.slam, frame.slides, agitation), made from what the GPU sand did: each
    *  readback's beds (solver.mjs bedOf: each bulb's sand in a bed, its mean velocity, speeds and
    *  place), never from the phone's motion alone. Nothing here asks for a run or keeps the glass

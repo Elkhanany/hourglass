@@ -1,7 +1,7 @@
 /*
  * Hourglass sand lab: grain colours.
  *
- * The sand's are the app's Sahara palette, made exactly as physics.js
+ * The sand's are the app's Sahara palette, made exactly as glass/renderer.js
  * Renderer._buildLUT makes its 256 base colours from THEMES.sahara.sand
  * (iron-stained dark grains, amber grains, mica glints, and the quartz body
  * varied in hue, saturation and lightness). The liquids are the lab's own.

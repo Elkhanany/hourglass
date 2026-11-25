@@ -9,7 +9,8 @@
  *
  *   node tools/test/render-regression.test.js [port]     exits 0 when every case passes
  *
- * The pages and both copies of physics.js are served from memory through
+ * The pages and both copies of HourglassPhysics (this checkout's pieces joined,
+ * and f446085's physics.js) are served from memory through
  * Playwright's routing, at http://localhost:<port>/ (a trustworthy origin,
  * so the page can be cross-origin isolated for a fine timer). Nothing
  * listens on the port and no files are written. The port defaults to $PORT

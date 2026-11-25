@@ -13,7 +13,7 @@
 'use strict';
 
 // Bump on every release: a new name retires the previous cache.
-var VERSION = 'hourglass-v1.17.0';
+var VERSION = 'hourglass-v1.18.0';
 
 // The app's files: what an install caches, whole, and what the app is answered from. index.html's
 // <meta name="hourglass-version"> says the same release as VERSION (check-release); every file the
@@ -24,9 +24,15 @@ var SHELL = [
   './index.html',
   './styles.css',
   // its scripts, in index.html's order
-  './physics.js',
-  './audio.js',
-  './motion.js',
+  './glass/shapes.js',
+  './sand/sim.js',
+  './sand/sands.js',
+  './glass/gl.js',
+  './glass/renderer.js',
+  './glass/cracks.js',
+  './glass/spill.js',
+  './sound/audio.js',
+  './motion/motion.js',
   './app/settings.js',
   './app.js',
   // the manifest and the icons

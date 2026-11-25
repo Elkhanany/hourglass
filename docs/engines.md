@@ -1,14 +1,21 @@
 # How it works
 
 How the sand, the glass, its motion and its sound are made: the classic sand
-of `physics.js`, which every glass runs on, and Real sand, the sand simulated
+of `sand/` and `glass/`, which every glass runs on, and Real sand, the sand simulated
 on the graphics chip (`realsand/`). The last two sections say what a sand
 engine must provide, and how to add a sand, a glass shape, a sound or a
 setting. How the files fit together is in [Architecture](architecture.md),
 the tests are in [Tests](testing.md), and Real sand's design, section by
 section, is in [Real sand: the design](design/real-sand.md).
 
-## `physics.js` — simulation and renderer
+## `sand/` and `glass/` — simulation and renderer
+
+The simulation is `sand/sim.js`, the sands' colours `sand/sands.js`; the
+glass's shapes are `glass/shapes.js`, and its picture `glass/gl.js` (the
+WebGL glass), `glass/renderer.js`, `glass/cracks.js` and `glass/spill.js`.
+They are the seven pieces of one namespace, `HourglassPhysics` (until
+1.18.0 one file, `physics.js`; [Architecture](architecture.md) says how
+the pieces fit together).
 
 - **Hybrid granular model.** Packed and sliding sand lives on a lattice of typed
   arrays (one cell = one grain). Grains that leave the neck, are poured in, or
@@ -241,7 +248,7 @@ bit-identical with f446085.
   lean or a carry is thousands of slides a second, under the 24,000 the rush
   begins at: under a running stream it is a slump now and then, and in a
   glass with no stream it is heard softly, from 1,000 slides a second (see
-  [*`audio.js`*](#audiojs--procedural-sound), 5).
+  [*`sound/audio.js`*](#soundaudiojs--procedural-sound), 5).
 - **Cost** (Node, phone-size glass with the most sand, ms per frame, mean /
   p95, before → after): a held lean of 30° 0.67 / 0.70 → 0.34 / 1.84 and then
   nothing once at rest; the Flip and 3 s after 0.78 / 1.84 → 0.67 / 2.20; all
@@ -355,7 +362,7 @@ crack is kept cell by cell, so there the glass comes back whole.
   phone is shaken; walking, running, set-downs to 12 g, palm taps to 8 g, a
   soft drop and a firm shake (1.5 g at 3 Hz) leave the damage at exactly 0.
   Only real phone motion can arm the sand's blows and the shake counter
-  (see [Sensors](#sensors-motionjs)), and with Reduce Motion they are never armed.
+  (see [Sensors](#sensors-motionmotionjs)), and with Reduce Motion they are never armed.
 - **Crack, chip, leak.** A crack is born 16 cells long and grows as damage
   goes on, faster the longer it gets. Past 26 cells it breaks through and a
   chip opens, and the chip can widen to three cells. A glass holds at most
@@ -432,7 +439,7 @@ where it leaks faster than the stream can make up, as in a long glass, the
 rest of the run is re-timed the same way; sand leaking from the lower bulb
 never touches the time.
 
-## Sensors: `motion.js`
+## Sensors: `motion/motion.js`
 
 With Real motion on, the app reads two sensor events: `devicemotion` (the
 phone's acceleration and rotation rate, about 60 times a second on an iPhone)
@@ -467,7 +474,7 @@ set-down, a palm tap, a heel strike or a drop is one-sided and never gets
 past two. On iOS one permission covers motion and orientation together: both
 requests go out at once, inside the tap on the switch.
 
-## `audio.js` — procedural sound
+## `sound/audio.js` — procedural sound
 
 Web Audio API only. The sand is made of nothing but tiny impacts, because
 that is what sand sounds like: a fine grain lands in a fraction of a
@@ -843,7 +850,7 @@ imports the same files.
 | `app-sand.mjs` | `RealSand`, the adapter: every member of the CPU `Sim` that `app.js` and `audio.js` use, with the same types; the frame's `submit`, fills, transfers, the swap frame, the Reset's sweep, the sound record (the stream from the ledger, the bed from the readbacks), start-up, loss and rebuild, `stats()` and `audit()` |
 | `valve.mjs` | the ledger (the sand above the neck in the app's whole grains) and the controller that meters the neck once a frame; pure JavaScript |
 | `solver.mjs`, `shaders/` | the PB-MPM solver on WebGPU and its WGSL: the neck's throttle and membrane, the tally (with each bulb's bed, for the sound), the flip pass, appends, readbacks, the tone pass |
-| `glass.mjs` | the glass on the solver's grid, built from the app's own geometry (`makeGeometry`, `profile` of `physics.js`), with the neck's warp; the neck is widened for the solver only up to the bulb's widest row (from build 7), so that in every shape the bulb's far end, where the sand lies, is the glass the app draws |
+| `glass.mjs` | the glass on the solver's grid, built from the app's own geometry (`makeGeometry`, `profile` of `glass/shapes.js`), with the neck's warp; the neck is widened for the solver only up to the bulb's widest row (from build 7), so that in every shape the bulb's far end, where the sand lies, is the glass the app draws |
 | `fill.mjs` | fills: the lattice, and `fromLattice`, the GPU bed laid where the CPU sand's grains are, each with its grain's colour seed |
 | `grains.mjs` | the grains drawn: the palette from the Renderer's colour table, the warp, the room's light, the sweep |
 | `layers.mjs`, `shaders/tone.wgsl` | layered sand on the GPU: the layer schedule, fresh tones as grains come to rest, the pattern after a turn |
@@ -917,7 +924,7 @@ together (`realsand-shell` checks that they match), and `VERSION` in
 ## The engine contract
 
 The app has two sand engines: the classic sand on the CPU (`P.Sim`, in
-`physics.js`) and Real sand on the GPU (`RealSand`, in
+`sand/sim.js`) and Real sand on the GPU (`RealSand`, in
 `realsand/app-sand.mjs`). It does not ask which one it holds. It keeps the
 sand engine in one variable, `sim`: the CPU Sim, or RealSand once Real sand
 has taken over. The CPU Sim stays alive as `cpuSim` either way, and the GPU
@@ -1039,7 +1046,7 @@ it again with a connection." as it does for a missing file. The reason is
 in the console (`defineCharacter "tin": lp is undefined, not a number`), and
 `node tools/test/check-registry.test.js` stops with it, without a browser.
 
-**A sand.** A record in `SANDS` in `physics.js`, and its id in `SAND_ORDER`
+**A sand.** A record in `SANDS` in `sand/sands.js`, and its id in `SAND_ORDER`
 (the order Tune shows the sands in, and the name at the top steps through):
 the grain tables of the sand (`sand`) and of its companion tone for layered
 sand (`sand2`), the glints, how the sand takes the light, the glass's tint,
@@ -1058,7 +1065,7 @@ of a theme, and the app hands one of the six over its own caps to
 comes from the Renderer's table. A saved sand or finish the app does not
 know falls back to Sahara Quartz and walnut.
 
-**A glass shape.** One `addShape` in `physics.js`, after the others:
+**A glass shape.** One `addShape` in `glass/shapes.js`, after the others:
 `addShape({ id: 'thimble', name: 'Thimble', kR: 0.8, kH: 0.9, offered:
 false, f: function (u) { … } })`. `kR` and `kH` are the bulb's widest
 half-width and its height against the classic glass, and `f(u)` is how far
@@ -1117,7 +1124,7 @@ true`): its curve stays in `profile()`, so its numbers never move.
   every shape through Real sand (`realsand-gpu --only shapes --shapes <id>`
   runs one shape, offered or not, on the GPU frame by frame).
 
-**A sound character.** One `defineCharacter` in `audio.js`, after the
+**A sound character.** One `defineCharacter` in `sound/audio.js`, after the
 others, and its card in Tune. The record: `id` (what the settings keep),
 `name` and `icon` for the card; how loud each layer of the sand is
 (`whisper`, `beds`, `ticks`, `grain`, `body`, `modal`; `shake` if a shaken
@@ -1155,7 +1162,7 @@ own mark beside it.
   trace is made again (below, under a setting); `settings-unit` lists the
   characters its saved states try, where a new one may be added.
 
-**An ambience.** A synthesiser and one `defineAmbience` in `audio.js`,
+**An ambience.** A synthesiser and one `defineAmbience` in `sound/audio.js`,
 after the others, and its card in Tune. The record: `id`, `name`, `icon`,
 and its `layers`, each a seamless loop: `make(sr, seconds, ch, seed)`
 renders one channel (both ears get the same seed; it may return a function
@@ -1197,7 +1204,7 @@ returns the samples).
   there; `audio-api` times the slices of the three that are made in slices;
   the Tune trace, as for a character.
 
-A change to `audio.js` that should change no sound (a table moved, a record
+A change to `sound/audio.js` that should change no sound (a table moved, a record
 renamed, the engine tidied) is shown to change none with `node
 tools/audio-identity.js --base <commit>`: it runs the engine of that commit
 and the engine of the checkout from the same random numbers, and compares

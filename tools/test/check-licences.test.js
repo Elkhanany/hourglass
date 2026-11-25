@@ -9,7 +9,7 @@
  *    LICENSES.md files themselves are the notices, not rows);
  *  - every file the first column names exists;
  *  - every file of this repository the second column names as a source exists (a file moved or
- *    split, such as physics.js, must be renamed in the table in the same commit); names the
+ *    split, as physics.js was, must be renamed in the table in the same commit); names the
  *    table gives to Smoosh or EA (in a part of the cell that names them) are theirs, not ours.
  * How names are read: a name in backticks with a file's extension (or a folder's /). In the
  * first column a name with a / is under realsand/ unless it begins with lab/, and a bare name
@@ -112,10 +112,11 @@ var c2 = problems(MD.replace('`rate.mjs`', '`rates.mjs`').replace('`lab.css`', '
 c2.missing = added(c2.missing, P.missing); c2.unnamed = added(c2.unnamed, P.unnamed);
 check(c2.missing.length === 2 && c2.unnamed.length === 2 && /rates\.mjs/.test(c2.missing.join()) && /lab\/sand\/lab2\.css/.test(c2.missing.join()),
   '... a name in the table with no file, and the file it should have named, are found (control)', c2.missing.concat(c2.unnamed).join(', '));
-var c3 = problems(MD, TREE, function (f) { return f !== 'physics.js' && exists(f); });
+var GONE = 'sand/sim.js', nGone = P.rows.filter(function (r) { return r.sources.indexOf(GONE) >= 0; }).length;
+var c3 = problems(MD, TREE, function (f) { return f !== GONE && exists(f); });
 c3.sources = added(c3.sources, P.sources);
-check(c3.sources.length >= 4 && c3.sources.every(function (s) { return /^physics\.js /.test(s); }),
-  '... physics.js gone from the tree (split or moved) is found in each row that names it as a source (control)', c3.sources.join(', '));
+check(nGone >= 3 && c3.sources.length === nGone && c3.sources.every(function (s) { return s.indexOf(GONE + ' ') === 0; }),
+  '... ' + GONE + ' gone from the tree (split or moved) is found in each of the ' + nGone + ' rows that name it as a source (control)', c3.sources.join(', '));
 var c4 = problems(MD, TREE, function (f) { return f !== 'lab/sand/main.mjs' && exists(f); });
 check(c4.sources.some(function (s) { return /^main\.mjs /.test(s); }) && c4.missing.some(function (s) { return /lab\/sand\/main\.mjs/.test(s); }),
   '... a bare name in the second column is looked for in lab/sand/ too (the lab page\'s main.mjs) (control)', c4.sources.concat(c4.missing).join(', '));

@@ -1,7 +1,7 @@
 /*
  * Hourglass sand lab: the classic glass on the solver's grid.
  *
- * The profile below is the app's own classic teardrop (physics.js,
+ * The profile below is the app's own classic teardrop (glass/shapes.js,
  * makeGeometry and profile), at the phone scale the app uses (q = 1.08:
  * a bulb 95 cells wide each side of the axis and 222 rows from neck to end,
  * a neck 7 cells across). Here it is written as an exact signed distance on
@@ -19,7 +19,7 @@
 
 export const APP_Q = 1.08;            // the phone glass (app.js: scale 1.08 when not "roomy")
 
-/** The classic glass, as physics.js makeGeometry builds it (app cells). */
+/** The classic glass, as glass/shapes.js makeGeometry builds it (app cells). */
 export function classicGeometry(q = APP_Q) {
   return {
     q,
@@ -31,7 +31,7 @@ export function classicGeometry(q = APP_Q) {
   };
 }
 
-/** Inner half-width at u (0 at the neck, 1 at the far end): physics.js profile(), classic branch. */
+/** Inner half-width at u (0 at the neck, 1 at the far end): glass/shapes.js profile(), classic branch. */
 export function profile(u, g, RN = g.RN) {
   if (u >= 1) return 0;
   if (u < 0) u = 0;
@@ -53,10 +53,10 @@ export const PAD = 6;                 // grid cells between the glass's widest/f
  * flow); the widening fades out by the bulb's widest point, and beyond it
  * the glass is the app's own.
  *
- * geo, prof: the app's own glass (physics.js makeGeometry(q, shape) and
+ * geo, prof: the app's own glass (glass/shapes.js makeGeometry(q, shape) and
  * profile(u, geo)), so that the sand fills the glass the app draws, at any
  * scale and in any shape; without them the classic glass at scale q, as the
- * lab has always used it (the same numbers: physics.js's classic branch).
+ * lab has always used it (the same numbers: glass/shapes.js's classic branch).
  *
  * Besides the field, the glass carries the drawn glass's half-width
  * (halfDrawn: the neck not widened) and, per grid row, warp = halfDrawn /
@@ -77,7 +77,7 @@ export function buildGlass({ s = 0.8, neckMin = 5.5, q = APP_Q, geo = null, prof
   const H = Math.ceil(2 * HBc) + 2 * PAD + 1;
   const cx = W / 2, cy = H / 2;                     // the neck centre, grid coordinates
   // The widened neck is used only up to the bulb's widest row. In a shape
-  // (physics.js SHAPES) every row's width leans on the neck's (r = RN +
+  // (glass/shapes.js SHAPES) every row's width leans on the neck's (r = RN +
   // (R - RN) f), and beyond the widest row f falls back towards 0, so a
   // widened neck there would make the far end of the bulb, where the sand
   // lies, wider than the glass the app draws. The classic glass's far end

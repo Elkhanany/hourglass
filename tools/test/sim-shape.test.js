@@ -281,7 +281,7 @@ function clockRun(sim, durMs, lean, secs) {
   return r;
 }
 
-/** Shapes this suite makes up are registered only while fn runs (in PP, another copy of physics.js, when given). */
+/** Shapes this suite makes up are registered only while fn runs (in PP, another copy of HourglassPhysics, when given). */
 function withShape(rec, fn, PP) {
   (PP || P).SHAPES[rec.id] = rec;
   try { return fn(); } finally { delete (PP || P).SHAPES[rec.id]; }
@@ -490,7 +490,7 @@ test('addShape: a whole record is added after the others and can be built; one t
   var again = '';
   try { PP.addShape(rec({})); } catch (e2) { again = e2.message; }
   ok(/"x-new": that id is taken/.test(again), 'added twice: ' + (again || 'accepted'));
-  ok(!P.SHAPES['x-new'] && P.SHAPE_ORDER.length === IDS.length, 'the other copy of physics.js got the shape too');
+  ok(!P.SHAPES['x-new'] && P.SHAPE_ORDER.length === IDS.length, 'the other copy of HourglassPhysics got the shape too');
   return 'refused: ' + out.join(', ') + '; a whole record is added as shape ' + (n0 + 1) + ', not offered, and holds sand';
 });
 
@@ -545,7 +545,7 @@ test('checkShape: [] for every shape at the six sizes the app builds; the rule a
     ok(c.length === 0, 'the fine point as Finest sand builds it (twice the size): ' + c.join('; '));
     ok(d.length === 0 && new Sim({ scale: Q, seed: 1, shape: POINT.id }).total > 0, 'asked for pace 2, checkShape changed the pace in force: ' + d.join('; '));
   });
-  // ... and with no pace given, the one in force (another copy of physics.js, at pace 2)
+  // ... and with no pace given, the one in force (another copy of HourglassPhysics, at pace 2)
   var PP = L.loadIsolated(SRC, 'physics.js');
   PP.Sim.setPace(2);
   withShape(POINT, function () {
@@ -559,7 +559,7 @@ test('checkShape: [] for every shape at the six sizes the app builds; the rule a
 
 /* ---- every shape, the classic first ----------------------------------------- */
 
-var FINE = {};                        // isolated copies of physics.js at the finer paces
+var FINE = {};                        // isolated copies of HourglassPhysics at the finer paces
 function finer(p) {
   var key = p.toFixed(3);
   if (!FINE[key]) { FINE[key] = L.loadIsolated(SRC, 'physics.js'); FINE[key].Sim.setPace(p); }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Hourglass</title>
   <!-- this page's release: sw.js's VERSION names the same (check-release); Tune's last line shows it -->
-  <meta name="hourglass-version" content="1.17.0">
+  <meta name="hourglass-version" content="1.18.0">
   <meta name="description" content="A hyper-realistic sand hourglass timer. Every grain is simulated; every sound is synthesised live.">
   <meta name="theme-color" content="#0b0c0e">
   <meta name="color-scheme" content="dark">
@@ -209,7 +209,7 @@
 
       <!-- Glass: its shape, and the frame round it -->
       <div id="panel-glass" class="tab-panel" role="tabpanel" aria-labelledby="tab-glass" data-tab="glass" hidden>
-        <!-- The shapes (app.js fills #shapes from physics.js's SHAPE_ORDER, the shapes Tune offers, before the
+        <!-- The shapes (app.js fills #shapes from glass/shapes.js's SHAPE_ORDER, the shapes Tune offers, before the
              page is labelled for the iPhone's tick). A tap on one only shows it here; "Use this shape" builds it. -->
         <h3>Shape</h3>
         <div class="shape-pick">
@@ -444,9 +444,15 @@
 
 <noscript><p style="position:fixed;inset:0;display:grid;place-items:center;color:#d8d2c8;font:16px system-ui">Hourglass needs JavaScript to simulate its sand.</p></noscript>
 
-<script src="./physics.js" defer></script>
-<script src="./audio.js" defer></script>
-<script src="./motion.js" defer></script>
+<script src="./glass/shapes.js" defer></script>
+<script src="./sand/sim.js" defer></script>
+<script src="./sand/sands.js" defer></script>
+<script src="./glass/gl.js" defer></script>
+<script src="./glass/renderer.js" defer></script>
+<script src="./glass/cracks.js" defer></script>
+<script src="./glass/spill.js" defer></script>
+<script src="./sound/audio.js" defer></script>
+<script src="./motion/motion.js" defer></script>
 <script src="./app/settings.js" defer></script>
 <script src="./app.js" defer></script>
 <!-- app.js says so itself when another script is missing from the offline copy (its pre-flight).

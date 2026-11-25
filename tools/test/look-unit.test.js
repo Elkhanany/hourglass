@@ -349,9 +349,9 @@ test('the six finishes are the six themes\' caps, named by their material, and f
 
 test('the Sim does not know of sands or looks', function () {
   var src = L.physicsSource(), at = src.indexOf('*  Themes'), hit;
-  ok(at > 0, 'the Themes section was not found in physics.js');
+  ok(at > 0, 'the Themes section was not found in the pieces');
   hit = /\b(SANDS|SAND_ORDER|customSand|setLook|THEMES)\b|\.look\b|\.theme\b/.exec(src.slice(0, at));
-  ok(!hit, 'the part of physics.js before the themes names ' + (hit && hit[0]));
+  ok(!hit, 'the part of the pieces before the themes (the glass\'s shapes and the Sim) names ' + (hit && hit[0]));
   var sim = new P.Sim({ scale: 0.6, seed: 5 });
   ok(!('look' in sim) && !('theme' in sim) && !('sand' in sim), 'a Sim has a look, a theme or a sand');
   return 'nothing before the Themes section (' + src.slice(0, at).split('\n').length + ' lines) names them';

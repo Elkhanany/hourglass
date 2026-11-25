@@ -6,7 +6,7 @@
  *     -> the REAL motion.js (in a vm, fake window and clock)
  *     -> the frame loop's part in it as app.js has it (copied below: the
  *        heading, arming, the shake counter's swings, composeField)
- *     -> the REAL Sim (physics.js), its clock running as lib/clock.js
+ *     -> the REAL Sim (sand/sim.js), its clock running as lib/clock.js
  *
  * It answers, for any stream: what reached the sim, whether damage was
  * armed, how fast the beds landed, and when the glass creaked, cracked and

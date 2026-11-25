@@ -1,5 +1,5 @@
 /*!
- * Hourglass — motion.js
+ * Hourglass — motion/motion.js
  * ---------------------------------------------------------------------------
  * The phone's own motion, as the sand inside it would feel it.
  *

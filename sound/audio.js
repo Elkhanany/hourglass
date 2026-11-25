@@ -1,5 +1,5 @@
 /*!
- * Hourglass — audio.js
+ * Hourglass — sound/audio.js
  * ---------------------------------------------------------------------------
  * Procedural, physically-informed ASMR sound of an hourglass.
  * 100 % Web Audio API — every sample is synthesised at start-up or in real

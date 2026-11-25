@@ -642,7 +642,7 @@ check(typo !== APP_SRC && n1.join() === 'settings.chmie is no record of the stor
 // The record `shape`: an id of the shapes Tune offers; anything else, and a save from before it,
 // is the classic glass, with every other setting as that save gives it.
 // Tune offers every registered shape, so a shape held back is made in this test's own copy of the
-// registry, where the trumpet's record says offered: false (physics.js itself is not touched).
+// registry, where the trumpet's record says offered: false (glass/shapes.js itself is not touched).
 var SHAPES = (function (all) {
   var ids = Object.keys(all), copy = {};
   if (ids.some(function (id) { return !all[id].offered; })) return all;
