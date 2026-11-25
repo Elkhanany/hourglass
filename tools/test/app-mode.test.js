@@ -45,6 +45,13 @@ var fs = require('fs'), path = require('path');
 var H = require('./stubs/harness.js');
 var tune = require('./lib/tune.js');
 var sleep = H.sleep;
+/** env.open with `storage` the settings to save (under the app's key, over a version-2 save with Real sand off). */
+function opn(env, o) {
+  o = Object.assign({}, o || {});
+  if (o.storage) { var st = {}; st[KEY] = o.storage; o.storage = st; }
+  return env.open(o);
+}
+
 var KEY = 'hourglass.settings.v1';
 var SHOTS = process.env.HOURGLASS_SHOTS || '';
 var PAPER = '#f3f0ea', NIGHT = '#0b0c0e';
@@ -192,7 +199,7 @@ async function outline(t) {
 async function choices(s, env) {
   var rows = [];
   for (var c of ['dark', 'light', 'system', 'hours']) {
-    var t = await env.open({ storage: { background: c }, timezoneId: 'UTC', init: fakeClock, initArg: [12, 0, 0] });
+    var t = await opn(env, { storage: { background: c }, timezoneId: 'UTC', init: fakeClock, initArg: [12, 0, 0] });
     await sleep(500);
     var l = await lookOf(t);
     var want = c === 'dark' ? 'dark' : 'light';          // (system: the browser's scheme, light here; hours: noon)
@@ -204,7 +211,7 @@ async function choices(s, env) {
 }
 
 async function tuneRow(s, env) {
-  var t = await env.open({});
+  var t = await opn(env, {});
   await sleep(600);
   await t.eval(function () { var W = window.Hourglass; window.__ids = { sim: W.sim, renderer: W.renderer }; window.__resets = 0; var r0 = W.sim.reset; W.sim.reset = function () { window.__resets++; return r0.apply(this, arguments); }; });
   var seen = [];
@@ -227,7 +234,7 @@ async function tuneRow(s, env) {
 }
 
 async function button(s, env) {
-  var t = await env.open({});
+  var t = await opn(env, {});
   await sleep(500);
   var a = await lookOf(t);
   await t.page.tap('#btn-look'); await sleep(200);
@@ -240,13 +247,13 @@ async function button(s, env) {
     lookIs(a, 'dark', 'dark') && lookIs(b, 'light', 'light') && lookIs(c, 'light', 'light') && lookIs(d, 'dark', 'dark'), [a, b, c, d].map(said).join(' | '));
   await t.close();
   // from 'system' (a dark browser) and from 'hours' (noon): a tap is the other look, as a choice of its own
-  var u = await env.open({ storage: { background: 'system' } });
+  var u = await opn(env, { storage: { background: 'system' } });
   await u.page.emulateMedia({ colorScheme: 'dark' }); await sleep(300);
   var e = await lookOf(u);
   await u.page.tap('#btn-look'); await sleep(200);
   var f = await lookOf(u);
   await u.close();
-  var v = await env.open({ storage: { background: 'hours' }, timezoneId: 'UTC', init: fakeClock, initArg: [12, 0, 0] });
+  var v = await opn(env, { storage: { background: 'hours' }, timezoneId: 'UTC', init: fakeClock, initArg: [12, 0, 0] });
   await sleep(400);
   var g = await lookOf(v);
   await v.page.tap('#btn-look'); await sleep(200);
@@ -258,7 +265,7 @@ async function button(s, env) {
 
 async function oldSave(s, env) {
   var save = { v: 2, realSand: false, theme: 'lapis', sand: 'lapis', finish: 'brass', volume: 0.4, quick: '2,5,10,15,30,60', endsAt: true, tuneTab: 'glass' };
-  var t = await env.open({ rawStorage: { 'hourglass.settings.v1': save } });
+  var t = await opn(env, { rawStorage: { 'hourglass.settings.v1': save } });
   await sleep(500);
   var l = await lookOf(t), kept = await t.eval(function (KEY) { var v = JSON.parse(localStorage.getItem(KEY)); return [v.sand, v.finish, v.volume, v.quick, v.endsAt, v.tuneTab].join(); }, KEY);
   s.check('OLD: a save from before the background (1.18.0) comes up dark and saves \'dark\', every other setting as it was', lookIs(l, 'dark', 'dark') && kept === 'lapis,brass,0.4,2,5,10,15,30,60,true,glass', said(l) + ' ' + kept);
@@ -266,7 +273,7 @@ async function oldSave(s, env) {
 }
 
 async function reset(s, env) {
-  var t = await env.open({ storage: { background: 'light', sand: 'garnet' } });
+  var t = await opn(env, { storage: { background: 'light', sand: 'garnet' } });
   await sleep(500);
   var a = await lookOf(t);
   await tune.tap(t, '#tune-reset'); await sleep(600);
@@ -279,7 +286,7 @@ async function reset(s, env) {
 async function first(s, env) {
   var rows = [], ok = true;
   async function one(choice, scheme, hour, want, routes) {
-    var t = await env.open({ storage: { background: choice }, timezoneId: 'UTC', init: fakeClock, initArg: [hour, 0, 0], routes: routes });
+    var t = await opn(env, { storage: { background: choice }, timezoneId: 'UTC', init: fakeClock, initArg: [hour, 0, 0], routes: routes });
     if (scheme) await t.page.emulateMedia({ colorScheme: scheme });
     await t.context.addInitScript(firstFrame);
     await t.reload();
@@ -299,7 +306,7 @@ async function first(s, env) {
 }
 
 async function system(s, env, routes) {
-  var t = await env.open({ storage: { background: 'system' }, routes: routes });
+  var t = await opn(env, { storage: { background: 'system' }, routes: routes });
   var seq = [];
   for (var sc of ['light', 'dark', 'light']) { await t.page.emulateMedia({ colorScheme: sc }); await sleep(250); seq.push((await lookOf(t)).look); }
   await t.close();
@@ -315,7 +322,7 @@ async function systemCase(s, env) {
 }
 
 async function hoursAt(env, h, m, sec, routes) {
-  var t = await env.open({ storage: { background: 'hours' }, timezoneId: 'UTC', init: fakeClock, initArg: [h, m, sec], routes: routes });
+  var t = await opn(env, { storage: { background: 'hours' }, timezoneId: 'UTC', init: fakeClock, initArg: [h, m, sec], routes: routes });
   await sleep(300);
   return t;
 }
@@ -368,7 +375,7 @@ async function hoursCase(s, env) {
 }
 
 async function running(s, env) {
-  var t = await env.open({});
+  var t = await opn(env, {});
   await sleep(600);
   await t.eval(function () { window.Hourglass.setDuration(60000); });
   await sleep(2600);
@@ -396,7 +403,7 @@ async function running(s, env) {
 
 async function contrast(s, env) {
   async function measure(look, routes, size) {
-    var t = await env.open({ storage: { background: look, endsAt: true }, viewport: size || { width: 393, height: 852 }, routes: routes });
+    var t = await opn(env, { storage: { background: look, endsAt: true }, viewport: size || { width: 393, height: 852 }, routes: routes });
     await sleep(700);
     var out = await contrasts(t, '#app');            // the bars
     await t.eval(function () { window.Hourglass.setDuration(60000); });
@@ -431,7 +438,7 @@ async function contrast(s, env) {
 }
 
 async function outlineCase(s, env, label, opts) {
-  var t = await env.open(Object.assign({ storage: { background: 'light', frame: false } }, opts || {}));
+  var t = await opn(env, Object.assign({ storage: { background: 'light', frame: false } }, opts || {}));
   await sleep(1200);
   var o = await outline(t);
   await t.close();
@@ -449,17 +456,20 @@ async function outlines(s, env) {
 async function webglOutline(s, root, port) {
   var env = await H.start({ webgl: true, port: port, root: root });
   try {
-    var has = await (async function () { var t = await env.open({}); var g = await t.eval(function () { return !!window.Hourglass.renderer.glass; }); await t.close(); return g; })();
+    var has = await (async function () { var t = await opn(env, {}); var g = await t.eval(function () { return !!window.Hourglass.renderer.glass; }); await t.close(); return g; })();
     if (!has) { s.skip('OUTLINE (WebGL): the rendered glass', 'no WebGL here'); return; }
     var o = await outlineCase(s, env);
-    s.check('OUTLINE (WebGL): on white the rendered glass shows its edge by a dark line ' + o.dark + ' levels darker than the paper and the bore (paper ' + o.paper + ', bore ' + o.bore + ', line ' + o.line + ')',
-      o.dark >= 25 && o.paper > 200, JSON.stringify(o));
+    // glass on white: a deep line at its edge (100 levels under the paper at least) and a clear bore
+    // (within 10 of the paper), not a smoked one: the dark room's shading on white gives a greyed bore
+    var asGlass = function (x) { return x.paper > 200 && x.paper - x.line >= 100 && x.paper - x.bore <= 10 && x.dark >= 25; };
+    s.check('OUTLINE (WebGL): on white the rendered glass shows its edge by a dark line ' + (o.paper - o.line) + ' levels under the paper, its bore clear (paper ' + o.paper + ', bore ' + o.bore + ', line ' + o.line + ')',
+      asGlass(o), JSON.stringify(o));
     var room = routed(env, 'glass/gl.js', function (src) { return src.replace('paper ? GLASS_FS_ROOM_PAPER : GLASS_FS_ROOM', 'GLASS_FS_ROOM'); });
     var c = await outlineCase(s, env, null, { routes: [room] });
-    s.check('... and the rendered glass lit by the dark room on white loses that line (control)', c.dark < 25, JSON.stringify(c));
+    s.check('... and the rendered glass lit by the dark room on white is not that: its bore greyed, or its line lost (control)', !asGlass(c), JSON.stringify(c));
     if (SHOTS) {
       for (var look of ['dark', 'light']) {
-        var t = await env.open({ storage: { background: look }, viewport: { width: 393, height: 852 } });
+        var t = await opn(env, { storage: { background: look }, viewport: { width: 393, height: 852 } });
         await sleep(1500);
         await t.page.screenshot({ path: path.join(SHOTS, 'mode-webgl-' + look + '.png') });
         await t.close();
@@ -470,7 +480,7 @@ async function webglOutline(s, root, port) {
 
 async function paleSand(s, env) {
   async function one(storage, routes) {
-    var t = await env.open({ storage: Object.assign({ background: 'light', durationMs: 3600000 }, storage), routes: routes });
+    var t = await opn(env, { storage: Object.assign({ background: 'light', durationMs: 3600000 }, storage), routes: routes });
     await sleep(900);
     var g = await t.glass();
     // the bed in the upper bulb (idle: a full glass), and the paper to its left
@@ -494,7 +504,7 @@ async function paleSand(s, env) {
 async function layout(s, env) {
   var rows = [], ok = true;
   for (var size of [{ width: 393, height: 852 }, { width: 320, height: 568 }]) {
-    var t = await env.open({ storage: { background: 'light' }, viewport: size });
+    var t = await opn(env, { storage: { background: 'light' }, viewport: size });
     await sleep(500);
     await tune.show(t, '#looks', { block: 'center' });
     await sleep(400);
@@ -523,7 +533,7 @@ async function layout(s, env) {
 }
 
 async function zenButton(s, env) {
-  var t = await env.open({});
+  var t = await opn(env, {});
   var z = await t.eval(function () {
     var b = document.getElementById('btn-zen'), p = b.querySelector('svg path');
     return { label: b.getAttribute('aria-label'), d: p.getAttribute('d'), fill: getComputedStyle(p).fill, sw: getComputedStyle(b.querySelector('svg')).strokeWidth,
@@ -544,7 +554,7 @@ function zenOf(t) {
 }
 async function bg(t) { var g = await t.glass(); return { x: Math.max(8, Math.round(g.left / 2)), y: Math.round(g.cy + g.h * 0.1) }; }
 async function dblRun(env, opts, act) {
-  var t = await env.open(Object.assign({ viewport: { width: 1280, height: 800 } }, opts || {}));
+  var t = await opn(env, Object.assign({ viewport: { width: 1280, height: 800 } }, opts || {}));
   await sleep(700);
   try { return await act(t); } finally { await t.close(); }
 }
@@ -637,7 +647,7 @@ async function keys(s, env) {
 async function pictures(env) {
   if (!SHOTS) return;
   for (var look of ['dark', 'light']) {
-    var t = await env.open({ storage: { background: look }, viewport: { width: 393, height: 852 } });
+    var t = await opn(env, { storage: { background: look }, viewport: { width: 393, height: 852 } });
     await sleep(800);
     await t.page.screenshot({ path: path.join(SHOTS, 'mode-2d-' + look + '.png') });
     await t.close();
