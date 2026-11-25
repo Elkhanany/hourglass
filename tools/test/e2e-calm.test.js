@@ -32,7 +32,8 @@ async function e1(s, env) {
     };
   });
   // f446085 had 3 buttons at the top, 13 below and 6 Tune rows; Layered sand, Breathing pace and Real sand added a row each
-  s.check('E1: the main screen\'s controls are unchanged', ui.top === 4 && ui.bottom === 12 && ui.rows === 11, JSON.stringify(ui));
+  // (and the Sound tab's Fade out before the end and Sound in silent mode, and the Time tab's Show when it ends, three more: 14)
+  s.check('E1: the main screen\'s controls are unchanged', ui.top === 4 && ui.bottom === 12 && ui.rows === 14, JSON.stringify(ui));
   s.check('E1: the #opt-tilt row reads "Real motion"', ui.tilt === 'Real motion', '"' + ui.tilt + '"');
   await t.eval(function () { window.Hourglass.setDuration(20000); });
   await sleep(1400);

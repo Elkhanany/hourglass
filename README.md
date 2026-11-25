@@ -44,8 +44,9 @@ deep-water teal.
 
 ## What it does
 
-- **Keeps exact time.** Presets of 1, 5, 10, 15, 30 and 60 minutes, or any
-  time from 10 seconds to 99:59. The last grain leaves the neck at `00:00.0`,
+- **Keeps exact time.** Six quick durations (1, 5, 10, 15, 30 and 60 minutes
+  as it comes, each one yours to change in Tune), or any time from 10
+  seconds to 99:59. The last grain leaves the neck at `00:00.0`,
   even if the phone slept in between.
 - **Work and rest.** A custom time can be followed by a rest, and the pair
   repeated: 25 minutes, then 5, four times. When a glass runs out a soft bowl
@@ -72,9 +73,10 @@ deep-water teal.
   **Grain** is hidden: turn Real sand off in **Tune** for the classic sand,
   its finer grains and a glass you can break and mend.
 - **Real sound.** The soft hush of sand landing, made of thousands of tiny
-  grains, the first grains ticking on bare glass, a singing bowl at the end,
-  and optional water behind it (a brook, rain, the ocean, a waterfall, or
-  drips in a grotto), all synthesised, nothing recorded.
+  grains, the first grains ticking on bare glass, a singing bowl at the end
+  (once, three times, or until a tap), and optional water behind it (a brook,
+  rain, the ocean, a waterfall, or drips in a grotto) that can fade out before
+  the end, each at its own level, all synthesised, nothing recorded.
 - **Zen.** Spread two fingers on the screen, or tap the moon, and the controls
   fade while the glass grows to fill the screen. Pinch them together to come
   back. Nothing else changes the view: not a tap, not playing with the glass,

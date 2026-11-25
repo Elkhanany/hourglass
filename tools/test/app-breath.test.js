@@ -247,8 +247,8 @@ async function tune(s, env) {
       on: window.Hourglass.breath.on
     };
   });
-  s.check('TUNE: the main screen has the same buttons (4 top, one of them hidden; 12 bottom); Tune has its row (11 in all, with Layered sand, Grain, Real sand and the custom sand\'s colour)',
-          ui.top === 4 && ui.bottom === 12 && ui.rows === 11, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
+  s.check('TUNE: the main screen has the same buttons (4 top, one of them hidden; 12 bottom); Tune has its row (14 in all, with Layered sand, Grain, Real sand, the custom sand\'s colour, Fade out before the end, Sound in silent mode and Show when it ends)',
+          ui.top === 4 && ui.bottom === 12 && ui.rows === 14, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
   s.check('TUNE: "Breathing pace" is the first row of the Time tab\'s "While it runs", its choice sits directly under it, then Full Zen',
           ui.tab === 'Time' && ui.group === 'While it runs' && ui.before === '(first)' && ui.then === 'breath-row' && ui.after === 'Full Zen' && ui.name === 'Breathing pace',
           ui.tab + ' / ' + ui.group + ': ' + ui.before + ' / ' + ui.name + ' / #' + ui.then + ' / ' + ui.after);
@@ -260,8 +260,10 @@ async function tune(s, env) {
           'choice hidden ' + ui.choiceHidden + ', layer ' + ui.layerShown + ' in #' + ui.layerIn);
 
   // switch it on, with the row low in what the sheet shows, so that the choice opens below the fold.
-  // (Since Tune has tabs the row is near the top of the Time tab: on a phone of 375 x 667 the tab
-  // opens with the row whole and the choice's place cut off by the sheet's lower edge.)
+  // (Since Tune has tabs the row is in the Time tab; since the quick durations and "The clock" came
+  // above it, it stands below the fold when the tab opens at its top on a phone of 375 x 667: the tab
+  // is scrolled, as a finger would, until the row stands whole just over the sheet's lower edge, with
+  // the choice's place cut off by that edge.)
   await t.page.setViewportSize({ width: 375, height: 667 });
   await sleep(450);
   await openTune(t);
@@ -269,6 +271,7 @@ async function tune(s, env) {
     var body = window.__tune.scroller('#opt-breath'), sw = document.getElementById('opt-breath');
     var row = sw.closest('.row');
     body.scrollTop = 0;
+    body.scrollTop = Math.max(0, Math.ceil(row.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom + 4));
     var r = sw.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2, gap: row.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom, top: body.scrollTop };
   });
@@ -316,7 +319,7 @@ async function tune(s, env) {
   });
   // (before the tap the row's lower edge stood box.gap px from the sheet's: the choice, h px high, could not have fitted)
   s.check('TUNE: the choice scrolls into view under the switch (and nothing else scrolls)',
-          box.top === 0 && box.gap < 0 && box.gap + view.h > 1 && view.scrolled > 0 && view.bottom >= -0.5 && view.top >= 0 && view.page === 0,
+          box.gap < 0 && box.gap + view.h > 1 && view.scrolled > box.top && view.bottom >= -0.5 && view.top >= 0 && view.page === 0,
           'the row ' + (-box.gap).toFixed(1) + ' px above the sheet\'s lower edge, the choice ' + view.h.toFixed(1) + ' px high: below the fold before; now scrolled ' +
           Math.round(view.scrolled) + ' px, ' + view.bottom.toFixed(1) + ' px above the sheet\'s lower edge');
   s.check('TUNE: the toast sits just above the sheet (its lower edge 4 px over the sheet\'s top), centred, so it covers no tab and no row',

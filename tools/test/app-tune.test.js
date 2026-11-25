@@ -37,8 +37,9 @@
  *             goes with it
  *   RESET     "Put the look and sound back as they came": the first tap only asks (and gives
  *             up after 3 s, when another tab is shown, when Tune is closed; a double tap is one
- *             tap); the second puts back the ten settings it names and no other (the sand and
- *             its finish among them; the custom sand's colour is kept), tells the
+ *             tap); the second puts back the fourteen settings it names and no other (the sand
+ *             and its finish among them, the Sand and Bowl levels, the Rings and the fade before
+ *             the end; the custom sand's colour is kept, and so is Sound in silent mode), tells the
  *             engines what differed and nothing else, in order, rings no bowl, says so above the
  *             sheet, and loads nothing again; the first tap's question is said to a screen reader
  *             through a polite status drawn nowhere, emptied when the link gives up or answers
@@ -75,7 +76,8 @@ var SIZES = [[390, 844], [375, 667], [430, 932]];
 var TOP_AT = { '390 x 844': 454, '375 x 667': 365, '430 x 932': 502 };   // the design's measurements of the app
 var ASK = 'Put the look and sound back as they came', SURE = 'Tap again to put them back', DONE = 'Look and sound put back';
 // what the reset puts back: a new install's values
-var BACK = { theme: 'sahara', sand: 'sahara', finish: 'walnut', frame: true, layers: false, volume: 0.8, character: 'asmr', ambience: 'none', ambienceLevel: 0.5, chime: true };
+var BACK = { theme: 'sahara', sand: 'sahara', finish: 'walnut', frame: true, layers: false, volume: 0.8, character: 'asmr', ambience: 'none', ambienceLevel: 0.5, chime: true,
+             sandLevel: 1, bowlLevel: 1, bowlRings: 'once', ambFade: 0 };
 
 /* ---- a copy with something broken, for a control ---------------------------------------- */
 /** A route that hands the page a file of the tree with `change` made to it (text → text). */
@@ -747,8 +749,10 @@ function focusOk(m) {
 // has learned and hinted). Real motion is left off: left on, it has a life of its own at the boot.
 var CHANGED = {
   theme: 'lapis', sand: 'garnet', sandColor: '185,0.5,0.5', finish: 'copper', frame: false, layers: true, volume: 0.35, character: 'bamboo', ambience: 'rain', ambienceLevel: 0.7, chime: false,
+  sandLevel: 0.4, bowlLevel: 1.6, bowlRings: 'tap', ambFade: 600000, silentRing: false,
   muted: true, grain: 1, zenFull: true, keepAwake: false, breath: true, breathPattern: 'box', durationMs: 600000, restMs: 120000, rounds: 3,
-  motionSign: -1, mendNotes: 2, hintCrack: true, hintZen: 3, hintMotion: 3, tuneTab: 'time'
+  motionSign: -1, mendNotes: 2, hintCrack: true, hintZen: 3, hintMotion: 3, tuneTab: 'time',
+  quick: '2,25,3,45,90,99', endsAt: true                // (the Time tab's: kept, as the durations are)
 };
 /** The reset link, the saved settings as text, and what the page and the engines show of the eight. */
 function resetState(t) {
@@ -764,9 +768,13 @@ function resetState(t) {
                frame: document.getElementById('opt-frame').checked, layers: document.getElementById('opt-layers').checked,
                volume: [document.getElementById('volume').value, document.getElementById('volume-out').textContent],
                character: one('#characters [aria-checked="true"]'), ambience: one('#ambiences [aria-checked="true"]'), ambRow: !document.getElementById('amb-row').hidden,
-               ambLevel: [document.getElementById('amb-level').value, document.getElementById('amb-out').textContent], chime: document.getElementById('opt-chime').checked },
+               ambLevel: [document.getElementById('amb-level').value, document.getElementById('amb-out').textContent], chime: document.getElementById('opt-chime').checked,
+               sandLevel: [document.getElementById('sand-level').value, document.getElementById('sand-level-out').textContent],
+               bowlLevel: [document.getElementById('bowl-level').value, document.getElementById('bowl-level-out').textContent], bowlSub: !document.getElementById('bowl-sub').hidden,
+               rings: (document.querySelector('#rings [aria-checked="true"]') || {}).getAttribute ? document.querySelector('#rings [aria-checked="true"]').dataset.rings : null,
+               fade: document.getElementById('opt-ambfade').checked, fadeRows: !document.getElementById('ambfade-rows').hidden, silent: document.getElementById('opt-silent').checked },
       engines: { frame: Hg.renderer.frame, layers: [Hg.sim.layers, Hg.renderer.layers], volume: a.volume, muted: a.muted, character: a.character, ambience: a.ambience,
-                 ambLevel: a.ambLevel, chime: a.chimeEnabled },
+                 ambLevel: a.ambLevel, chime: a.chimeEnabled, sandLevel: a.sandLevel, bowlLevel: a.bowlLevel, silentRing: a.silentRing },
       toast: q.classList.contains('show') ? q.textContent : '',
       // (the polite status only a screen reader hears: its words, its role, where it is and how big it is drawn)
       say: say ? { text: say.textContent, role: say.getAttribute('role'), live: say.getAttribute('aria-live'), inSheet: !!say.closest('#sheet-settings'),
@@ -861,7 +869,7 @@ function resetOk(m, save) {
   var quiet = function (st) { return names(st.events).filter(function (n) { return n !== 'buzz'; }).length === 0; };
   // 1. the first tap
   var ask = {
-    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 11 &&
+    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 14 &&
         m.idle.link.join('|') === 'idle|' + ASK && m.asked.link.join('|') === 'armed|' + SURE && untouched(m.asked) && JSON.stringify(m.asked.events) === '[["buzz",8]]' &&
         m.gaveUp.link.join('|') === 'idle|' + ASK && untouched(m.gaveUp) && m.gaveUp.events.length === 0 && m.waited >= 2900 && m.waited < 5500,
     detail: JSON.stringify(m.place) + '; ' + m.idle.link.join(': ') + ' → ' + m.asked.link.join(': ') + ' ' + JSON.stringify(m.asked.events) + (untouched(m.asked) ? '' : ' AND THE SAVE CHANGED') +
@@ -880,18 +888,19 @@ function resetOk(m, save) {
   var back = {
     ok: notBack.length === 0 && defaults.length === 0 && differ.every(function (k) { return !(k in save) || was[k] === save[k]; }) && Object.keys(was).join() === Object.keys(now).join(),
     detail: notBack.length ? 'not put back: ' + notBack.map(function (k) { return k + ' ' + JSON.stringify(now[k]); }).join(', ')
-                           : differ.length + ' of the ten differed (' + differ.join(', ') + '), all ten are a new install\'s'
+                           : differ.length + ' of the fourteen differed (' + differ.join(', ') + '), all fourteen are a new install\'s'
   };
   var kept = {
     ok: lost.length === 0 && Object.keys(was).length >= 32 && m.done.alive && m.later.alive && m.done.state === m.idle.state && m.done.rem === m.idle.rem && m.later.saved === m.done.saved,
-    detail: lost.length ? 'changed besides the ten: ' + lost.map(function (k) { return k + ' ' + JSON.stringify(was[k]) + ' → ' + JSON.stringify(now[k]); }).join(', ')
+    detail: lost.length ? 'changed besides the fourteen: ' + lost.map(function (k) { return k + ' ' + JSON.stringify(was[k]) + ' → ' + JSON.stringify(now[k]); }).join(', ')
                         : (Object.keys(was).length - keys.length) + ' other keys as they were (muted ' + now.muted + ', grain ' + now.grain + ', breath ' + now.breath + ' ' + now.breathPattern +
-                          ', zenFull ' + now.zenFull + ', keepAwake ' + now.keepAwake + ', tuneTab ' + now.tuneTab + '); the page not loaded again: ' + (m.done.alive && m.later.alive) +
+                          ', zenFull ' + now.zenFull + ', keepAwake ' + now.keepAwake + ', silentRing ' + now.silentRing + ', tuneTab ' + now.tuneTab + '); the page not loaded again: ' + (m.done.alive && m.later.alive) +
                           '; the glass ' + m.done.state
   };
   // 3. what the engines are told, in order: only what differed
   var told = { volume: ['audio.setVolume', BACK.volume], character: ['audio.setCharacter', BACK.character], ambience: ['audio.setAmbience', BACK.ambience, false],
-               ambienceLevel: ['audio.setAmbienceLevel', BACK.ambienceLevel, false], chime: ['audio.setChimeEnabled', BACK.chime] };
+               ambienceLevel: ['audio.setAmbienceLevel', BACK.ambienceLevel, false], chime: ['audio.setChimeEnabled', BACK.chime],
+               sandLevel: ['audio.setSandLevel', BACK.sandLevel], bowlLevel: ['audio.setBowlLevel', BACK.bowlLevel] };
   // (the sand, its finish and the material are one look: one call, Sahara Quartz over walnut, the renderer's own bundle)
   var faded = { look: [['renderer.setTheme', BACK.theme]], frame: [['renderer.setFrame', BACK.frame]], layers: [['sim.setLayers', BACK.layers], ['renderer.setLayers', BACK.layers]] };
   var change = {}, wantNow, wantLater = [];
@@ -913,7 +922,10 @@ function resetOk(m, save) {
         now.sandColor === (save.sandColor || '') && sh.frame === BACK.frame && sh.layers === BACK.layers && sh.volume.join() === '80,80' && sh.character === BACK.character &&
         sh.ambience === BACK.ambience && sh.ambRow === false && sh.ambLevel[0] === '50' && sh.chime === BACK.chime &&
         en.frame === BACK.frame && en.layers.join() === 'false,false' && en.volume === BACK.volume && en.character === BACK.character && en.ambience === BACK.ambience &&
-        en.ambLevel === BACK.ambienceLevel && en.chime === BACK.chime && en.muted === !!save.muted,
+        en.ambLevel === BACK.ambienceLevel && en.chime === BACK.chime && en.muted === !!save.muted &&
+        sh.sandLevel.join() === '100,100' && sh.bowlLevel.join() === '50,50' && sh.bowlSub === BACK.chime && sh.rings === BACK.bowlRings && sh.fade === false && sh.fadeRows === false &&
+        en.sandLevel === BACK.sandLevel && en.bowlLevel === BACK.bowlLevel &&
+        sh.silent === ('silentRing' in save ? save.silentRing : true) && en.silentRing === sh.silent,
     detail: JSON.stringify(sh) + ' ' + JSON.stringify(en)
   };
   var says = {
@@ -952,8 +964,11 @@ var BEFORE = {
   sheet: [0, 459, 393, 852], tabs: [16, 479, 329, 521], body: [16, 527, 377, 836],
   // (Sand's first control is its first sand since 1.14.0, measured at 393 x 852 with the edges taken out of the page;
   // it stands where the first material card stood, its top at 555)
-  row: { sand: [16, 555, 85, 644.05], glass: [16, 555, 377, 801], sound: [20, 541, 373, 571], time: [16, 558, 377, 616] }
+  row: { sand: [16, 555, 85, 644.05], glass: [16, 555, 377, 801], sound: [20, 541, 373, 571], time: [16, 555, 377, 644.25] }
 };
+// (The Time tab's first row is its six quick durations, .quick-pick, since they came: its top at
+// 555, 3 px above where Keep screen awake's row stood at 122a7fd, [16, 558, 377, 616], and taller;
+// the heading above it is where it was)
 // (1.15.0: the Glass tab's first row is its shape picker, .shape-pick, in the place where the
 // frame's row stood at 122a7fd: [16, 555, 377, 609.25] then; it is taller, and the frame's row is
 // now under it)
@@ -968,7 +983,7 @@ function edges(t) {
       var cs = getComputedStyle(el);
       return { box: R(el), opacity: +cs.opacity, events: cs.pointerEvents, hidden: el.getAttribute('aria-hidden'), fade: cs.transitionDuration, kids: el.querySelectorAll('*').length };
     }
-    var row = p ? p.querySelector('#sands button, .row, .slider-row, .shape-pick') : null;
+    var row = p ? p.querySelector('#sands button, .row, .slider-row, .shape-pick, .quick-pick') : null;
     return {
       tab: p ? p.getAttribute('data-tab') : null, scrolled: b.scrollTop, left: b.scrollHeight - b.clientHeight - b.scrollTop, length: b.scrollHeight, view: b.clientHeight,
       sheet: R(s), tabs: R(document.getElementById('tune-tabs')), body: R(b), row: row ? R(row) : null,
@@ -1384,9 +1399,9 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       var v = resetOk(m);
       s.check('RESET: the link is a button at the end of the Time tab, no row; its first tap only asks ("' + SURE + '", one buzz, nothing set or saved) and after 3 s it has given up', v.ask.ok, v.ask.detail);
       s.check('RESET: it gives up at once when another tab is shown and when Tune is closed; a double tap is one tap and still only asks', v.gives.ok, v.gives.detail);
-      s.check('RESET: the second tap puts back the ten it names (the sand, the material that follows it, the finish, frame, layered sand, volume, sand sound, ambience and its level, bowl), each to a new install\'s value', v.back.ok, v.back.detail);
-      s.check('RESET: ... and keeps every other saved setting byte for byte (the custom sand\'s colour too, for its swatch), loads nothing again and leaves the glass as it is', v.kept.ok, v.kept.detail);
-      s.check('RESET: saved once, then the sound engine told its five in order and one buzz, inside the tap; the look (one call for sand and finish), the frame and the layers behind one cross-fade; the bowl is not rung', v.engines.ok, v.engines.detail);
+      s.check('RESET: the second tap puts back the fourteen it names (the sand, the material that follows it, the finish, frame, layered sand, volume, sand sound and the Sand level, ambience, its level and its fade before the end, bowl, its Rings and the Bowl level), each to a new install\'s value', v.back.ok, v.back.detail);
+      s.check('RESET: ... and keeps every other saved setting byte for byte (the custom sand\'s colour too, for its swatch; Sound in silent mode as it was set, off here; the six quick durations and "Show when it ends" as they were set), loads nothing again and leaves the glass as it is', v.kept.ok, v.kept.detail);
+      s.check('RESET: saved once, then the sound engine told its seven in order and one buzz, inside the tap; the look (one call for sand and finish), the frame and the layers behind one cross-fade; the bowl is not rung', v.engines.ok, v.engines.detail);
       s.check('RESET: the controls and the engines show it (the mute button left as it was)', v.shown.ok, v.shown.detail);
       s.check('RESET: the link is as it was, and "' + DONE + '" is said just above the sheet', v.says.ok, v.says.detail);
       s.check('RESET: with nothing left to put back it saves once, tells no engine, and says so again', v.again.ok, v.again.detail);
@@ -1428,6 +1443,16 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
           if (armed && el.getAttribute('data-state') === 'idle' && z.checked) z.click();
         });
       }), resetOk);
+      await control('RESET: a copy that puts the six quick durations and "Show when it ends" back too', 'kept', copy(function () {
+        var el = document.getElementById('tune-reset'), armed = false;
+        document.addEventListener('click', function (e) { if (e.target && e.target.closest && e.target.closest('#tune-reset')) armed = el.getAttribute('data-state') === 'armed'; }, true);
+        el.addEventListener('click', function () {
+          if (!(armed && el.getAttribute('data-state') === 'idle')) return;
+          var st = JSON.parse(localStorage.getItem('hourglass.settings.v1'));
+          st.quick = '1,5,10,15,30,60'; st.endsAt = false;
+          localStorage.setItem('hourglass.settings.v1', JSON.stringify(st));
+        });
+      }), resetOk);
       await control('RESET: a copy that leaves the volume as it was', 'back', copy(function () {
         var el = document.getElementById('tune-reset'), armed = false, was = 0;
         document.addEventListener('click', function (e) {
@@ -1463,6 +1488,21 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       }, resetOk);
       await control('RESET: a copy that leaves the question in the status once the link has given up', 'speaks', function () {
         return reset(env, { open: { routes: [broken(env, 'app.js', swap(/if \(resetSay\) resetSay\.textContent = '';/, ''))] } });
+      }, resetOk);
+      await control('RESET: a copy that leaves the Sand level as it was', 'back', function () {
+        return reset(env, { open: { routes: [broken(env, 'app.js', swap(/settings\.sandLevel = settingDefault\('sandLevel'\); /, ''))] } });
+      }, resetOk);
+      await control('RESET: a copy that leaves the Bowl level as it was', 'back', function () {
+        return reset(env, { open: { routes: [broken(env, 'app.js', swap(/ settings\.bowlLevel = settingDefault\('bowlLevel'\);/, ''))] } });
+      }, resetOk);
+      await control('RESET: a copy that leaves the Rings as they were', 'back', function () {
+        return reset(env, { open: { routes: [broken(env, 'app.js', swap(/settings\.bowlRings = settingDefault\('bowlRings'\); /, ''))] } });
+      }, resetOk);
+      await control('RESET: a copy that leaves the fade before the end as it was', 'back', function () {
+        return reset(env, { open: { routes: [broken(env, 'app.js', swap(/ settings\.ambFade = settingDefault\('ambFade'\);/, ''))] } });
+      }, resetOk);
+      await control('RESET: a copy that puts Sound in silent mode back on too', 'kept', function () {
+        return reset(env, { open: { routes: [broken(env, 'app.js', swap(/settings\.bowlRings = settingDefault\('bowlRings'\); /, "settings.bowlRings = settingDefault('bowlRings'); settings.silentRing = settingDefault('silentRing'); "))] } });
       }, resetOk);
       await control('RESET: a copy that says it done in the usual place, on the rows', 'says', function () {
         return reset(env, { open: { routes: [broken(env, 'styles.css', add('#toast.high { bottom: calc(var(--sab) + 172px) !important; top: auto !important; }'))] } });
