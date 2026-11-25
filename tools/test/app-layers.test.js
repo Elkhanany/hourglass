@@ -62,7 +62,7 @@ async function testSwitch(s, env) {
   });
   s.check('ROW: "Layered sand", with its note', ui.title === 'Layered sand' && ui.note === 'Two tones that settle into strata as they fall', JSON.stringify([ui.title, ui.note]));
   s.check('ROW: a labelled switch like the others, the first row of the Sand tab, right under the sands', ui.label && ui.role === 'switch' && ui.type === 'checkbox' && ui.tab === 'Sand' && ui.first && ui.sands, JSON.stringify(ui));
-  s.check('ROW: the main screen has not gained a button (4 top, one of them hidden; 12 bottom)', ui.top === 4 && ui.bottom === 12, ui.top + ' / ' + ui.bottom);
+  s.check('ROW: the main screen has not gained a button (5 top, one of them hidden, the background\'s moon among them; 12 bottom)', ui.top === 5 && ui.bottom === 12, ui.top + ' / ' + ui.bottom);
   var p0 = await probe(t);
   s.check('OFF by default: no layers in the sim or the renderer, nothing saved as on', !p0.checked && p0.sim === false && p0.ren === false && !p0.saved, JSON.stringify(p0));
 

@@ -572,7 +572,7 @@ async function calm(s, env) {
           end.bt.calls >= 2 && end.bt.calls <= 6 && end.bt.max < 2,
           end.bt.calls + ' timer callbacks in 12.8 s, ' + end.bt.ms.toFixed(2) + ' ms in all, the longest ' + end.bt.max.toFixed(2) + ' ms');
   s.check('CALM: nothing else changes: no text cue, no new control, no haptics after the tap\'s own',
-          end.status === 'Flowing' && end.top === 4 && end.bottom === 12 && end.vib === began.vib,
+          end.status === 'Flowing' && end.top === 5 && end.bottom === 12 && end.vib === began.vib,
           '"' + end.status + '", ' + end.top + ' + ' + end.bottom + ' buttons, vibrate calls ' + began.vib + ' → ' + end.vib);
   await H.invariants(s, t, 'CALM');
   await t.close();
