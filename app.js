@@ -432,9 +432,16 @@
   function ringsLast(choice) { return choice === 'three' ? 2 : choice === 'tap' ? Math.floor(RING_MAX / RING_GAP) : 0; }
   function ringsBegin(t0) {
     ringsStop();
-    var n = settings.chime ? ringsLast(settings.bowlRings) : 0;
+    var n = ringsHeard() ? ringsLast(settings.bowlRings) : 0;
     if (n) rings = { t0: t0, k: 1, n: n };
   }
+  /**
+   * The bowl can be heard: on, the app not muted, Sound and Bowl above 0. Only then do the rings
+   * begin (and take the first tap); muted or turned down to 0 while they are due, they stop.
+   * (The phone's own ringer switch cannot be seen by a page.)
+   */
+  function ringsHeard() { return !!settings.chime && !settings.muted && settings.volume > 0 && settings.bowlLevel > 0; }
+  function ringsUnheard() { if (!ringsHeard()) ringsStop(); }
   /** The bowl is still to ring again: a tap now only stops it. */
   function ringsDue() { return rings !== null && T.state === 'done'; }
   /** No more rings; `hush`: the bowl that rings now fades away too (a tap stopped it). */
@@ -2796,6 +2803,7 @@
   function setMuted(m) {
     settings.muted = m; save();
     audio.setMuted(m);
+    ringsUnheard();
     btnMute.setAttribute('aria-pressed', m ? 'true' : 'false');
     btnMute.setAttribute('aria-label', m ? 'Unmute sound' : 'Mute sound');
   }
@@ -3298,6 +3306,7 @@
     audio.setVolume(settings.volume);
     if (settings.muted && settings.volume > 0) setMuted(false);
     showVolume(); save();
+    ringsUnheard();
   });
   $('opt-chime').addEventListener('change', function (e) {
     settings.chime = e.target.checked; save();
@@ -3345,6 +3354,7 @@
     bowlLevel.addEventListener('input', function () {
       settings.bowlLevel = bowlLevel.value / 50; save();
       audio.setBowlLevel(settings.bowlLevel);
+      ringsUnheard();
       showBowl();
     });
     bowlLevel.addEventListener('change', function () { if (settings.chime) audio.chime(0); });   // heard at its new level once let go

@@ -580,7 +580,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   320 px four sands and three finishes a row. Each check has a control.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-sound` covers the
-  Sound tab's own rows (`--only layout,levels,rings,tap,twice,away,rounds,awake,fade,silent`):
+  Sound tab's own rows (`--only layout,levels,rings,tap,twice,quiet,away,rounds,awake,fade,silent`):
   at 393 x 852, 375 x 667 and 320 x 568 the rows in the design's order and
   words, nothing wider than the sheet, no sideways scroll, no word cut off,
   44 px for every new control, each named for a screen reader, the bowl's
@@ -591,7 +591,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the last within 10 minutes), the first tap on the glass, the first button
   (Tune) and the first key (F) used up by stopping the bowl and the next one
   working, Start tapped twice 0.25 s apart (by a finger, by a mouse) where
-  only the first is used up, nothing rung while the page is hidden and nothing late when it is
+  only the first is used up, no rings and no tap taken when the bowl cannot
+  be heard (muted, Sound at 0, Bowl at 0) and the rings stopped when it
+  becomes so, nothing rung while the page is hidden and nothing late when it is
   back (and nothing after 10 minutes away), a sequence's soft bowl once
   between phases with the next phase not held and the last end ringing as
   Rings says, the wake lock held for the rings only with Keep screen awake;

@@ -21,6 +21,8 @@
  *             they start no glass, open nothing and turn nothing; the next one works as always
  *   TWICE     ... and a second tap 0.25 s after the first (Start, by a finger and by a mouse) is
  *             not eaten with it: only the rest of the first gesture is
+ *   QUIET     muted, Sound at 0 or Bowl at 0, the rings do not begin and the first tap after the
+ *             end works as always; muted, or a slider brought to 0, while they are due, they stop
  *   AWAY      nothing rings while the page is hidden (a locked phone, another app): back on
  *             screen, the rings whose time has passed are dropped, not played late, the next
  *             comes on its time, and after 10 minutes away there is none
@@ -45,7 +47,7 @@
  * fail it. The copy is handed to the page in place of the file it stands for; the tree served is
  * the app as it ships.
  *
- *   node tools/test/app-sound.test.js [--port <n>] [--root <dir>] [--only layout,levels,rings,tap,twice,away,rounds,awake,fade,silent]
+ *   node tools/test/app-sound.test.js [--port <n>] [--root <dir>] [--only layout,levels,rings,tap,twice,quiet,away,rounds,awake,fade,silent]
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -409,6 +411,50 @@ function twiceOk(m) {
   return { finger: one(m.finger), mouse: one(m.mouse) };
 }
 
+/* ---- QUIET: rings that cannot be heard are not rung, and take no tap ------------------------ */
+async function quiet(env, routes) {
+  var out = {};
+  var silent = [['muted', { muted: true }], ['sound0', { volume: 0 }], ['bowl0', { bowlLevel: 0 }]];
+  for (var i = 0; i < silent.length; i++) {
+    var r = await toEnd(env, { settings: Object.assign({ bowlRings: 'tap' }, silent[i][1]), routes: routes }), t = r.t;
+    try {
+      await sleep(600);
+      var end = await snap(t), g = await t.glass();
+      await t.page.touchscreen.tap(g.cx, g.cy);
+      await sleep(700);
+      out[silent[i][0]] = { done: r.done, rings: end.rings, after: await snap(t), errors: t.errors.slice() };
+    } finally { await t.close(); }
+  }
+  // turned inaudible while the rings are due (a slider still held from before the end, the Mute button): they stop
+  var ways = [
+    ['toMute', function () { document.getElementById('btn-mute').click(); }],
+    ['toSound0', function () { var v = document.getElementById('volume'); v.value = 0; v.dispatchEvent(new Event('input', { bubbles: true })); }],
+    ['toBowl0', function () { var v = document.getElementById('bowl-level'); v.value = 0; v.dispatchEvent(new Event('input', { bubbles: true })); }]
+  ];
+  for (var j = 0; j < ways.length; j++) {
+    var q = await toEnd(env, { settings: { bowlRings: 'tap' }, routes: routes }), u = q.t;
+    try {
+      await sleep(600);
+      var due = await snap(u);
+      await u.eval(ways[j][1]);
+      await sleep(300);
+      out[ways[j][0]] = { due: due.rings, after: await snap(u), errors: u.errors.slice() };
+    } finally { await u.close(); }
+  }
+  return out;
+}
+function quietOk(m) {
+  var arm = function (x, what) {
+    return { ok: x.done && x.rings === null && (x.after.flip || x.after.state === 'running') && !x.errors.length,
+             detail: what + ', Until a tap, the glass run out: rings ' + JSON.stringify(x.rings) + '; the first tap on the glass: ' + (x.after.flip ? 'it turns' : x.after.state === 'running' ? 'it runs' : 'NOTHING (' + x.after.state + ')') + (x.errors.length ? '; ' + x.errors.join(' | ') : '') };
+  };
+  var stop = function (x, what) {
+    return { ok: !!x.due && x.after.rings === null && !x.errors.length, detail: what + ' while the rings are due: rings ' + JSON.stringify(x.due) + ' -> ' + JSON.stringify(x.after.rings) + (x.errors.length ? '; ' + x.errors.join(' | ') : '') };
+  };
+  return { muted: arm(m.muted, 'muted'), sound0: arm(m.sound0, 'Sound at 0'), bowl0: arm(m.bowl0, 'Bowl at 0'),
+           toMute: stop(m.toMute, 'muted'), toSound0: stop(m.toSound0, 'Sound brought to 0'), toBowl0: stop(m.toBowl0, 'Bowl brought to 0') };
+}
+
 /* ---- AWAY: hidden, nothing rings; back, nothing late --------------------------------------- */
 async function away(env, routes) {
   var out = {};
@@ -733,6 +779,22 @@ function silentOk(m) {
           return swap(/      if \(type === 'click'\) ringEat = null;\n/, '')(src);
         })]);
       }, twiceOk);
+    }
+    if (wanted('quiet')) {
+      var qu = quietOk(await quiet(env));
+      s.check('QUIET: with the app muted, the rings do not begin, and the first tap on the glass after the end turns it', qu.muted.ok, qu.muted.detail);
+      s.check('QUIET: ... the same with Sound at 0', qu.sound0.ok, qu.sound0.detail);
+      s.check('QUIET: ... and with Bowl at 0', qu.bowl0.ok, qu.bowl0.detail);
+      s.check('QUIET: muted while the rings are due, they stop', qu.toMute.ok, qu.toMute.detail);
+      s.check('QUIET: ... and so with Sound brought to 0', qu.toSound0.ok, qu.toSound0.detail);
+      s.check('QUIET: ... or Bowl', qu.toBowl0.ok, qu.toBowl0.detail);
+      var armsAll = copyOf('app.js', /    var n = ringsHeard\(\) \? ringsLast/, '    var n = settings.chime ? ringsLast');
+      await control('QUIET: a copy whose rings begin whenever the bowl is on (as up to 1.19.0): muted', 'muted', function () { return quiet(env, armsAll); }, quietOk);
+      await control('QUIET: ... Sound at 0', 'sound0', function () { return quiet(env, armsAll); }, quietOk);
+      await control('QUIET: ... Bowl at 0', 'bowl0', function () { return quiet(env, armsAll); }, quietOk);
+      await control('QUIET: a copy whose rings go on when Sound is brought to 0', 'toSound0', function () { return quiet(env, copyOf('app.js', /    showVolume\(\); save\(\);\n    ringsUnheard\(\);\n/, '    showVolume(); save();\n')); }, quietOk);
+      await control('QUIET: a copy whose rings go on when Bowl is brought to 0', 'toBowl0', function () { return quiet(env, copyOf('app.js', /      audio\.setBowlLevel\(settings\.bowlLevel\);\n      ringsUnheard\(\);\n/, '      audio.setBowlLevel(settings.bowlLevel);\n')); }, quietOk);
+      await control('QUIET: a copy whose rings go on when the app is muted', 'toMute', function () { return quiet(env, copyOf('app.js', /    audio\.setMuted\(m\);\n    ringsUnheard\(\);\n/, '    audio.setMuted(m);\n')); }, quietOk);
     }
     if (wanted('away')) {
       var aw = awayOk(await away(env));

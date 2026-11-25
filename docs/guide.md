@@ -203,6 +203,11 @@ keys move between the tabs.
     the first key, only stops it: it does nothing else (it does not start a
     new glass or press the button it lands on). The next one works as always,
     however soon it comes.
+    The bowl rings again only when it can be heard: muted, with *Sound* or
+    *Bowl* at 0, it rings no more and takes no tap, and muting or turning
+    either down to 0 while it is due stops it. (A page cannot see the
+    phone's ringer switch: with *Sound in silent mode* off and the ringer
+    off, the rings are not heard, but the first tap still only stops them.)
     The rings keep the screen on only with *Keep screen awake* on. Nothing
     can ring while the phone is locked or the app is in the background; come
     back and a ring whose time has passed is not played late, the next comes
