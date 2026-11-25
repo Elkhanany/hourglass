@@ -452,12 +452,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   that never finishes over a copy installed before the snapshot worker
   (13a9772's worker fetches each file it answers into its copy, so offline
   the copy is mixed: this tree's page without its settings store, a file the
-  old page never asked for. The page says it is updating and throws nothing,
-  and runs again with a connection). Its controls run 13a9772's worker and
+  old page never asked for; from a release that moves files, without every
+  script at its new place too. The page says it is updating and throws
+  nothing, and runs again with a connection). Its controls run 13a9772's worker and
   lab (v1.9.0, a release before the snapshot worker), which fail the
   same checks: an empty cache left by the failed install, the next release's
   files on the page, the engine dropped from the cache; and a copy of
-  `app.js` that does not ask for the settings store before it starts, which
+  `app.js` that starts without asking whether its parts are there, which
   throws in the mixed copy (the words then come from the page's own last
   lines; with those taken out as well, it says nothing). And old saves
   (`--only "old saves"`): each of the six materials, chosen with its own card

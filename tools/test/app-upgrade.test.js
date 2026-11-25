@@ -38,8 +38,9 @@
  *  5. INTERRUPTED: an update that never finishes, over a copy installed before R1 (13a9772,
  *     v1.9.0, whose worker fetches each file it answers into its copy): this tree is served
  *     without its worker, so nothing installs. The launch with a connection runs the old page;
- *     offline after it the copy is mixed: this tree's page and scripts, but not a file the old
- *     page never asked for (the settings store, app/settings.js). The page then says "Hourglass
+ *     offline after it the copy is mixed: this tree's page and app.js, but not a file the old
+ *     page never asked for (the settings store, app/settings.js; and, from a release that moves
+ *     files, every script at its new place). The page then says "Hourglass
  *     is updating. Open it again with a connection.", builds nothing and throws no error, and
  *     with a connection again it runs. (From a snapshot worker, R1 and later, a copy is never
  *     mixed: that is UPGRADE and FAILED INSTALL.)
@@ -830,14 +831,17 @@ async function caseInterrupted(s, browser, T) {
   s.check('INTERRUPTED: with a connection again, the app starts',
           !!r.back.app && r.back.app.sim && !r.back.app.updating && pageErrors(r.back).length === 0 && !r.back.bad.some(function (b) { return /^504 /.test(b); }),
           JSON.stringify({ app: r.back.app, errors: r.back.errors.slice(0, 2), bad: r.back.bad.slice(0, 3) }));
-  // control: app.js without the pre-flight's line for the settings store. It throws there. The
-  // words come all the same, at the page's load event, from index.html's own last lines (they
-  // speak whenever app.js has not started); with those taken out as well, the page says nothing.
-  var bare = copyTree(dir, 'no-preflight'), line = "    if (!w.HourglassSettings || typeof w.HourglassSettings.load !== 'function') out.push('HourglassSettings');\n";
+  // control: app.js that does not act on its pre-flight (it starts whatever is missing). It throws
+  // at the first part it reaches for and does not find: the settings store alone in a release
+  // that moves no file, the pieces of the classic sand and the glass first in one that does (the
+  // old page never asked for a file at its new place either). The words come all the same, at the
+  // page's load event, from index.html's own last lines (they speak whenever app.js has not
+  // started); with those taken out as well, the page says nothing.
+  var bare = copyTree(dir, 'no-preflight'), line = "  if (missing.length) { updating(missing); return; }\n";
   var app = read(bare, 'app.js');
   write(bare, 'app.js', app.replace(line, ''));
   var c = await interrupted(browser, T, bare, store);
-  s.check('INTERRUPTED: control: a copy of app.js that does not ask for the settings store before it starts throws there (the words then come from the page\'s own last lines)',
+  s.check('INTERRUPTED: control: a copy of app.js that starts without asking whether its parts are there throws (the words then come from the page\'s own last lines)',
           app.indexOf(line) > 0 && c.mixed.ok && !!c.off.app && !c.off.app.sim && c.off.app.updating === UPDATING && pageErrors(c.off).length > 0,
           JSON.stringify({ line: app.indexOf(line) > 0, mixed: c.mixed, app: c.off.app, errors: c.off.errors.slice(0, 2) }));
   var mute = without(bare, 'no-preflight-plain', 'index.html', LAST_LINES, '');
