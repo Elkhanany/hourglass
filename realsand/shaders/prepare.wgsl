@@ -3,9 +3,9 @@
 // compute pass (Smoosh did this with clearBuffer and copies between passes);
 // with sand's spread on, it also clears the sub-cell density grid that the
 // substep's spreadSplat fills (spreadClear's work, folded in to save a
-// dispatch: nothing touches that grid between here and spreadSplat). Its first
-// thread also keeps each bed's fastest fall, from the sums the last substep's
-// spreadShift left (bedPeak, below).
+// dispatch: nothing touches that grid between here and spreadSplat). Its entry
+// point csKeep, after a substep whose beds were summed, also keeps each bed's
+// fastest fall from the sums that substep's spreadShift left (bedPeak, below).
 // Uses the shared include derived from EA pbmpm / Smoosh: see ../LICENSES.md.
 // Part of the Hourglass project (GPL-3.0).
 //-----------------------------------------------------------------------------
@@ -54,19 +54,30 @@ fn keepPeak(b: u32) {
 
 @compute @workgroup_size(64)
 fn csMain(@builtin(global_invocation_id) id: vec3u) {
-    if (id.x < g_simConstants.bukkitCount) {
-        bucketCount[id.x] = 0u;
-        bucketInsertCount[id.x] = 0u;
+    clearAll(id.x);
+}
+
+// the same, after a substep whose beds spreadShift.wgsl summed (csBeds): its first thread also
+// keeps each bed's fastest fall (solver.mjs's prepareKeep pipeline; an entry point of its own,
+// so that csMain, every other substep's, is as it was: on a software GPU the keeping alone, in
+// the one shader, cost about a tenth of a substep)
+@compute @workgroup_size(64)
+fn csKeep(@builtin(global_invocation_id) id: vec3u) {
+    clearAll(id.x);
+    if (id.x == 0u) { keepPeak(0u); keepPeak(1u); }
+}
+
+fn clearAll(i: u32) {
+    if (i < g_simConstants.bukkitCount) {
+        bucketCount[i] = 0u;
+        bucketInsertCount[i] = 0u;
     }
     // (dispatched over the whole sub-cell grid only while sand spreads: solver.mjs run)
     let fineCount = (2u * g_simConstants.gridSize.x + 2u) * (2u * g_simConstants.gridSize.y + 2u);
-    if (id.x < fineCount) { fine[id.x] = 0; }
-    if (id.x == 0u) {
+    if (i < fineCount) { fine[i] = 0; }
+    if (i == 0u) {
         allocator[0] = 0u;
         bucketArgs[0] = 0u; bucketArgs[1] = 1u; bucketArgs[2] = 1u; bucketArgs[3] = 0u;
         gridArgs[0] = 0u; gridArgs[1] = 1u; gridArgs[2] = 1u; gridArgs[3] = 0u;
-        // (the sums are made only while sand spreads and a fall is possible; without them no fall
-        // is kept, and the sound has the end-of-run tally only)
-        keepPeak(0u); keepPeak(1u);
     }
 }

@@ -298,6 +298,8 @@ export class Solver {
     this.pipelines.g2p2gSolid = await pipe('g2p2g', { enableSolidMaterials: true });
     // the spread's shift that also sums the beds (set.beds; spreadShift.wgsl csBeds)
     this.pipelines.spreadShiftBeds = await pipe('spreadShift', null, 'csBeds');
+    // ... and the prepare that keeps the fastest fall from those sums (prepare.wgsl csKeep)
+    this.pipelines.prepareKeep = await pipe('prepare', null, 'csKeep');
   }
 
   /** Buffers for a glass and a number of material points; uniform slots for `cap` substeps a submit. */
@@ -532,10 +534,14 @@ export class Solver {
     const useLoad = set.material.model === 2 && set.material.yieldLoop && set.material.yieldStep >= 2;
     if (steps && this.lastHz && this.lastHz !== set.hz && this.count) go(P.rescale, G.rescale, 0, n64);
     const spread = set.material.model === 2 && !!set.material.spread;
+    // the substeps at whose end the beds are summed: only while set.beds says a fall is possible,
+    // every BEDS_EVERY back from the run's last, and never the last (its tally has it)
+    const summed = k => !!set.beds && spread && k >= 0 && k < steps - 1 && (steps - 1 - k) % BEDS_EVERY === 0;
     if (this.count) for (let s = 0; s < steps; s++) {
       const base = s * MAX_IT;
-      // (with the spread on, prepare also clears the sub-cell grid: one thread a node of it)
-      go(P.prepare, G.prepare, base, Math.ceil(Math.max(this.bucketCount, spread ? this.fineCount : 0) / 64));
+      // (with the spread on, prepare also clears the sub-cell grid: one thread a node of it; after a
+      // substep whose beds were summed, it keeps their fastest fall too)
+      go(summed(s - 1) ? P.prepareKeep : P.prepare, G.prepare, base, Math.ceil(Math.max(this.bucketCount, spread ? this.fineCount : 0) / 64));
       go(P.bukkitCount, G.count, base, n64);
       go(P.bukkitAllocate, G.allocate, base, [Math.ceil(this.bucketX / 8), Math.ceil(this.bucketY / 8)]);
       go(P.bukkitInsert, G.insert, base, n64);
@@ -553,9 +559,7 @@ export class Solver {
       // sand points that crowd together inside a cell move apart (spreadShift.wgsl)
       if (spread) {
         go(P.spreadSplat, G.spreadSplat, base, n64);
-        // (the beds summed at this substep's end only while set.beds says a fall is possible, every
-        // BEDS_EVERY substeps back from the run's last, and never at the last: its tally has it)
-        go(set.beds && s < steps - 1 && (steps - 1 - s) % BEDS_EVERY === 0 ? P.spreadShiftBeds : P.spreadShift, G.spreadShift, base, n64);
+        go(summed(s) ? P.spreadShiftBeds : P.spreadShift, G.spreadShift, base, n64);
       }
     }
     if (this.count) go(P.tally, G.tally, Math.max(steps - 1, 0) * MAX_IT, n64);
