@@ -2,20 +2,20 @@
  * Where the app's files are, for the tests (development only, not shipped).
  *
  * One source for paths: index.html for the page's scripts, this file for
- * everything else. A test never names physics.js (or any other script the
- * page loads) itself: it asks for the scripts index.html loads, so the same
+ * everything else. A test never names a script the page loads (sand/sim.js,
+ * glass/renderer.js, ...) itself: it asks for the scripts index.html loads, so the same
  * test runs when a file moves or is cut into pieces.
  *
  *   var paths = require('./lib/paths.js');
  *   paths.ROOT, .INDEX, .SW, .MANIFEST, .APP     absolute paths in this checkout
  *   paths.classicScripts([root])   the classic scripts index.html loads, in document order,
- *                                  relative to the root ('physics.js', ..., 'app.js'); a src
+ *                                  relative to the root ('glass/shapes.js', ..., 'app.js'); a src
  *                                  without quotes is read too
  *   paths.attr(attrs, name)        one attribute of a tag's text, quoted or not
  *   paths.script(name, [root])     the one of them whose file name is `name`
  *                                  ('motion.js' → 'motion.js', or wherever it lives)
- *   paths.physicsParts([root])     the classic scripts that make HourglassPhysics
- *                                  (today ['physics.js'])
+ *   paths.physicsParts([root])     the classic scripts that make HourglassPhysics, in document
+ *                                  order (today the seven pieces of glass/ and sand/)
  *   paths.physicsSource([root])    their texts joined, in order: one program, the same
  *                                  as the page's script tags run one after another
  *   paths.piece(f, [root])         the text of one file of the tree

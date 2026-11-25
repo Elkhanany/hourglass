@@ -14,15 +14,15 @@ follow. Both licences are compatible with the GPL-3.0.
 | `shaders/domain.inc.wgsl`, `rescale.wgsl` | Smoosh: `domain.inc.wgsl`, `rescaleParticles.wgsl` | MIT (Smoosh) |
 | `shaders/grains.wgsl` | the idea of Smoosh's `density.wgsl`; EA's particle layout | MIT (Smoosh), BSD-3-Clause (EA) |
 | `shaders/prepare.wgsl`, `gridClear.wgsl`, `tally.wgsl`, `load.wgsl`, `spreadSplat.wgsl`, `spreadShift.wgsl`, `flip.wgsl` | new, using the shared include above | GPL-3.0 (with the notices of the include) |
-| `shaders/tone.wgsl` | new: layered sand's tone pass; EA's particle layout; its patterns port the app's `Sim._phase` (`physics.js`) | GPL-3.0, with EA's layout (BSD-3-Clause) |
-| `glass.mjs`, `palette.mjs` | the Hourglass app (`physics.js`) | GPL-3.0 |
+| `shaders/tone.wgsl` | new: layered sand's tone pass; EA's particle layout; its patterns port the app's `Sim._phase` (`sand/sim.js`; physics.js before the split) | GPL-3.0, with EA's layout (BSD-3-Clause) |
+| `glass.mjs`, `palette.mjs` | the Hourglass app (`glass/shapes.js`, `glass/renderer.js`, `sand/sands.js`; physics.js before the split) | GPL-3.0 |
 | `pace.mjs`, `build.mjs`, `valve.mjs`, `fill.mjs`, `rate.mjs`, `felt.mjs` | new (the last three taken out of the lab page's `main.mjs`) | GPL-3.0 |
 | `modes.mjs` | taken out of the lab's Timer, `lab/sand/timer.mjs` | GPL-3.0 |
-| `app-sand.mjs` | new: the app's adapter, after the lab page's frame loop (`main.mjs`) and the app's `Sim` contract (`physics.js`) | GPL-3.0 |
+| `app-sand.mjs` | new: the app's adapter, after the lab page's frame loop (`main.mjs`) and the app's `Sim` contract (`sand/sim.js`; physics.js before the split) | GPL-3.0 |
 | `boot.mjs` | new: the module the app loads when Real sand is on | GPL-3.0 |
-| `layers.mjs` | new: layered sand on the GPU, after the app's own layered sand (`physics.js`: `_style`, `_layer`, `_siftAll`, `_pourLayer`) | GPL-3.0 |
+| `layers.mjs` | new: layered sand on the GPU, after the app's own layered sand (`sand/sim.js`, physics.js before the split: `_style`, `_layer`, `_siftAll`, `_pourLayer`) | GPL-3.0 |
 | `grains.mjs` | taken out of the lab page's `main.mjs`; its quad per point follows Smoosh's `density.wgsl` | GPL-3.0, with the idea from MIT (Smoosh) |
-| the lab page, `lab/sand/` (`main.mjs`, `index.html`, `lab.css`) | the Hourglass app (`physics.js`, `styles.css`, `motion.js`) | GPL-3.0 |
+| the lab page, `lab/sand/` (`main.mjs`, `index.html`, `lab.css`) | the Hourglass app (`glass/shapes.js`, `glass/renderer.js`, `sand/sands.js`, physics.js before the split; `styles.css`, `motion.js`) | GPL-3.0 |
 | the lab's Timer, `lab/sand/timer.mjs` | the Hourglass app (`app.js`: `grainsFor`, `calibrate`, `topAt`, `remAt`, the breathing) | GPL-3.0 |
 
 Sources: Smoosh, <https://github.com/ErikSom/smoosh>; EA's PB-MPM,
