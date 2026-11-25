@@ -1,5 +1,5 @@
 {
-  "from": "0b813bad3c04083557334c9744019a67cc4d802c",
+  "from": "2d120c109add0cd3826e456c19c1ae589f18ea3a",
   "what": "What every control that changes a setting saves, calls on the engines and buzzes, in order: in its own tap (now) and after it (later) (tools/test/lib/trace.js)",
   "controls": [
     {
@@ -359,6 +359,14 @@
       "later": []
     },
     {
+      "name": "sand level: 40",
+      "now": [
+        ["save",{"sandLevel":0.4}],
+        ["audio.setSandLevel",0.4]
+      ],
+      "later": []
+    },
+    {
       "name": "volume: 30",
       "now": [
         ["audio.setVolume",0.3],
@@ -445,6 +453,60 @@
       "later": []
     },
     {
+      "name": "fade out before the end: on (the last 5 minutes)",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambFade":300000}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "fade out before the end: the last minute",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambFade":60000}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "fade out before the end: the last 10 minutes",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambFade":600000}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "fade out before the end: the last 5 minutes",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambFade":300000}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "fade out before the end: off",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambFade":0}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "fade out before the end: on again",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"ambFade":300000}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
       "name": "ambience: none",
       "now": [
         ["audio.unlock"],
@@ -471,6 +533,176 @@
         ["save",{"chime":true}],
         ["audio.setChimeEnabled",true],
         ["audio.chime",0],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "rings: until a tap",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"bowlRings":"tap"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "rings: once",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"bowlRings":"once"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "rings: three times",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"bowlRings":"three"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "bowl level: 80",
+      "now": [
+        ["save",{"bowlLevel":1.6}],
+        ["audio.setBowlLevel",1.6]
+      ],
+      "later": []
+    },
+    {
+      "name": "sound in silent mode: off",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"silentRing":false}],
+        ["audio.setSilentRing",false],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "sound in silent mode: on",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"silentRing":true}],
+        ["audio.setSilentRing",true],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 1: its dial opened",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 1: the dial turned to 2 minutes",
+      "now": [],
+      "later": []
+    },
+    {
+      "name": "quick duration 1: set to 2 minutes",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"quick":"2,5,10,15,30,60"}],
+        ["buzz",12]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 2: its dial opened",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 2: the dial closed, nothing set",
+      "now": [
+        ["audio.unlock"]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 3: its dial opened",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 3: the dial closed, nothing set",
+      "now": [
+        ["audio.unlock"]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 4: its dial opened",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 4: the dial closed, nothing set",
+      "now": [
+        ["audio.unlock"]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 5: its dial opened",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 5: the dial closed, nothing set",
+      "now": [
+        ["audio.unlock"]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 6: its dial opened",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "quick duration 6: the dial closed, nothing set",
+      "now": [
+        ["audio.unlock"]
+      ],
+      "later": []
+    },
+    {
+      "name": "show when it ends: on",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"endsAt":true}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "show when it ends: off",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"endsAt":false}],
         ["buzz",8]
       ],
       "later": []
@@ -899,9 +1131,11 @@
       "name": "the look and sound put back: the second tap",
       "now": [
         ["audio.unlock"],
-        ["save",{"theme":"sahara","volume":0.8,"ambienceLevel":0.5,"sand":"sahara"}],
+        ["save",{"theme":"sahara","volume":0.8,"ambienceLevel":0.5,"sand":"sahara","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0}],
         ["audio.setVolume",0.8],
         ["audio.setAmbienceLevel",0.5,false],
+        ["audio.setSandLevel",1],
+        ["audio.setBowlLevel",1],
         ["buzz",12]
       ],
       "later": [
@@ -947,5 +1181,5 @@
       ]
     }
   ],
-  "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"330.6,0.447,0.553\",\"finish\":\"walnut\",\"shape\":\"classic\"}"
+  "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"330.6,0.447,0.553\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"2,5,10,15,30,60\",\"endsAt\":false}"
 }
