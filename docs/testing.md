@@ -171,7 +171,18 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Real sand: its entries now save the sand, the volume and the ambience
   level put back and tell the sound engine, and the Real sand boot that
   follows, and the last save, draw and hold Sahara Quartz at the default
-  volume and level; no other entry changed.
+  volume and level; no other entry changed. The Tune trace was made again
+  for release 1.16.0, which offers Trumpet and Florence: two new entries,
+  each shape looked at, between Ampoule and Onion, and nothing else. Both
+  traces were made again for release 1.17.0, the Sound tab's and the Time
+  tab's settings: seven keys at the end of every full save (`sandLevel`,
+  `bowlLevel`, `bowlRings`, `ambFade`, `silentRing`, `quick`, `endsAt`); in
+  the Tune trace, 28 new entries (the Sand level, the fade before the end
+  and its three lengths, the three Rings, the Bowl level, Sound in silent
+  mode; the six quick durations with the dial, Show when it ends), and the
+  reset link's second tap, whose save now also puts back the Sand and Bowl
+  levels, Rings and the fade, and which tells the sound engine those two
+  levels; no other entry changed.
   The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
