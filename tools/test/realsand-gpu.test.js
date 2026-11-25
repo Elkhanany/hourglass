@@ -59,9 +59,24 @@
  *
  * With --shots <dir> it saves pictures of the app with Real sand on: at rest, the stream, the
  * layers after a Flip, the Reset's two halves, the glass turned over by real motion, the CPU
- * sand after the loss. It runs only when named (run-all.js realsand-gpu), 15 to 20 minutes;
- * never two SwiftShader browsers at once.
- *   node tools/test/realsand-gpu.test.js [--port 8908] [--shots dir]
+ * sand after the loss. It runs only when named (run-all.js realsand-gpu): the whole suite took
+ * about 47 minutes with seven shapes on a four-core machine shared with other jobs (SHAPES
+ * takes about 5 minutes more for each shape Tune offers); never two SwiftShader
+ * browsers at once.
+ *
+ * --only <case>[,<case>...] runs those cases alone (the names above, any letter case; they run
+ * in the order the log prints them: BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, SHAPES,
+ * whatever the order named), and the last line names them, so the run is never read as the
+ * whole suite; a name that is not a case is an error that lists the cases. The page is always
+ * loaded and the engine started (BOOT's checks only when BOOT is named), and a case sets up
+ * what it needs from the one before it: FLIP without RESET starts from a new glass (a Reset,
+ * unless the glass is new already), POUR without FLIP from a new glass started and turned over
+ * at 4 s, as FLIP leaves it. RESET is the shortest case: about 20 seconds with the engine's start.
+ * --shapes <id>[,<id>...] runs SHAPES in those shapes instead of every shape Tune offers
+ * (physics.js SHAPE_ORDER's ids, any order); one Tune holds back is offered on the test's page,
+ * since the settings take only offered shapes. The last line names them too. SHAPES takes
+ * about 5 minutes a shape (one shape, engine start included: 278 s).
+ *   node tools/test/realsand-gpu.test.js [--port 8908] [--shots dir] [--only reset,flip] [--shapes trumpet,florence]
  */
 'use strict';
 var playwright = require('playwright');
@@ -69,10 +84,42 @@ var staticServer = require('./lib/static-server.js');
 var path = require('path');
 var fs = require('fs');
 var ROOT = require('./lib/paths.js').ROOT;
-var port = +process.env.PORT || 8908, shots = null;
+var port = +process.env.PORT || 8908, shots = null, onlyArg = null, shapesArg = null;
 for (var i = 2; i < process.argv.length; i++) {
   if (process.argv[i] === '--port') port = +process.argv[++i];
   else if (process.argv[i] === '--shots') shots = process.argv[++i];
+  else if (process.argv[i] === '--only') onlyArg = process.argv[++i] || '';
+  else if (process.argv[i] === '--shapes') shapesArg = process.argv[++i] || '';
+}
+// the cases, in the order they run (whatever the order --only names them in)
+var CASES = ['BOOT', 'SOUND', 'RUN', 'RESET', 'FLIP', 'POUR', 'HIDDEN', 'LOSS', 'SHAPES'];
+var ONLY = null;
+if (onlyArg !== null) {
+  ONLY = onlyArg.split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean);
+  var badCase = ONLY.filter(function (c) { return CASES.indexOf(c) < 0; });
+  if (!ONLY.length || badCase.length) {
+    console.error('realsand-gpu: --only ' + (badCase.length ? 'names no case "' + badCase.join('", "') + '"' : 'names no case') + '; the cases are ' + CASES.join(', '));
+    process.exit(2);
+  }
+  ONLY = CASES.filter(function (c) { return ONLY.indexOf(c) >= 0; });
+}
+function doCase(c) { return !ONLY || ONLY.indexOf(c) >= 0; }
+// --shapes: the shapes SHAPES runs in (default: every shape Tune offers); one held back is offered for the test
+var SHAPE_LIST = null, SHAPE_HELD = [];
+if (shapesArg !== null) {
+  var PH = require('./lib/load-physics.js').P;
+  SHAPE_LIST = shapesArg.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
+  var badShape = SHAPE_LIST.filter(function (s) { return PH.SHAPE_ORDER.indexOf(s) < 0; });
+  if (!SHAPE_LIST.length || badShape.length) {
+    console.error('realsand-gpu: --shapes ' + (badShape.length ? 'names no shape "' + badShape.join('", "') + '"' : 'names no shape') + '; the shapes are ' + PH.SHAPE_ORDER.join(', '));
+    process.exit(2);
+  }
+  SHAPE_LIST = PH.SHAPE_ORDER.filter(function (s) { return SHAPE_LIST.indexOf(s) >= 0; });
+  SHAPE_HELD = SHAPE_LIST.filter(function (s) { return !PH.SHAPES[s].offered; });
+  if (!doCase('SHAPES')) {
+    console.error('realsand-gpu: --shapes is for the SHAPES case, which --only leaves out');
+    process.exit(2);
+  }
 }
 if (shots) fs.mkdirSync(shots, { recursive: true });
 var count = 0, failures = 0, t0 = Date.now();
@@ -230,6 +277,14 @@ function installWatch() {
       sessionStorage.setItem('__seeded', '1');
       localStorage.setItem('hourglass.settings.v1', JSON.stringify({ realSand: true, durationMs: 10000, layers: true }));
     });
+    if (SHAPE_HELD.length) {
+      // --shapes named a shape Tune holds back (the settings take only offered ones): offered on this page, for the test
+      await ctx.addInitScript(function (ids) {
+        var v;
+        Object.defineProperty(window, 'HourglassPhysics', { configurable: true, enumerable: true, get: function () { return v; },
+          set: function (P) { v = P; ids.forEach(function (id) { if (P && P.SHAPES && P.SHAPES[id]) P.SHAPES[id].offered = true; }); } });
+      }, SHAPE_HELD);
+    }
     var page = await ctx.newPage();
     page.on('pageerror', function (e) { errors.push('pageerror: ' + (e && e.message)); });
     page.on('console', function (m) { if (m.type() === 'error') errors.push('console: ' + m.text()); });
@@ -277,6 +332,17 @@ function installWatch() {
       await page.screenshot({ path: path.join(shots, name + '.png'), clip: { x: 45, y: 120, width: 300, height: 590 } });
     }
     var sweeping = '!document.getElementById("app").classList.contains("sweep")';
+    /** For a case run without the one before it (--only): a new glass, idle and full, as Reset makes it, unless it is one. */
+    async function newGlass() {
+      var ok = await page.evaluate(function () {
+        var H = window.Hourglass;
+        return H.timer.state === 'idle' && H.sim.nTop === H.sim.total && !H.flip.active && !document.getElementById('app').classList.contains('sweep');
+      });
+      if (ok) return;
+      await page.evaluate(function () { window.Hourglass.reset(); });
+      await frames(150, sweeping);
+      await frames(30);
+    }
 
     /* ---- BOOT ------------------------------------------------------------ */
     await page.waitForFunction(function () {
@@ -285,6 +351,7 @@ function installWatch() {
     }, null, { timeout: 180000, polling: 200 });
     await page.evaluate(function () { window.__vt.freeze(); });
     await page.evaluate(installWatch);
+    if (doCase('BOOT')) {
     var b = await fresh();
     check(b.live && b.rstate === 'on' && /^On/.test(b.note) && b.real, 'BOOT: the engine starts on WebGPU, adopts the CPU sand and takes over (Hourglass.sim is it, the row on, "On")', b.rstate + ': ' + b.note);
     check(b.px > 100, 'BOOT: its canvas holds the drawn sand', b.px + ' sampled pixels drawn');
@@ -295,8 +362,10 @@ function installWatch() {
           'BOOT: the start-up times are logged (device, pipelines, self-test, first frame)', JSON.stringify(b.times));
     check(b.layers && b.layers.on && b.layers.toner, 'BOOT: layered sand runs on the GPU (the tone pass)', JSON.stringify(b.layers));
     await shot('1-rest');
+    }
 
     /* ---- SOUND ----------------------------------------------------------- */
+    if (doCase('SOUND')) {
     // the motions, as motion.sample gives them to the frame's steps (g, the page's frame: y down), by ms
     var MOVES = {
       // a flick of the wrist along the glass, as motion.js reports it step by step (2 g for 60 ms and the
@@ -479,8 +548,10 @@ function installWatch() {
     check(!!bs.audit && bs.audit.ok && bs.tally.points === bs.pts && bs.tally.nan === 0 && bs.tally.outside === 0 && bs.state === 'idle' && bs.nTop === bs.total && moBack,
           'SOUND: afterwards the glass is as it was: idle, all its sand above, every point in the glass, the audit passes, and the app\'s motion object is its own again',
           JSON.stringify({ audit: bs.audit, state: bs.state, nTop: bs.nTop, motionRestored: moBack }));
+    }
 
     /* ---- RUN ------------------------------------------------------------- */
+    if (doCase('RUN')) {
     var r0 = await page.evaluate(function () {
       var H = window.Hourglass, W = window.__watch, w = H.realSand.stats().layers.words;
       W.keep = true; W.frames = []; W.audit = []; W.cross = null;
@@ -551,8 +622,10 @@ function installWatch() {
     check(r0.tone1 >= 0 && lay.laid > 1900 && Math.abs(lay.tone1 - r0.tone1) <= lay.slack && Math.abs(lay.debt) <= lay.slack,
           'RUN: layered sand: every grain that crossed was laid in the schedule\'s strata, and each tone kept its count within the slack',
           JSON.stringify({ before: r0.tone1, after: lay.tone1, debt: lay.debt, slack: lay.slack, laid: lay.laid }));
+    }
 
     /* ---- RESET ----------------------------------------------------------- */
+    if (doCase('RESET')) {
     var rs0 = await page.evaluate(function () { window.Hourglass.reset(); return Date.now(); });
     await frames(12);
     await shot('4-reset-out');
@@ -564,8 +637,11 @@ function installWatch() {
     check(rsMs >= 850 && rsMs <= 1300 + 2 * FRAME, 'RESET: the sweep (the old sand into the neck, the new poured in) lasts about a second', Math.round(rsMs) + ' ms');
     check(rr.total === rr.want && rr.nTop === rr.total && rr.tally && rr.tally.points === rr.pts && rr.tally.above === rr.pts && rr.audit && rr.audit.ok,
           'RESET: the new glass: its count, and the GPU filled with exactly its points, all above', JSON.stringify({ total: rr.total, nTop: rr.nTop, pts: rr.pts, tally: rr.tally }));
+    }
 
     /* ---- FLIP ------------------------------------------------------------ */
+    if (doCase('FLIP')) {
+    if (!doCase('RESET')) await newGlass();
     await page.evaluate(function () { window.Hourglass.start(); });
     await frames(240);
     await page.evaluate(function () { var W = window.__watch; W.swaps = []; W.keep = true; W.frames = []; W.audit = []; window.Hourglass.flipNow(); });
@@ -585,8 +661,19 @@ function installWatch() {
           JSON.stringify({ back: fl.back, audit: fl.audit, fails: fl.fails }).slice(0, 400));
     await frames(120);
     await shot('3-layers-after-flip');
+    }
 
     /* ---- POUR, then a tilt swap with a pour ------------------------------ */
+    if (doCase('POUR')) {
+    if (!doCase('FLIP')) {
+      // (what FLIP leaves: a new glass started, turned over at 4 s, its turn done 2 s since)
+      await newGlass();
+      await page.evaluate(function () { window.Hourglass.start(); });
+      await frames(240);
+      await page.evaluate(function () { window.Hourglass.flipNow(); });
+      await frames(400, '!H.flip.active');
+      await frames(120);
+    }
     await page.evaluate(function () {
       var W = window.__watch; W.pours = []; W.audit = []; W.swaps = [];
       document.getElementById('btn-sand').dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
@@ -618,8 +705,10 @@ function installWatch() {
     check(po.fails.length === 0 && pp.audit && pp.audit.ok, 'POUR: no readback had fewer points above than the clock\'s target; the audit agrees',
           JSON.stringify(po.fails).slice(0, 300));
     await page.evaluate(function () { var H = window.Hourglass; H.grav.on = false; H.grav.target = 0; });
+    }
 
     /* ---- HIDDEN ---------------------------------------------------------- */
+    if (doCase('HIDDEN')) {
     await page.evaluate(function () { window.Hourglass.reset(); });
     await frames(150, sweeping);
     await page.evaluate(function () { window.Hourglass.start(); window.__watch.audit = []; });
@@ -638,8 +727,10 @@ function installWatch() {
     check(h1.n.transfers - h0.transfers === 1, 'HIDDEN: back after 30 s hidden (the glass ended meanwhile): one transfer moves what is owed', (h1.n.transfers - h0.transfers) + ' transfers');
     check(h1.audit && h1.audit.ok && h1.tally && h1.tally.points === h1.pts, 'HIDDEN: after the transfer the GPU agrees with the ledger, every point kept', JSON.stringify({ audit: h1.audit, tally: h1.tally }));
     check(h2.state === 'done' && h2.nTop === 0, 'HIDDEN: and the glass empties', JSON.stringify({ state: h2.state, nTop: h2.nTop }));
+    }
 
     /* ---- LOSS ------------------------------------------------------------ */
+    if (doCase('LOSS')) {
     await page.evaluate(function () { window.Hourglass.reset(); });
     await frames(150, sweeping);
     await page.evaluate(function () { window.Hourglass.start(); });
@@ -673,9 +764,11 @@ function installWatch() {
       return JSON.stringify({ log: (r.log || []).slice(-6), lost: rs && rs._lostInfo, n: rs && rs.stats().n });
     });
     check(lb.live && lb.real && lb.rstate === 'on', 'LOSS: Real sand is rebuilt and takes the sand back', lb.rstate + ': ' + lb.note + (why ? '; ' + why.slice(0, 900) : ''));
+    }
 
     /* ---- SHAPES ---------------------------------------------------------- */
-    var SHAPE_IDS = await page.evaluate(function () { var P = window.HourglassPhysics; return P.SHAPE_ORDER.filter(function (id) { return P.SHAPES[id].offered; }); });
+    if (doCase('SHAPES')) {
+    var SHAPE_IDS = SHAPE_LIST || await page.evaluate(function () { var P = window.HourglassPhysics; return P.SHAPE_ORDER.filter(function (id) { return P.SHAPES[id].offered; }); });
     var shapeFill = [], shapeRun = [], fillOk = true, runOk = true;
     for (var si = 0; si < SHAPE_IDS.length; si++) {
       var sid = SHAPE_IDS[si];
@@ -721,8 +814,15 @@ function installWatch() {
       if (!okR) runOk = false;
       shapeRun.push(sid + ' ' + (lt === lt ? lt.toFixed(1) : lt) + ' ms' + (okR ? '' : ' (WRONG: ' + JSON.stringify(rn).slice(0, 300) + ')'));
     }
-    check(SHAPE_IDS.length >= 7 && fillOk, 'SHAPES: in each shape Tune offers, a 60-minute glass is filled to its cap with exactly the ledger\'s points on the GPU, all above, none outside, the GPU\'s glass the shape\'s own: ' + shapeFill.join('; '));
-    check(SHAPE_IDS.length >= 7 && runOk, 'SHAPES: ... and a 10 s glass in it runs to its end, the last point crossing within one frame after 00:00.0, every readback agreeing with the ledger: ' + shapeRun.join('; '));
+    if (!SHAPE_LIST) {
+      check(SHAPE_IDS.length >= 9 && fillOk, 'SHAPES: in each shape Tune offers, a 60-minute glass is filled to its cap with exactly the ledger\'s points on the GPU, all above, none outside, the GPU\'s glass the shape\'s own: ' + shapeFill.join('; '));
+      check(SHAPE_IDS.length >= 9 && runOk, 'SHAPES: ... and a 10 s glass in it runs to its end, the last point crossing within one frame after 00:00.0, every readback agreeing with the ledger: ' + shapeRun.join('; '));
+    } else {
+      var named = SHAPE_LIST.join(', ') + (SHAPE_HELD.length ? ' (held back from Tune, offered for this run: ' + SHAPE_HELD.join(', ') + ')' : '');
+      check(shapeFill.length === SHAPE_LIST.length && fillOk, 'SHAPES: in each shape named by --shapes, ' + named + ', a 60-minute glass is filled to its cap with exactly the ledger\'s points on the GPU, all above, none outside, the GPU\'s glass the shape\'s own: ' + shapeFill.join('; '));
+      check(shapeRun.length === SHAPE_LIST.length && runOk, 'SHAPES: ... and a 10 s glass in it runs to its end, the last point crossing within one frame after 00:00.0, every readback agreeing with the ledger: ' + shapeRun.join('; '));
+    }
+    }
 
     check(errors.length === 0, 'no page or console errors', errors.slice(0, 3).join(' | '));
   } catch (e) {
@@ -731,6 +831,7 @@ function installWatch() {
     if (browser) await browser.close();
     await new Promise(function (r) { server.close(function () { r(); }); setTimeout(r, 500); });
   }
-  console.log('realsand-gpu: ' + (count - failures) + '/' + count + ' passed in ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s');
+  console.log('realsand-gpu: ' + (count - failures) + '/' + count + ' passed in ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s' +
+              (ONLY ? ' (only ' + ONLY.join(', ') + ', not the whole suite)' : '') + (SHAPE_LIST ? ' (SHAPES in ' + SHAPE_LIST.join(', ') + ' only)' : ''));
   if (failures) process.exitCode = 1;
 })();

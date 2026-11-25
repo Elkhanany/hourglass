@@ -641,7 +641,14 @@ check(typo !== APP_SRC && n1.join() === 'settings.chmie is no record of the stor
 /* ---- 4b. the glass's shape (release 1.15.0) ---------------------------------------------- */
 // The record `shape`: an id of the shapes Tune offers; anything else, and a save from before it,
 // is the classic glass, with every other setting as that save gives it.
-var SHAPES = require('./lib/load-physics.js').P.SHAPES, REG_SH = { themes: THEMES, shapes: SHAPES };
+// Tune offers every registered shape, so a shape held back is made in this test's own copy of the
+// registry, where the trumpet's record says offered: false (physics.js itself is not touched).
+var SHAPES = (function (all) {
+  var ids = Object.keys(all), copy = {};
+  if (ids.some(function (id) { return !all[id].offered; })) return all;
+  ids.forEach(function (id) { copy[id] = id === 'trumpet' ? Object.assign({}, all[id], { offered: false }) : all[id]; });
+  return copy;
+})(require('./lib/load-physics.js').P.SHAPES), REG_SH = { themes: THEMES, shapes: SHAPES };
 function shapeLoad(store, saved) {
   var st = Storage(JSON.stringify(saved), 'ok');
   return store.load(st.reach, '', REG_SH);

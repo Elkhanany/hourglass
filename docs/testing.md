@@ -265,7 +265,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the other, each against where the sand's centre went); shaken, the rush
   and the shimmer; no stream and
   no ambience in either; and the same lean under a running stream leaving
-  the rush at nothing, its control): every
+  the rush at nothing, its control; and SIDES: every sound that has a side
+  (the hiss, the thumps, a slam, a leak, a single grain's landing, the
+  glass's creak, crack, its growth and a chip) heard where the listener sees
+  its sand, the glass upright or turned half round by a finger, the phone
+  upright or upside down with the glass swapped; its controls are made by
+  hand, app.js's heardSide() returning 1 and the hiss not turned by the
+  phone's roll): every
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
   then served at `motion.js`'s path. Real sand is the app's default, and
@@ -457,9 +463,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   flipping exactly when the app asked for a tap, every control still doing
   its work once, and scrolling, pouring, carrying and pinching unchanged.
   `app-shape` covers the glass's shape (`--only pick,look,use,shapes,sand,full,old`):
-  the Glass tab's Shape section above the frame's, the seven offered shapes
+  the Glass tab's Shape section above the frame's, the nine offered shapes
   in their order, three a row, drawn at one scale, the one in use drawn
-  large; a tap that only shows a shape (nothing saved, nothing loaded
+  large, and a shape held back not shown (Trumpet, held on the test's page
+  alone, since Tune offers every shape); a tap that only shows a shape (nothing saved, nothing loaded
   again, the glass behind unchanged); "Use this shape" at 40 % of a
   5-minute glass (the page built again in the shape and Tune open again on
   the Glass tab, the time left kept within a frame, the sand the same share
@@ -467,10 +474,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   shape on the classic sand (a 60-minute glass filled to its cap, a 10 s
   glass out on time); the shapes drawn in the sand chosen in the Sand tab
   (not the material's) and repainted when it changes; the Sand button of a
-  full glass; and saves of 1.14.0 (sand, colour and finish, no shape),
-  1.13.0 and 1.10.0, and ones naming a held-back or unknown shape, as the
-  classic glass, every other setting as it was. Each check has a control.
-  About 6 minutes.
+  full glass (Delta's and Trumpet's at 60 minutes); and saves of 1.14.0 (sand, colour and finish, no shape),
+  1.13.0 and 1.10.0, and ones naming a held-back shape (held on its page)
+  or an unknown one, as the classic glass, every other setting as it was.
+  Each check has a control. About 7 minutes.
   `app-grain` covers the Grain choice: the three choices, Finest chosen
   while a glass runs (twice the scale, four times the grains, the time kept),
   the clock kept to the last grain, Sand adding time as fast, Classic again
@@ -572,13 +579,15 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `realsand/boot.mjs` loads and every shader of the engine is in it, and
   `app.js`, the lab, the engine and its shaders name the same build stamp.
   `realsand-gpu` runs only when named (`node tools/test/run-all.js
-  realsand-gpu`, 15 to 20 minutes, every core busy): the app with Real sand
+  realsand-gpu`, about 47 minutes on a shared four-core machine, every core
+  busy, when Tune offered seven shapes; SHAPES takes about 5 minutes for
+  each shape Tune offers, and it offers nine now): the app with Real sand
   and layered sand on the real engine, on Chromium's WebGPU in software
   (SwiftShader), loaded with `?offscreen=1`. Software runs the sand at a few
   hundredths of real time, so once the engine has started the page's clock
   is made virtual (its time, frames and timers driven by the test, a frame
   at a time, each once the chip has done the last), and the sand runs at
-  real time in it. Nine cases on 10 s glasses: the start and the handover;
+  real time in it. Nine cases, the first eight on 10 s glasses: the start and the handover;
   the bed's sounds before the start (nothing while asleep; flicked along the
   glass as `motion.js` reports a flick, a thump of the energy of the bed's
   fastest fall, fed within 6 frames of that fall and as loud as the classic
@@ -602,7 +611,17 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   it: a 60-minute glass filled to its cap with exactly the ledger's points
   on the chip, and a 10 s glass whose last grain crosses within one frame
   after 00:00.0. With `--shots <dir>` it saves pictures of the app with
-  Real sand on, each shape mid-run among them.
+  Real sand on, each shape mid-run among them. `--only <case>[,<case>...]`
+  (BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, SHAPES, as its log
+  names them, any letter case) runs those cases alone, in that order: the
+  engine is always started, a case sets up what it needs from the one
+  before it, a name that is no case is an error that lists them, and the
+  last line names the cases run, so the run is never read as the whole
+  suite (`node tools/test/realsand-gpu.test.js --only reset`, about 20 seconds).
+  `--shapes <id>[,<id>...]` runs SHAPES in those shapes instead of every
+  shape Tune offers, one held back offered on the test's page
+  (`--only shapes --shapes trumpet,florence`, about 5 minutes a shape);
+  the last line names them.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
   motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
   permission (E12) and performance (E13).

@@ -780,17 +780,25 @@ packed: thrown, a bed flies (loose, until it has packed again, or moving
 along the glass as a body), and the classic sand's bed in the air slides
 nothing. The agitation follows each bed's
 own acceleration over the glass, with the classic sand's memory (0.25 s) and
-a landing's heat. Nothing is fitted in the thumps and the agitation, and on
-the same scripted motions they agree with the classic sand's (a 10 s glass
-before its start, WebGPU in software, the classic Sim on the same motion
-beside it): flicked along the glass, one thump of 0.0048 against 0.0043 and
+a landing's heat. Nothing is fitted in the thumps and the agitation. On the
+same scripted motions they agreed with the classic sand's when measured at
+engine build 6, before the seven-in-ten rule (a 10 s glass before its start,
+WebGPU in software, the classic Sim on the same motion beside it; the probe
+that made these figures is not in the repository, and they have not been
+measured again since the rule): flicked along the glass, one thump of 0.0048 against 0.0043 and
 agitation 0.60 against 0.71; shaken along the glass at 1.5 g and 5 Hz for
 3 s, 14 thumps of 0.094 in all (the largest 0.012) against 10 of 0.072
 (0.013), agitation 2.1 against 2.4; shaken sideways, no thump in either,
 agitation 0.93 against 0.87, and 21,900 slides a second at their fastest
 against 21,300 (a 1 minute glass: 39,000 against 36,000). Played through
 `audio.js`, the two engines' feeds for these motions sound within 3 dB of
-each other (the table in the design, section 8). Two things differ,
+each other (the table in the design, section 8). Measured again at build 7
+by realsand-gpu's SOUND case (three whole runs, WebGPU in software, a 10 s
+glass before its start): flicked along the glass, one thump of 0.0039 to
+0.0054 against the classic's 0.0043, agitation 0.54 to 0.67 against 0.71;
+shaken sideways at 1.5 g and 5 Hz for 1.5 s, no thump in any of the three
+runs, agitation 1.12 to 1.16 against 0.98; leaned 30°, the GPU bed did not
+move and nothing was heard. Two things differ,
 both because the sound is made from what the GPU sand did. A phone that moves
 without moving its sand makes no sand sound: carried at a walk the GPU bed
 lies still and is silent, where the classic sand shimmers (agitation 0.07
@@ -803,7 +811,12 @@ classic's 24,000) and, stood up again, lands back in the funnel with a
 thump (0.043), where the classic sand's heap runs back and lands nothing.
 
 The sound comes one to three frames after the sand's own motion (a
-readback's delay), a thump as the bed comes to rest. A sleeping glass is
+readback's delay), a thump as the bed comes to rest. The bed is read once
+a run, so when the engine runs less than once a frame (a phone that falls
+behind, the heat guard's calm pace) a landing can sound quieter or be
+missed: a known limit, still open, to be fixed in a later build by the
+engine recording the bed's fastest fall during a run (the design, section
+8). A sleeping glass is
 silent and sound never keeps it awake (the feeds are read from readbacks
 the frame makes anyway); a fresh bed (a fill, a transfer) settles unheard
 for 0.4 s. The landing buzz (Android) follows the thumps, as with the
@@ -1053,8 +1066,10 @@ the wall has opened at `u`, from 0 at the neck to 1 at the widest: a
 function of `u` alone, written out or drawn with the curve helpers above
 the records (`shUnit`, `shFlask`, `shMin` and the others). `offered` says
 whether Tune may show the glass, and is false, also when left out, until
-the glass has shown on a phone that its sand keeps time (the trumpet and
-the Florence flask wait for that). `symmetry` is `'point'`, the half turn
+the glass has shown that its sand flows and keeps time in both sands (all
+nine shapes are offered: the trumpet and the Florence flask, with their
+long narrow tubes above the neck, since both sands were run through them
+frame by frame). `symmetry` is `'point'`, the half turn
 both sand engines turn a glass by, and no other value is taken. The classic
 teardrop is the first record and the only one without an `f` (`classic:
 true`): its curve stays in `profile()`, so its numbers never move.
@@ -1099,8 +1114,8 @@ true`): its curve stays in `profile()`, so its numbers never move.
   `app-shape` takes each offered shape through the app (filled to its cap,
   a glass run out on time, the picker, the time kept when the shape
   changes), and `realsand-fill`, `realsand-adapter` and `realsand-gpu` take
-  every shape through Real sand. Offering Trumpet or Florence waits for the
-  lab's flow test on a phone: both have a long narrow tube above the neck.
+  every shape through Real sand (`realsand-gpu --only shapes --shapes <id>`
+  runs one shape, offered or not, on the GPU frame by frame).
 
 **A sound character.** One `defineCharacter` in `audio.js`, after the
 others, and its card in Tune. The record: `id` (what the settings keep),
