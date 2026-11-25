@@ -532,7 +532,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   page, later after sand is added, right after a turn, gone while paused
   and later by the pause, gone at the end, across midnight, the phase's end
   in a work and rest sequence, the switch off giving today's words exactly
-  at every step, the switch in Tune, Zen and a short screen. Every check
+  at every step, the switch in Tune, Zen and a short screen, and the time
+  zone changed while the glass runs (Berlin to New York, the end given in
+  the new zone within 10 s). Every check
   has a control (`--only order|quick|lit|cancel|keys|fit|ends`).
   `app-mode` covers light and dark, the Zen button and the double-click
   (release 1.19.0): each of the four backgrounds saved comes up in its look

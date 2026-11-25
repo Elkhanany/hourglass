@@ -302,14 +302,21 @@
    * standing still) would be said again each minute. A screen reader finds it in the time's label.
    */
   var endsEl = document.createElement('span'), endsShown = null, endsMin = NaN, endsWords = '', endsFmt = null;
+  var endsZone = null, endsZoneAt = -1e15;          // the time zone the words were made in, and when it was last looked at
   var READOUT_SAID = $('readout').getAttribute('aria-label');
   endsEl.id = 'ends';
   endsEl.setAttribute('aria-hidden', 'true');
   /** "ends 14:35" (or "ends 2:35 PM") for a glass now running, else ''. */
   function endsText() {
     if (!settings.endsAt || T.state !== 'running' || flip.active || seq.gap || T.rem <= 0) return '';
-    var at = Date.now() + T.rem, min = Math.floor(at / 60000);
-    if (min !== endsMin) {                             // (worked out again only when its minute changes)
+    var now = Date.now(), at = now + T.rem, min = Math.floor(at / 60000);
+    if (now - endsZoneAt > 10000 || now < endsZoneAt) {   // (every 10 s: the phone's time zone may change while the app is open, after a flight)
+      endsZoneAt = now;
+      var zone = null;
+      try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (e) {}
+      if (zone !== endsZone) { endsZone = zone; endsFmt = null; endsMin = NaN; }
+    }
+    if (min !== endsMin) {                             // (worked out again only when its minute changes, or the zone)
       endsMin = min;
       try {
         if (!endsFmt) endsFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });

@@ -240,7 +240,8 @@ keys move between the tabs.
   own.
 - **The clock: Show when it ends** (off as the app comes): while a glass
   runs, the line under the time says when it will reach `00:00.0`, as
-  *Flowing · ends 14:35*, in the phone's own 12 or 24 hour style. It is the
+  *Flowing · ends 14:35*, in the phone's own 12 or 24 hour style and time
+  zone (a new zone, after a flight, within 10 seconds). It is the
   end of the glass that is running now: sand added, a turn, a pause or a new
   duration moves it, and it is gone while the glass is paused, turning or
   finished. In a work and rest sequence it is the end of the phase that is
