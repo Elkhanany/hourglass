@@ -73,9 +73,11 @@ fn csMain(@builtin(global_invocation_id) id: vec3u) {
             if (len > cap) { step *= cap / len; }
         }
     }
-    // the surface push's shift: a point in a bed (color.y, its crowding: g2p2g.wgsl) on an over-steep
-    // surface moves down it at the speed the push asks, less what it moves down it already
-    if (g_simConstants.surf.x > 2.5 && g_simConstants.surf.x < 4.5 && p.color.y >= 0.3) {
+    // the surface push's shift: a point on an over-steep surface moves down it at the speed the push
+    // asks, less what it moves down it already. Every point the push reaches, the surface's own
+    // included (their crowding, color.y, is low: a gate on it left the top grains behind as spikes);
+    // a grain in the air (color.y under 0.05) is not on the surface
+    if (g_simConstants.surf.x > 2.5 && g_simConstants.surf.x < 4.5 && p.color.y >= 0.05) {
         let P = pushAt(p.position);
         let Pl = length(P);
         let gl = length(g_simConstants.gravity);
