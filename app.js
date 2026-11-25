@@ -4105,7 +4105,7 @@
    *  takes over between two frames (handover): `sim` becomes the GPU sand,
    *  which has every member of the CPU Sim this script uses, and the two
    *  canvases cross-fade. Any failure gives the CPU sand back in the same
-   *  frame, the clock untouched. The switch is the owner's alone: this
+   *  frame, the clock untouched. The switch is the person's alone: this
    *  script never turns it off, and never disables it.
    *    - no WebGPU at all: "Needs WebGPU", found at every launch for
    *      nothing; nothing is stored;
@@ -4643,7 +4643,7 @@
     requestAnimationFrame(function () { holdVeil(performance.now()); });   // the first frame is drawn
   });
   /*
-   * The dark opening (settings design 5.3, the owner's answer): while Real sand starts, the veil
+   * The dark opening (settings design 5.3, a decision of the design): while Real sand starts, the veil
    * waits up to 1 s more for the engine's first frame, so that most launches open on Real sand;
    * then, or at once if the engine is slower (the classic sand shows meanwhile), it fades up as
    * ever. A reload that should open at once (a later "Use this shape") sets sessionStorage

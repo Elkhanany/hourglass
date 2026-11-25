@@ -165,7 +165,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   not added to it, and it is not made again. The two traces were first made from
   release 1.11.0, whose new engine build (6) is in their saves, made again
   (`--write`) from the tree that joined it with the new Tune (release
-  1.13.0), and last made again for release 1.14.0, the sand and the frame's
+  1.13.0), and made again for release 1.14.0, the sand and the frame's
   finish chosen apart: the keys `sand`, `sandColor` and `finish` at the end
   of every full save, the six material cards' lines replaced by those of the
   ten sands, the custom sand's colour well (a colour let go: `input`, then

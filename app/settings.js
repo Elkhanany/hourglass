@@ -72,7 +72,7 @@
   var STEPS = [
     // Version 2: Real sand on, once. Every launch before 1.10.0 saved realSand: false, so such a
     // save cannot tell "never touched" from "turned off"; from version 2 on, a saved false is
-    // the owner's choice.
+    // the person's choice.
     { v: 2, run: function (values) { values.realSand = true; } }
   ];
 

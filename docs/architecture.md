@@ -584,7 +584,7 @@ These hold until a change says otherwise, with its reason.
   leaves nothing behind, and a hole is filled only from the same release.
   The cost: a change shipped without a new `VERSION` never reaches a phone,
   which is why `check-release` runs on every pull request.
-- **Real sand is the default, and its switch is the owner's alone** (1.10.0,
+- **Real sand is the default, and its switch is the person's alone** (1.10.0,
   [settings design 5](design/settings.md)): the app never writes it off. A
   browser that cannot have it is remembered by its user agent and tried
   again after seven days, an iOS update that changes the user agent, a new

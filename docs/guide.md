@@ -55,8 +55,8 @@ the sand. A minute is a tenth of a bulb, five a good fifth, ten a third,
 fifteen two fifths, thirty over half. (Strictly in proportion, a minute would
 be a pinch and every glass would run with the thin thread of the hour glass.)
 Each shape of glass (Tune, Glass) has its own full glass, as much as fits
-under its neck. Delta, whose low ends hold less, is full at an hour with no
-room to spare: there the **Sand** button reads **Full**, and a tap on it says
+under its neck. Delta, whose low ends hold less, and Trumpet are full at an
+hour with no room to spare: there the **Sand** button reads **Full**, and a tap on it says
 that the glass is full. Any glass reads so once sand has been poured in to
 the brim.
 
@@ -195,8 +195,10 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
 - **Sand sound**: six voicings of the falling sand.
 - **Sand**: how loud the sand's own sounds are (the stream, its grains, the
   glass ringing, thumps, slides and the slosh, with either sand), from 0 to
-  100. 100 is the sand as it has always been; the bowl and the ambience keep
-  their own levels.
+  100. The glass's own sounds go with them: the creak before a crack, the
+  crack and its growth, a chip, the mend's hum and the air of a turning
+  glass, so at 0 no creak warns of a crack. 100 is the sand as it has always
+  been; the bowl and the ambience keep their own levels.
 - **End of the glass: Completion bowl**, a soft singing-bowl bloom when the
   last grain falls. While it is on:
   - **Rings**: *Once* (as it always was), *Three times* (again about 8.5 s
@@ -431,7 +433,8 @@ does, and the running time is kept. The app never turns it off by itself.
 
 What stays as it was: the clock (the last grain leaves the neck at
 `00:00.0`; in the sand lab on an iPhone it left within 5 ms of it in every
-run), the glass and its frame, the six sands and layered sand, Flip,
+run), the glass and its frame, every glass shape, every sand and a colour
+of your own, layered sand, Flip,
 turning and spinning the glass, **Sand**, **Reset** with its one-second
 transition, work and rest, Real motion with the phone lying still or in the
 hand, the glass carrying on across reloads, the sound of the stream, the
