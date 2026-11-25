@@ -6,9 +6,9 @@
 // position correction only: the velocity is left alone, so it cannot throw the
 // sand; where the sand is thin (a free surface, spray) nothing moves. With the
 // metered neck on, no step carries a point across the counting line.
-// At the substeps the solver asks it to (while a fall is possible, never at a
-// run's last), it also sums each bulb's bed at the substep's end, for the
-// sound's fastest fall (bedPeak, below; prepare.wgsl keeps the fastest).
+// Its entry point csBeds, at the substeps the solver asks for (while a fall is
+// possible, never at a run's last), also sums each bulb's bed at the substep's
+// end, for the sound's fastest fall (bedPeak, below; prepare.wgsl keeps the fastest).
 // Shared include: see ../LICENSES.md.
 //-----------------------------------------------------------------------------
 //!include common.inc
@@ -19,9 +19,8 @@
 @group(0) @binding(2) var<storage,read_write> particles: array<Particle>;
 @group(0) @binding(3) var<storage> fine: array<i32>;
 @group(0) @binding(4) var<storage> g_domain: array<vec4f>;
-// the beds at this substep's end, for the sound (solver.mjs PEAK_*), summed only while spread.w is
-// 1 (solver.mjs run: while the app says a fall is possible, and never at a run's last substep,
-// which the tally has): [0-3] the bulb above the counting line, [4-7] the one on it or below,
+// the beds at this substep's end, for the sound (solver.mjs PEAK_*), summed only by csBeds (solver.mjs
+// run: while the app says a fall is possible, and never at a run's last substep, which the tally has): [0-3] the bulb above the counting line, [4-7] the one on it or below,
 // each over its points in a bed (crowded, as tally.wgsl counts them): [+0, +1] their summed
 // velocity, x and y (each cells/s x 4, a point's speed capped at BedCap; signed, two's
 // complement), [+2] how many they are, [+3] how many of them move (as tally.wgsl's [7]). The next
@@ -38,26 +37,31 @@ const BedCap = 2000.0;
 var<workgroup> w_bed: array<atomic<u32>, 6>;
 
 @compute @workgroup_size(64)
-fn csMain(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) li: u32) {
-    // (spread.w is the same for every invocation: the barriers below are in uniform control flow)
-    if (g_simConstants.spread.w > 0.5) {
-        if (li < 6u) { atomicStore(&w_bed[li], 0u); }
-        workgroupBarrier();
-        // (no return before the last barrier: every invocation of the workgroup must reach it)
-        if (id.x < count[0]) { shiftPoint(id.x, true); }
-        workgroupBarrier();
-        if (li < 6u) {
-            let v = atomicLoad(&w_bed[li]);
-            if (v != 0u) {
-                let b = li / 3u; let w = li % 3u;
-                if (w < 2u) { atomicAdd(&bedPeak[b * 4u + w], v); }
-                else {
-                    atomicAdd(&bedPeak[b * 4u + 2u], v & 0xffffu);
-                    if ((v >> 16u) != 0u) { atomicAdd(&bedPeak[b * 4u + 3u], v >> 16u); }
-                }
+fn csMain(@builtin(global_invocation_id) id: vec3u) {
+    if (id.x < count[0]) { shiftPoint(id.x, false); }
+}
+
+// the same, with the beds summed (solver.mjs's spreadShiftBeds pipeline, at the substeps it asks
+// for; an entry point of its own, so that csMain has no barrier and no workgroup memory: a
+// software GPU runs a shader with barriers far more slowly, whether or not they are reached)
+@compute @workgroup_size(64)
+fn csBeds(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) li: u32) {
+    if (li < 6u) { atomicStore(&w_bed[li], 0u); }
+    workgroupBarrier();
+    // (no return before the last barrier: every invocation of the workgroup must reach it)
+    if (id.x < count[0]) { shiftPoint(id.x, true); }
+    workgroupBarrier();
+    if (li < 6u) {
+        let v = atomicLoad(&w_bed[li]);
+        if (v != 0u) {
+            let b = li / 3u; let w = li % 3u;
+            if (w < 2u) { atomicAdd(&bedPeak[b * 4u + w], v); }
+            else {
+                atomicAdd(&bedPeak[b * 4u + 2u], v & 0xffffu);
+                if ((v >> 16u) != 0u) { atomicAdd(&bedPeak[b * 4u + 3u], v >> 16u); }
             }
         }
-    } else if (id.x < count[0]) { shiftPoint(id.x, false); }
+    }
 }
 
 // a point in a bed: its velocity at the substep's end (as tally.wgsl takes it, without the

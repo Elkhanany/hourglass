@@ -55,12 +55,10 @@ const TALLY_WORDS = 28;
 const BED_AT = 16, BED_WORDS = 6;
 const POST_WORDS = 8;
 // each bulb's bed at its fastest fall toward the glass's floor (spreadShift.wgsl sums the beds at
-// a substep's end while set.beds is on, prepare.wgsl keeps the fastest): the buffer's first 8
+// a substep's end while set.beds is on, csBeds, prepare.wgsl keeps the fastest): the buffer's first 8
 // words are the sums, then PEAK_BED words a bed (prepare.wgsl's header), kept across runs until a
 // readback copies them, so that a fall in a run that found no free readback slot is read with the next
 const PEAK_SUMS = 8, PEAK_BED = 6, PEAK_WORDS = PEAK_SUMS + 2 * PEAK_BED;
-// (spread.w in a substep's uniforms: spreadShift sums the beds at that substep's end)
-const BEDS_WORD = 43;
 // a readback slot: the counters, then the tally, then the post pass's 8 words (Solver.post), then
 // the beds' fastest falls
 const READBACK_BYTES = (COUNTER_WORDS + TALLY_WORDS + POST_WORDS + 2 * PEAK_BED) * 4;
@@ -283,17 +281,19 @@ export class Solver {
         }))
       });
     }
-    const pipe = async (name, constants) => {
+    const pipe = async (name, constants, entryPoint = 'csMain') => {
       const module = await this.shaders.module(d, name);
       return d.createComputePipelineAsync({
-        label: `lab ${name}`, layout: d.createPipelineLayout({ bindGroupLayouts: [this.layouts[name]] }),
-        compute: { module, entryPoint: 'csMain', ...(constants ? { constants } : {}) }
+        label: `lab ${name}${entryPoint === 'csMain' ? '' : ' ' + entryPoint}`, layout: d.createPipelineLayout({ bindGroupLayouts: [this.layouts[name]] }),
+        compute: { module, entryPoint, ...(constants ? { constants } : {}) }
       });
     };
     const names = Object.keys(LAYOUTS);
     const made = await Promise.all(names.map(n => pipe(n)));
     this.pipelines = Object.fromEntries(names.map((n, i) => [n, made[i]]));
     this.pipelines.g2p2gSolid = await pipe('g2p2g', { enableSolidMaterials: true });
+    // the spread's shift that also sums the beds (set.beds; spreadShift.wgsl csBeds)
+    this.pipelines.spreadShiftBeds = await pipe('spreadShift', null, 'csBeds');
   }
 
   /** Buffers for a glass and a number of material points; uniform slots for `cap` substeps a submit. */
@@ -496,9 +496,6 @@ export class Solver {
     for (let s = 0; s < Math.max(steps, 1); s++) {
       const f = fieldAt(s);
       for (let it = 0; it < its; it++) this.writeSlot(s * MAX_IT + it, set, f, it, this.frame + s, neck, s);
-      // the beds summed at this substep's end (spreadShift.wgsl reads its first iteration's slot):
-      // only while set.beds says a fall is possible, and never at the run's last substep (its tally has it)
-      if (set.beds && s < steps - 1) this.uf[s * MAX_IT * SLOT / 4 + BEDS_WORD] = 1;
     }
     d.queue.writeBuffer(b.uniforms, 0, this.uniformData, 0, Math.max(steps, 1) * MAX_IT * SLOT);
     const enc = d.createCommandEncoder({ label: 'lab frame' });
@@ -551,7 +548,9 @@ export class Solver {
       // sand points that crowd together inside a cell move apart (spreadShift.wgsl)
       if (spread) {
         go(P.spreadSplat, G.spreadSplat, base, n64);
-        go(P.spreadShift, G.spreadShift, base, n64);
+        // (the beds summed at this substep's end only while set.beds says a fall is possible, and
+        // never at the run's last substep: its tally has it)
+        go(set.beds && s < steps - 1 ? P.spreadShiftBeds : P.spreadShift, G.spreadShift, base, n64);
       }
     }
     if (this.count) go(P.tally, G.tally, Math.max(steps - 1, 0) * MAX_IT, n64);
