@@ -102,7 +102,7 @@ keys move between the tabs.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.16.0" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.17.0" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;
@@ -135,14 +135,70 @@ keys move between the tabs.
 - **Ambience**: None, Brook, Rain, Ocean, Waterfall or Drips behind the
   sand (the one you tap plays long enough to be heard), and its own level
   under the cards while one is chosen.
+- **Fade out before the end** (while an ambience is chosen): the ambience
+  falls away over the glass's last minute, last 5 minutes or last 10 minutes
+  (turned on, it starts at 5), so the glass ends in quiet; the sand and the
+  bowl are not touched. It follows the time really left: paused, it holds;
+  sand added or the glass turned brings it back up, softly. A glass shorter
+  than twice the stretch fades over its last half instead (a 4-minute glass
+  set to 5 minutes fades over its last 2), so it is heard whole for at least
+  its first half. In work and rest only the very end fades: between the
+  phases the ambience goes on as it is.
 - **Sand sound**: six voicings of the falling sand.
+- **Sand**: how loud the sand's own sounds are (the stream, its grains, the
+  glass ringing, thumps, slides and the slosh, with either sand), from 0 to
+  100. 100 is the sand as it has always been; the bowl and the ambience keep
+  their own levels.
 - **End of the glass: Completion bowl**, a soft singing-bowl bloom when the
-  last grain falls.
+  last grain falls. While it is on:
+  - **Rings**: *Once* (as it always was), *Three times* (again about 8.5 s
+    and 17 s later) or *Until a tap* (again every 8.5 s, for 10 minutes at
+    most). While the bowl is still to ring again, the first tap anywhere, or
+    the first key, only stops it: it does nothing else (it does not start a
+    new glass or press the button it lands on). The next one works as always.
+    The rings keep the screen on only with *Keep screen awake* on. Nothing
+    can ring while the phone is locked or the app is in the background; come
+    back and a ring whose time has passed is not played late, the next comes
+    on its time. Between the phases of work and rest the bowl rings once, as
+    before: *Rings* is for the last end. Reset, another duration, a turn or a
+    new start stop it too.
+  - **Bowl**: the bowl's level, 0 to 100. 50 is the bowl as it always was,
+    100 doubles it (6 dB asked; about 5 dB heard, since the app's limiter
+    holds the peak back so nothing clips), 0 is silent.
+- **Sound in silent mode**: on (as it always was), the app sounds with the
+  ringer switched off, as a timer should. Off, it follows the ringer switch,
+  and music playing in another app plays on under it. Where the browser does
+  not let a page choose, the row says so: the phone decides by itself.
 
 **Time**
 
+- **Quick durations**: the six pills under the glass, shown here as six
+  buttons in the same order (1, 5, 10, 15, 30 and 60 minutes as the app
+  comes). Touch one and the custom-duration dial opens with its minutes only;
+  turn it to any whole number of minutes from 1 to 99 and tap **Set**, and
+  the pill under the glass changes at once. Close the dial instead (its close
+  button, `Esc` or a tap above it) and the pill stays as it was. The six stay
+  in the order you set them, and two may hold the same number. A pill is lit
+  when its minutes are the glass's (the first of two the same); changing a
+  pill never changes the glass, set or running: it keeps its time, and if no
+  pill has its minutes any more, Custom is lit, as it is for any time of your
+  own.
+- **The clock: Show when it ends** (off as the app comes): while a glass
+  runs, the line under the time says when it will reach `00:00.0`, as
+  *Flowing · ends 14:35*, in the phone's own 12 or 24 hour style. It is the
+  end of the glass that is running now: sand added, a turn, a pause or a new
+  duration moves it, and it is gone while the glass is paused, turning or
+  finished. In a work and rest sequence it is the end of the phase that is
+  running (*Work · 1 of 4 · ends 14:35*), not of the whole sequence. Breathing
+  pace changes no time, so it changes no end. With *Real motion*, a glass
+  held on its side stands still, so its end moves later for as long as it
+  lies there. Zen dims it with the rest of the line, and on a short screen,
+  where that line is not shown, it is not shown either. A screen reader
+  hears the state as before; the end is in the time's own label ("Time
+  remaining, ends 14:35"), and is never read out by itself.
 - **Keep screen awake** while the sand is flowing, and for 12 s after it
-  runs out (Screen Wake Lock API).
+  runs out, or for as long as the bowl is still to ring again (Screen Wake
+  Lock API).
 - **Breathing pace**: while the sand is running, the warm light behind the
   glass swells and brightens through the in-breath, holds, and fades through
   the out-breath, slowly and without a sound. Choose *Calm* (in 4 s, out 6 s:
@@ -159,11 +215,15 @@ keys move between the tabs.
 - **Put the look and sound back as they came**: tap it, then tap again
   within three seconds ("Tap again to put them back"). The sand (Sahara
   Quartz; a colour of your own is kept for its swatch), the frame and its
-  finish (walnut), layered sand, the volume, the sand sound, the ambience and its
-  level and the completion bowl go back to how the app came; everything
-  else stays as you set it (Real sand and the grain, the glass's shape, the durations, work and
-  rest, breathing, Zen, the screen, haptics, Real motion, the mute button),
-  and the running glass carries on.
+  finish (walnut), layered sand, the volume, the sand sound and the Sand level
+  (100), the ambience, its level and its fade before the end (off), and the
+  completion bowl, its Rings (Once) and the Bowl level (50) go back to how the
+  app came; everything else stays as you set it (Real sand and the grain, the
+  glass's shape, the durations and the six quick durations, *Show when it
+  ends*, work and rest, breathing, Zen, the screen, haptics, Real motion,
+  Sound in silent mode, the mute button), and the running glass carries on.
+  Sound in silent mode is kept because it is how the phone treats the app:
+  put back on, it could make the phone ring in a quiet room.
 
 The glass also remembers where it was: close or reload the page and a running
 timer carries on from the wall clock, a paused one comes back as it was left,
@@ -508,4 +568,11 @@ and after each.
   (`app-haptics`), which has no Taptic Engine: whether the phone ticks can
   only be felt on a phone.
 - The completion sound can only play in a hidden tab if the browser keeps the
-  page's audio running; on a locked phone it generally will not.
+  page's audio running; on a locked phone it generally will not. The bowl's
+  repeats (*Rings*) are rung only while the app is on screen.
+- *Sound in silent mode* uses the page's audio session
+  (`navigator.audioSession`, Safari 16.4+): on, it is "playback", which
+  sounds with the ringer off; off, it is "ambient", which follows the ringer
+  switch and lets other apps' music play on. Other browsers have no audio
+  session and decide by themselves; there the switch is kept but changes
+  nothing.

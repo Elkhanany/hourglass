@@ -81,7 +81,9 @@ function minGap(times) {
 var NEW_CALLS = [
   ['thump', [0.5, 0.2, 1]], ['clack', [0.5, -0.3]], ['creak', [3, 0.4]], ['crack', [-0.5]], ['crackGrow', [0.2]],
   ['chip', [0.6]], ['catchThud', []], ['mendHum', [0.5]], ['mendHum', [0]], ['mended', []], ['newGlass', []],
-  ['setCracked', ['mended']], ['setCracked', ['intact']]
+  ['setCracked', ['mended']], ['setCracked', ['intact']],
+  // the Sound tab's (they set a level or the audio session: they make no sound of their own)
+  ['setSandLevel', [0.5]], ['setSandLevel', [1]], ['setBowlLevel', [1.5]], ['setBowlLevel', [1]], ['setSilentRing', [false]], ['setSilentRing', [true]], ['stopChime', []]
 ];
 
 async function main() {
@@ -123,7 +125,7 @@ async function main() {
       calls.forEach(function (c) { try { a[c[0]].apply(a, c[1]); } catch (e) { errs.push(c[0] + ': ' + e.message); } });
       try {
         a.update({ dt: 1 / 60, flow: 0, impacts: 0, tail: 1, fill: 0.2, bottom: 0, slides: 0, agit: 2, rushPan: 0.3,
-                   thump: new Float32Array([0.5, 0, 0.4, 0]), slam: new Float32Array([0.5, 0]), leak: 30, leakPan: 0.2, spillPats: 10 });
+                   thump: new Float32Array([0.5, 0, 0.4, 0]), slam: new Float32Array([0.5, 0]), leak: 30, leakPan: 0.2, spillPats: 10, ambFade: 0.3 });
       } catch (e) { errs.push('update: ' + e.message); }
       try { a.hush(); a.hold(10, 1); } catch (e) { errs.push('hush/hold: ' + e.message); }
       a.setCracked('cracked');                     // kept, and applied once the graph is built
@@ -161,7 +163,8 @@ async function main() {
       await sleep(120);
       smoke.push({ call: NEW_CALLS[i][0] + '(' + NEW_CALLS[i][1].join(', ') + ')', nodes: created - c0, err: err });
     }
-    var silent = { 'mendHum(0)': 1, 'setCracked(mended)': 1, 'setCracked(intact)': 1 };
+    var silent = { 'mendHum(0)': 1, 'setCracked(mended)': 1, 'setCracked(intact)': 1, 'setSandLevel(0.5)': 1, 'setSandLevel(1)': 1, 'setBowlLevel(1.5)': 1, 'setBowlLevel(1)': 1,
+                   'setSilentRing(false)': 1, 'setSilentRing(true)': 1, 'stopChime()': 1 };
     var smokeOk = smoke.every(function (s) { return !s.err && (silent[s.call] ? true : s.nodes > 0); });
     report(smokeOk, 'after the tap every new method schedules nodes, without throwing',
            smoke.map(function (s) { return s.call + ' +' + s.nodes + (s.err ? ' THREW ' + s.err : ''); }).join(', '));
@@ -187,6 +190,7 @@ async function main() {
           st.thump = k % 6 === 0 ? new Float32Array([0.3, 0.4, 0.2, -0.5]) : zero;
           st.slam = k % 5 === 0 ? new Float32Array([0.4, -0.6]) : null;
           st.leak = 25; st.leakPan = -0.4; st.spillPats = 12;
+          st.ambFade = 0.5 + 0.5 * Math.sin(k / 40);   // (the fade before the end)
         }
         try { return orig.call(this, st); } catch (e) { inj.errs.push(e.message); throw e; }
       };

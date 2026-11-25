@@ -94,10 +94,25 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   which a blocked storage then throws from; the preset asked without the
   query); a record added after the old 31 is left out of the comparison, so
   a new setting changes nothing here, and one put among them is found out;
-  the version step (Real sand on, once, for a save from before version 2); a
+  the Sound tab's five keys (the five records after the shape, in their
+  order, the sound as it was by default; saves of 1.13.0, 1.10.0 and 1.15.1
+  come up with them and every other value as saved; each value of their
+  range kept, 28 out of it or of the wrong type and a name every object has
+  as the rings the default; seven stores with one thing wrong in them found
+  out); the version step (Real sand on, once, for a save from before version 2); a
   record's `from` and the steps' order, on a made-up store, and an example
   for every `from` the app has, which must come up with something other
-  than the default; the names (every `settings.…` in `app.js` is a record,
+  than the default; the Time tab's two records (`quick` then `endsAt`,
+  the last two, right after the Sound tab's five, "1,5,10,15,30,60" and
+  false by default): saves of
+  1.13.0, 1.10.0 and 1.15.0 come up with both defaults and every other
+  setting as they give them, good sets of six (two the same, all 99) are
+  kept, and eighteen bad ones (five or seven counts, a nought, 100, a
+  fraction, "01", letters, spaces, not a string) are the default six as a
+  whole, and are saved so (a store that keeps any string, one that keeps a
+  set with bad counts in it, one with the two the other way round, one
+  whose switch is on by default and one with the two before the Sound tab's
+  five must fail); the names (every `settings.…` in `app.js` is a record,
   every record but the version is named there, none is read by a computed
   name); `bindSwitch` (the loaded value shown as it binds; then set, save
   and the callback inside the event); and that the file reads nothing when
@@ -156,7 +171,18 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Real sand: its entries now save the sand, the volume and the ambience
   level put back and tell the sound engine, and the Real sand boot that
   follows, and the last save, draw and hold Sahara Quartz at the default
-  volume and level; no other entry changed.
+  volume and level; no other entry changed. The Tune trace was made again
+  for release 1.16.0, which offers Trumpet and Florence: two new entries,
+  each shape looked at, between Ampoule and Onion, and nothing else. Both
+  traces were made again for release 1.17.0, the Sound tab's and the Time
+  tab's settings: seven keys at the end of every full save (`sandLevel`,
+  `bowlLevel`, `bowlRings`, `ambFade`, `silentRing`, `quick`, `endsAt`); in
+  the Tune trace, 28 new entries (the Sand level, the fade before the end
+  and its three lengths, the three Rings, the Bowl level, Sound in silent
+  mode; the six quick durations with the dial, Show when it ends), and the
+  reset link's second tap, whose save now also puts back the Sand and Bowl
+  levels, Rings and the fade, and which tells the sound engine those two
+  levels; no other entry changed.
   The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
@@ -226,7 +252,16 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the sound engine's calls and levels, and the water ambiences: that each
   starts, switches and stops leaving nothing behind, their levels, that
   nothing clips behind the sand, their synthesis slices, and the fallback for
-  browsers that refuse low sample rates. `audio-levels` renders every
+  browsers that refuse low sample rates; and the Sound tab's levels: the
+  Sand level at 100 is the sand as it was, to the last bits, against the
+  engine of d16fdcd (`HOURGLASS_SOUND_BASE` names another), at 50 the law
+  (50/100)^1.5 with the compressor and the clipper made plain, at 0 the sand
+  silent while the bowl and an ambience play as they do with no sand; the
+  Bowl level at 50 is the bowl as it was, at 100 with Sound at 100 its peak
+  printed and nothing into the clipper's end, at 0 silent; each with its
+  control (a gain of 0.99, a level heard as its plain value, the base engine,
+  a bowl or an ambience routed through the sand's gain, a bowl 30 dB over the top, a
+  copy that ignores the bowl's level). `audio-levels` renders every
   character of the registry behind every ambience its tables name, and an
   ambience that makes a sound and is in neither table (its level, the
   clipper) fails there instead of going unmeasured. A change to `audio.js` that should
@@ -424,7 +459,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
   at boot, the reset link (what it puts back, the sand and its finish among it,
-  and what it keeps, the custom sand's colour among it; its first tap's
+  the Sand and Bowl levels, the Rings and the fade before the end, each with
+  a control that leaves it as it was, and what it keeps, the custom sand's
+  colour, Sound in silent mode, the six quick durations and Show when it ends
+  among it, with a control that puts silent mode back on and one that puts
+  the quick durations and Show when it ends back; its first tap's
   question said to a screen reader through a status drawn nowhere), each
   tab taking a tap 3 px above and below what is drawn of it (`--only
   target`, at 393 x 852 and 320 x 568, its reach clear of the close button,
@@ -440,6 +479,28 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   sand keeps it right; and Reduce Motion shows it without a fade. The
   suites reach a control of Tune through `lib/tune.js`, which opens the
   sheet and taps the tab whose panel holds it, read from the page.
+  `app-time` covers the Time tab's own rows (settings design 3.4, rows 1
+  and 2): its order (Quick durations, then The clock: Show when it ends,
+  Keep screen awake, then the rows that were there); the six quick
+  durations, each set in turn with the custom duration's dial in its
+  minutes-only mode, the pill under the glass changed at once, saved, Tune
+  back with the focus on that button, and the six as set after a reload;
+  the lit pill (the first of two the same; a pill changed while the glass
+  runs leaves it running with its time, the light follows the number,
+  none the same lights Custom); the dial closed three ways without Set
+  (nothing changes); the keyboard and the names a screen reader meets
+  ("Quick duration 3: 10 minutes, change", "Set quick duration 3 to 12
+  minutes"); the tab at 393 x 852, 375 x 667 and 320 x 568 (no sideways
+  scroll, nothing outside the sheet or cut, buttons of 44 px at least) and
+  six "99" pills under the glass at 320 px; and Show when it ends with a
+  clock the test sets and a fixed locale and time zone (en-GB in
+  Europe/Berlin, en-US in America/New_York): "Flowing · ends 14:34" and
+  "2:34 PM", the same over a minute boundary with nothing written to the
+  page, later after sand is added, right after a turn, gone while paused
+  and later by the pause, gone at the end, across midnight, the phase's end
+  in a work and rest sequence, the switch off giving today's words exactly
+  at every step, the switch in Tune, Zen and a short screen. Every check
+  has a control (`--only order|quick|lit|cancel|keys|fit|ends`).
   `app-look` covers the sand and the frame's finish chosen apart (release
   1.14.0): with nothing saved the glass and the page exactly as they were,
   the renderer's own bundle; each of the nine sands tapped in Tune over the
@@ -452,7 +513,29 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   custom sand; `Hourglass.setTheme` as the material of old; reloads; and at
   320 px four sands and three finishes a row. Each check has a control.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
-  pour, flip, a restored session and Reduce Motion. `app-ambience` covers the six
+  pour, flip, a restored session and Reduce Motion. `app-sound` covers the
+  Sound tab's own rows (`--only layout,levels,rings,tap,away,rounds,awake,fade,silent`):
+  at 393 x 852, 375 x 667 and 320 x 568 the rows in the design's order and
+  words, nothing wider than the sheet, no sideways scroll, no word cut off,
+  44 px for every new control, each named for a screen reader, the bowl's
+  rows gone with the bowl off and the fade's with no ambience; the Sand and
+  Bowl sliders saved, told to the sound engine and shown again after a
+  reload; on a clock the test moves (Date.now() shifted): the rings of Once,
+  Three times (8.5 and 17 s after the first) and Until a tap (every 8.5 s,
+  the last within 10 minutes), the first tap on the glass, the first button
+  (Tune) and the first key (F) used up by stopping the bowl and the next one
+  working, nothing rung while the page is hidden and nothing late when it is
+  back (and nothing after 10 minutes away), a sequence's soft bowl once
+  between phases with the next phase not held and the last end ringing as
+  Rings says, the wake lock held for the rings only with Keep screen awake;
+  the fade's share at given times left for each length, a glass shorter
+  than twice the stretch, pause, sand added and a turn (the engine's gain
+  gliding, no step), the switch off as before and only a sequence's last
+  phase; and with `navigator.audioSession` stubbed, 'playback' or 'ambient'
+  at the launch, after the first tap and at once on the switch, and without
+  one a row that says the browser decides and nothing thrown. Each check has
+  a control, a copy of `app.js`, `audio.js` or the style sheet with that one
+  thing undone. About 6 minutes. `app-ambience` covers the six
   ambience cards: the radio group as a screen reader meets it, two rows of
   three from 320 to 430 px and in landscape, choosing, saving and restoring.
   `app-gestures` also covers Zen: none by itself, in by spreading two fingers

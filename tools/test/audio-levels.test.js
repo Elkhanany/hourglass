@@ -27,6 +27,23 @@
  *
  * Other new sounds are measured and printed, without limits.
  *
+ * The Sound tab's levels (Tune), each render from the same seeded random numbers:
+ *
+ *   - the Sand level at 100 is the sand as it was, to the last bits: the mix with thumps, clacks,
+ *     a tap, a set-down and a creak, against the engine of d16fdcd (the base of the step;
+ *     HOURGLASS_SOUND_BASE names another), the difference at least 80 dB under the sound (a
+ *     sand gain of 0.99, the control, is not);
+ *   - at 50 the law (50/100)^1.5, -9.03 dB: with the compressor and the clipper made plain, the
+ *     same sound times 0.354 (the rest 60 dB under it), and through them still lower; a level
+ *     heard as its plain value fails that (the control);
+ *   - at 0 the sand is silent, while the bowl and Brook play as they do with no sand at all (60
+ *     dB); the base engine, and a bowl or an ambience routed through the sand's gain, fail that
+ *     (the controls);
+ *   - the Bowl level at 50 is the bowl as it was, to the last bits; at 100 with Sound at 100 its
+ *     peak is printed and nothing goes into the clipper's end (a bowl 30 dB over the top does: the control);
+ *     at 0 it is silent (a copy that ignores the level is not: the control); and stopChime()
+ *     fades a ringing bowl away at once.
+ *
  * The bed of a glass that is moved while no stream runs (idle before the start,
  * paused, finished), fed what the classic sand gives the app for that motion
  * (measured in the app on a phone-size glass: the numbers are in MOVED below):
@@ -74,6 +91,7 @@ var ROOT = paths.ROOT, AUDIO = '/' + paths.script('audio.js');
 var PORT_AT = process.argv.indexOf('--port');
 var PORT = +((PORT_AT > 0 ? process.argv[PORT_AT + 1] : process.argv[2]) || process.env.PORT || 8803);
 var BASE = 'http://127.0.0.1:' + PORT;
+var SOUND_BASE = process.env.HOURGLASS_SOUND_BASE || 'd16fdcd';     // the engine before the Sound tab's levels (Sand, Bowl, the fade before the end)
 
 var failures = 0, cases = 0;
 function report(ok, name, detail) {
@@ -146,10 +164,19 @@ async function main() {
     page.on('pageerror', function (e) { errors.push(e.message); });
     var oldSrc = childProcess.execFileSync('git', ['show', 'f446085:audio.js'], { cwd: ROOT, encoding: 'utf8' })
       .replace('root.HourglassAudio = HourglassAudio;', 'root.HourglassAudioOld = HourglassAudio;');
+    // the engine before the Sound tab's levels (the base of this step), and this engine with the bowl's level taken out (a control)
+    var baseSrc = childProcess.execFileSync('git', ['show', SOUND_BASE + ':audio.js'], { cwd: ROOT, encoding: 'utf8' })
+      .replace('root.HourglassAudio = HourglassAudio;', 'root.HourglassAudioBase = HourglassAudio;');
+    var nowSrc = require('fs').readFileSync(require('path').join(ROOT, AUDIO.slice(1)), 'utf8');
+    var noBowlSrc = nowSrc.replace("(soft ? 0.07 : 0.12) * this.bowlLevel", "(soft ? 0.07 : 0.12)").replace('root.HourglassAudio = HourglassAudio;', 'root.HourglassAudioNoBowl = HourglassAudio;');
+    if (noBowlSrc.indexOf('HourglassAudioNoBowl') < 0 || noBowlSrc.indexOf('* this.bowlLevel') >= 0) throw new Error('audio-levels: the copy without the bowl\'s level could not be made');
     await page.route(BASE + '/__levels.html', function (r) {
-      r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="' + AUDIO + '"></script><script src="/__old-audio.js"></script>' });
+      r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="' + AUDIO + '"></script><script src="/__old-audio.js"></script>' +
+                  '<script src="/__base-audio.js"></script><script src="/__nobowl-audio.js"></script>' });
     });
     await page.route(BASE + '/__old-audio.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: oldSrc }); });
+    await page.route(BASE + '/__base-audio.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: baseSrc }); });
+    await page.route(BASE + '/__nobowl-audio.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: noBowlSrc }); });
     await page.goto(BASE + '/__levels.html');
     await page.evaluate(harness);
 
@@ -494,6 +521,122 @@ async function main() {
       });
       return out;
     });
+
+    /* ---- the Sound tab: the sand's level, the bowl's, and what passes neither ---------- */
+    var lv = await page.evaluate(async function () {
+      var A = window.HourglassAudio, B = window.HourglassAudioBase, NB = window.HourglassAudioNoBowl, out = {};
+      var R = window.__render, every = window.__every, M = window.__metrics, base = window.__base;
+      var realRandom = Math.random, seeded = function (s) { return A._synth.mulberry32(s); };
+      /** One render from seeded random numbers: `setup(a)` before anything plays, the sand mix if `o.sand`, the bowl at `o.bowl` s, Brook if `o.brook`. */
+      function scene(E, dur, o, setup) {
+        Math.random = seeded(o.seed || 5);
+        var p = R(E, dur, function (a, off) {
+          if (o.volume != null) a.setVolume(o.volume);
+          if (o.flat) {                                   // the compressor and the clipper made plain: what comes out is what went in, times the master
+            a.comp.threshold.value = 0; a.comp.knee.value = 0; a.comp.ratio.value = 1; a.clip.curve = null;
+          }
+          a._cushion = 1;
+          if (o.brook) { a._makeAmbience('brook', 1); a.ambience = 'brook'; a.ambLevel = 0.5; a._startAmbience('brook'); }
+          if (setup) setup(a);
+          if (o.bowl != null) a.chime(o.bowl);
+          var tg = 0.3;
+          every(off, a, 0.05, dur - 0.05, 1 / 60, function (a2, t) {
+            base(a2, o.sand ? { flow: 290, impacts: 290, bottom: 6000, slides: 30000, running: true, agit: 1 } : { running: true });
+            if (o.sand) {
+              while (tg < t + 0.07) { tg += -Math.log(1 - Math.random()) / 190; a2._tick(tg, false, 0.35 + Math.random() * 0.6, Math.random() * 2 - 1); }
+              if (Math.abs(t - 1.0) < 0.009) { a2.thump(1, 0.3, 1); a2.clack(1, -0.2); a2.tap(); }
+              if (Math.abs(t - 2.0) < 0.009) { a2.flipEnd(); a2.creak(3, 0.4); }
+            }
+          });
+        });
+        return p.then(function (r) { Math.random = realRandom; return r; });   // (the grains are drawn as the render runs: seeded until it ends)
+      }
+      /** How far apart two renders are: the difference, in dB under the first (-200: the same samples); `k` scales the second. */
+      function apart(x, y, k, t0) {
+        var e = 0, d = 0, i0 = Math.floor((t0 || 0) * 48000);
+        k = k == null ? 1 : k;
+        for (var i = i0; i < x.L.length; i++) {
+          var u = x.L[i] - k * y.L[i], v = x.R[i] - k * y.R[i];
+          d += u * u + v * v; e += x.L[i] * x.L[i] + x.R[i] * x.R[i];
+        }
+        return d === 0 ? -200 : +(10 * Math.log10(d / (e + 1e-30))).toFixed(1);
+      }
+      // 1. the sand at 100 is the sand as it was (the base engine has no level): the mix, its thumps, clacks, a tap, a set-down and a creak
+      var b100 = await scene(B, 4, { sand: true }), n100 = await scene(A, 4, { sand: true }, function (a) { a.setSandLevel(1); });
+      var n100b = await scene(A, 4, { sand: true });
+      out.at100 = { base: M(b100, 0.5, 4), now: M(n100, 0.5, 4), apart: apart(b100, n100, 1, 0.1), self: apart(n100, n100b, 1, 0.1) };
+      // control: a sand gain of 0.99 at 100
+      var c99 = await scene(A, 4, { sand: true }, function (a) { a.gSand.gain.value = 0.99; });
+      out.at100ctl = { apart: apart(b100, c99, 1, 0.1) };
+      // 2. at 50, by the law (50/100)^1.5: with the compressor and the clipper plain, the same sound times 0.354; as heard (through them), its level
+      var f100 = await scene(A, 4, { sand: true, flat: true }), f50 = await scene(A, 4, { sand: true, flat: true }, function (a) { a.setSandLevel(0.5); });
+      var law = Math.pow(0.5, 1.5);
+      out.at50 = { law: +(20 * Math.log10(law)).toFixed(2), flat100: M(f100, 0.5, 4), flat50: M(f50, 0.5, 4), apart: apart(f50, f100, law, 0.5) };
+      var h50 = await scene(A, 4, { sand: true }, function (a) { a.setSandLevel(0.5); });
+      out.at50.heard = M(h50, 0.5, 4); out.at50.heard100 = out.at100.now;
+      var lin = await scene(A, 4, { sand: true, flat: true }, function (a) { a._sandGain = function () { return this.sandLevel; }; a.setSandLevel(0.5); });
+      out.at50ctl = { apart: apart(lin, f100, law, 0.5), rms: M(lin, 0.5, 4) };
+      // 3. at 0 the sand is silent, while the bowl and the ambience play as they do with no sand at all
+      var s0 = await scene(A, 4, { sand: true }, function (a) { a.setSandLevel(0); });
+      var withAll0 = await scene(A, 8, { sand: true, bowl: 1.5, brook: true }, function (a) { a.setSandLevel(0); });
+      var noSand = await scene(A, 8, { bowl: 1.5, brook: true });
+      // (measured from 1 s: the level glides to 0 from the moment the graph is built, τ 50 ms, and is 170 dB down by then)
+      out.at0 = { sand: M(s0, 1, 4), all: M(withAll0, 1, 8), bowlBrook: M(noSand, 1, 8), apart: apart(noSand, withAll0, 1, 1) };
+      // controls: the base engine (the change undone: no level) is heard at "0"; a bowl, or an ambience, routed through the sand's gain is silenced with it
+      var bs0 = await scene(B, 4, { sand: true }, function (a) { if (a.setSandLevel) a.setSandLevel(0); });
+      var viaB = await scene(A, 8, { sand: true, bowl: 1.5, brook: true }, function (a) { a.gChime.disconnect(); a.gChime.connect(a.gSand); a.gChime.connect(a.chimeWet); a.setSandLevel(0); });
+      var viaA = await scene(A, 8, { sand: true, bowl: 1.5, brook: true }, function (a) { a.ambEnd.disconnect(); a.ambEnd.connect(a.gSand); a.setSandLevel(0); });
+      out.at0ctl = { base: M(bs0, 1, 4), bowlVia: apart(noSand, viaB, 1, 1), brookVia: apart(noSand, viaA, 1, 1) };
+      // 4. the bowl: at 50 the bowl as it was; at 100 (Sound 100) its peak and what goes into the clipper; at 0 silent
+      var master = A.prototype._masterTarget.call({ muted: false, _silenced: false, volume: 1 });
+      var into = function (m) { var y = Math.pow(10, m.peak / 20) / master; return y < 1 ? +(20 * Math.log10(Math.atanh(y * Math.tanh(1.5)) / 1.5)).toFixed(2) : 99; };
+      var bw50b = await scene(B, 9, { bowl: 0.5, volume: 1 }), bw50 = await scene(A, 9, { bowl: 0.5, volume: 1 }, function (a) { a.setBowlLevel(1); });
+      var bw100 = await scene(A, 9, { bowl: 0.5, volume: 1 }, function (a) { a.setBowlLevel(2); });
+      var bw0 = await scene(A, 9, { bowl: 0.5, volume: 1 }, function (a) { a.setBowlLevel(0); });
+      out.bowl = { at50: M(bw50, 0.4, 9), base50: M(bw50b, 0.4, 9), apart50: apart(bw50b, bw50, 1, 0.1), at100: M(bw100, 0.4, 9), at0: M(bw0, 0.4, 9), master: +(20 * Math.log10(master)).toFixed(2) };
+      out.bowl.into100 = into(out.bowl.at100);
+      // ... and the soft bowl between two phases, at 100
+      var soft100 = await R(A, 9, function (a) { a.setVolume(1); a.setBowlLevel(2); a.chime(0.5, true); });
+      out.bowl.soft100 = M(soft100, 0.4, 9);
+      // controls: a copy that ignores the bowl's level is heard at 0; a bowl 30 dB over the top of the slider goes into the clipper's end
+      var nb0 = await scene(NB, 9, { bowl: 0.5, volume: 1 }, function (a) { a.setBowlLevel(0); });
+      var bw200 = await scene(A, 9, { bowl: 0.5, volume: 1 }, function (a) { a.bowlLevel = 64; });     // (30 dB over the top of the slider: the compressor holds much of it back)
+      out.bowlCtl = { noLevel0: M(nb0, 0.4, 9), at200: M(bw200, 0.4, 9) };
+      out.bowlCtl.into200 = into(out.bowlCtl.at200);
+      // 5. stopChime: a bowl stopped 1 s in is gone 1 s later (the next 8 s silent), and the bowl left alone is still ringing then
+      var stop = await R(A, 6, function (a, off) { a.chime(0.2); every(off, a, 1.2, 1.21, 1, function (a2) { a2.stopChime(); }); });
+      var ring = await R(A, 6, function (a) { a.chime(0.2); });
+      out.stop = { after: M(stop, 2.6, 6), left: M(ring, 2.6, 6), before: M(stop, 0.3, 1.2) };
+      return out;
+    });
+    report(lv.at100.apart <= lv.at100.self + 3 && lv.at100.apart <= -80 && Math.abs(lv.at100.now.rms - lv.at100.base.rms) <= 0.05 && Math.abs(lv.at100.now.peak - lv.at100.base.peak) <= 0.05,
+           'the Sand level at 100 is the sand as it was (' + SOUND_BASE + '\'s engine, the same random numbers): the mix with thumps, clacks, a tap, a set-down and a creak, to the last bits',
+           'RMS ' + lv.at100.now.rms + ' / ' + lv.at100.base.rms + ' dBFS, peak ' + lv.at100.now.peak + ' / ' + lv.at100.base.peak + ' dBFS; the difference ' + lv.at100.apart +
+           ' dB under the sound (a render against itself: ' + lv.at100.self + ' dB)');
+    report(lv.at100ctl.apart > -80, 'control: a sand gain of 0.99 at 100 is told apart', lv.at100ctl.apart + ' dB under the sound');
+    report(Math.abs(lv.at50.flat50.rms - lv.at50.flat100.rms - lv.at50.law) <= 0.2 && lv.at50.apart <= -60 && lv.at50.heard.rms < lv.at50.heard100.rms - 3,
+           'the Sand level at 50 is the law (50/100)^1.5, ' + lv.at50.law + ' dB: with the compressor and the clipper made plain the same sound times ' + Math.pow(0.5, 1.5).toFixed(3) + ', and heard through them still lower',
+           'plain: ' + lv.at50.flat100.rms + ' → ' + lv.at50.flat50.rms + ' dBFS RMS (' + (lv.at50.flat50.rms - lv.at50.flat100.rms).toFixed(2) + ' dB), the rest ' + lv.at50.apart +
+           ' dB under the sound; heard: ' + lv.at50.heard100.rms + ' → ' + lv.at50.heard.rms + ' dBFS RMS, peak ' + lv.at50.heard100.peak + ' → ' + lv.at50.heard.peak);
+    report(lv.at50ctl.apart > -60, 'control: a sand level heard as its plain value (v, not v^1.5) fails the law', lv.at50ctl.apart + ' dB off the law; RMS ' + lv.at50ctl.rms.rms + ' dBFS');
+    report(lv.at0.sand.peak <= -150 && lv.at0.apart <= -60 && lv.at0.all.rms > -60,
+           'the Sand level at 0: the sand (the mix, thumps, clacks, a tap, a set-down, a creak) is silent, and the bowl and Brook play as they do with no sand at all',
+           'the sand alone ' + lv.at0.sand.peak + ' dBFS peak; the bowl and Brook with the sand at 0: RMS ' + lv.at0.all.rms + ', with no sand ' + lv.at0.bowlBrook.rms + ' dBFS, the difference ' + lv.at0.apart + ' dB under');
+    report(lv.at0ctl.base.peak > -60 && lv.at0ctl.bowlVia > -60 && lv.at0ctl.brookVia > -60,
+           'control: the base engine (no Sand level) is heard at "0", and a bowl or an ambience routed through the sand\'s gain is silenced with it (each fails that check)',
+           'base ' + lv.at0ctl.base.peak + ' dBFS peak; the bowl through it ' + lv.at0ctl.bowlVia + ' dB, Brook through it ' + lv.at0ctl.brookVia + ' dB off the sound with no sand');
+    report(lv.bowl.apart50 <= -80 && Math.abs(lv.bowl.at50.peak - lv.bowl.base50.peak) <= 0.05,
+           'the Bowl level at 50 is the bowl as it was (' + SOUND_BASE + '\'s engine), to the last bits', 'peak ' + lv.bowl.at50.peak + ' / ' + lv.bowl.base50.peak + ' dBFS at Sound 100, the difference ' + lv.bowl.apart50 + ' dB under');
+    report(lv.bowl.into100 <= -0.3 && lv.bowl.at100.peak <= lv.bowl.master && lv.bowl.at100.peak > lv.bowl.at50.peak + 4,
+           'the Bowl level at 100 with Sound at 100: louder (+6 dB asked) and nothing clips (the clipper\'s input ≥ 0.3 dB under its end)',
+           'peak ' + lv.bowl.at100.peak + ' dBFS (at 50: ' + lv.bowl.at50.peak + '; the soft bowl between phases ' + lv.bowl.soft100.peak + '), RMS ' + lv.bowl.at100.rms + ' dBFS; into the clipper ' +
+           lv.bowl.into100 + ' dB under its end; the output can reach ' + lv.bowl.master + ' dBFS');
+    report(lv.bowlCtl.into200 > -0.3, 'control: a bowl 30 dB over the top of the slider reaches the clipper\'s end, and fails that check', 'peak ' + lv.bowlCtl.at200.peak + ' dBFS, ' + lv.bowlCtl.into200 + ' dB');
+    report(lv.bowl.at0.peak <= -150, 'the Bowl level at 0: the bowl is silent', 'peak ' + lv.bowl.at0.peak + ' dBFS');
+    report(lv.bowlCtl.noLevel0.peak > -60, 'control: a copy whose bowl ignores its level is heard at 0', 'peak ' + lv.bowlCtl.noLevel0.peak + ' dBFS');
+    report(lv.stop.after.peak <= -60 && lv.stop.left.peak > -40 && lv.stop.before.peak > -40,
+           'stopChime(): a ringing bowl fades away at once (from 1.4 s after it is stopped, 60 dB under), where the same bowl left alone still rings (the control)',
+           'stopped: ' + lv.stop.before.peak + ' dBFS before, ' + lv.stop.after.peak + ' after; left alone: ' + lv.stop.left.peak + ' dBFS');
 
     // The levels and the clipper are measured by name (LEN and CLIP above), so an ambience added
     // to the registry and to neither table would be measured by nothing: it must be in both.

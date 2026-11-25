@@ -680,9 +680,10 @@ function shapeProblems(store) {
   return out;
 }
 var offeredIds = Object.keys(SHAPES).filter(function (id) { return SHAPES[id].offered; }), heldIds = Object.keys(SHAPES).filter(function (id) { return !SHAPES[id].offered; });
-var sp = shapeProblems(S), lastRec = S.RECORDS[S.RECORDS.length - 1];
-check(sp.length === 0 && lastRec.id === 'shape' && lastRec.default === 'classic',
-  'the shape: the last record, \'classic\' by default; a save of 1.13.0 and one of 1.10.0 come up as the classic glass, every other setting as they give it; each offered shape (' + offeredIds.join(', ') +
+// (until the Sound and Time tabs' keys this asked for the shape to be the last record; it is the 36th, after the finish, and the keys added since come after it)
+var sp = shapeProblems(S), shapeRec = S.RECORDS[35];
+check(sp.length === 0 && shapeRec.id === 'shape' && shapeRec.default === 'classic' && S.RECORDS[34].id === 'finish',
+  'the shape: the 36th record, after the finish, \'classic\' by default; a save of 1.13.0 and one of 1.10.0 come up as the classic glass, every other setting as they give it; each offered shape (' + offeredIds.join(', ') +
   ') as itself; one held back (' + heldIds.join(', ') + '), an unknown one, a number, an empty name and a name every object has as the classic glass', sp.join('; '));
 // controls: a store whose shape takes any name, and one that takes a shape held back
 function withShapeRecord(valid) {
@@ -692,6 +693,88 @@ var spAny = shapeProblems(withShapeRecord(undefined));
 var spHeld = shapeProblems(withShapeRecord(function (v, reg) { return Object.prototype.hasOwnProperty.call(reg.shapes, v); }));
 check(spAny.length >= 3 && spHeld.length === heldIds.length && heldIds.length > 0,
   '... and a store whose shape takes any name, and one that takes a shape held back, are each found out (control)', spAny.concat(spHeld).join('; '));
+
+/* ---- 4d. the Sound tab's keys ------------------------------------------------------------ */
+// Five records after the shape, in this order: sandLevel (0..1, 1), bowlLevel (0..2, 1), bowlRings
+// ('once', 'three', 'tap'; 'once'), ambFade (0, 60000, 300000, 600000 ms; 0) and silentRing (true).
+// Every default is the sound as it was before them. A save from before them comes up with the
+// defaults and every other value as it was saved; a value of the right type outside its range,
+// or no choice of its record, is the default (it is not clamped); a name every object has, as
+// the rings, is no choice either.
+var SOUND_KEYS = [['sandLevel', 1], ['bowlLevel', 1], ['bowlRings', 'once'], ['ambFade', 0], ['silentRing', true]];
+var SOUND_OK = { sandLevel: [0, 0.25, 0.4, 1], bowlLevel: [0, 0.5, 1.6, 2], bowlRings: ['once', 'three', 'tap'], ambFade: [0, 60000, 300000, 600000], silentRing: [false, true] };
+var SOUND_BAD = { sandLevel: [-0.01, 1.01, 100, -1, '0.5', null, true], bowlLevel: [-0.5, 2.01, 50, '1', false], bowlRings: ['twice', 'Once', '', 3, true],
+  ambFade: [120000, -60000, 60000.5, 1, 5, '300000', true], silentRing: ['false', 0, 1, null] };
+var FULL_SAVE = Object.assign({}, SAVE_1_13, { sand: 'garnet', sandColor: '185,0.5,0.5', finish: 'copper', shape: 'delta' });
+/** What is wrong with a store's Sound keys: [] when they hold. */
+function soundProblems(store) {
+  var out = [], i, k;
+  var at = store.KEYS.indexOf('shape');
+  SOUND_KEYS.forEach(function (c, j) {
+    if (store.KEYS[at + 1 + j] !== c[0]) out.push(c[0] + ' is not record ' + (at + 2 + j) + ' (it is ' + (store.KEYS.indexOf(c[0]) + 1) + ')');
+    var r = store.RECORDS[store.KEYS.indexOf(c[0])];
+    if (!r || !Object.is(r.default, c[1])) out.push(c[0] + ': its default is ' + (r ? show(r.default) : 'missing') + ', not ' + show(c[1]));
+  });
+  // saves from before them: the defaults, and every other value as it was
+  [[SAVE_1_13, 'a save of 1.13.0'], [SAVE_1_10, 'a save of 1.10.0'], [FULL_SAVE, 'a save of 1.15.1'], [{}, 'an empty save'], [null, 'nothing saved']].forEach(function (c) {
+    var old = shapeLoad(store, c[0] || {}), without = {};
+    if (c[0] === null) { var st0 = Storage(null, 'ok'); old = store.load(st0.reach, '', REG_SH); }
+    SOUND_KEYS.forEach(function (s) { if (!Object.is(old[s[0]], s[1])) out.push(c[1] + ': ' + s[0] + ' came up as ' + show(old[s[0]])); });
+    // the same save with all five changed: every other key the same
+    var changed = Object.assign({}, c[0] || {}, { sandLevel: 0.3, bowlLevel: 1.8, bowlRings: 'tap', ambFade: 60000, silentRing: false });
+    var withKeys = shapeLoad(store, changed);
+    store.KEYS.forEach(function (key) {
+      var mine = SOUND_KEYS.some(function (s) { return s[0] === key; });
+      if (mine) { if (!Object.is(withKeys[key], changed[key])) out.push(c[1] + ' with the five set: ' + key + ' came up as ' + show(withKeys[key]) + ' for ' + show(changed[key])); return; }
+      if (!Object.is(old[key], withKeys[key])) out.push(c[1] + ': ' + key + ' ' + show(old[key]) + ' without the five, ' + show(withKeys[key]) + ' with them');
+    });
+    void without;
+  });
+  // each good value kept, and saved as it is
+  Object.keys(SOUND_OK).forEach(function (key) {
+    SOUND_OK[key].forEach(function (v) {
+      var saved = { v: 2 }; saved[key] = v;
+      var r = loadOf(store, saved);
+      if (!Object.is(r.values[key], v)) out.push(key + ' ' + show(v) + ' came up as ' + show(r.values[key]));
+      else if (!Object.is(JSON.parse(r.json)[key], v)) out.push(key + ' ' + show(v) + ' was saved as ' + show(JSON.parse(r.json)[key]));
+    });
+  });
+  // each bad one is the default
+  Object.keys(SOUND_BAD).forEach(function (key) {
+    var dflt = SOUND_KEYS.filter(function (s) { return s[0] === key; })[0][1];
+    SOUND_BAD[key].forEach(function (v) {
+      var saved = { v: 2, volume: 0.3 }; saved[key] = v;
+      var r = loadOf(store, saved);
+      if (!Object.is(r.values[key], dflt)) out.push(key + ' ' + show(v) + ' (bad) came up as ' + show(r.values[key]));
+      if (r.values.volume !== 0.3) out.push(key + ' ' + show(v) + ' (bad) changed the volume');
+    });
+  });
+  // a name every object has, as the rings
+  for (i = 0; i < INHERITED.length; i++) {
+    k = loadOf(store, { v: 2, bowlRings: INHERITED[i] }).values.bowlRings;
+    if (k !== 'once') out.push('the rings ' + show(INHERITED[i]) + ' came up as ' + show(k));
+  }
+  return out;
+}
+var sdp = soundProblems(S);
+check(sdp.length === 0,
+  'the Sound tab\'s keys: sandLevel, bowlLevel, bowlRings, ambFade and silentRing are the five records after the shape, in that order, with the sound as it was by default (1, 1, \'once\', 0, true); ' +
+  'saves of 1.13.0, 1.10.0 and 1.15.1, an empty one and none come up with those, every other value as saved (and as with the five set); each value of their range is kept and saved; ' +
+  'one outside it (' + Object.keys(SOUND_BAD).map(function (k) { return SOUND_BAD[k].length; }).reduce(function (a, b) { return a + b; }) + ' cases, the wrong types among them) and a name every object has as the rings is the default',
+  sdp.slice(0, 4).join('; ') + (sdp.length > 4 ? ' (' + sdp.length + ' in all)' : ''));
+// the deliberate differences: a level is not clamped (out of range is the default, not the nearest end), and the rings are looked up as their record's own
+// names only. Controls: stores that break one rule each must be found out.
+function soundVariant(id, change) { return variant(function (o) { change(o.records.filter(function (r) { return r.id === id; })[0], o); }); }
+var SOUND_CTL = [
+  ['a sand level that is not checked', soundVariant('sandLevel', function (r) { delete r.valid; })],
+  ['a bowl level held to 0..1 (Bowl 100 lost)', soundVariant('bowlLevel', function (r) { r.valid = function (v) { return v >= 0 && v <= 1; }; })],
+  ['the rings looked up the loose way', soundVariant('bowlRings', function (r) { r.valid = function (v) { return !!({ three: 1, tap: 1 })[v]; }; })],
+  ['a fade of any length', soundVariant('ambFade', function (r) { r.valid = function (v) { return v >= 0; }; })],
+  ['silent mode off by default', soundVariant('silentRing', function (r) { r.default = false; })],
+  ['a sand level made from the volume for an older save', soundVariant('sandLevel', function (r) { r.from = function (saved) { return saved.volume; }; })],
+  ['the bowl level before the sand level', variant(function (o) { var a = o.records.map(function (r) { return r.id; }), i = a.indexOf('sandLevel'), t = o.records[i]; o.records[i] = o.records[i + 1]; o.records[i + 1] = t; })]
+].map(function (c) { var n = soundProblems(c[1]).length; return c[0] + ': ' + n; });
+check(SOUND_CTL.every(function (t) { return !/: 0$/.test(t); }), '... and ' + SOUND_CTL.length + ' stores with one thing wrong in the Sound keys are each found out (control)', SOUND_CTL.join('; '));
 
 /* ---- 4c. a name every object has (release 1.15.1) ----------------------------------------- */
 // A saved name is looked up in a table of HourglassPhysics: the theme in THEMES, the sand in
@@ -733,6 +816,72 @@ var LOOSE = [
 ].map(function (c) { var n = inheritedProblems(c[1]).length; return c[0] + ': ' + n + (n >= INHERITED.length ? '' : ' (too few)'); });
 check(LOOSE.every(function (t) { return !/too few/.test(t); }),
   '... and a store that checks the theme, the sand or the finish the loose way (the table\'s entry, inherited or not) is found out, each on every one of the names (control)', LOOSE.join('; '));
+
+/* ---- 4d. the Time tab: the quick durations and "Show when it ends" -------------------------- */
+// Two records after the shape and the Sound tab's five (so the last two), in this order: `quick`, the six pills under the glass as six whole
+// minute counts of 1 to 99 joined by commas ("1,5,10,15,30,60" by default, today's six), and
+// `endsAt`, the switch that shows when the running glass ends (off by default). A save from before
+// them comes up with both defaults and every other setting as it gives it. A quick string that is
+// not six such counts (one too many or too few, a number out of range, not numbers, not a string)
+// is the default six as a whole: no pill of it is kept. Two the same are kept as they are.
+var QUICK_DEFAULT = '1,5,10,15,30,60';
+function quickLoad(store, saved) { return store.load(Storage(JSON.stringify(saved), 'ok').reach, '', REG_ALL); }
+var QUICK_GOOD = ['1,5,10,15,30,60', '25,5,50,10,90,3', '99,99,99,99,99,99', '1,1,1,1,1,1', '5,5,10,15,30,60', '60,30,15,10,5,1'];
+var QUICK_BAD = [['1,5,10,15,30', 'five counts'], ['1,5,10,15,30,60,90', 'seven'], ['0,5,10,15,30,60', 'a nought'], ['1,5,10,15,30,100', '100 minutes'],
+  ['1,5,10,-15,30,60', 'a count below nought'], ['1,5,10,15,30,6.5', 'a fraction'], ['1,5,10,15,30,1e1', 'a number in another notation'], ['01,5,10,15,30,60', 'a count written with a nought before it'],
+  ['a,b,c,d,e,f', 'no numbers'], ['1, 5, 10, 15, 30, 60', 'spaces'], ['1,5,10,15,30,60,', 'a comma more'], ['', 'an empty string'], ['toString', 'a name every object has'],
+  [[1, 5, 10, 15, 30, 60], 'an array'], [151030, 'a number'], [true, 'a boolean'], [null, 'null'], [{ 0: 1 }, 'an object']];
+/** What is wrong with a store's two Time records: [] when they hold. */
+function timeProblems(store) {
+  var out = [], keys = store.KEYS, dflt = {};
+  store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
+  var at = keys.indexOf('quick');
+  if (at < 0 || keys[at + 1] !== 'endsAt' || at !== keys.indexOf('silentRing') + 1 || keys.indexOf('silentRing') !== keys.indexOf('shape') + 5 || at + 2 !== keys.length)
+    out.push('the two records are not quick then endsAt, right after the shape and the Sound tab\'s five (silentRing), and last: ' + keys.slice(-9).join(', '));
+  if (dflt.quick !== QUICK_DEFAULT) out.push('quick\'s default is ' + show(dflt.quick));
+  if (dflt.endsAt !== false) out.push('endsAt\'s default is ' + show(dflt.endsAt));
+  // a save from before them: both defaults, every other setting as it gives it
+  [[SAVE_1_13, 'a save of 1.13.0'], [SAVE_1_10, 'a save of 1.10.0'], [Object.assign({}, SAVE_1_13, { shape: 'delta', sand: 'garnet', finish: 'copper', sandColor: '185,0.5,0.5' }), 'a save of 1.15.0']].forEach(function (c) {
+    var old = quickLoad(store, c[0]), withTime = quickLoad(store, Object.assign({}, c[0], { quick: '25,5,50,10,90,3', endsAt: true }));
+    if (old.quick !== dflt.quick || old.endsAt !== dflt.endsAt) out.push(c[1] + ' came up with quick ' + show(old.quick) + ', endsAt ' + show(old.endsAt));
+    if (withTime.quick !== '25,5,50,10,90,3' || withTime.endsAt !== true) out.push(c[1] + ' with the two came up with quick ' + show(withTime.quick) + ', endsAt ' + show(withTime.endsAt));
+    keys.forEach(function (k) {
+      if (k === 'quick' || k === 'endsAt') return;
+      if (!Object.is(old[k], withTime[k])) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' without the two, ' + show(withTime[k]) + ' with them');
+    });
+  });
+  QUICK_GOOD.forEach(function (q) {
+    var v = quickLoad(store, { v: 2, quick: q, durationMs: 600000 });
+    if (v.quick !== q) out.push(show(q) + ' came up as ' + show(v.quick));
+  });
+  QUICK_BAD.forEach(function (c) {
+    var st = Storage(JSON.stringify({ v: 2, quick: c[0], endsAt: true, volume: 0.3 }), 'ok'), v = store.load(st.reach, '', REG_ALL);
+    store.save(v);
+    if (v.quick !== QUICK_DEFAULT || JSON.parse(st.data[KEY]).quick !== QUICK_DEFAULT) out.push(c[1] + ' (' + JSON.stringify(c[0]) + ') came up as ' + show(v.quick));
+    if (v.endsAt !== true || v.volume !== 0.3) out.push(c[1] + ': the other settings of that save were not kept');
+  });
+  [['yes', 'a string'], [1, 'a number'], [null, 'null']].forEach(function (c) {
+    var v = quickLoad(store, { v: 2, endsAt: c[0] });
+    if (v.endsAt !== false) out.push('endsAt ' + c[1] + ' came up as ' + show(v.endsAt));
+  });
+  return out;
+}
+var tp = timeProblems(S);
+check(tp.length === 0 && S.quickOf(QUICK_DEFAULT).join() === '1,5,10,15,30,60',
+  'the Time tab: quick then endsAt, the 42nd and 43rd records, right after the shape and the Sound tab\'s five (\'' + QUICK_DEFAULT + '\' and false by default); a save of 1.13.0, 1.10.0 and 1.15.0 comes up with both defaults and every other setting as it gives it; ' +
+  QUICK_GOOD.length + ' good sets of six (two the same, all 99, in any order) kept as they are; ' + QUICK_BAD.length + ' bad ones (five, seven, a nought, 100, a fraction, 1e1, "01", letters, spaces, not a string ...) are the default six as a whole, and saved so',
+  tp.slice(0, 4).join('; ') + (tp.length > 4 ? ' (' + tp.length + ' in all)' : ''));
+// controls: a store that keeps any string, one that keeps the good pills of a bad set (a deliberate difference from the rule: all or none), and one with the two the other way round
+var tpAny = timeProblems(withValid('quick', undefined));
+var tpPart = timeProblems(variant(function (o) {
+  o.records.filter(function (r) { return r.id === 'quick'; })[0].valid = function (v) { return typeof v === 'string' && v.split(',').length === 6 && v.split(',').some(function (n) { return /^[1-9]\d?$/.test(n); }); };
+}));
+var tpOrder = timeProblems(variant(function (o) { var n = o.records.length, a = o.records[n - 1]; o.records[n - 1] = o.records[n - 2]; o.records[n - 2] = a; }));
+var tpOff = timeProblems(variant(function (o) { o.records.filter(function (r) { return r.id === 'endsAt'; })[0].default = true; }));
+var tpBefore = timeProblems(variant(function (o) { var two = o.records.splice(o.records.length - 2, 2), at = o.records.map(function (r) { return r.id; }).indexOf('shape'); o.records.splice.apply(o.records, [at + 1, 0].concat(two)); }));
+check(tpAny.length >= QUICK_BAD.length - 8 && tpPart.length >= 3 && tpOrder.length >= 1 && tpOff.length >= 1 && tpBefore.length >= 1,
+  '... and a store that keeps any quick string, one that keeps a set of six with some bad counts in it, one with endsAt before quick, one whose endsAt is on by default, and one with the two before the Sound tab\'s five are each found out (control)',
+  [tpAny.length, tpPart.length, tpOrder.length, tpOff.length, tpBefore.length].join(', ') + ' problems');
 
 /* ---- 5. save, a blocked storage, bindSwitch, loading ------------------------------------ */
 var st1 = Storage('{"v":2,"realSand":false,"theme":"lapis"}', 'ok'), v1 = S.load(st1.reach, '', REG);
