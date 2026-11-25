@@ -5,9 +5,10 @@
  *
  *   PICK     the Glass tab opens with its Shape section, above the frame's: the shape in use
  *            drawn large with "In use", and beside it the shapes Tune offers (physics.js
- *            SHAPE_ORDER, those with offered: Classic, Lozenge, Delta, Ampoule, Onion, Bell,
- *            Gourd; Trumpet and Florence held back), a radiogroup three a row, each drawn
- *            small and all at one scale (Delta drawn wider than Bell by their own widths)
+ *            SHAPE_ORDER, those with offered: all nine, Classic, Lozenge, Delta, Ampoule,
+ *            Trumpet, Florence, Onion, Bell, Gourd), a radiogroup three a row, each drawn
+ *            small and all at one scale (Delta drawn wider than Bell by their own widths); a
+ *            shape held back (Trumpet, held on the test's page alone) is not shown
  *   LOOK     a tap on a shape only shows it: the large drawing, its name and "Use this shape";
  *            nothing saved, nothing loaded again, the glass behind as it was; tapping the
  *            shape in use again says "In use"
@@ -20,15 +21,16 @@
  *   SHAPES   in each shape Tune offers, on the classic sand: a 60-minute glass filled to its cap
  *            (the clock's full glass for that shape), all of it above the neck; a 10 s glass run
  *            to its end, the last grain out as the readout reaches 00:00.0, on time
- *   FULL     a 60-minute Delta glass has no room for more sand: its Sand button reads "Full"
- *            (and says "The glass is full" to a screen reader), and a tap says so and adds none;
- *            the classic 60-minute glass still reads "Sand"
+ *   FULL     a 60-minute Delta glass, and a 60-minute Trumpet, has no room for more sand: its
+ *            Sand button reads "Full" (and says "The glass is full" to a screen reader), and a
+ *            tap says so and adds none; the classic 60-minute glass still reads "Sand"
  *   SAND     the small glasses and the large one are drawn with sand in the current colour: the
  *            sand chosen in the Sand tab (one of the nine, or the custom colour as it is used),
  *            not the material's; a change of sand, with Tune open, repaints them
  *   OLD      a save of 1.14.0 (sand, sandColor, finish; no shape), one of 1.13.0 and one of 1.10.0
  *            come up in the classic glass with every setting they hold as it was; a save that
- *            names a shape held back (trumpet) or unknown is the classic glass too, and saves
+ *            names a shape held back (trumpet and florence, each held on the test's page alone,
+ *            since Tune offers every shape) or unknown is the classic glass too, and saves
  *            'classic'
  *
  * Every check has its control: the same measurement on a copy of the app with that one thing
@@ -43,7 +45,23 @@ var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 var KEY = 'hourglass.settings.v1', SKEY = 'hourglass.session.v1';
 var FRAME = 1000 / 60;
-var OFFERED = ['classic', 'lozenge', 'delta', 'ampoule', 'onion', 'bell', 'gourd'];
+var OFFERED = ['classic', 'lozenge', 'delta', 'ampoule', 'trumpet', 'florence', 'onion', 'bell', 'gourd'];
+
+/**
+ * Tune offers every registered shape, so a shape held back is made on the test's page alone: an
+ * init script that sets offered false on these shapes' records as physics.js hands its registry
+ * to the page (before the settings and the picker read it).
+ */
+function hold(ids) {
+  return {
+    init: function (ids) {
+      var v;
+      Object.defineProperty(window, 'HourglassPhysics', { configurable: true, enumerable: true, get: function () { return v; },
+        set: function (P) { v = P; ids.forEach(function (id) { if (P && P.SHAPES && P.SHAPES[id]) P.SHAPES[id].offered = false; }); } });
+    },
+    initArg: ids
+  };
+}
 
 function only() {
   var i = process.argv.indexOf('--only');
@@ -156,28 +174,31 @@ function endOf(t, expectEnd) {
 /* ---- PICK ----------------------------------------------------------------------------------- */
 async function pick(env, o) {
   o = o || {};
-  var t = await env.open(Object.assign({ viewport: { width: 393, height: 852 } }, o.open || {}));
+  var t = await env.open(Object.assign({ viewport: { width: 393, height: 852 } }, o.hold ? hold(o.hold) : {}, o.open || {}));
   try {
     await sleep(700);
     await tune.show(t, '#shapes');
     await sleep(300);
-    return await picker(t);
+    var p = await picker(t);
+    p.hold = o.hold || [];
+    return p;
   } finally { await t.close(); }
 }
 function pickOk(p) {
-  var ids = p.list.map(function (b) { return b.id; }), byId = {};
+  var ids = p.list.map(function (b) { return b.id; }), byId = {}, hd = p.hold || [];
+  var want = OFFERED.filter(function (id) { return hd.indexOf(id) < 0; });
   p.list.forEach(function (b) { byId[b.id] = b; });
   var oneView = p.list.every(function (b) { return b.view === p.list[0].view; }) && p.bigView === p.list[0].view;
   var rows = p.list.length >= 4 && p.list[0].top === p.list[1].top && p.list[1].top === p.list[2].top && p.list[3].top > p.list[0].top;
   // at one scale: the drawn widths stand as the shapes' own widths (kR), and the heights as kH
-  var P = require('./lib/load-physics.js').P, wr = byId.delta && byId.bell ? byId.delta.w / byId.bell.w : NaN, want = P.makeGeometry(1, 'delta').R / P.makeGeometry(1, 'bell').R;
+  var P = require('./lib/load-physics.js').P, wr = byId.delta && byId.bell ? byId.delta.w / byId.bell.w : NaN, wantW = P.makeGeometry(1, 'delta').R / P.makeGeometry(1, 'bell').R;
   var hr = byId.onion && byId.bell ? byId.onion.h / byId.bell.h : NaN, wantH = P.makeGeometry(1, 'onion').HB / P.makeGeometry(1, 'bell').HB;
-  var scale = Math.abs(wr / want - 1) < 0.04 && Math.abs(hr / wantH - 1) < 0.04;
+  var scale = Math.abs(wr / wantW - 1) < 0.04 && Math.abs(hr / wantH - 1) < 0.04;
   return {
     place: { ok: p.first === 'Shape' && p.heads.join() === 'Shape,Frame' && p.pickBeforeFrame, detail: 'headings ' + p.heads.join(', ') + '; the shapes before the frame: ' + p.pickBeforeFrame },
-    group: { ok: p.role === 'radiogroup' && !!p.label && ids.join() === OFFERED.join() && rows && p.list.every(function (b) { return !!b.view && b.w > 5; }),
-             detail: ids.join(', ') + '; three a row: ' + rows },
-    scale: { ok: oneView && scale, detail: 'one view box: ' + oneView + '; drawn width delta/bell ' + wr.toFixed(3) + ' (theirs ' + want.toFixed(3) + '), height onion/bell ' + hr.toFixed(3) + ' (theirs ' + wantH.toFixed(3) + ')' },
+    group: { ok: p.role === 'radiogroup' && !!p.label && ids.join() === want.join() && rows && p.list.every(function (b) { return !!b.view && b.w > 5; }),
+             detail: ids.join(', ') + (hd.length ? ' (held on this page: ' + hd.join(', ') + ')' : '') + '; three a row: ' + rows },
+    scale: { ok: oneView && scale, detail: 'one view box: ' + oneView + '; drawn width delta/bell ' + wr.toFixed(3) + ' (theirs ' + wantW.toFixed(3) + '), height onion/bell ' + hr.toFixed(3) + ' (theirs ' + wantH.toFixed(3) + ')' },
     inUse: { ok: byId.classic && byId.classic.checked === 'true' && byId.classic.inUse && p.list.filter(function (b) { return b.inUse || b.checked === 'true'; }).length === 1 &&
                  p.big === 'classic' && p.name === 'Classic' && p.use.text === 'In use' && p.use.disabled === 'true',
              detail: JSON.stringify({ big: p.big, name: p.name, use: p.use }) }
@@ -402,14 +423,16 @@ async function full(env, o) {
     } finally { await t.close(); }
   }
   m.delta = await one('delta');
+  m.trumpet = await one('trumpet');
   m.classic = await one('classic');
   return m;
 }
 function fullOk(m) {
-  var d = m.delta, c = m.classic;
+  var c = m.classic;
+  function says(d) { return d.total === d.max && d.word === 'Full' && d.label === 'The glass is full' && d.cls && d.toast === 'The glass is full' && d.after === d.total; }
+  function told(n, d) { return n + ', 60 minutes: ' + d.total + ' of ' + d.max + ' grains; the button "' + d.word + '" (' + d.label + '); a tap: "' + d.toast + '", ' + d.total + ' -> ' + d.after; }
   return {
-    says: { ok: d.total === d.max && d.word === 'Full' && d.label === 'The glass is full' && d.cls && d.toast === 'The glass is full' && d.after === d.total,
-            detail: 'Delta, 60 minutes: ' + d.total + ' of ' + d.max + ' grains; the button "' + d.word + '" (' + d.label + '); a tap: "' + d.toast + '", ' + d.total + ' -> ' + d.after },
+    says: { ok: says(m.delta) && says(m.trumpet), detail: told('Delta', m.delta) + '; ' + told('Trumpet', m.trumpet) },
     room: { ok: c.total < c.max && c.word === 'Sand' && c.label === 'Add sand. Hold to pour.' && !c.cls && c.after > c.total,
             detail: 'Classic, 60 minutes: ' + c.total + ' of ' + c.max + '; the button "' + c.word + '"; a tap adds ' + (c.after - c.total) + ' grains' }
   };
@@ -429,12 +452,12 @@ var SAVE_1_14 = { theme: 'rosequartz', character: 'warm', volume: 0.6, muted: fa
   tuneTab: 'sand', sand: 'custom', sandColor: '12.5,0.6,0.55', finish: 'copper' };
 async function old(env, o) {
   o = o || {};
-  var cases = [['1.14.0', SAVE_1_14], ['1.13.0', SAVE_1_13], ['1.10.0', SAVE_1_10], ['trumpet', { v: 2, realSand: false, shape: 'trumpet' }], ['florence', { v: 2, realSand: false, shape: 'florence' }],
+  var cases = [['1.14.0', SAVE_1_14], ['1.13.0', SAVE_1_13], ['1.10.0', SAVE_1_10], ['trumpet', { v: 2, realSand: false, shape: 'trumpet' }, ['trumpet']], ['florence', { v: 2, realSand: false, shape: 'florence' }, ['florence']],
                ['unknown', { v: 2, realSand: false, shape: 'heart' }]];
   var out = [];
   for (var i = 0; i < cases.length; i++) {
     var raw = {}; raw[KEY] = cases[i][1];
-    var t = await env.open(Object.assign({ rawStorage: raw }, o.open || {}));
+    var t = await env.open(Object.assign({ rawStorage: raw }, cases[i][2] ? hold(cases[i][2]) : {}, o.open || {}));
     try {
       await sleep(900);
       var g = await glassNow(t), s = JSON.parse(await saved(t));
@@ -475,15 +498,17 @@ async function main() {
     if (wanted('pick')) {
       var pk = pickOk(await pick(env));
       s.check('PICK: the Glass tab opens with its Shape section, above the frame\'s', pk.place.ok, pk.place.detail);
-      s.check('PICK: the shapes Tune offers, in their order, a radiogroup three a row; Trumpet and Florence held back', pk.group.ok, pk.group.detail);
+      s.check('PICK: the shapes Tune offers, all nine, in their order, a radiogroup three a row', pk.group.ok, pk.group.detail);
+      var ph = pickOk(await pick(env, { hold: ['trumpet'] }));
+      s.check('PICK: a shape held back is not shown (Trumpet, held on this page)', ph.group.ok, ph.group.detail);
       s.check('PICK: every shape drawn at one scale (Delta wider than Bell by their own widths, Onion taller)', pk.scale.ok, pk.scale.detail);
       s.check('PICK: Classic is in use, drawn large, its button "In use"', pk.inUse.ok, pk.inUse.detail);
       await control('a copy that draws each shape to fill its own box loses the one scale', 'scale', function () {
         return pick(env, app(chain(swap('    if (!shapeBox) {                                    // one box for all: every shape at the same scale', '    shapeBox = null;\n    if (!shapeBox) {'),
                                    swap('        var gi = P.makeGeometry(1, SHAPE_IDS[i]);', '        var gi = g;'))));
       }, pickOk);
-      await control('a copy that offers every registered shape shows the two held back', 'group', function () {
-        return pick(env, app(swap('if (P.SHAPES[P.SHAPE_ORDER[si]].offered) SHAPE_IDS.push', 'SHAPE_IDS.push')));
+      await control('a copy that offers every registered shape shows the one held back', 'group', function () {
+        return pick(env, Object.assign({ hold: ['trumpet'] }, app(swap('if (P.SHAPES[P.SHAPE_ORDER[si]].offered) SHAPE_IDS.push', 'SHAPE_IDS.push'))));
       }, pickOk);
     }
     if (wanted('look')) {
@@ -534,7 +559,7 @@ async function main() {
     }
     if (wanted('full')) {
       var fu = fullOk(await full(env));
-      s.check('FULL: a 60-minute Delta glass has no room: its Sand button reads "Full", says "The glass is full", and a tap adds none', fu.says.ok, fu.says.detail);
+      s.check('FULL: a 60-minute Delta glass, and a 60-minute Trumpet, has no room: its Sand button reads "Full", says "The glass is full", and a tap adds none', fu.says.ok, fu.says.detail);
       s.check('FULL: the classic 60-minute glass has room: its button reads "Sand" and a tap adds sand', fu.room.ok, fu.room.detail);
       await control('a copy whose Sand button never says the glass is full', 'says', function () {
         return full(env, app(swap('    var full = sim.total >= sim.maxTotal;', '    var full = false;')));
@@ -542,7 +567,7 @@ async function main() {
     }
     if (wanted('old')) {
       var od = oldOk(await old(env));
-      s.check('OLD: saves of 1.14.0, 1.13.0 and 1.10.0 come up in the classic glass, every setting as it was; a shape held back (trumpet, florence) or unknown is the classic glass, saved so', od.ok, od.detail);
+      s.check('OLD: saves of 1.14.0, 1.13.0 and 1.10.0 come up in the classic glass, every setting as it was; a shape held back (trumpet, florence, each held on its page) or unknown is the classic glass, saved so', od.ok, od.detail);
       await control('a copy of the settings that takes any shape name', 'ok', function () {
         return old(env, { open: { routes: [broken(env, 'app/settings.js', swap('return !!s && has.call(s, v) && s[v].offered === true;', 'return true;'))] } });
       }, function (l) { return { ok: oldOk(l) }; });

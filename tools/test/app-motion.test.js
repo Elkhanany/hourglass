@@ -18,7 +18,20 @@
  *     in either. The control: the same lean while the glass runs leaves the
  *     rush at nothing, as it always did.
  *
- *   node tools/test/app-motion.test.js [--root <dir>] [--port <n>]
+ * SIDES: every sound that has a side is heard where the listener sees its sand, the phone held as
+ *     it is held (headphones keep the listener's left and right; the picture turns with the phone).
+ *     One frame is given sand on the glass's own right (x = +0.8 across the glass: a thump in each
+ *     bulb, a slam, a leak, a single grain's landing, and the bulbs' field to the right for the
+ *     hiss), and the glass's damage there (a creak, a crack, its growth, a chip); in four cases: the glass upright or turned half round
+ *     on the screen by a finger (sim.angle = pi for that frame), with the phone upright or held upside
+ *     down with the glass swapped (the motion stub turned over: grav.base = pi). The glass's right is
+ *     the listener's right when the glass stands upright before them (the phone upright, or upside
+ *     down with the glass swapped and drawn half a turn round on the screen), and the listener's left
+ *     when a finger has turned it half round. Controls (by hand, on a copy of the tree): the glass's
+ *     sounds not turned (app.js heardSide() returning 1) fail the finger's cases; the hiss not turned
+ *     by the phone's roll fails the cases with the phone upside down.
+ *
+ *   node tools/test/app-motion.test.js [--root <dir>] [--port <n>] [--only mapping|tiltswap|slosh|sides]
  */
 'use strict';
 var H = require('./stubs/harness.js');
@@ -216,6 +229,101 @@ async function testSlosh(s, env) {
   } finally { await t.close(); }
 }
 
+/** One frame of sand on the glass's own right, with the glass turned by `angle` on top of how it is held; what the sound is given. */
+function sidesFrame(t, angle) {
+  return t.eval(function (angle) {
+    var H = window.Hourglass;
+    if (!H.__sidesHook) {
+      H.__sidesHook = true;
+      var R = H.renderer, A = H.audio, sync = R.syncDamage, up = A.update;
+      // (syncDamage is the last call before the frame's sound: the frame is written there)
+      R.syncDamage = function () {
+        var J = window.__inj;
+        if (J && !J.armed) {
+          var sim = H.sim, f = sim.frame, G = sim.G;
+          J.armed = true; J.was = [sim.angle, H.grav.base, sim.tilt];
+          sim.angle = J.angle;
+          f.thump[0] = 0.2; f.thump[1] = 0.8; f.thump[2] = 0.2; f.thump[3] = 0.8;
+          f.slam[0] = 0.2; f.slam[1] = 0.8; f.leakX = 0.8;
+          sim.bf[0] = sim.bf[2] = 0.8 * G; sim.bf[1] = sim.bf[3] = 0.6 * G;
+          sim.nev = 1; sim.evX[0] = 0.8; sim.evV[0] = 0.5; sim.evK[0] = 1;
+          J.base = H.grav.base; J.tilt = sim.tilt;
+        }
+        return sync.apply(this, arguments);
+      };
+      A.update = function (st) {
+        var J = window.__inj;
+        if (J && J.armed && !J.got) {
+          J.got = { rush: st.rushPan, th0: st.thump ? st.thump[1] : NaN, th1: st.thump ? st.thump[3] : NaN, slam: st.slam ? st.slam[1] : NaN,
+            leak: st.leakPan, ev: st.sim && st.sim.nev === 1 ? st.sim.evX[0] : NaN };
+          H.sim.angle = J.was[0];
+        }
+        return up.apply(this, arguments);
+      };
+      // (the glass's damage, heard: creak(level, pan), crack(pan), crackGrow(pan), chip(pan))
+      ['creak', 'crack', 'crackGrow', 'chip'].forEach(function (m) {
+        var was = A[m];
+        A[m] = function () { if (window.__dmgPan) window.__dmgPan[m] = arguments[m === 'creak' ? 1 : 0]; return was.apply(this, arguments); };
+      });
+    }
+    window.__inj = { angle: angle, armed: false };
+    return new Promise(function (resolve) {
+      var k = 0;
+      (function wait() {
+        var J = window.__inj;
+        if (J.got || ++k > 120) {
+          // and the glass's damage on its right (a creak, a crack, its growth, a chip), heard at once
+          // as a forced crack is (debug.forceCrack of no wall: no crack, the frame's events heard),
+          // the glass turned the same way for it
+          var sim = H.sim, D = window.HourglassPhysics.Sim.DMG, was = sim.angle;
+          window.__dmgPan = {}; sim.angle = angle;
+          [D.WARN, D.CRACK, D.GROW, D.BREACH].forEach(function (ty) { sim._pushDmg(ty, -1, 1, 0.8); });
+          H.debug.forceCrack(-1);
+          sim.angle = was;
+          resolve({ got: J.got || null, base: J.base, tilt: J.tilt, dmg: window.__dmgPan });
+          window.__dmgPan = null;
+          return;
+        }
+        requestAnimationFrame(wait);
+      })();
+    });
+  }, angle);
+}
+
+async function testSides(s, env) {
+  var t = await env.open({ motionStub: true });
+  try {
+    var on = await realMotionOn(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1500);
+    s.check('SIDES: Real motion is on (the motion stub), the glass running', on);
+    var cases = [['the glass upright, the phone upright', 0, false], ['the glass turned half round by a finger, the phone upright', Math.PI, false],
+                 ['the glass upright before the listener, the phone upside down with the glass swapped', 0, true],
+                 ['the glass turned half round by a finger, the phone upside down with the glass swapped', Math.PI, true]];
+    for (var c = 0; c < cases.length; c++) {
+      if (cases[c][2] && !(await t.eval(function () { return window.Hourglass.grav.base; }))) {
+        await t.eval(function () { window.__motion.heading = Math.PI; });
+        await sleep(1800);
+      }
+      var r = await sidesFrame(t, cases[c][1]);
+      var want = Math.cos(cases[c][1]) > 0 ? 1 : -1, g = r.got || {};
+      var held = cases[c][2] ? Math.abs(r.base - Math.PI) < 1e-6 && Math.abs(Math.cos(r.tilt) - 1) < 0.02 : r.base === 0 && Math.abs(Math.cos(r.tilt) - 1) < 0.02;
+      var near = function (v, x) { return Math.abs(v - x) < 0.05; };
+      var where = want > 0 ? 'right' : 'left', text = function (v) { return v === v && v !== null && v !== undefined ? v.toFixed(2) : String(v); };
+      s.check('SIDES: ' + cases[c][0] + ': held so (grav.base ' + text(r.base) + ', tilt ' + text(r.tilt) + ') and the frame heard', held && !!r.got, JSON.stringify(r));
+      s.check('SIDES: ' + cases[c][0] + ': the hiss of sand running to the glass\'s right is in the ' + where + ' ear', near(g.rush, 0.48 * want), 'rushPan ' + text(g.rush));
+      s.check('SIDES: ' + cases[c][0] + ': a thump on the glass\'s right, in either bulb, is in the ' + where + ' ear', near(g.th0, 0.8 * want) && near(g.th1, 0.8 * want), 'thump pans ' + text(g.th0) + ', ' + text(g.th1));
+      s.check('SIDES: ' + cases[c][0] + ': a slam there is in the ' + where + ' ear', near(g.slam, 0.8 * want), 'slam pan ' + text(g.slam));
+      s.check('SIDES: ' + cases[c][0] + ': a leak there is in the ' + where + ' ear', near(g.leak, 0.8 * want), 'leakPan ' + text(g.leak));
+      s.check('SIDES: ' + cases[c][0] + ': a grain landing there is in the ' + where + ' ear', near(g.ev, 0.8 * want), 'evX ' + text(g.ev));
+      var d = r.dmg || {};
+      s.check('SIDES: ' + cases[c][0] + ': the glass creaking, cracking, its crack growing and a chip breaking out there are in the ' + where + ' ear',
+              near(d.creak, 0.8 * want) && near(d.crack, 0.8 * want) && near(d.crackGrow, 0.8 * want) && near(d.chip, 0.8 * want), 'creak ' + text(d.creak) + ', crack ' + text(d.crack) + ', grow ' + text(d.crackGrow) + ', chip ' + text(d.chip));
+    }
+    await t.eval(function () { window.__motion.heading = 0; });
+  } finally { await t.close(); }
+}
+
 (async function main() {
   var s = new H.Suite('app-motion');
   var env = await H.start();
@@ -224,6 +332,7 @@ async function testSlosh(s, env) {
     if (!only || only === 'mapping') await testMapping(s, env);
     if (!only || only === 'tiltswap') await testTiltSwap(s, env);
     if (!only || only === 'slosh') await testSlosh(s, env);
+    if (!only || only === 'sides') await testSides(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

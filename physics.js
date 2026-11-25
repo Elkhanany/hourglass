@@ -70,7 +70,7 @@
    * SHAPE_ORDER in the order they were added, the classic first). Beside
    * the five fields above a record says:
    *   offered    whether Tune shows the glass (not yet: one that still has
-   *              to show on a phone that its sand keeps time)
+   *              to show that its sand flows and keeps time in both sands)
    *   symmetry   'point': the glass is the same after a half turn. Both
    *              sand engines turn it that way (here a turn is the lattice
    *              read backwards; the GPU's maps p to 2c - p), so there is
@@ -232,14 +232,14 @@
   });
   // two horns, bells outward: a slim neck that flares late to a wide lip
   addShape({
-    id: 'trumpet', name: 'Trumpet', kR: 1.00, kH: 1.10, offered: false,
+    id: 'trumpet', name: 'Trumpet', kR: 1.00, kH: 1.10, offered: true,
     f: shUnit(function (u) {
       return shMin(Math.pow(u / 0.87, 1.9), shClose(u, 0.78, 2.2, 0.5), 9);
     })
   });
   // the Florence flask: a slender drawn neck, a steep shoulder, a full globe
   addShape({
-    id: 'florence', name: 'Florence', kR: 0.84, kH: 1.08, offered: false,
+    id: 'florence', name: 'Florence', kR: 0.84, kH: 1.08, offered: true,
     f: shFlask(0.70, [[0, 0.20], [0.11, 0.24], [0.34, 1], [0.46, 1], [0.70, 0, 1]], 2.0)
   });
   // the onion dome: a broad low swell, hollow shoulders, a small finial

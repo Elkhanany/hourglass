@@ -7,7 +7,7 @@ WebGPU, in the glass the app draws, keeping the app's exact time. The engine
 is `realsand/`; the app runs it by default where WebGPU works, and the
 **Real sand** switch in Tune turns it off and on.
 
-This document is the design as it is built (engine build 5), written from the
+This document is the design as it is built (engine build 7), written from the
 code. The code cites it by section: a comment that says "(design 7.4)" means
 section 7.4 below, and the section numbers are kept so that those citations
 stay true. Where this document and the code disagree, the code is right and
@@ -663,7 +663,9 @@ before its sound:
   minute's.
 - `frame.thump`, `frame.slam`: a landing. A bed that moves with the field
   (within 60° of it), along the glass's axis (within 45°), faster than the
-  speed of the quietest thump heard (30 cells/s) is falling. When it has
+  speed of the quietest thump heard (30 cells/s), as one body (seven in ten
+  of its points moving: `SND.BODY`, 0.7) is falling; once falling, a fall
+  that speeds up goes on whatever share moves. When it has
   lost half that speed within 0.15 s of simulated time (time, not runs: the
   same landing at 60, 120 and 180 runs a second), and it was the glass that
   took it
@@ -675,7 +677,17 @@ before its sound:
   centre across the bulb. Never while the glass is turned (the Flip, or
   faster than 0.5 rad/s), as the classic sand's bed does not fly then, and
   never for a bed stopped sideways, as the classic sand's slip lands
-  nothing.
+  nothing. Nor for the slip of a sideways shake: sand shaken up the wall
+  slides back down it into the rest of the bed, and the bed's mean may fall
+  along the glass as fast as a faint landing, but only about half its points
+  move (0.47 to 0.62 of them, where a flicked bed's fall moves 0.75 to 0.94),
+  so it is no body falling and lands nothing (before the rule, a sideways
+  shake gave such a thump, 0.0016 to 0.0030, in six of ten shakes). The
+  speed is the fastest a readback saw: one readback a run, so when the
+  engine runs fewer than 60 times a second (a phone that falls behind, the
+  heat guard's calm pace) a short fall's fastest moment can fall between two
+  readbacks and its thump is quieter, or, at a run every four to six frames,
+  not heard (section 8's note below).
 - `frame.slides` (and `frame.moved`): the bed's motion within itself: the
   summed speed of its moving points, less their number times the bed's own
   speed (a bed that flies or slides as one body slides nothing) or the
@@ -718,17 +730,65 @@ with the readback, one to three frames after the sand's own motion; a thump
 in the run in which the bed has lost half its speed, about four frames after
 its fastest fall, as it comes to rest.
 
+The landing is judged from one snapshot of the bed a run, and its energy is
+that of the fastest fall a snapshot saw. A flicked bed falls for about 40 ms,
+so when the engine runs less often than every frame the snapshots can miss
+its fastest moment. On the adapter's mock engine, a toss up at 60 cells/s and
+down at 86 (60 frames a second): at a run every frame, one thump at 0.93 of
+the fall's full energy; at a run every 2 frames, 0.93 or 0.30 (5 dB quieter)
+by where the runs fall; at a run every 4 to 6 frames, in some phases no
+snapshot sees the bed fall faster than the quietest thump and none is heard.
+Estimating the speed it struck at was tried and is not done: the strike lies
+somewhere in the run that found the bed stopped, the readbacks carry no
+moment for it, and every estimate tried either was louder than the fall could
+have been (by up to 5 to 11 dB at a run every 3 to 6 frames) or no better than
+the fastest speed seen. A phone runs a run every frame unless it falls
+behind or the heat guard calms it (the calm pace is a run every 2 frames).
+This is a known limit and it is still open: a landing can sound quieter, or
+be missed, when the engine runs less than once a frame. The fix is the
+engine's, in a later build: each run would record the bed's fastest fall
+during its own substeps, so that the readback carries the fall itself and
+not one snapshot of it. Build 7 does not.
+
 Measured against the classic sand on the same scripted motions (the app's
 10 s glass before its start, all the sand above; WebGPU in software, the
-phone's motion played through the real `motion.js` to both engines):
+phone's motion played through the real `motion.js` to both engines). The
+three tables below were made at engine build 6, before the seven-in-ten rule
+above, by a probe that is not in the repository; the GPU's figures in them
+have not been measured again since the rule and are left out ("not measured
+again"), all but the flick along the glass, which the SOUND case below
+measures: the rule removes exactly the falls a shaken bed's slip made, so the
+landings along the glass and the levels are the ones most likely to have
+changed. The classic sand's figures stand: its code has not changed. What
+can be measured again here is realsand-gpu's SOUND case (its own motions: a
+flick along the glass, a sideways shake of 1.5 g at 5 Hz for 1.5 s, a lean of
+30°), whose checks hold the GPU's thump and agitation within a factor of 2 of
+the classic sand's. Three whole runs of it at engine build 7, on WebGPU in
+software (a 10 s glass before its start; each run passed all its checks),
+measured:
+
+- flicked along the glass (2 g for 60 ms, then the stop): one thump in the
+  upper bulb in each run, of 0.0039 to 0.0054 (from a fastest fall of 49 to
+  58 cells/s), where the classic sand has one of 0.0043; no slam; the
+  agitation at its highest 0.54 to 0.67, where the classic's is 0.71. With
+  the readbacks unheard (the control) the same flick fed nothing.
+- shaken sideways at 1.5 g and 5 Hz for 1.5 s: no thump and no slam in any
+  of the three runs, as with the classic sand; the agitation at its highest
+  1.12 to 1.16, where the classic's is 0.98; the slides 26,600 to 29,400 in
+  all and 22,700 to 23,900 a second at their fastest, where the classic's
+  are 23,100 and 20,900. (The case does not log the share of points that
+  move.)
+- leaned 30° and back: the GPU bed did not move, and nothing was heard: no
+  landing, no slides, no agitation, where the classic sand's heap runs
+  (1,350 slides a second at their fastest).
 
 | motion | thumps: classic (number, summed E, largest) | GPU | agitation: classic (highest, summed over time) | GPU |
 |---|---|---|---|---|
-| a flick along the glass (2 g, 60 ms) | 1, 0.0043, 0.0043 | 1, 0.0048, 0.0048 | 0.71, 0.23 | 0.60, 0.22 |
-| a flick sideways | none | none | 0.43, 0.14 | 0.39, 0.15 |
-| 1.5 g at 5 Hz sideways, 3 s | none | none | 0.87, 2.20 | 0.93, 1.96 |
-| 1.5 g at 5 Hz along the glass, 3 s | 10, 0.072, 0.013 | 14, 0.094, 0.012 | 2.36, 3.61 | 2.13, 3.39 |
-| carried at a walk | none | none | 0.72, 2.85 | 0.07, 0.05 |
+| a flick along the glass (2 g, 60 ms) | 1, 0.0043, 0.0043 | 1, 0.0039 to 0.0054 (build 7, three runs) | 0.71, 0.23 | 0.54 to 0.67 (build 7, three runs); summed not measured again |
+| a flick sideways | none | not measured again | 0.43, 0.14 | not measured again |
+| 1.5 g at 5 Hz sideways, 3 s | none | not measured again | 0.87, 2.20 | not measured again |
+| 1.5 g at 5 Hz along the glass, 3 s | 10, 0.072, 0.013 | not measured again | 2.36, 3.61 | not measured again |
+| carried at a walk | none | not measured again | 0.72, 2.85 | not measured again |
 
 Nothing is fitted in the thumps and the agitation: they are the classic
 sand's own formulas on the GPU bed's own motion. Walking differs on
@@ -738,21 +798,22 @@ thump is the energy of the GPU bed's own fall, which is not always the
 classic bed's: a flick whose pull is held longer (1.3 g for 83 ms) throws
 the classic sand's bed up as one body (a thump of 0.0145), while the GPU
 bed loosens as it lifts and comes down slower (0.004 and 0.009 in two
-takes: half to four fifths as loud, since `audio.js` plays the square root).
+takes: half to four fifths as loud, since `audio.js` plays the square root;
+build 6, before the rule, not measured again).
 
 The slides, with their one calibrated share, on the same motions and on a
 1 minute glass (2,830 grains; in all, and a second at their fastest as
-`app.js` smooths them):
+`app.js` smooths them; the GPU's not measured again since build 6):
 
 | motion | classic | GPU |
 |---|---|---|
-| 1.5 g at 5 Hz sideways, 10 s glass | 39,200; 21,300 | 38,800; 21,900 |
-| the same, 1 minute glass | 68,700; 36,000 | 82,300; 39,000 |
-| a flick sideways, 10 s glass | 1,260; 7,000 | 2,910; 14,800 |
-| 1.5 g at 5 Hz along the glass, 10 s glass | 4,540; 6,200 | 7,440; 5,600 |
-| a flick along the glass, 10 s glass | 0 | 320; 1,900 |
-| leaned 50°, 1 minute glass | 8,760; 7,770 | 110; 330 |
-| laid on its side (90°) and stood up again, 1 minute glass | 59,700; 23,800 | 20,200; 26,200 |
+| 1.5 g at 5 Hz sideways, 10 s glass | 39,200; 21,300 | not measured again |
+| the same, 1 minute glass | 68,700; 36,000 | not measured again |
+| a flick sideways, 10 s glass | 1,260; 7,000 | not measured again |
+| 1.5 g at 5 Hz along the glass, 10 s glass | 4,540; 6,200 | not measured again |
+| a flick along the glass, 10 s glass | 0 | not measured again |
+| leaned 50°, 1 minute glass | 8,760; 7,770 | not measured again |
+| laid on its side (90°) and stood up again, 1 minute glass | 59,700; 23,800 | not measured again |
 
 Thrown along the glass the GPU bed loosens and packs again, which is motion
 within it, where the classic sand's bed flies as one body. Counted in full,
@@ -769,25 +830,28 @@ side, the GPU bed goes across from about 60° as one body that shears as it
 goes (18,000 to 21,000 slides a second for half a second), and stood up
 again it slides back and lands in the funnel: a thump of 0.043 and its
 heat, where the classic sand's heap runs back grain by grain and lands
-nothing.
+nothing. (The GPU figures of this paragraph are build 6's, before the
+rule, and have not been measured again.)
 
 What the ear is given: both engines' feeds for the same motion, as `app.js`
 passes them on, played through `audio.js` (a glass before its start, the
 default volume; dBFS RMS over the motion and a second after, the mean of
-three renders, which differ by about 1 dB among themselves):
+three renders, which differ by about 1 dB among themselves; the GPU's
+levels were measured at build 6, before the rule, and not again):
 
 | motion | classic | GPU | GPU over classic |
 |---|---|---|---|
-| a flick along the glass, 10 s glass | -65.4 | -64.4 | +1.0 dB |
-| the same, 1 minute glass | -64.1 | -62.3 | +1.8 dB |
-| 1.5 g at 5 Hz sideways, 10 s glass | -45.6 | -45.8 | -0.2 dB |
-| the same, 1 minute glass | -43.6 | -43.1 | +0.5 dB |
-| 1.5 g at 5 Hz along the glass, 10 s glass | -44.8 | -44.5 | +0.3 dB |
-| the same, 1 minute glass | -44.5 | -43.1 | +1.4 dB |
-| laid on its side and stood up again, 1 minute glass | -43.7 | -45.0 | -1.3 dB |
+| a flick along the glass, 10 s glass | -65.4 | not measured again | |
+| the same, 1 minute glass | -64.1 | not measured again | |
+| 1.5 g at 5 Hz sideways, 10 s glass | -45.6 | not measured again | |
+| the same, 1 minute glass | -43.6 | not measured again | |
+| 1.5 g at 5 Hz along the glass, 10 s glass | -44.8 | not measured again | |
+| the same, 1 minute glass | -44.5 | not measured again | |
+| laid on its side and stood up again, 1 minute glass | -43.7 | not measured again | |
 
-(The 1 minute glass's flick has two thumps, 0.0022 as the push presses the
-bed down and 0.0036 as it lands, where the classic sand has one of 0.0043.)
+(At build 6, before the rule, the 1 minute glass's flick had two thumps,
+0.0022 as the push pressed the bed down and 0.0036 as it landed, where the
+classic sand has one of 0.0043; not measured again since.)
 
 A blow of the glass from 700 px/s thumps and clacks (`impact` returns 1).
 Mending is forwarded to the CPU Sim, whose event plays the chime. The
@@ -928,7 +992,7 @@ the engine's figures and its log, also from a home-screen app, where
 | Bloom, rim light, depth shading, gloss | not drawn; the lab's lit grains |
 | Fine and Finest | no effect on the GPU sand; they set the CPU sand's grain |
 | The lab's known faults | a turned bed slides round the glass as a block before it breaks up, a bed at rest creeps, heaps stand steep |
-| Glass shapes other than the classic | the GPU's glass is built from the app's own geometry, but no other shape is offered or checked for flow yet |
+| Glass shapes other than the classic | the GPU's glass is built from the app's own geometry; every shape Tune offers is filled and run out on time by `realsand-gpu`'s SHAPES case |
 
 ---
 
