@@ -31,7 +31,7 @@ var SHELL = [
   './glass/renderer.js',
   './glass/cracks.js',
   './glass/spill.js',
-  './audio.js',
+  './sound/audio.js',
   './motion.js',
   './app/settings.js',
   './app.js',
