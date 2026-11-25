@@ -25,6 +25,8 @@
  *   Benchmark's gpu ms/substep column is to settle it;
  * - a per-frame tally (counts, speeds; each bulb's bed, for the sound) is read back for the HUD,
  *   the tests and the app;
+ * - each bulb's bed at its fastest fall within a run, at any substep's end (spreadShift sums it,
+ *   prepare keeps the fastest; no dispatch of its own), read back with the tally, for the sound;
  * - a metered neck, off unless a run is given the valve's words (valve.mjs):
  *   a throttle in a band just above the counting line (gridUpdate.wgsl), a
  *   membrane that lets a point cross the line only downward and only with a
@@ -51,19 +53,31 @@ const COUNTER_WORDS = 8;
 const TALLY_WORDS = 28;
 const BED_AT = 16, BED_WORDS = 6;
 const POST_WORDS = 8;
-// a readback slot: the counters, then the tally, then the post pass's 8 words (Solver.post)
-const READBACK_BYTES = (COUNTER_WORDS + TALLY_WORDS + POST_WORDS) * 4;
+// each bulb's bed at its fastest fall (spreadShift.wgsl sums the beds at every substep's end,
+// prepare.wgsl keeps the fastest along the substep's field): the buffer's first 10 words are the
+// sums, then PEAK_BED words a bed (prepare.wgsl's header), kept across runs until a readback
+// copies them, so that a fall in a run that found no free readback slot is read with the next
+const PEAK_SUMS = 10, PEAK_BED = 6, PEAK_WORDS = PEAK_SUMS + 2 * PEAK_BED;
+// a readback slot: the counters, then the tally, then the post pass's 8 words (Solver.post), then
+// the beds' fastest falls
+const READBACK_BYTES = (COUNTER_WORDS + TALLY_WORDS + POST_WORDS + 2 * PEAK_BED) * 4;
 
 /**
  * One bulb's bed from the tally's words (u unsigned, s signed, at o): its points in a bed (n: not
  * the falling stream, not spray), their mean velocity (vx, vy: cells/s, the grid's frame, y up),
  * their centre across the glass from the neck's (x: cells), and of those that move (faster than
  * 2 % of a free fall over the glass) the number (sliding) and the summed speed (slide, cells/s).
+ * peak: the bed at its fastest fall since the last readback (words at pk), measured at the end
+ * of a substep other than a run's last: u, its mean velocity along that substep's field (cells/s,
+ * falling), vx, vy, its mean velocity, n, its points, share, the share of them that move, k, the
+ * substep of this run at whose end it was (0 first; below 0: in a run before, read back with
+ * none); null: none kept (no substep but a run's last, or the spread pass off).
  * What the sound is made from (app-sand.mjs, design 8).
  */
-function bedOf(u, s, o) {
-  const n = u[o + 2];
-  return { n, vx: n ? s[o] / 4 / n : 0, vy: n ? s[o + 1] / 4 / n : 0, x: n ? s[o + 3] / 16 / n : 0, sliding: u[o + 5], slide: u[o + 4] / 4 };
+function bedOf(u, s, o, pk, frame0) {
+  const n = u[o + 2], pn = u[pk + 3];
+  const peak = u[pk + 5] && pn ? { u: u[pk] / 4, vx: s[pk + 1] / 4, vy: s[pk + 2] / 4, n: pn, share: u[pk + 4] / pn, k: u[pk + 5] - 1 - frame0 } : null;
+  return { n, vx: n ? s[o] / 4 / n : 0, vy: n ? s[o + 1] / 4 / n : 0, x: n ? s[o + 3] / 16 / n : 0, sliding: u[o + 5], slide: u[o + 4] / 4, peak };
 }
 
 export async function createDevice() {
@@ -111,7 +125,7 @@ export class ShaderLibrary {
 
 // Binding kinds: u uniform (dynamic offset), r read-only storage, s storage
 const LAYOUTS = {
-  prepare: 'ussssss',
+  prepare: 'usssssss',
   bukkitCount: 'urrs',
   bukkitAllocate: 'urssssss',
   bukkitInsert: 'ursrsr',
@@ -121,7 +135,7 @@ const LAYOUTS = {
   load: 'urrrs',
   rescale: 'urs',
   spreadSplat: 'urrs',
-  spreadShift: 'ursrr',
+  spreadShift: 'ursrrs',
   tally: 'urrrss',
   flip: 'urs'
 };
@@ -316,6 +330,8 @@ export class Solver {
     mk('gridBuckets', this.bucketCount * 4, S);
     mk('counters', COUNTER_WORDS * 4, S);
     mk('tally', TALLY_WORDS * 4, S);
+    // the beds' sums at each substep's end and their fastest falls (spreadShift.wgsl, prepare.wgsl)
+    mk('bedPeak', PEAK_WORDS * 4, S);
     // per column and bulb, the highest point at rest (tally.wgsl)
     mk('surface', 2 * this.W * 4, S);
     this.allocUniforms(cap);
@@ -343,7 +359,7 @@ export class Solver {
       entries: [uni, ...list].map((r, binding) => ({ binding, resource: r.buffer ? r : { buffer: r } }))
     });
     this.groups = {
-      prepare: group('prepare', [b.bucketCount, b.bucketInsertCount, b.allocator, b.bucketArgs, b.gridArgs, b.fine]),
+      prepare: group('prepare', [b.bucketCount, b.bucketInsertCount, b.allocator, b.bucketArgs, b.gridArgs, b.fine, b.bedPeak]),
       count: group('bukkitCount', [b.count, b.particles, b.bucketCount]),
       allocate: group('bukkitAllocate', [b.bucketCount, b.bucketArgs, b.bucketData, b.allocator, b.bucketStarts, b.gridArgs, b.gridBuckets]),
       insert: group('bukkitInsert', [b.count, b.bucketInsertCount, b.particles, b.bucketData, b.bucketStarts]),
@@ -354,7 +370,7 @@ export class Solver {
       load: [b.grid0, b.grid1].map(g => group('load', [g, b.gridBuckets, b.gridArgs, b.load])),
       rescale: group('rescale', [b.count, b.particles]),
       spreadSplat: group('spreadSplat', [b.count, b.particles, b.fine]),
-      spreadShift: group('spreadShift', [b.count, b.particles, b.fine, b.domain]),
+      spreadShift: group('spreadShift', [b.count, b.particles, b.fine, b.domain, b.bedPeak]),
       tally: group('tally', [b.count, b.particles, b.domain, b.tally, b.surface]),
       flip: group('flip', [b.count, b.particles])
     };
@@ -372,7 +388,7 @@ export class Solver {
     d.queue.writeBuffer(b.particles, 0, data, 0, count * PARTICLE_WORDS);
     d.queue.writeBuffer(b.count, 0, new Uint32Array([count, this.maxParticles, 0, 0]));
     const e = d.createCommandEncoder();
-    for (const k of ['grid0', 'grid1', 'wall', 'load', 'counters', 'surface']) e.clearBuffer(b[k]);
+    for (const k of ['grid0', 'grid1', 'wall', 'load', 'counters', 'surface', 'bedPeak']) e.clearBuffer(b[k]);
     d.queue.submit([e.finish()]);
     const sides = this.countSides(data, count), t = new Uint32Array(TALLY_WORDS);
     t[0] = sides.points; t[1] = sides.above; t[2] = sides.below;
@@ -490,6 +506,9 @@ export class Solver {
     const frame0 = this.frame;
     enc.clearBuffer(b.tally);
     enc.clearBuffer(b.surface);
+    // the beds' sums afresh (the last run's last substep is in its tally); after a flip the bulbs
+    // have traded places, so the fastest falls kept from before it go too
+    enc.clearBuffer(b.bedPeak, 0, (flip ? PEAK_WORDS : PEAK_SUMS) * 4);
     const pass = enc.beginComputePass({ label: 'lab PB-MPM' });
     const go = (pipe, group, slot, size) => {
       pass.setPipeline(pipe); pass.setBindGroup(0, group, [slot * SLOT]); this.dispatched++;
@@ -533,13 +552,16 @@ export class Solver {
       enc.copyBufferToBuffer(b.counters, 0, slot.buffer, 0, COUNTER_WORDS * 4);
       enc.copyBufferToBuffer(b.tally, 0, slot.buffer, COUNTER_WORDS * 4, TALLY_WORDS * 4);
       if (post) enc.copyBufferToBuffer(post, 0, slot.buffer, (COUNTER_WORDS + TALLY_WORDS) * 4, POST_WORDS * 4);
+      // the fastest falls since the last readback, then kept afresh
+      enc.copyBufferToBuffer(b.bedPeak, PEAK_SUMS * 4, slot.buffer, (COUNTER_WORDS + TALLY_WORDS + POST_WORDS) * 4, 2 * PEAK_BED * 4);
+      enc.clearBuffer(b.bedPeak, PEAK_SUMS * 4, 2 * PEAK_BED * 4);
     }
     if (after) after(enc);
     d.queue.submit([enc.finish()]);
     if (!slot) return null;
     slot.pending = true;
     return slot.buffer.mapAsync(GPUMapMode.READ).then(() => {
-      const u = new Uint32Array(slot.buffer.getMappedRange().slice(0)), t = COUNTER_WORDS, i = new Int32Array(u.buffer);
+      const u = new Uint32Array(slot.buffer.getMappedRange().slice(0)), t = COUNTER_WORDS, i = new Int32Array(u.buffer), pk = t + TALLY_WORDS + POST_WORDS;
       slot.buffer.unmap(); slot.pending = false;
       return { clamped: u[0], maxMove: u[1] / 1000, points: u[t], above: u[t + 1], below: u[t + 2], outside: u[t + 3], nan: u[t + 4],
         maxSpeed: u[t + 5] / 4, meanSpeed: u[t] ? u[t + 6] / 4 / u[t] : 0, moving: u[t + 7],
@@ -550,7 +572,7 @@ export class Solver {
         // the depth of the lowest point below the counting line, cells (the lab's Timer times the first fall with it)
         deepest: u[t + 11] / 16,
         // the beds, for the sound: [the bulb above the line, the one on it or below] (bedOf)
-        beds: [bedOf(u, i, t + BED_AT), bedOf(u, i, t + BED_AT + BED_WORDS)],
+        beds: [bedOf(u, i, t + BED_AT, pk, frame0), bedOf(u, i, t + BED_AT + BED_WORDS, pk + PEAK_BED, frame0)],
         // the post pass's words (null: none)
         post: post ? Array.from(u.subarray(t + TALLY_WORDS, t + TALLY_WORDS + POST_WORDS)) : null };
     }, e => {
