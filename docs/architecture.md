@@ -100,6 +100,39 @@ physics on slow phones, and service-worker registration. The clock uses
 `?debug=motion` overlay shows the sensors and the sand's state, and `&rec=N`
 records N seconds of raw sensor events to a file, for tuning on a device.
 
+The look, light or dark ("Light and dark" in `app.js`). The setting
+`background` gives it: 'dark' and 'light' as they are, 'system' by the media
+query `prefers-color-scheme: light` (followed by its change event), 'hours'
+light from 7:00 to 19:00 by `new Date().getHours()`, looked at again by a
+timer set for the next 7:00 or 19:00 and whenever the page comes back to the
+front (`visibilitychange`, `pageshow`, `focus`: a phone's timers sleep in the
+background). The page is in the light look while `html` carries
+`data-look="light"`; the dark look is the page with nothing set, so it is
+pixel for pixel what it was. index.html applies the saved choice by the same
+rule in a small script in its head, before the stylesheet and the first paint
+(and sets the `theme-color`, `color-scheme` and the iPhone's status-bar
+metas), so a launch never shows the other look first; app.js keeps it from
+then on (`showLook`), with the metas and the moon button (`#btn-look`,
+`aria-pressed`). In styles.css the light look is its own tokens
+(`html[data-look="light"]`: paper `--bg` #f3f0ea, the inks, panels and sheet,
+`--accent-text`, the sand's accent deepened where it is text or a thin line)
+and the few rules that differ, below the dark ones, untouched. The glass is
+told by `renderer.setPaper(on)`: the rendered glass is lit by a white room
+with dark cards behind it and dark flags at its sides (`glass/gl.js`, a second
+program per glass, made when first asked for, the dark one's text unchanged),
+the drawn glass is outlined in a deep ink, the cracks get a dark line under
+their bright one, and the bore is greyed a little so a pale sand shows. The
+sand and Real sand keep their colours (Real sand draws premultiplied over
+whatever lies behind it: nothing of `realsand/` changes). Nothing is built
+again: a running glass runs on.
+
+Zen fills the window: the controls dim and the glass grows (`setZen`); it does
+not ask for the system's full screen. It comes by a pinch, the Zen button, or
+a double-click of a mouse or a pen on the background (two clicks within 0.5 s
+and 8 px, each pressed and let go in place, off the glass, the bars' controls
+and the sheets: `isBackground`), which also takes it away; a pinch and `Esc`
+take it away too. A finger's double tap is not a double-click.
+
 A new glass (Reset, or another duration) takes about a second. The old sand
 is drawn into the neck: the picture of it is carried as an incompressible
 sheet flows into a point sink, the square of every grain's distance from the
@@ -251,7 +284,7 @@ controls.
 
 What the app keeps from one launch to the next is one JSON object in
 `localStorage`, under `hourglass.settings.v1`. The settings store holds it as
-a table of records, one for every saved key (43 today), in the order the
+a table of records, one for every saved key (44 today), in the order the
 keys are saved:
 
 - `id`, the key;
@@ -284,8 +317,11 @@ sounding the same: `sandLevel` (0 to 1, Tune's Sand over 100, default 1),
 `bowlLevel` (0 to 2, Tune's Bowl over 50, default 1), `bowlRings` ('once',
 'three' or 'tap'), `ambFade` (0 for off, or 60000, 300000 or 600000 ms) and
 `silentRing` (true). A level out of its range, or a choice that is none of
-its record's, is the default. The last two are the Time tab's: `quick`
-("1,5,10,15,30,60") and `endsAt` (false).
+its record's, is the default. Then come the Time tab's two: `quick`
+("1,5,10,15,30,60") and `endsAt` (false). The last, the 44th (1.19.0), is
+`background`: 'dark' (the default, the app as it has always looked), 'light',
+'system' or 'hours'; any other value is 'dark', and a save from before it comes
+up dark. The reset link of Tune puts it back to 'dark' with the look.
 
 `HourglassSettings.load(storage, search, reg)` gives the values: the
 defaults; over them the saved values of the right type; the version step

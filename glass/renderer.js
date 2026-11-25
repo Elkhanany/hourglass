@@ -25,6 +25,7 @@
    * ==================================================================== */
 
   var LEVELS = 48;      // light levels per grain colour (upper third = highlights)
+  var PAPER_INK = [46, 52, 60];   // the drawn glass's lines in the light look (setPaper)
   var AO_BIAS = 12;
   var SUB = 2;          // each grain is drawn as a lit 2×2 bead
 
@@ -74,6 +75,7 @@
       this.bbuf = new Uint32Array(this.bimg.data.buffer);
     }
     this.frame = true;    // caps + posts around the glass
+    this.paper = false;   // the light look: the glass shaded for a white room (setPaper)
     this.layers = false;  // layered sand: two tones (setLayers)
     this.glass = null;    // [far wall, near wall] WebGL layers, or null → drawn glass
     this.glassRot = 0;
@@ -190,7 +192,7 @@
                            dens * (0.6 + 2.4 * (1 - tint[2] / 255)));
       gl.uniform3f(u.uGlow, th.glow[0] / 255, th.glow[1] / 255, th.glow[2] / 255);
       gl.uniform1f(u.uPx, box.w / gl.drawingBufferWidth);
-      gl.uniform1f(u.uGain, 1.1);
+      gl.uniform1f(u.uGain, this.paper ? 2.4 : 1.1);      // (the white room is held near white by a steeper roll-off)
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -205,6 +207,24 @@
   };
   Renderer.prototype.setFrame = function (on) {
     this.frame = !!on;
+  };
+  /**
+   * The light look (paper) or the dark (the app as it has always been). On white a glass is not
+   * seen by the light it catches but by the dark it gathers: the rendered glass is lit by a white
+   * room with dark cards (glass/gl.js, its paper room), the drawn glass is outlined in a deep
+   * line where it is lit with white on the dark, and the cracks are drawn dark. The sand keeps its
+   * colours. Nothing of the glass's shape or sand is made again: only what is drawn.
+   */
+  Renderer.prototype.setPaper = function (on) {
+    on = !!on;
+    if (on === this.paper) return;
+    this.paper = on;
+    var gs = this.glass;
+    if (gs) {
+      try { for (var i = 0; i < gs.length; i++) if (!gs[i].lost) gs[i].use(on); }
+      catch (e) { this._dropGlass(); return; }        // (a look the device will not compile: the drawn glass, which has both)
+    }
+    this.drawStatic();
   };
 
   /** Cylinder shading baked per cell + ambient-occlusion ramp by depth. */
@@ -905,7 +925,8 @@
     body.addColorStop(0.84, rgba(tint, 0.06));
     body.addColorStop(1, rgba(tint, 0.17));
     if (drawn) {
-      ctx.fillStyle = 'rgba(4,5,7,' + th.glass.smoke + ')';
+      // (on paper the smoke is a light grey veil: the bore seen through two walls, a pale sand still distinct in it)
+      ctx.fillStyle = 'rgba(4,5,7,' + (this.paper ? 0.05 + th.glass.smoke * 0.3 : th.glass.smoke) + ')';
       ctx.fill();
       ctx.fillStyle = body;
       ctx.fill();
@@ -945,14 +966,18 @@
     var tint = th.glass.tint, cap = th.cap, k, i;
 
     var drawn = !this.glass;
+    // On paper the glass's own light cannot be seen: its wall and its lines are drawn in a deep,
+    // cool ink instead, the band between its surfaces a soft grey, its outline a fine dark line.
+    if (drawn && this.paper) tint = PAPER_INK;
+    var pk = this.paper ? 0.55 : 1;
     if (drawn) {
     // double wall: the band between the outer and inner surface
     ctx.save();
     tracePath(ctx, g, g.wall);
     var wallGr = ctx.createLinearGradient(-g.R, 0, g.R, 0);
-    wallGr.addColorStop(0, rgba(tint, 0.20));
-    wallGr.addColorStop(0.5, rgba(tint, 0.09));
-    wallGr.addColorStop(1, rgba(tint, 0.20));
+    wallGr.addColorStop(0, rgba(tint, 0.20 * pk));
+    wallGr.addColorStop(0.5, rgba(tint, 0.09 * pk));
+    wallGr.addColorStop(1, rgba(tint, 0.20 * pk));
     ctx.fillStyle = wallGr;
     // even-odd: outer minus inner
     var outer = new Path2D(), inner = new Path2D(), band = new Path2D();
@@ -964,13 +989,13 @@
     // Fresnel rim: light gathers where the surface turns away from the eye
     ctx.save();
     ctx.clip(inner);
-    ctx.strokeStyle = rgba(tint, 0.03); ctx.lineWidth = 13 * q; ctx.stroke(inner);
-    ctx.strokeStyle = rgba(tint, 0.04); ctx.lineWidth = 7 * q; ctx.stroke(inner);
-    ctx.strokeStyle = rgba(tint, 0.06); ctx.lineWidth = 3 * q; ctx.stroke(inner);
+    ctx.strokeStyle = rgba(tint, 0.03 * pk); ctx.lineWidth = 13 * q; ctx.stroke(inner);
+    ctx.strokeStyle = rgba(tint, 0.04 * pk); ctx.lineWidth = 7 * q; ctx.stroke(inner);
+    ctx.strokeStyle = rgba(tint, 0.06 * pk); ctx.lineWidth = 3 * q; ctx.stroke(inner);
     ctx.restore();
 
-    ctx.strokeStyle = rgba(tint, 0.42); ctx.lineWidth = 0.75 * q; ctx.stroke(outer);
-    ctx.strokeStyle = rgba(tint, 0.20); ctx.lineWidth = 0.5 * q; ctx.stroke(inner);
+    ctx.strokeStyle = rgba(tint, this.paper ? 0.62 : 0.42); ctx.lineWidth = 0.75 * q; ctx.stroke(outer);
+    ctx.strokeStyle = rgba(tint, this.paper ? 0.30 : 0.20); ctx.lineWidth = 0.5 * q; ctx.stroke(inner);
     }
     this._drawCracks(ctx);                             // cracks lie on the glass, under the caps
 

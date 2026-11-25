@@ -45,6 +45,10 @@
   var MARK_FROM = 0.2;              // damage from which a stretch of glass shows its stress mark
   var HALF_PI = Math.PI / 2;
   var CRACK_SHADOW = 'rgba(0,0,0,0.30)', CHIP_DARK = 'rgba(0,0,0,0.55)';
+  // In the light look (renderer.setPaper) the glass shows against white, where its bright hairline
+  // cannot be seen on its own: the line under it is a deeper, cool ink, so a crack reads as a dark
+  // line with a bright core, on the paper and on the sand alike.
+  var CRACK_SHADOW_PAPER = 'rgba(34,38,46,0.62)';
   var GOLD = 'rgba(214,170,92,0.95)', GOLD_CORE = 'rgba(255,232,180,0.9)';
   var GOLD_GLOW = 'rgba(255,190,90,0.5)', NO_SHADOW = 'rgba(0,0,0,0)';
   // Every colour a redraw needs is made once, here, by brightness level.
@@ -366,7 +370,7 @@
         any = true;
       }
     }
-    if (any) { ctx.strokeStyle = CRACK_SHADOW; ctx.lineWidth = 1.6; ctx.stroke(); }
+    if (any) { ctx.strokeStyle = this.paper ? CRACK_SHADOW_PAPER : CRACK_SHADOW; ctx.lineWidth = this.paper ? 1.4 : 1.6; ctx.stroke(); }
 
     // the hairline: each segment glints as it faces the key light, |sin(a + rot − 0.9)|^6
     cnt.fill(0);
@@ -489,7 +493,7 @@
       ctx.clip();
       // (a soft shade round it first, so it reads on sand as well as on dark glass)
       var mg = ctx.createRadialGradient(mx, my, 0.5 * mr, mx, my, 1.5 * mr);
-      mg.addColorStop(0, 'rgba(0,0,0,' + (0.32 * ma).toFixed(3) + ')');
+      mg.addColorStop(0, 'rgba(0,0,0,' + ((this.paper ? 0.5 : 0.32) * ma).toFixed(3) + ')');
       mg.addColorStop(1, NO_SHADOW);
       ctx.fillStyle = mg;
       ctx.fillRect(mx - 1.5 * mr, my - 1.5 * mr, 3 * mr, 3 * mr);
@@ -507,7 +511,7 @@
         ctx.moveTo(mx, my);
         ctx.lineTo(mx + cl * Math.cos(ca), my + cl * Math.sin(ca));
       }
-      ctx.strokeStyle = CRACK_SHADOW; ctx.lineWidth = 1.1; ctx.stroke();
+      ctx.strokeStyle = this.paper ? CRACK_SHADOW_PAPER : CRACK_SHADOW; ctx.lineWidth = 1.1; ctx.stroke();
       ctx.strokeStyle = GLINT[(ma * CRACK_LV + 0.5) | 0]; ctx.lineWidth = 0.45; ctx.stroke();
       ctx.restore();
     }

@@ -247,8 +247,8 @@ async function tune(s, env) {
       on: window.Hourglass.breath.on
     };
   });
-  s.check('TUNE: the main screen has the same buttons (4 top, one of them hidden; 12 bottom); Tune has its row (14 in all, with Layered sand, Grain, Real sand, the custom sand\'s colour, Fade out before the end, Sound in silent mode and Show when it ends)',
-          ui.top === 4 && ui.bottom === 12 && ui.rows === 14, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
+  s.check('TUNE: the main screen has the same buttons (5 top, one of them hidden; 12 bottom); Tune has its row (15 in all, with Layered sand, Grain, Real sand, the custom sand\'s colour, Fade out before the end, Sound in silent mode, Show when it ends and Background)',
+          ui.top === 5 && ui.bottom === 12 && ui.rows === 15, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
   s.check('TUNE: "Breathing pace" is the first row of the Time tab\'s "While it runs", its choice sits directly under it, then Full Zen',
           ui.tab === 'Time' && ui.group === 'While it runs' && ui.before === '(first)' && ui.then === 'breath-row' && ui.after === 'Full Zen' && ui.name === 'Breathing pace',
           ui.tab + ' / ' + ui.group + ': ' + ui.before + ' / ' + ui.name + ' / #' + ui.then + ' / ' + ui.after);
@@ -572,7 +572,7 @@ async function calm(s, env) {
           end.bt.calls >= 2 && end.bt.calls <= 6 && end.bt.max < 2,
           end.bt.calls + ' timer callbacks in 12.8 s, ' + end.bt.ms.toFixed(2) + ' ms in all, the longest ' + end.bt.max.toFixed(2) + ' ms');
   s.check('CALM: nothing else changes: no text cue, no new control, no haptics after the tap\'s own',
-          end.status === 'Flowing' && end.top === 4 && end.bottom === 12 && end.vib === began.vib,
+          end.status === 'Flowing' && end.top === 5 && end.bottom === 12 && end.vib === began.vib,
           '"' + end.status + '", ' + end.top + ' + ' + end.bottom + ' buttons, vibrate calls ' + began.vib + ' → ' + end.vib);
   await H.invariants(s, t, 'CALM');
   await t.close();
