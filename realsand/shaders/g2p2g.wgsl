@@ -29,6 +29,9 @@
 // the neck's counters (solver.mjs): [2] crossings this run (tickets taken), [3] the points above
 // at the run's start, [4] crossings refused this run, [5] upward crossings refused this run
 @group(0) @binding(7) var<storage, read_write> g_counters : array<atomic<u32>>;
+// the surface push as a speed (surf.x = 6): cells/s per g of push, and at most
+const SurfShiftKv = 200.0;
+const SurfShiftVmax = 120.0;
 
 override enableSolidMaterials: bool = false;
 
@@ -321,6 +324,20 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                         }
                     }
                 }
+                // (surf.x = 6, the push as a speed: a point the push reaches moves down the surface
+                // at least at the speed it asks, ShiftKv cells/s per g of push up to ShiftVmax, set
+                // in its next prediction instead of added as a force)
+                if (g_simConstants.surf.x > 5.5) {
+                    let Pl = length(push);
+                    let gl = length(g_simConstants.gravity);
+                    if (Pl > 1e-3 && gl > 1e-3) {
+                        let dir = push / Pl;
+                        let vD = min(SurfShiftKv * Pl / gl, SurfShiftVmax);
+                        let own = dot(particle.displacement, dir);
+                        particle.displacement += dir * clamp(vD * dt - own, 0.0, vD * dt);
+                    }
+                    push = vec2f(0.0);
+                }
                 particle.displacement += (bodyForce(particle.position, particle.displacement / dt) + push) * dt * dt;
 
                 g_particles[myParticleIndex] = particle;
@@ -370,7 +387,7 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
             // strain's compression, at 0.8 of the cone), so a flank keeps its slope until the push
             // acts on it
             var skinHold = false;
-            if (g_simConstants.surf.x > 3.5) {
+            if (g_simConstants.surf.x > 3.5 && g_simConstants.surf.x < 5.5) {
                 var sk = 0.0;
                 for (var i = 0; i < 3; i++) {
                     for (var j = 0; j < 3; j++) {

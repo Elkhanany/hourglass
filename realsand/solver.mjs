@@ -457,7 +457,7 @@ export class Solver {
     F[o + 48] = m.yieldLoop ?? 0; F[o + 49] = m.yieldScale ?? 1; F[o + 50] = m.yieldStep ?? 0; F[o + 51] = m.yieldStep >= 2 ? (m.loadScale ?? 2) : (m.yieldStepScale ?? 1);
     // the surface push (gridClear.wgsl, g2p2g.wgsl): sand only; surfProbe computes it without applying it
     const sand = m.model === 2, sp = sand ? (m.surfPush ?? 0) : 0;
-    F[o + 52] = sand && m.surfProbe ? 2 : sp > 0 ? (m.surfSkin ? (m.surfShift === false ? 5 : 4) : m.surfShift ? 3 : 1) : 0; F[o + 53] = sp; F[o + 54] = m.surfStart ?? 33; F[o + 55] = m.surfStop ?? 31;
+    F[o + 52] = sand && m.surfProbe ? 2 : sp > 0 ? (m.surfVel ? 6 : m.surfSkin ? (m.surfShift === false ? 5 : 4) : m.surfShift ? 3 : 1) : 0; F[o + 53] = sp; F[o + 54] = m.surfStart ?? 33; F[o + 55] = m.surfStop ?? 31;
     F[o + 56] = m.surfRamp ?? 3; F[o + 57] = m.surfDepth ?? 3; F[o + 58] = m.surfNeck ?? 4; F[o + 59] = m.surfNeckFade ?? 2;
     F[o + 60] = m.surfV1 ?? 1.3; F[o + 61] = m.surfV2 ?? 2.6; F[o + 62] = set.g0 ?? 0; F[o + 63] = Math.max(1, Math.round((m.surfMem ?? 0.05) * set.hz));
   }

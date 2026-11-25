@@ -93,7 +93,7 @@ fn surfaceNode(id: vec2u) {
         k++;
     }
     let wD = 1.0 - smoothstep(Ds - 1.0, Ds, f32(k - 1) + 0.5);
-    let skin = select(0.0, 0.5, g_simConstants.surf.x > 3.5 && f32(k - 1) + 0.5 <= Ds);
+    let skin = select(0.0, 0.5, g_simConstants.surf.x > 3.5 && g_simConstants.surf.x < 5.5 && f32(k - 1) + 0.5 <= Ds);
     load[n].w = mNew + skin;
     if (wD <= 0.0) { return; }
     // the free surface's outward normal: the fill's gradient, Gaussian-weighted over 5 x 5 nodes
