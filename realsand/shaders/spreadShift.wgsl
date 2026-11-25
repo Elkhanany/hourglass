@@ -20,12 +20,13 @@
 @group(0) @binding(3) var<storage> fine: array<i32>;
 @group(0) @binding(4) var<storage> g_domain: array<vec4f>;
 // the beds at this substep's end, for the sound (solver.mjs PEAK_*), summed only by csBeds (solver.mjs
-// run: while the app says a fall is possible, and never at a run's last substep, which the tally has): [0-3] the bulb above the counting line, [4-7] the one on it or below,
-// each over its points in a bed (crowded, as tally.wgsl counts them): [+0, +1] their summed
+// run: while the app says a fall is possible, and never at a run's last substep, which the tally
+// has) into the substep's slot of 8 words (spread.w): [0-3] the bulb above the counting line, [4-7]
+// the one on it or below, each over its points in a bed (crowded, as tally.wgsl counts them): [+0, +1] their summed
 // velocity, x and y (each cells/s x 4, a point's speed capped at BedCap; signed, two's
-// complement), [+2] how many they are, [+3] how many of them move (as tally.wgsl's [7]). The next
-// substep's prepare.wgsl turns them into the bed's fall and clears them; the words after them
-// are the fastest falls, prepare's alone.
+// complement), [+2] how many they are, [+3] how many of them move (as tally.wgsl's [7]). After
+// the run prepare.wgsl's csKeep turns them into the beds' fastest falls and clears them; the
+// words after the slots are those falls, csKeep's alone.
 @group(0) @binding(5) var<storage,read_write> bedPeak: array<atomic<u32>>;
 
 const FineScale = 100000.0;
@@ -55,11 +56,12 @@ fn csBeds(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_in
     if (li < 6u) {
         let v = atomicLoad(&w_bed[li]);
         if (v != 0u) {
-            let b = li / 3u; let w = li % 3u;
-            if (w < 2u) { atomicAdd(&bedPeak[b * 4u + w], v); }
+            // (this substep's slot of sums: spread.w, solver.mjs run)
+            let o = u32(g_simConstants.spread.w + 0.5) * 8u + (li / 3u) * 4u; let w = li % 3u;
+            if (w < 2u) { atomicAdd(&bedPeak[o + w], v); }
             else {
-                atomicAdd(&bedPeak[b * 4u + 2u], v & 0xffffu);
-                if ((v >> 16u) != 0u) { atomicAdd(&bedPeak[b * 4u + 3u], v >> 16u); }
+                atomicAdd(&bedPeak[o + 2u], v & 0xffffu);
+                if ((v >> 16u) != 0u) { atomicAdd(&bedPeak[o + 3u], v >> 16u); }
             }
         }
     }

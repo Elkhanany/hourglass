@@ -54,11 +54,13 @@ const COUNTER_WORDS = 8;
 const TALLY_WORDS = 28;
 const BED_AT = 16, BED_WORDS = 6;
 const POST_WORDS = 8;
-// each bulb's bed at its fastest fall toward the glass's floor (spreadShift.wgsl sums the beds at
-// a substep's end while set.beds is on, csBeds, prepare.wgsl keeps the fastest): the buffer's first 8
-// words are the sums, then PEAK_BED words a bed (prepare.wgsl's header), kept across runs until a
-// readback copies them, so that a fall in a run that found no free readback slot is read with the next
-const PEAK_SUMS = 8, PEAK_BED = 6, PEAK_WORDS = PEAK_SUMS + 2 * PEAK_BED;
+// each bulb's bed at its fastest fall toward the glass's floor (spreadShift.wgsl csBeds sums the
+// beds at a substep's end while set.beds is on, each summed substep into a slot of its own;
+// prepare.wgsl csKeep keeps the fastest once after the run): the buffer's first PEAK_SLOTS slots of
+// 8 words are the sums, then PEAK_BED words a bed (prepare.wgsl's header), kept across runs until a
+// readback copies them, so that a fall in a run that found no free readback slot is read with the
+// next. (PEAK_SLOTS and BEDS_EVERY are prepare.wgsl's PeakSlots and BedsEvery too.)
+const PEAK_SLOTS = 48, PEAK_SUMS = 8 * PEAK_SLOTS, PEAK_BED = 6, PEAK_WORDS = PEAK_SUMS + 2 * PEAK_BED;
 // the beds are summed at every BEDS_EVERY-th substep's end, 240 times a second at 480 Hz (a fall
 // speeds up by g / 240, about 9 cells/s, between two sums, and its fastest, where it turns from
 // speeding up to being stopped, is missed by less), which halves their cost against every substep
@@ -298,7 +300,7 @@ export class Solver {
     this.pipelines.g2p2gSolid = await pipe('g2p2g', { enableSolidMaterials: true });
     // the spread's shift that also sums the beds (set.beds; spreadShift.wgsl csBeds)
     this.pipelines.spreadShiftBeds = await pipe('spreadShift', null, 'csBeds');
-    // ... and the prepare that keeps the fastest fall from those sums (prepare.wgsl csKeep)
+    // ... and the pass that keeps the fastest fall from those sums, once a run (prepare.wgsl csKeep)
     this.pipelines.prepareKeep = await pipe('prepare', null, 'csKeep');
   }
 
@@ -500,9 +502,19 @@ export class Solver {
     const d = this.device, b = this.buffers, P = this.pipelines, G = this.groups;
     steps = Math.min(steps, this.cap);
     const its = set.iterations;
+    const spread = set.material.model === 2 && !!set.material.spread;
+    // the substeps at whose end the beds are summed: only while set.beds says a fall is possible,
+    // every BEDS_EVERY back from the run's last, and never the last (its tally has it); each into
+    // its slot of sums (slot j: BEDS_EVERY (j + 1) substeps before the last)
+    const slots = !!set.beds && spread && this.count && steps > 2 ? Math.min(PEAK_SLOTS, Math.floor((steps - 1) / BEDS_EVERY)) : 0;
+    const slotOf = k => (steps - 1 - k) / BEDS_EVERY - 1;
+    const summed = k => slots > 0 && k < steps - 1 && (steps - 1 - k) % BEDS_EVERY === 0 && slotOf(k) < slots;
     for (let s = 0; s < Math.max(steps, 1); s++) {
       const f = fieldAt(s);
       for (let it = 0; it < its; it++) this.writeSlot(s * MAX_IT + it, set, f, it, this.frame + s, neck, s);
+      // (spread.w: this substep's slot of sums; compaction.w of the last: the slots used)
+      if (summed(s)) this.uf[s * MAX_IT * SLOT / 4 + 43] = slotOf(s);
+      if (s === steps - 1) this.uf[s * MAX_IT * SLOT / 4 + 47] = slots;
     }
     d.queue.writeBuffer(b.uniforms, 0, this.uniformData, 0, Math.max(steps, 1) * MAX_IT * SLOT);
     const enc = d.createCommandEncoder({ label: 'lab frame' });
@@ -533,15 +545,10 @@ export class Solver {
     const solid = set.material.model !== 0 ? P.g2p2gSolid : P.g2p2g;
     const useLoad = set.material.model === 2 && set.material.yieldLoop && set.material.yieldStep >= 2;
     if (steps && this.lastHz && this.lastHz !== set.hz && this.count) go(P.rescale, G.rescale, 0, n64);
-    const spread = set.material.model === 2 && !!set.material.spread;
-    // the substeps at whose end the beds are summed: only while set.beds says a fall is possible,
-    // every BEDS_EVERY back from the run's last, and never the last (its tally has it)
-    const summed = k => !!set.beds && spread && k >= 0 && k < steps - 1 && (steps - 1 - k) % BEDS_EVERY === 0;
     if (this.count) for (let s = 0; s < steps; s++) {
       const base = s * MAX_IT;
-      // (with the spread on, prepare also clears the sub-cell grid: one thread a node of it; after a
-      // substep whose beds were summed, it keeps their fastest fall too)
-      go(summed(s - 1) ? P.prepareKeep : P.prepare, G.prepare, base, Math.ceil(Math.max(this.bucketCount, spread ? this.fineCount : 0) / 64));
+      // (with the spread on, prepare also clears the sub-cell grid: one thread a node of it)
+      go(P.prepare, G.prepare, base, Math.ceil(Math.max(this.bucketCount, spread ? this.fineCount : 0) / 64));
       go(P.bukkitCount, G.count, base, n64);
       go(P.bukkitAllocate, G.allocate, base, [Math.ceil(this.bucketX / 8), Math.ceil(this.bucketY / 8)]);
       go(P.bukkitInsert, G.insert, base, n64);
@@ -562,6 +569,8 @@ export class Solver {
         go(summed(s) ? P.spreadShiftBeds : P.spreadShift, G.spreadShift, base, n64);
       }
     }
+    // the beds' fastest falls kept from the run's sums (one workgroup, the last substep's uniforms)
+    if (slots) go(P.prepareKeep, G.prepare, (steps - 1) * MAX_IT, 1);
     if (this.count) go(P.tally, G.tally, Math.max(steps - 1, 0) * MAX_IT, n64);
     pass.end();
     if (this.post && this.count) this.post(enc, this.count);
