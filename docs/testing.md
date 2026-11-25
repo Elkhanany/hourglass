@@ -629,7 +629,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the Glass tab, the time left kept within a frame, the sand the same share
   of the new full glass, the glass out at 00:00.0 on time); every offered
   shape on the classic sand (a 60-minute glass filled to its cap, a 10 s
-  glass out on time); the shapes drawn in the sand chosen in the Sand tab
+  glass out on time); in both, the last grain leaves within a frame before
+  00:00.0 or two after it, so sand that runs out early fails as late sand
+  does (the control: a copy whose valve aims 3 s ahead); the shapes drawn in the sand chosen in the Sand tab
   (not the material's) and repainted when it changes; the Sand button of a
   full glass (Delta's and Trumpet's at 60 minutes); and saves of 1.14.0 (sand, colour and finish, no shape),
   1.13.0 and 1.10.0, and ones naming a held-back shape (held on its page)
