@@ -87,6 +87,7 @@ const CYCLE = {
   blur: [1, 0.5, 0],
   spread: [true, false],
   yieldIn: [false, true],
+  surfPush: [true, false],
   queue: [1, 2, 3],
   budget: [true, false],
   mode: ['full', 'auto', 'calm']
@@ -130,6 +131,8 @@ const S = {
   spread: true,
   // sand yields inside the solver's iterations (solver.mjs yieldLoop); off by default
   yieldIn: false,
+  // sand's push down over-steep free surfaces (solver.mjs surfPush; on by default; off: build 7)
+  surfPush: true,
   // frames of GPU work allowed in flight (2; 5cc11b3 allowed 3), and the substeps of a frame held
   // by the GPU's back-pressure (on; pace.mjs); queue 3 with budget off is the old pace (a test's control)
   queue: QUEUE_DEFAULT, budget: true,
@@ -188,7 +191,8 @@ const set = () => {
   let m = matNow();
   if (!S.spread && m.spread) m = { ...m, spread: 0 };
   if (S.yieldIn && m.model === 2) m = { ...m, yieldLoop: 1 };
-  return { hz: rate.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis, material: m };
+  if (!S.surfPush && m.model === 2) m = { ...m, surfPush: 0 };
+  return { hz: rate.hz, iterations: S.iterations, maxStep: S.maxStep, coriolis: S.coriolis, material: m, g0: gCells() };
 };
 
 /** True g in solver cells/s², for a glass 11 cm tall (the brief's 10 to 12 cm; a phone draws it smaller, see drawnMM). */
@@ -1548,11 +1552,12 @@ const BENCH_OPTIONS = [
   { tag: 'spread off', set: { spread: false } },
   { tag: 'blur off', set: { blur: 0 } },
   { tag: '8 iterations', set: { iterations: 8 } },
-  { tag: 'yield in loop', set: { yieldIn: true } }
+  { tag: 'yield in loop', set: { yieldIn: true } },
+  { tag: 'push off', set: { surfPush: false } }
 ];
 async function benchmark(opts = {}) {
   const warm = opts.warm ?? 0.7, measure = opts.measure ?? 2.5;
-  const keep = { res: S.res, amount: S.amount, speed: S.speed, hz: S.hz, iterations: S.iterations, cap: S.cap, material: S.material, spread: S.spread, blur: S.blur, yieldIn: S.yieldIn };
+  const keep = { res: S.res, amount: S.amount, speed: S.speed, hz: S.hz, iterations: S.iterations, cap: S.cap, material: S.material, spread: S.spread, blur: S.blur, yieldIn: S.yieldIn, surfPush: S.surfPush };
   const combos = [];
   // first the page's default (grid, amount) at both speeds, and the costly options at it (app
   // speed): in the Benchmark from the button, or when asked for
@@ -1566,7 +1571,7 @@ async function benchmark(opts = {}) {
   try {
     for (const [i, c] of combos.entries()) {
       setStatus(`Benchmark ${i + 1}/${combos.length}: ${RES_NAME[c.res]} grid, ${AMOUNT_NAME[c.amount]}, ${c.speed} speed${c.tag ? ', ' + c.tag : ''}`);
-      Object.assign(S, { spread: keep.spread, blur: keep.blur, yieldIn: keep.yieldIn }, c.set || {});
+      Object.assign(S, { spread: keep.spread, blur: keep.blur, yieldIn: keep.yieldIn, surfPush: keep.surfPush }, c.set || {});
       await resetSand({ res: c.res, amount: c.amount, speed: c.speed, ...SPEED_DEFAULTS[c.speed], ...(c.set?.iterations ? { iterations: c.set.iterations } : {}), material: keep.material, gate: 0 });
       benchRun = { t0: simTime };
       clampLog.length = 0; rate.peak = rate.hz;
@@ -1591,7 +1596,7 @@ async function benchmark(opts = {}) {
     }
   } finally {
     benchRun = null; btn.classList.remove('busy');
-    Object.assign(S, { spread: keep.spread, blur: keep.blur, yieldIn: keep.yieldIn });
+    Object.assign(S, { spread: keep.spread, blur: keep.blur, yieldIn: keep.yieldIn, surfPush: keep.surfPush });
     await resetSand({ ...keep, gate: GATE_S });
     setStatus('');
   }
@@ -1639,7 +1644,7 @@ function reportText() {
   L.push(`Screen: ${screen.width}x${screen.height} CSS px, devicePixelRatio ${window.devicePixelRatio}, window ${innerWidth}x${innerHeight}, screen angle ${screenAngle()}, standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`);
   L.push(`Errors: start ${startError || 'none'}; GPU lost ${lostReason || 'no'}; WebGPU ${solver?.errors?.length ? solver.errors.join(' | ') : 'none'}; live readbacks ${readbackOk} ok, ${readbackFails} failed${readbackErr ? ' (' + readbackErr + ')' : ''}`);
   L.push(`Engine build: ${BUILD} (realsand/build.mjs); this page was written for ${BUILD_EXPECTED}${BUILD === BUILD_EXPECTED ? '' : ': A MIX OF OLD AND NEW FILES'}`);
-  L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations (auto Hz ${S.auto ? 'on, up to ' + hzTop() + ' Hz; highest since reset ' + rate.peak : 'off'}), cap ${S.cap}/frame at the base rate, clamp ${S.maxStep} cell; jolts at app speed ${JOLT_SAYS[S.jolts] || S.jolts}${S.jolts === 'slowmo' || S.jolts === 'film' ? ' (x' + (1 / Math.sqrt(lamNow())).toFixed(1) + ' longer)' : ''}; spread ${S.spread ? 'on' : 'off'}; yield ${S.yieldIn ? 'in loop' : 'at end'}; blur ${S.blur ? S.blur + ' frame' : 'off'}`);
+  L.push(`Now: ${MATERIALS[S.material].label}, ${AMOUNT_NAME[S.amount]} glass, ${RES_NAME[S.res]} grid (${glass?.W}x${glass?.H}, neck ${glass?.neckCells.toFixed(1)} cells), ${S.speed} speed (g ${Math.round(gCells())} cells/s²${S.speed === 'real' ? ', true g for an 11 cm glass' : ''}; the glass is drawn ${n(drawnMM() / 10)} cm tall), ${S.hz} Hz x ${S.iterations} iterations (auto Hz ${S.auto ? 'on, up to ' + hzTop() + ' Hz; highest since reset ' + rate.peak : 'off'}), cap ${S.cap}/frame at the base rate, clamp ${S.maxStep} cell; jolts at app speed ${JOLT_SAYS[S.jolts] || S.jolts}${S.jolts === 'slowmo' || S.jolts === 'film' ? ' (x' + (1 / Math.sqrt(lamNow())).toFixed(1) + ' longer)' : ''}; spread ${S.spread ? 'on' : 'off'}; yield ${S.yieldIn ? 'in loop' : 'at end'}; surface push ${S.surfPush ? 'on' : 'off'}; blur ${S.blur ? S.blur + ' frame' : 'off'}`);
   L.push(`Motion: input ${S.input}, readings ${motion.seen ? 'yes' : 'no'}, sign ${motion.sign || 'not learnt'}, units ${motion.unit ? (motion.unit > 1 ? 'g' : 'm/s²') : '?'}, turn axis ${motion.rAxis || '?'} sign ${motion.rSign} (${motion.rLearnt ? 'learnt' : 'assumed'})`);
   const f = frameStats();
   L.push(`Setup: ${setupInfo.text || (setupInfo.state === 'none' ? 'from the address (no timing)' : setupInfo.state)}`);
@@ -1730,7 +1735,7 @@ function syncUI() {
   }
   for (const b of document.querySelectorAll('.cyc')) {
     const k = b.dataset.key, v = S[k];
-    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'jolts' ? `jolts ${JOLT_LABEL[v] || v}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : k === 'spread' ? `spread ${v ? 'on' : 'off'}` : k === 'yieldIn' ? `yield ${v ? 'in loop' : 'at end'}` : k === 'queue' ? `${v} in flight` : k === 'budget' ? `GPU budget ${v ? 'on' : 'off'}` : k === 'mode' ? `mode ${v}` : `Coriolis ${v ? 'on' : 'off'}`;
+    b.textContent = k === 'hz' ? `${v} Hz` : k === 'iterations' ? `${v} iter` : k === 'cap' ? `cap ${v}` : k === 'maxStep' ? `clamp ${v}` : k === 'auto' ? `auto Hz ${v ? 'on' : 'off'}` : k === 'jolts' ? `jolts ${JOLT_LABEL[v] || v}` : k === 'blur' ? `blur ${v === 0 ? 'off' : v === 1 ? '1 frame' : v + ' frame'}` : k === 'spread' ? `spread ${v ? 'on' : 'off'}` : k === 'yieldIn' ? `yield ${v ? 'in loop' : 'at end'}` : k === 'surfPush' ? `push ${v ? 'on' : 'off'}` : k === 'queue' ? `${v} in flight` : k === 'budget' ? `GPU budget ${v ? 'on' : 'off'}` : k === 'mode' ? `mode ${v}` : `Coriolis ${v ? 'on' : 'off'}`;
   }
   if ($('b-spin')) $('b-spin').textContent = `spin ${rotor.w} rad/s`;
   if ($('b-skip3')) $('b-skip3').textContent = `skip every 3rd run: ${rotor.skip3 ? 'on' : 'off'}`;
@@ -2088,7 +2093,7 @@ window.__lab = {
     // a speed brings its defaults first; hz, iterations and cap given with it then override them
     const capWas = S.cap;
     if (o.speed) { S.speed = o.speed; Object.assign(S, SPEED_DEFAULTS[o.speed]); }
-    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'neckMin', 'gScale', 'override', 'blur', 'blurAll', 'spread', 'yieldIn', 'queue', 'budget', 'hzMax']) if (o[k] !== undefined) S[k] = o[k];
+    for (const k of ['hz', 'iterations', 'cap', 'maxStep', 'coriolis', 'auto', 'neckMin', 'gScale', 'override', 'blur', 'blurAll', 'spread', 'yieldIn', 'surfPush', 'queue', 'budget', 'hzMax']) if (o[k] !== undefined) S[k] = o[k];
     // jolts: 'live', 'slowmo', 'film' or 'plain' (the old impulse: true, slowed, is slow motion now; false, plain)
     if (o.impulse !== undefined) S.jolts = o.impulse ? 'slowmo' : 'plain';
     if (JOLT_MODES.includes(o.jolts)) S.jolts = o.jolts;
@@ -2144,6 +2149,31 @@ window.__lab = {
     return out;
   },
   heapAngle: o => heapAngle(o),
+  /** The surface push's field (solver.readLoad): pushed, nodes pushed now; running, nodes with a
+   *  memory; maxNeck, the largest push within the neck zone's outer radius (cells/s²); sumPush; max;
+   *  where, the first 60 nodes pushed: [x, y relative to the neck (cells), push, distance to the glass]. */
+  async surfaceField() {
+    const L = await solver.readLoad(), d = await solver.readParticles(), W = glass.W, H = glass.H, m = set().material;
+    const R = ((m.surfNeck ?? 4) + (m.surfNeckFade ?? 2)) * glass.rn;
+    // the nodes a point's stencil reaches now (a node the sand has left keeps its last value; g2p2g never reads it)
+    const near = new Uint8Array(W * H);
+    for (let k = 0; k < solver.count; k++) {
+      const x = Math.floor(d[k * PARTICLE_WORDS]), y = Math.floor(d[k * PARTICLE_WORDS + 1]);
+      for (let b = -1; b <= 1; b++) for (let a = -1; a <= 1; a++) { const i = x + a, j = y + b; if (i >= 0 && j >= 0 && i < W && j < H) near[j * W + i] = 1; }
+    }
+    let pushed = 0, running = 0, maxNeck = 0, sumPush = 0, max = 0;
+    const where = [];
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+      if (!near[j * W + i]) continue;
+      const o = 4 * (j * W + i), a = Math.hypot(L[o + 1], L[o + 2]);
+      if (L[o + 3] >= 1) running++;
+      if (!(a > 0)) continue;
+      pushed++; sumPush += a; max = Math.max(max, a);
+      if (where.length < 60) where.push([+(i + 0.5 - glass.cx).toFixed(1), +(j + 0.5 - glass.cy).toFixed(1), Math.round(a), +glass.field[o + 2].toFixed(2)]);
+      if (Math.hypot(i + 0.5 - glass.cx, j + 0.5 - glass.cy) < R) maxNeck = Math.max(maxNeck, a);
+    }
+    return { pushed, running, maxNeck, sumPush, max, where };
+  },
   flip() { doFlip(); },
   flipping: () => flip.active,
   /** A scripted finger: carry the glass by (dx, dy) CSS px over ms (simulated), then let go. */

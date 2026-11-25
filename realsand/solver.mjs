@@ -115,13 +115,13 @@ const LAYOUTS = {
   bukkitCount: 'urrs',
   bukkitAllocate: 'urssssss',
   bukkitInsert: 'ursrsr',
-  gridClear: 'usrr',
+  gridClear: 'usrrrrs',
   gridUpdate: 'usrrrsss',
   g2p2g: 'usrsrrrs',
   load: 'urrrs',
   rescale: 'urs',
   spreadSplat: 'urrs',
-  spreadShift: 'ursrr',
+  spreadShift: 'ursrrr',
   tally: 'urrrss',
   flip: 'urs'
 };
@@ -209,8 +209,8 @@ const LAYOUTS = {
  * at 0.42 a jerk threw it up the wall in a curling tongue.
  */
 export const MATERIALS = {
-  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 31, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8 },
-  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 30, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8 },
+  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 31, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8, surfPush: 0.3, surfStart: 33, surfStop: 31 },
+  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 30, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8, surfPush: 0.3, surfStart: 32, surfStop: 30 },
   water:  { label: 'Water',       model: 0, frictionAngle: 0,  viscosity: 0.01,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.002 },
   syrup:  { label: 'Syrup',       model: 0, frictionAngle: 0,  viscosity: 1,     relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 1 }
 };
@@ -220,11 +220,13 @@ export const MATERIALS = {
  * iteration a G2P2G after the grid's clear (the first) or its update (which clears too);
  * the load pass (yieldStep 2 or 3, with yield in the loop); the spread's splat and shift.
  * With 5 iterations: 16 with the spread, 14 without. (Per frame, a tally; and a rescale
- * when the rate changes.)
+ * when the rate changes.) The surface push's pass is folded into the first gridClear: no
+ * dispatch of its own.
  */
 export function dispatchesPerSubstep(iterations, m) {
   const sand = m.model === 2;
-  return 4 + 2 * iterations + (sand && m.yieldLoop && m.yieldStep >= 2 ? 1 : 0) + (sand && m.spread ? 2 : 0);
+  const shift = sand && !m.surfProbe && m.surfPush > 0 && !!(m.surfShift || m.surfSkin);
+  return 4 + 2 * iterations + (sand && m.yieldLoop && m.yieldStep >= 2 ? 1 : 0) + (sand && m.spread ? 2 : shift ? 1 : 0);
 }
 
 export class Solver {
@@ -301,8 +303,9 @@ export class Solver {
     mk('grid0', nodes * 16, S); mk('grid1', nodes * 16, S);
     mk('domain', nodes * 16, S, glass.field);
     mk('wall', nodes * 4, S);
-    // per node: the depth of sand above it (load.wgsl)
-    mk('load', nodes * 4, S);
+    // per node: the depth of sand above it (load.wgsl), and the surface push and its memory
+    // (gridClear.wgsl), 4 floats
+    mk('load', nodes * 16, S);
     // the sub-cell density grid (nodes half a cell apart) on which sand points spread
     this.fineCount = (2 * this.W + 2) * (2 * this.H + 2);
     mk('fine', this.fineCount * 4, S);
@@ -347,14 +350,15 @@ export class Solver {
       count: group('bukkitCount', [b.count, b.particles, b.bucketCount]),
       allocate: group('bukkitAllocate', [b.bucketCount, b.bucketArgs, b.bucketData, b.allocator, b.bucketStarts, b.gridArgs, b.gridBuckets]),
       insert: group('bukkitInsert', [b.count, b.bucketInsertCount, b.particles, b.bucketData, b.bucketStarts]),
-      clear: [b.grid0, b.grid1].map(g => group('gridClear', [g, b.gridBuckets, b.gridArgs])),
+      // clear[i]: zeroes grid i and reads the other, the one the last P2G wrote (the surface pass)
+      clear: [b.grid0, b.grid1].map((g, i) => group('gridClear', [g, b.gridBuckets, b.gridArgs, i ? b.grid0 : b.grid1, b.domain, b.load])),
       // update[i]: grid i's update, which also zeroes the other grid (the next iteration's)
       update: [0, 1].map(i => group('gridUpdate', [i ? b.grid1 : b.grid0, b.domain, b.gridBuckets, b.gridArgs, b.wall, b.counters, i ? b.grid0 : b.grid1])),
       solve: [0, 1].map(i => group('g2p2g', [b.particles, i ? b.grid1 : b.grid0, i ? b.grid0 : b.grid1, b.bucketData, b.domain, b.load, b.counters])),
       load: [b.grid0, b.grid1].map(g => group('load', [g, b.gridBuckets, b.gridArgs, b.load])),
       rescale: group('rescale', [b.count, b.particles]),
       spreadSplat: group('spreadSplat', [b.count, b.particles, b.fine]),
-      spreadShift: group('spreadShift', [b.count, b.particles, b.fine, b.domain]),
+      spreadShift: group('spreadShift', [b.count, b.particles, b.fine, b.domain, b.load]),
       tally: group('tally', [b.count, b.particles, b.domain, b.tally, b.surface]),
       flip: group('flip', [b.count, b.particles])
     };
@@ -451,6 +455,11 @@ export class Solver {
     F[o + 40] = m.spread ?? 0; F[o + 41] = m.spreadThr ?? 0.8; F[o + 42] = m.spreadCap ?? 0.05; F[o + 43] = 0;
     F[o + 44] = m.compact ?? 0; F[o + 45] = m.packMax ?? 1; F[o + 46] = m.dilate ?? 1; F[o + 47] = 0;
     F[o + 48] = m.yieldLoop ?? 0; F[o + 49] = m.yieldScale ?? 1; F[o + 50] = m.yieldStep ?? 0; F[o + 51] = m.yieldStep >= 2 ? (m.loadScale ?? 2) : (m.yieldStepScale ?? 1);
+    // the surface push (gridClear.wgsl, g2p2g.wgsl): sand only; surfProbe computes it without applying it
+    const sand = m.model === 2, sp = sand ? (m.surfPush ?? 0) : 0;
+    F[o + 52] = sand && m.surfProbe ? 2 : sp > 0 ? (m.surfSkin ? 4 : m.surfShift ? 3 : 1) : 0; F[o + 53] = sp; F[o + 54] = m.surfStart ?? 33; F[o + 55] = m.surfStop ?? 31;
+    F[o + 56] = m.surfRamp ?? 3; F[o + 57] = m.surfDepth ?? 3; F[o + 58] = m.surfNeck ?? 4; F[o + 59] = m.surfNeckFade ?? 2;
+    F[o + 60] = m.surfV1 ?? 1.3; F[o + 61] = m.surfV2 ?? 2.6; F[o + 62] = set.g0 ?? 0; F[o + 63] = Math.max(1, Math.round((m.surfMem ?? 0.05) * set.hz));
   }
 
   /**
@@ -500,6 +509,8 @@ export class Solver {
     const useLoad = set.material.model === 2 && set.material.yieldLoop && set.material.yieldStep >= 2;
     if (steps && this.lastHz && this.lastHz !== set.hz && this.count) go(P.rescale, G.rescale, 0, n64);
     const spread = set.material.model === 2 && !!set.material.spread;
+    // the surface push's shift (surfShift) rides on the spread's shift pass
+    const shift = set.material.model === 2 && !set.material.surfProbe && set.material.surfPush > 0 && !!(set.material.surfShift || set.material.surfSkin);
     if (this.count) for (let s = 0; s < steps; s++) {
       const base = s * MAX_IT;
       // (with the spread on, prepare also clears the sub-cell grid: one thread a node of it)
@@ -519,10 +530,8 @@ export class Solver {
         this.gridIndex = next;
       }
       // sand points that crowd together inside a cell move apart (spreadShift.wgsl)
-      if (spread) {
-        go(P.spreadSplat, G.spreadSplat, base, n64);
-        go(P.spreadShift, G.spreadShift, base, n64);
-      }
+      if (spread) go(P.spreadSplat, G.spreadSplat, base, n64);
+      if (spread || shift) go(P.spreadShift, G.spreadShift, base, n64);
     }
     if (this.count) go(P.tally, G.tally, Math.max(steps - 1, 0) * MAX_IT, n64);
     pass.end();
@@ -566,6 +575,19 @@ export class Solver {
     const staging = d.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     const e = d.createCommandEncoder();
     e.copyBufferToBuffer(this.buffers.particles, 0, staging, 0, size);
+    d.queue.submit([e.finish()]);
+    await staging.mapAsync(GPUMapMode.READ);
+    const out = new Float32Array(staging.getMappedRange().slice(0));
+    staging.unmap(); staging.destroy();
+    return out;
+  }
+
+  /** The load buffer, 4 floats a node (x: load.wgsl's depth; y, z: the surface push, cells/s²; w: its memory, substeps). */
+  async readLoad() {
+    const d = this.device, size = this.W * this.H * 16;
+    const staging = d.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const e = d.createCommandEncoder();
+    e.copyBufferToBuffer(this.buffers.load, 0, staging, 0, size);
     d.queue.submit([e.finish()]);
     await staging.mapAsync(GPUMapMode.READ);
     const out = new Float32Array(staging.getMappedRange().slice(0));

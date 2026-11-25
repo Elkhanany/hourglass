@@ -26,8 +26,11 @@
  *          within itself, which was fed in full before); with the readbacks unheard the same
  *          flick feeds nothing (control). Shaken sideways at
  *          1.5 g and 5 Hz: no thump (as the classic), agitation and slides within a factor of 2
- *          of the classic sand's. Leaned 30 degrees: sound only as far as the sand moved (this
- *          small bed does not: silence). At rest again: nothing, and the glass sleeps;
+ *          of the classic sand's. Leaned 30 degrees: sound only as far as the sand moved. Leaned
+ *          slowly (LEAN: 5 degrees a second to 30, held 2 s, after a Reset): the bed sheds sheets
+ *          off its surface (the surface push): slides fed and over 3 points moving, no landing,
+ *          silent within 2 s of the hold and asleep within 3 s, every point in the glass; with
+ *          the push off (control) nothing moves or is fed. At rest again: nothing, and the glass sleeps;
  *  RUN     a 10 s glass to its end: the last point crosses within one frame after 00:00.0 (by
  *          the GPU's own record of its substep), no catch-up or residue transfer, the count 0
  *          within 3 frames of the end and never 0 while a point is above, every readback's
@@ -386,7 +389,9 @@ function installWatch() {
       // shaken from side to side at 1.5 g, 5 Hz, for 1.5 s
       shake: { ms: 4500, at: function (u) { return u < 0 || u > 1500 ? [0, 0] : [1.5 * Math.sin(2 * Math.PI * 5 * u / 1000), 0]; } },
       // leaned to 30 degrees over a second, held a second, and back (no push: the heading alone)
-      lean: { ms: 5000, at: function () { return [0, 0]; }, heading: function (u) { var A = Math.PI / 6; return u < 0 ? 0 : u < 1000 ? A * u / 1000 : u < 2000 ? A : u < 3000 ? A * (3000 - u) / 1000 : 0; } }
+      lean: { ms: 5000, at: function () { return [0, 0]; }, heading: function (u) { var A = Math.PI / 6; return u < 0 ? 0 : u < 1000 ? A * u / 1000 : u < 2000 ? A : u < 3000 ? A * (3000 - u) / 1000 : 0; } },
+      // leaned slowly, 5 degrees a second to 30, and held (LEAN: the surface push's sheets)
+      lean5: { ms: 8000, at: function () { return [0, 0]; }, heading: function (u) { var A = Math.PI / 6; return u < 0 ? 0 : u < 6000 ? A * u / 6000 : A; } }
     };
     /** The classic Sim on a motion, stepped as app.js's frame steps it: what it feeds the sound, frame by frame. */
     function classicOn(move, grains) {
@@ -466,6 +471,11 @@ function installWatch() {
         var fall = null, seen = null;
         R.beds.forEach(function (b) { if (seen === null && b.sliding > 0.01 * b.n) seen = b.f; if (!fall || b.vy < fall.vy) fall = b; });
         o.fall = fall; o.seen = seen;
+        // the most of the upper bed's points moving in a readback; the last frame anything was fed; the
+        // frame from which the glass stayed asleep
+        o.sliding = 0; R.beds.forEach(function (b) { if (b.sliding > o.sliding) o.sliding = b.sliding; });
+        o.lastFed = o.last; o.asleepFrom = null;
+        for (var k2 = F.length - 1; k2 >= 0 && F[k2].mode === 'asleep'; k2--) o.asleepFrom = F[k2].f;
         // the bed's motion within itself, counted in full whether it flies or not, as slides a second at
         // their fastest (app-sand.mjs _hear's measure without its "a thrown bed flies": 16 over the square
         // root of the bed's grains, 1.69 points a grain, of its moving points' speed beyond its own)
@@ -551,6 +561,33 @@ function installWatch() {
     check(gL.thumps.length === 0 && gL.slams === 0 && cL.thumps === 0 && (movedL ? gL.rate <= 2 * cL.rate && gL.agit < 0.3 : gL.slides === 0 && gL.agit === 0),
           'SOUND: leaned 30 degrees: no landing, and sound only as far as the sand moved (a bed that does not move makes none; one that does, no more than twice the classic sand\'s slides)',
           JSON.stringify({ bedMoved: movedL, slides: gL.slides, perSecond: Math.round(gL.rate), agit: +gL.agit.toFixed(3), classicPerSecond: Math.round(cL.rate) }));
+    // LEAN: leaned slowly (5 degrees a second to 30, held), the bed sheds sheets off its surface (the
+    // surface push): it is heard as it moves, and still and asleep soon after the lean stops; with the
+    // push off (control: the engine's material on the instance, as before build 8) it does not move
+    await page.evaluate(function () { window.Hourglass.reset(); });
+    await frames(150, sweeping);
+    await frames(30);
+    var g5 = await play('lean5'), hold5 = Math.round(6000 * 60 / 1000);
+    var b5 = await fresh();
+    await page.evaluate(function () { var rs = window.Hourglass.realSand; rs._mat = Object.assign({}, rs._set(480).material, { surfPush: 0 }); window.Hourglass.reset(); });
+    await frames(150, sweeping);
+    await frames(30);
+    var c5 = await play('lean5');
+    await page.evaluate(function () { window.Hourglass.realSand._mat = null; window.Hourglass.reset(); });
+    await frames(150, sweeping);
+    await frames(30);
+    console.log('  LEAN (5 deg/s to 30, held; the hold from frame ' + hold5 + '): push on ' + JSON.stringify({ slides: g5.slides, perSecond: Math.round(g5.rate), sliding: g5.sliding, lastFed: g5.lastFed, asleepFrom: g5.asleepFrom, thumps: g5.thumps.length }) +
+        '; off (control) ' + JSON.stringify({ slides: c5.slides, sliding: c5.sliding, lastFed: c5.lastFed, asleepFrom: c5.asleepFrom }));
+    check(g5.slides > 0 && g5.sliding > 3 && g5.thumps.length === 0 && g5.slams === 0,
+          'SOUND (LEAN): leaned slowly to 30 degrees the bed sheds sheets: slides are fed and over 3 of its points move in a readback, no landing',
+          JSON.stringify({ slides: g5.slides, sliding: g5.sliding, thumps: g5.thumps.length }));
+    check(g5.lastFed !== null && g5.lastFed <= hold5 + 120 && g5.asleepFrom !== null && g5.asleepFrom <= hold5 + 180,
+          'SOUND (LEAN): ... silent within 2 s of the hold and the glass asleep within 3 s',
+          JSON.stringify({ hold: hold5, lastFed: g5.lastFed, asleepFrom: g5.asleepFrom }));
+    check(!!b5.tally && b5.tally.points === b5.pts && b5.tally.nan === 0 && b5.tally.outside === 0 && b5.nTop === b5.total,
+          'SOUND (LEAN): ... every point in the glass, all of them above', JSON.stringify({ tally: b5.tally, nTop: b5.nTop, total: b5.total }));
+    check(c5.slides === 0 && c5.sliding <= 3,
+          'SOUND (LEAN): control: with the push off the same lean moves nothing and feeds no slides, as build 7', JSON.stringify({ slides: c5.slides, sliding: c5.sliding }));
     var bs = await fresh();
     var moBack = await page.evaluate(function () { var mo = window.Hourglass.motion; return typeof mo.heading === 'number' && mo.seenMotion === false && typeof mo.sample === 'function' && !Object.prototype.hasOwnProperty.call(mo, 'sample'); });
     check(!!bs.audit && bs.audit.ok && bs.tally.points === bs.pts && bs.tally.nan === 0 && bs.tally.outside === 0 && bs.state === 'idle' && bs.nTop === bs.total && moBack,

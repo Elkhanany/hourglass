@@ -238,6 +238,7 @@ export class RealSand {
     this.glass = opts.glass || buildGlass({ s: this.s, neckMin: 5.5, geo, profile: this.P.profile });
     const msGlass = this.clock.perf() - tGlass;
     this.Gg = this.s * cpu.G;                // gravity at app speed, solver cells/s^2
+    this._mat = null;                       // a test's material in place of MATERIAL (realsand-gpu's control)
     this._bulbTable();
     this.valve = new Valve({ ppg: this.ppg });
     this.valve.fill(cpu.nTop, cpu.total);
@@ -1196,7 +1197,9 @@ export class RealSand {
     this.log('Real sand: first frame ' + Math.round(this.times.firstFrame) + ' ms after the page\'s start (' + Math.round(this.times.firstFrameFromStart) + ' ms after start())');
   }
 
-  _set(hz) { return { hz, iterations: SET.iterations, maxStep: SET.maxStep, coriolis: SET.coriolis, material: MATERIAL }; }
+  // g0: the upright |g| (solver cells/s²), the surface push's field gate; _mat: a test's material
+  // (null: the coarse sand)
+  _set(hz) { return { hz, iterations: SET.iterations, maxStep: SET.maxStep, coriolis: SET.coriolis, material: this._mat || MATERIAL, g0: this.Gg }; }
 
   /** Each substep's field (design 5.2): the newest app sample at or before its time, in the run's orientation. */
   _fields(steps, perfNow, hz) {

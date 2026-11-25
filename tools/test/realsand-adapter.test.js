@@ -152,6 +152,7 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     };
     Mock.prototype.run = function (steps, set, fieldAt, after, neck) {
       steps = Math.min(steps, this.cap);
+      this.lastSet = set;
       for (var s = 0; s < Math.max(steps, 1); s++) { var f = fieldAt(s); if (env.recordFields) this.fields.push(f); this.lastField = f; }
       if (after) after({});
       this.runs++;
@@ -673,6 +674,15 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     f1(outAfter) + ' ms after 00:00.0 and nTop reads 0 ' + f1(confirmedAfter) + ' ms after it, once a readback (1-3 frames late) shows no point above; census exact; no release below 0; no loss');
   var au = real.audit();
   check(au && au.ok, 'audit(): the newest readback agrees with the ledger (' + (au ? au.total + ' points' : 'none') + ')');
+  // the material and the field gate each run gets: the coarse sand with its surface push, g0 the upright g;
+  // a test's material (_mat) in its place (realsand-gpu's control), and back
+  var set0 = A.env.solver.lastSet, sp0 = real._set(480);
+  real._mat = Object.assign({}, MATERIAL, { surfPush: 0 });
+  var spOff = real._set(480);
+  real._mat = null;
+  var spBack = real._set(480);
+  check(!!set0 && set0.material === MATERIAL && MATERIAL.surfPush > 0 && set0.g0 === real.Gg && real.Gg > 0 && sp0.material === MATERIAL && spOff.material.surfPush === 0 && spOff.g0 === real.Gg && spBack.material === MATERIAL,
+    'each run gets the coarse sand with its surface push (' + MATERIAL.surfPush + ' g) and g0, the upright g (' + f1(real.Gg) + ' cells/s^2), the push\'s field gate; a test\'s material (_mat) takes its place, and null gives it back');
 
   // start: the finished glass started again turns over (startFlip) and runs to its end
   A.start();

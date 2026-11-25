@@ -94,6 +94,17 @@ struct SimConstants {
     // more than the load, the depth of sand above the point (load.wgsl) times g (times w,
     // loadScale), 3 the trial strain's for compressed sand and the load's for loosened sand
     yieldp: vec4f,
+    // sand's push down over-steep free surfaces (gridClear.wgsl computes it per node, g2p2g.wgsl
+    // applies it where gravity enters): x: 0 off, 1 on, 2 probe (computed and stored, not
+    // applied), 3 on with its shift (spreadShift.wgsl moves the points down it too); y: its size at full strength, a share of g; z: the start angle (degrees, sand at
+    // rest); w: the stop angle (degrees, a node pushed within the memory)
+    surf: vec4f,
+    // x: the ramp above the angle (degrees); y: the pushed layer's depth (cells); z: the neck
+    // zone's inner radius and w its fade, in neck half-widths
+    surf2: vec4f,
+    // x, y: the slow gate, in units of the tally's moving speed; z: the run's |g| at rest
+    // (cells/s^2; 0: no field gate); w: the memory, substeps
+    surf3: vec4f,
 };
 
 fn divUp(threadCount : u32, divisor : u32) -> u32

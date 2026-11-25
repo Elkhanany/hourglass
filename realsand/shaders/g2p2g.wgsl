@@ -23,8 +23,9 @@
 @group(0) @binding(3) var<storage, read_write> g_gridDst : array<atomic<i32>>;
 @group(0) @binding(4) var<storage> g_bucketData : array<u32>;
 @group(0) @binding(5) var<storage> g_domain : array<vec4f>;
-// per grid node: the depth of sand above it along "up", cells (load.wgsl; read with yieldp.z = 2)
-@group(0) @binding(6) var<storage> g_load : array<f32>;
+// per grid node, x: the depth of sand above it along "up", cells (load.wgsl; read with yieldp.z
+// = 2); y, z: the surface push, cells/s^2 (gridClear.wgsl; read with surf.x = 1); w: its memory
+@group(0) @binding(6) var<storage> g_load : array<vec4f>;
 // the neck's counters (solver.mjs): [2] crossings this run (tickets taken), [3] the points above
 // at the run's start, [4] crossings refused this run, [5] upward crossings refused this run
 @group(0) @binding(7) var<storage, read_write> g_counters : array<atomic<u32>>;
@@ -306,9 +307,21 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                 // (p: the position before this integration; every move above is metered at once)
                 if (neckOn()) { membrane(&particle, p.y); }
 
-                // The next substep's prediction: the field the sand feels in the glass.
+                // The next substep's prediction: the field the sand feels in the glass, and on an
+                // over-steep free surface the push down it (gridClear.wgsl), from the nodes around
+                // the point before this integration (the push changes no crossing: the membrane
+                // has acted).
                 let dt = g_simConstants.deltaTime;
-                particle.displacement += bodyForce(particle.position, particle.displacement / dt) * dt * dt;
+                var push = vec2f(0.0);
+                if (g_simConstants.surf.x > 0.5 && (g_simConstants.surf.x < 1.5 || g_simConstants.surf.x > 2.5) && particle.material == MaterialSand) {
+                    for (var i = 0; i < 3; i++) {
+                        for (var j = 0; j < 3; j++) {
+                            let c = vec2u(vec2i(weightInfo.cellIndex) + vec2i(i, j));
+                            push += weightInfo.weights[i].x * weightInfo.weights[j].y * g_load[c.y * g_simConstants.gridSize.x + c.x].yz;
+                        }
+                    }
+                }
+                particle.displacement += (bodyForce(particle.position, particle.displacement / dt) + push) * dt * dt;
 
                 g_particles[myParticleIndex] = particle;
             } else if (g_simConstants.useGridVolumeForLiquid != 0) {
@@ -351,7 +364,36 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
             // compaction instead of pushing it back. (floorLoose = 1: loose sand may be compressed
             // as far as its looseness, freely.)
             var tgt: mat2x2f;
-            if (g_simConstants.yieldp.x > 0.5)
+            // the surface push's skin hold (surf.x = 4): a point of the surface layer (load.w's
+            // half, gridClear.wgsl) or one a push acted on lately holds its shear inside the cone
+            // without dilating while it is compressed (the yield target with the whole trial
+            // strain's compression, at 0.8 of the cone), so a flank keeps its slope until the push
+            // acts on it
+            var skinHold = false;
+            if (g_simConstants.surf.x > 3.5) {
+                var sk = 0.0;
+                for (var i = 0; i < 3; i++) {
+                    for (var j = 0; j < 3; j++) {
+                        let c = vec2u(vec2i(weightInfo.cellIndex) + vec2i(i, j));
+                        sk += weightInfo.weights[i].x * weightInfo.weights[j].y * g_load[c.y * g_simConstants.gridSize.x + c.x].w;
+                    }
+                }
+                skinHold = sk > 0.0;
+            }
+            let epsS = log(max(abs(svdResult.Sigma), vec2f(1e-6)));
+            if (skinHold && epsS.x + epsS.y < 0.0 && g_simConstants.yieldp.x < 0.5)
+            {
+                let trS = epsS.x + epsS.y;
+                let eHatS = epsS - vec2f(trS * 0.5);
+                let nrmS = length(eHatS);
+                let sinPhiS = sin(materialParams.physical.x/180.0 * 3.14159);
+                let alphaS = sqrt(2.0/3.0)*2.0*sinPhiS/(3.0 - sinPhiS);
+                let coneKS = select(materialParams.mechanical.z + 1.0, materialParams.mechanical.w, materialParams.mechanical.w > 0.0);
+                let dgS = nrmS + coneKS * trS * alphaS * 0.8;
+                let keepS = select(vec2f(0.0), eHatS * (dgS / max(nrmS, 1e-6)), dgS > 0.0);
+                tgt = svdResult.U*mat2x2f(exp(keepS.x), 0, 0, exp(keepS.y))*svdResult.Vt;
+            }
+            else if (g_simConstants.yieldp.x > 0.5)
             {
                 // Yield inside the iterations (yieldp.x = 1). EA's target clamps the trial strain's
                 // principal stretches at 1 from below: compression is resisted, extension is free, so
@@ -383,7 +425,7 @@ fn csMain( @builtin(local_invocation_index) indexInGroup: u32, @builtin(workgrou
                         for (var j = 0; j < 3; j++)
                         {
                             let c = vec2u(vec2i(weightInfo.cellIndex) + vec2i(i, j));
-                            h += weightInfo.weights[i].x * weightInfo.weights[j].y * g_load[c.y * g_simConstants.gridSize.x + c.x];
+                            h += weightInfo.weights[i].x * weightInfo.weights[j].y * g_load[c.y * g_simConstants.gridSize.x + c.x].x;
                         }
                     }
                     let dtY = g_simConstants.deltaTime;

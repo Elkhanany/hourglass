@@ -15,8 +15,9 @@
 @group(0) @binding(1) var<storage> grid: array<i32>;
 @group(0) @binding(2) var<storage> activeBuckets: array<u32>;
 @group(0) @binding(3) var<storage> gridArgs: array<u32>;
-// per node: the depth of sand above it along "up", cells (0: no sand at the node)
-@group(0) @binding(4) var<storage,read_write> load: array<f32>;
+// per node, x: the depth of sand above it along "up", cells (0: no sand at the node); y, z, w:
+// the surface push's (gridClear.wgsl), not touched here
+@group(0) @binding(4) var<storage,read_write> load: array<vec4f>;
 
 const MaxDepth = 64;
 
@@ -50,5 +51,5 @@ fn csMain(@builtin(global_invocation_id) invocation: vec3u) {
         }
         depth = f32(k - 1) + 0.5;
     }
-    load[nodeIndex] = depth;
+    load[nodeIndex].x = depth;
 }

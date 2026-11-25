@@ -139,6 +139,14 @@
  *               the bed heaps as the film does, not thrown up in a column (its
  *               top <= 20 cells up and no more than the film's + 2, holes
  *               <= 15 % on average), no node clamped
+ *  24 lean      the top bulb full (a 1-minute amount, neck shut), turned with the
+ *               glass at 5 deg/s to 45 degrees and held 2.5 s: with the surface
+ *               push the surface first moves by 25 degrees (build 7: 50 to 55),
+ *               >= 70 % of the steps from there move, in sheets (lower half /
+ *               top quarter <= 0.3, centre <= 4 cells a step), held it is still
+ *               within 2 s with its steep flank at 28 to 35 degrees, nothing is
+ *               pushed near the neck nor upright at rest; with the push off
+ *               (control) the bed does not move by 30 degrees
  *
  * Screenshots of the key moments go to --shots (a phone-like 390 x 844
  * viewport, device scale 1).
@@ -672,12 +680,13 @@ async function main() {
       };
       var snap = async function () { var p = await L(function () { return window.__lab.positions(); }); var st = await L(function () { return window.__lab.stats(); }); return { area: bedArea(p), top: bedTop(p), com: st.com, v: st.meanSpeed }; };
       await flat();
-      var p0 = await snap();
+      var p0 = await snap(), sf9 = await L(function () { return window.__lab.surfaceField(); });
       await sec(3);
       var p3 = await snap();
       await shot('09-' + sp9 + '-rest-3s');
       log('  at rest 3 s: area ' + p0.area + ' -> ' + p3.area + ' cells, top ' + f1(p0.top) + ' -> ' + f1(p3.top) + ', mean speed ' + f1(p3.v) + ' cells/s');
       check(Math.abs(p3.area / p0.area - 1) <= 0.03, sp9 + ' speed: a bed at rest keeps its volume: area within 3 % over 3 s (' + f2(100 * (p3.area / p0.area - 1)) + ' %)');
+      check(sf9.pushed === 0, sp9 + ' speed: the surface push leaves a flat bed at rest alone: no node pushed 0.5 s after the fill (' + sf9.pushed + ')');
       await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1], accel: [0, -2] }); });   // 3 g, pressing it down
       await sec(0.5);
       var pp = await snap();
@@ -760,10 +769,13 @@ async function main() {
     await reset10({ amount: 'minute' });
     await sec(0.5);
     var k0 = M.packing(await pos());
-    await sec(3.5);
+    await sec(0.5);
+    var sf10 = await L(function () { return window.__lab.surfaceField(); });
+    await sec(3);
     var k1 = M.packing(await pos());
     var dA = 100 * (k1.area / k0.area - 1), dP = 100 * (k1.packing / k0.packing - 1);
     log('  area ' + k0.area + ' -> ' + k1.area + ' cells (' + f2(dA) + ' %), interior packing ' + f2(k0.packing) + ' -> ' + f2(k1.packing) + ' (' + f2(dP) + ' %)');
+    check(sf10.pushed === 0, 'the surface push leaves the bed at rest alone: no node pushed 1 s after the fill (' + sf10.pushed + ')');
     check(Math.abs(dA) <= 3 && dP >= -3, 'a bed at rest does not swell: area within 3 % (' + f2(dA) + ') and packing no looser than -3 % (' + f2(dP) + ') (5cc11b3: +6.5 / -4.2)');
   }
 
@@ -939,11 +951,12 @@ async function main() {
     var g18 = [Math.sin(25 * D2R), Math.cos(25 * D2R)];
     await inp({ mode: 'manual', gravity: g18 });
     await sec(0.5);
-    var a18 = await stat(), h18a = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
+    var a18 = await stat(), h18a = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); }), sf18 = await L(function () { return window.__lab.surfaceField(); });
     await sec(3);
     var c18 = await stat(), h18c = await L(function () { return window.__lab.heapAngle({ bulb: 'lower', frame: 'gravity' }); });
     var d18 = Math.hypot(c18.com[0] - a18.com[0], c18.com[1] - a18.com[1]);
     log('  centre moves ' + f2(d18) + ' cells from 0.5 s to 3.5 s; surface ' + f1(h18a.tilt) + ' -> ' + f1(h18c.tilt) + ' degrees');
+    check(sf18.pushed === 0, 'held at 25 degrees, below the push\'s start angle, no node is pushed 0.5 s after the lean (' + sf18.pushed + ')');
     check(d18 <= 1.15 && Math.abs(h18c.tilt - h18a.tilt) <= 1, 'no worse than 5cc11b3, not yet real sand: below repose it creeps no more than before: centre <= 1.15 cells (' + f2(d18) + '; 5cc11b3: 1.40; real sand <= 0.5), surface within 1 degree (' + f2(Math.abs(h18c.tilt - h18a.tilt)) + '; 1.03)');
     await inp({ mode: 'manual', gravity: [0, 1] });
   }
@@ -998,7 +1011,7 @@ async function main() {
     var text19 = await L(function () { return window.__lab.report(); });
     rows19.forEach(function (r) { log('  bench (software GPU, not a phone) ' + r.res + ' ' + r.amount + ' ' + r.speed + (r.tag ? ' [' + r.tag + ']' : '') + ': ' + r.points + ' points, ' + r.dispatches + ' dispatches a substep, ' + f2(r.msStep) + ' ms a substep, sim/real ' + f2(r.ratio)); });
     var tags19 = rows19.map(function (r) { return r.tag; }).join(',');
-    check(tags19 === 'default,default,spread off,blur off,8 iterations,yield in loop' && rows19.every(function (r) { return isFinite(r.msStep) && r.msStep > 0; }) && rows19[2].dispatches === rows19[0].dispatches - 2,
+    check(tags19 === 'default,default,spread off,blur off,8 iterations,yield in loop,push off' && rows19.every(function (r) { return isFinite(r.msStep) && r.msStep > 0; }) && rows19[2].dispatches === rows19[0].dispatches - 2,
       'the Benchmark times the default at both speeds and each costly option, with the GPU time a substep (' + tags19 + ')');
     check(/\nAnswers /.test(text19) && /Default, coarse grid, 1-minute, app speed: (HOLDS|does NOT hold) real time/.test(text19) && /Default, coarse grid, 1-minute, real speed: /.test(text19) && /Costly options at the default .*spread off .*blur off .*8 iterations/.test(text19) && /\nPace: at most 2 frames of GPU work in flight/.test(text19),
       'Copy results answers: does the default hold real time at each speed, the lag, the display rate, and what each option costs');
@@ -1012,9 +1025,12 @@ async function main() {
     var timer20 = async function (id, o) {
       var st = await L(function (a) { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.timer(a.id, a.o); }, { id: id, o: Object.assign({ burst: false }, o.timer || {}) });
       var flipped = false, guard = 0, frames = 0;
-      while (guard++ < 80) {
-        var r = await L(function (o) { return window.__lab.frames(o.n, { stopAtEnd: true, lag: 2 }); }, { n: o.flipAt && !flipped ? 30 : 60 });
+      o.maxNeck = 0;
+      while (guard++ < 160) {
+        var r = await L(function (o) { return window.__lab.frames(o.n, { stopAtEnd: true, lag: 2 }); }, { n: 30 });
         frames = r.frame; st = r.timer;
+        // the surface push near the neck, every 30th frame: none
+        o.maxNeck = Math.max(o.maxNeck, (await L(function () { return window.__lab.surfaceField(); })).maxNeck);
         if (o.flipAt && !flipped && st.state === 'running' && st.rem <= o.flipAt) {
           flipped = true;
           o.before = { nTop: st.nTop, total: st.total, rem: st.rem };
@@ -1060,6 +1076,7 @@ async function main() {
     log('  10 s glass, a Flip with 6 s left: ' + desc20(a20));
     check(a20.grains === 1155 && a20.points === 1952, 'the 10 s glass holds the app\'s amount: 1155 grains = 1952 points at 1.69 points a grain (' + a20.grains + ', ' + a20.points + ')');
     checks20(a20, '10 s glass with a Flip', true);
+    check(o20.maxNeck === 0, 'the surface push leaves the neck alone: nothing pushed near it in any 30th frame (' + f2(o20.maxNeck) + ' cells/s^2 at most)');
     check(a20.swaps === 1 && !!o20.before && a20.total === o20.before.total, 'the Flip swapped the bulbs once, with the neck shut while the glass turned (' + a20.swaps + ' swap)');
     check(a20.fall > 0.25 && a20.fall < 0.7, 'the stream\'s first fall is timed, neck to floor: ' + f2(a20.fall) + ' s simulated (0.25 to 0.7; free fall over ' + f1(a20.floor) + ' cells, held to a cell a substep)');
     var runs20 = (await L(function (k) { return window.__lab.modes(k); }, ran20)).runs;
@@ -1084,8 +1101,9 @@ async function main() {
     check(miss20.length === 0, 'Copy results has the build stamp (' + build20 + '), the mode, the Timer\'s record and end, the burst and the lifecycle log' +
       (miss20.length ? ' (missing: ' + miss20.join(', ') + ')' : ''));
     // the 1-minute amount timed short
-    var c20 = await timer20('1m', { timer: { ms: 12000 } });
+    var o20c = { timer: { ms: 12000 } }, c20 = await timer20('1m', o20c);
     log('  1-minute amount timed to 12 s: ' + desc20(c20));
+    check(o20c.maxNeck === 0, 'the 1-minute amount: nothing pushed near the neck in any 30th frame (' + f2(o20c.maxNeck) + ')');
     check(c20.grains === 2830 && c20.points === 4783, 'the 1-minute amount: 2830 grains = 4783 points (' + c20.grains + ', ' + c20.points + ')');
     checks20(c20, '1-minute amount in 12 s', false);
     await L(function () { window.__lab.timerStop(); return window.__lab.mode('full'); });
@@ -1261,6 +1279,78 @@ async function main() {
     check(vL.topMax <= 20 && vL.topMax <= vF.topMax + 2 && vL.mean <= 0.15 && vL.clamp === 0,
       'shaken up and down, live, the bed heaps as the film does and is not thrown up in a column: its top rises ' + f1(vL.topMax) + ' cells at most (<= 20, and no more than the film\'s ' + f1(vF.topMax) + ' + 2; the column: 34.1), holes ' + f2(100 * vL.mean) + ' % on average (<= 15; the column 20.7; the film ' + f2(100 * vF.mean) + ', worst ' + f2(100 * vF.worst) + '), no node clamped');
     await L(function () { return window.__lab.settings({ speed: 'app', jolts: 'live' }); });
+  }
+
+  if (run(24)) {
+    log('24 lean sheets (the top bulb full, the 1-minute amount, neck shut, turned with the glass at 5 deg/s to 45 degrees and held; the surface push on, and off as the control)');
+    var M24 = require('./lib/sand-measures.js'), D24 = Math.PI / 180;
+    var up24 = function (a) { return M24.upOf([-Math.sin(a * D24), Math.cos(a * D24)]); };
+    var above24 = function (x, y) { return y > 1; };
+    // one step of the top bed: its surface layer's (3 cells deep) and its lower half's median move, the
+    // share of its points moved over a cell, its centre's move (cells)
+    var step24 = function (p0, p1, up) {
+      var pr = M24.profile(p1, up, 2, above24), d = M24.depths(pr), sf = [], top = [], low = [], n = 0, mob = 0, c0 = [0, 0], c1 = [0, 0];
+      for (var i = 0; i < pr.n; i++) {
+        if (!pr.keep[i]) continue;
+        var m = Math.hypot(p1[2 * i] - p0[2 * i], p1[2 * i + 1] - p0[2 * i + 1]);
+        n++; if (m > 1) mob++;
+        c0[0] += p0[2 * i]; c0[1] += p0[2 * i + 1]; c1[0] += p1[2 * i]; c1[1] += p1[2 * i + 1];
+        if (!isNaN(d.z[i]) && d.z[i] <= 3) sf.push(m);
+        if (isNaN(d.rel[i])) continue;
+        if (d.rel[i] < 0.25) top.push(m); else if (d.rel[i] >= 0.5) low.push(m);
+      }
+      var tq = M24.median(top), lh = M24.median(low);
+      return { surf: M24.median(sf), ratio: tq > 0 ? lh / tq : NaN, moved1: n ? mob / n : 0, com: n ? Math.hypot((c1[0] - c0[0]) / n, (c1[1] - c0[1]) / n) : 0 };
+    };
+    var field24 = function () { return L(function () { return window.__lab.surfaceField(); }); };
+    var sweep24 = async function (on, to, holdS) {
+      await L(function (on) { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); window.__lab.settings({ speed: 'app', override: null, surfPush: on }); return window.__lab.reset({ fill: 'top', material: 'coarse', amount: 'minute', gate: 999 }); }, on);
+      await sec(1.5);
+      var r = { steps: [], held: [], neck: 0 };
+      await sec(1);
+      r.upright = await field24();
+      var w = 5 * D24, p = await pos(), t = 0;
+      await inp({ mode: 'manual', gravity: [0, 1], gravitySpin: w, omega: -w });
+      for (var a = 2.5; a <= to + 1e-6; a += 2.5) {
+        await sec(a / 5 - t); t = a / 5;
+        var q = await pos(), st = step24(p, q, up24(a)), sf = await field24(), tl = await L(function () { return window.__lab.tally(); });
+        st.a = a; st.pushed = sf.pushed; st.moving = tl ? tl.moving : 0; st.fails = st.surf >= 1 || st.moved1 >= 0.1;
+        st.goes = st.surf >= 0.5 || (sf.pushed > 0 && st.moving > 3);
+        r.neck = Math.max(r.neck, sf.maxNeck);
+        r.steps.push(st); p = q;
+      }
+      if (holdS) {
+        await inp({ mode: 'manual', gravity: [-Math.sin(to * D24), Math.cos(to * D24)] });
+        for (var k = 1; k <= Math.round(holdS / 0.25); k++) {
+          await sec(0.25);
+          var sf2 = await field24(), tl2 = await L(function () { return window.__lab.tally(); });
+          r.neck = Math.max(r.neck, sf2.maxNeck);
+          r.held.push({ t: 0.25 * k, moving: tl2 ? tl2.moving : 0, pushed: sf2.pushed });
+        }
+        var h = await L(function () { return window.__lab.heapAngle({ bulb: 'upper', frame: 'gravity' }); });
+        r.flank = M24.steepOf(h);
+      }
+      return r;
+    };
+    var on24 = await sweep24(true, 45, 2.5);
+    await shot('24-lean-45-held');
+    var off24 = await sweep24(false, 30, 0);
+    var first24 = on24.steps.find(function (s) { return s.fails; }), firstOff = off24.steps.find(function (s) { return s.fails; });
+    var from24 = first24 ? on24.steps.filter(function (s) { return s.a >= first24.a; }) : [];
+    var goes24 = from24.filter(function (s) { return s.goes; }).length / Math.max(1, from24.length);
+    var ratio24 = Math.max.apply(null, on24.steps.map(function (s) { return isFinite(s.ratio) ? s.ratio : 0; }));
+    var com24 = Math.max.apply(null, on24.steps.map(function (s) { return s.com; }));
+    var still24 = on24.held.find(function (x) { return x.t >= 0.5 && on24.held.filter(function (y) { return y.t >= x.t; }).every(function (y) { return y.moving <= 3; }); });
+    log('  push on, per 2.5 degrees (surface layer median move, cells / share moved over a cell / lower half over top quarter / nodes pushed): ' + on24.steps.map(function (s) { return s.a + ':' + f2(s.surf) + '/' + f2(s.moved1) + '/' + f2(s.ratio) + '/' + s.pushed; }).join(' '));
+    log('  push off (control): ' + off24.steps.map(function (s) { return s.a + ':' + f2(s.surf) + '/' + f2(s.moved1); }).join(' '));
+    log('  first movement at ' + (first24 ? first24.a : 'none') + ' degrees (off: ' + (firstOff ? firstOff.a : 'none by 30') + '; build 7 measured 50 to 55); moving steps from it to 45: ' + Math.round(100 * goes24) + ' %; ratio at most ' + f2(ratio24) + '; centre at most ' + f2(com24) + ' cells a step; held at 45: still from ' + (still24 ? still24.t : 'never') + ' s, the steep flank ' + f1(on24.flank) + ' degrees; pushed upright ' + on24.upright.pushed + '; push near the neck at most ' + f2(on24.neck));
+    check(first24 && first24.a <= 25, 'the leaned bed sheds from its surface early: the first movement (surface layer >= 1 cell or >= 10 % of the bed over a cell in a step) by 25 degrees (' + (first24 ? first24.a : 'none') + '; build 7: 50 to 55)');
+    check(goes24 >= 0.7, 'and keeps trickling: >= 70 % of the steps from there to 45 move (' + Math.round(100 * goes24) + ' %)');
+    check(ratio24 <= 0.3 && com24 <= 4, 'in sheets, never as a block: lower half / top quarter <= 0.3 in every step (' + f2(ratio24) + ') and the centre <= 4 cells a step (' + f2(com24) + ')');
+    check(!!still24 && still24.t <= 2 && on24.flank >= 28 && on24.flank <= 35, 'held at 45 it comes to rest: the tally\'s moving count <= 3 within 2 s (' + (still24 ? still24.t + ' s' : 'never') + '), the steep flank 28 to 35 degrees (' + f1(on24.flank) + ')');
+    check(on24.neck === 0 && on24.upright.pushed === 0, 'nothing pushed near the neck in any record (' + f2(on24.neck) + ') nor upright at rest (' + on24.upright.pushed + ' nodes)');
+    check(!firstOff, 'control: with the push off the bed does not move by 30 degrees (' + (firstOff ? 'it moved at ' + firstOff.a : 'still') + ')');
+    await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.settings({ speed: 'app', override: null, surfPush: true }); });
   }
 
   check(errors.length === 0, 'no page errors through the run' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));
