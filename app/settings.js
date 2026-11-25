@@ -42,6 +42,8 @@
  *       launch (the next launch reads it), so that one failed read never writes the defaults
  *       over the settings
  *   HourglassSettings.preset(search)    "?t=300": { durationMs }, else null
+ *   HourglassSettings.unpreset(search)  the same query without its "t=" items, every other
+ *       item kept in its order ("?t=45&debug=motion" -> "?debug=motion", "?t=300" -> "")
  *   HourglassSettings.bindSwitch(el, key, after)   a plain switch of Tune:
  *       it shows the loaded value from then on (so load comes first), and
  *       when it flips the value is set and saved, then after(value) called
@@ -166,6 +168,12 @@
     var m = /[?&]t=(\d{1,5})(?:&|$)/.exec(search);
     return m ? { durationMs: +m[1] * 1000 } : null;
   }
+  /** The query without the preset: what is left once it has been applied (app.js puts it in the address). */
+  function unpreset(search) {
+    var re = /([?&])t=\d{1,5}(&|$)/, m;
+    while ((m = re.exec(search))) search = search.slice(0, m.index) + (m[2] ? m[1] : '') + search.slice(m.index + m[0].length);
+    return search === '?' ? '' : search;
+  }
 
   /**
    * The repairs that read two keys: "?t=300" ends a saved sequence; a rest out of range is no
@@ -274,5 +282,6 @@
   store.repair = repair;
   store.colorOf = colorOf;
   store.quickOf = quickOf;
+  store.unpreset = unpreset;
   root.HourglassSettings = store;
 })(typeof window !== 'undefined' ? window : globalThis);

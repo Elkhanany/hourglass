@@ -1022,5 +1022,20 @@ var early = src.replace("var KEY = 'hourglass.settings.v1';", "var KEY = 'hourgl
 try { vm.runInContext(early, box); } catch (e) {}
 check(early !== src && touched.join() === 'localStorage', '... and a copy that reaches localStorage as it loads is seen to (control)', touched.join());
 
+// the address once the preset is applied (app.js puts unpreset(location.search) in it): no "t=" the
+// preset would read, and every other item of the query, in its order
+function unpresetProblems(un) {
+  var bad = [];
+  QUERIES.concat(['?a=1&t=5&b=2', '?rec=3&t=5&t=6&debug=sand', '', '?']).forEach(function (q) {
+    var left = un(q), want = q.replace(/^\?/, '').split('&').filter(function (x) { return x && !/^t=\d{1,5}$/.test(x); }).join('&');
+    if (S.preset(left) || left !== (want ? '?' + want : '') ) bad.push(q + ' -> ' + JSON.stringify(left));
+  });
+  return bad;
+}
+var unBad = unpresetProblems(S.unpreset);
+check(unBad.length === 0, 'unpreset: the query without the preset reads no duration and keeps every other item in its order (' + QUERIES.length + ' queries and four more)', unBad.join('; '));
+var unOnce = unpresetProblems(function (q) { return q.replace(/([?&])t=\d{1,5}(&|$)/, function (m, a, b) { return b ? a : ''; }).replace(/^\?$/, ''); });
+check(unOnce.length > 0, '... and one that takes out only the first "t=" leaves a preset in "?t=5&t=9" (control)', unOnce.join('; '));
+
 console.log('settings-unit: ' + (count - failures) + '/' + count + ' passed');
 if (failures) process.exitCode = 1;

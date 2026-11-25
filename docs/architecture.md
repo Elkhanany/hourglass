@@ -328,7 +328,9 @@ defaults; over them the saved values of the right type; the version step
 (the settings carry `v`; a save of no version, or of version 1, comes up with
 Real sand on, once, and the values then say version 2); the checks; and the
 repairs that read two keys (`?t=300` sets the duration and ends a saved
-sequence; a rest out of range is no rest; without a rest there is one
+sequence; once it has been applied, `app.js` takes `t=` out of the address
+with `history.replaceState`, every other item kept (`unpreset(search)`), so
+that a reload is a plain launch and keeps the running glass; a rest out of range is no rest; without a rest there is one
 round; a custom sand without a colour is its material's sand). `save(values)` writes them back. Storage that throws, or cannot be
 reached at all (private mode, storage blocked), runs with the defaults and
 saves nothing. When the load could not read the storage (`getItem` threw)

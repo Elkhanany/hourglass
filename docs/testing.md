@@ -348,7 +348,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the app as an iPhone would after the update, Real sand on. `app-session`
   ends with the app's shortcut: `./?t=300` over a saved session of a running
   5-minute glass is a new glass, after a plain launch has picked that glass
-  up (the control). `app-breath` covers breathing pace: the Tune row and what is
+  up (the control); then, launched at `./?t=300`, a running glass is kept
+  with its time through the browser's reload and the app's own for "Use this
+  shape", Grain and Real sand, and so is a duration picked after the launch
+  (the control: a copy of `app.js` that leaves `?t=` in the address loses
+  all five). `app-breath` covers breathing pace: the Tune row and what is
   saved, the toast's place just above the sheet, the three patterns against
   the wall clock, a blocked main thread, a hidden page and a long sleep,
   easing back to rest, Reduce Motion, Full Zen, the landscape halo, a damaged

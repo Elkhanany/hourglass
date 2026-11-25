@@ -86,6 +86,10 @@
   var settings = Store.load(function () { return localStorage; }, location.search, { themes: P.THEMES, sands: P.SANDS, finishes: P.FINISHES, finishOf: P.finishOf, shapes: P.SHAPES });
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts (a saved session gives way to it)
   var qt = Store.preset(location.search);
+  // Applied once: ?t= then leaves the address, every other item of the query kept. A reload (the
+  // app's own for a shape, a grain or Real sand, or the browser's) is then a plain launch, which
+  // picks the running glass up and keeps the duration chosen since (the boot's saves hold it).
+  if (qt) try { history.replaceState(history.state, '', location.pathname + Store.unpreset(location.search) + location.hash); } catch (e) {}
   function save() { Store.save(settings); }
 
   /* ======================================================================
