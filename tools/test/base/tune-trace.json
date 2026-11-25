@@ -1,5 +1,5 @@
 {
-  "from": "2d120c109add0cd3826e456c19c1ae589f18ea3a",
+  "from": "ece191adecb4540e3c59c281ff6462c337b7baac",
   "what": "What every control that changes a setting saves, calls on the engines and buzzes, in order: in its own tap (now) and after it (later) (tools/test/lib/trace.js)",
   "controls": [
     {
@@ -273,6 +273,54 @@
       "later": [
         ["renderer.setTheme","sahara"]
       ]
+    },
+    {
+      "name": "background: light",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"background":"light"}],
+        ["renderer.setPaper",true],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "background: device",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"background":"system"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "background: daytime",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"background":"hours"}],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "background: dark",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"background":"dark"}],
+        ["renderer.setPaper",false],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "the light look, by the moon button (the top bar)",
+      "now": [
+        ["audio.unlock"],
+        ["buzz",8],
+        ["save",{"background":"light"}],
+        ["renderer.setPaper",true]
+      ],
+      "later": []
     },
     {
       "name": "layered sand: on",
@@ -927,6 +975,7 @@
       "later": [
         ["(the page is loaded again)"],
         ["get","hourglass.settings.v1"],
+        ["get","hourglass.settings.v1"],
         ["new Sim",{"scale":1.08,"seed":"(a seed)","shape":"delta"}],
         ["new Renderer"],
         ["renderer.setFrame",true],
@@ -949,6 +998,7 @@
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","asmr"],
+        ["renderer.setPaper",true],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
@@ -975,6 +1025,7 @@
       "later": [
         ["(the page is loaded again)"],
         ["get","hourglass.settings.v1"],
+        ["get","hourglass.settings.v1"],
         ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
         ["new Renderer"],
         ["renderer.setFrame",true],
@@ -997,6 +1048,7 @@
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","asmr"],
+        ["renderer.setPaper",true],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
@@ -1013,6 +1065,7 @@
       ],
       "later": [
         ["(the page is loaded again)"],
+        ["get","hourglass.settings.v1"],
         ["get","hourglass.settings.v1"],
         ["Sim.setPace",1.414214],
         ["new Sim",{"scale":1.527351,"seed":"(a seed)"}],
@@ -1036,6 +1089,7 @@
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","asmr"],
+        ["renderer.setPaper",true],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
@@ -1052,6 +1106,7 @@
       ],
       "later": [
         ["(the page is loaded again)"],
+        ["get","hourglass.settings.v1"],
         ["get","hourglass.settings.v1"],
         ["Sim.setPace",2],
         ["new Sim",{"scale":2.16,"seed":"(a seed)"}],
@@ -1075,6 +1130,7 @@
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","asmr"],
+        ["renderer.setPaper",true],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
@@ -1091,6 +1147,7 @@
       ],
       "later": [
         ["(the page is loaded again)"],
+        ["get","hourglass.settings.v1"],
         ["get","hourglass.settings.v1"],
         ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
         ["new Renderer"],
@@ -1113,6 +1170,7 @@
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","asmr"],
+        ["renderer.setPaper",true],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
@@ -1131,7 +1189,8 @@
       "name": "the look and sound put back: the second tap",
       "now": [
         ["audio.unlock"],
-        ["save",{"theme":"sahara","volume":0.8,"ambienceLevel":0.5,"sand":"sahara","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0}],
+        ["save",{"theme":"sahara","volume":0.8,"ambienceLevel":0.5,"sand":"sahara","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"background":"dark"}],
+        ["renderer.setPaper",false],
         ["audio.setVolume",0.8],
         ["audio.setAmbienceLevel",0.5,false],
         ["audio.setSandLevel",1],
@@ -1152,6 +1211,7 @@
       ],
       "later": [
         ["(the page is loaded again)"],
+        ["get","hourglass.settings.v1"],
         ["get","hourglass.settings.v1"],
         ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
         ["new Renderer"],
@@ -1181,5 +1241,5 @@
       ]
     }
   ],
-  "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"330.6,0.447,0.553\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"2,5,10,15,30,60\",\"endsAt\":false}"
+  "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"330.6,0.447,0.553\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"2,5,10,15,30,60\",\"endsAt\":false,\"background\":\"dark\"}"
 }

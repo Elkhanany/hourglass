@@ -1,10 +1,11 @@
 {
-  "from": "2d120c109add0cd3826e456c19c1ae589f18ea3a",
+  "from": "ece191adecb4540e3c59c281ff6462c337b7baac",
   "what": "What the app reads, saves and calls on its engines as it starts, in order, for six saved states (tools/test/lib/trace.js)",
   "boots": [
     {
       "name": "a first launch: nothing saved",
       "trace": [
+        ["get","hourglass.settings.v1"],
         ["get","hourglass.settings.v1"],
         ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
         ["new Renderer"],
@@ -23,7 +24,7 @@
         ["sim.reset",6327],
         ["get","hourglass.session.v1"],
         ["audio.setCracked","intact"],
-        ["save",{"theme":"sahara","character":"asmr","volume":0.8,"muted":false,"chime":true,"tilt":false,"zenFull":false,"haptics":true,"keepAwake":true,"frame":true,"layers":false,"ambience":"none","ambienceLevel":0.5,"breath":false,"breathPattern":"calm","durationMs":300000,"restMs":0,"rounds":1,"motionSign":0,"mendNotes":0,"hintCrack":false,"hintZen":0,"grain":0,"hintMotion":0,"realSand":true,"realSandFails":0,"realSandWhy":"","realSandNa":"","realSandNaAt":0,"realSandBuild":"","v":2,"tuneTab":"sand","sand":"sahara","sandColor":"","finish":"walnut","shape":"classic","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false}],
+        ["save",{"theme":"sahara","character":"asmr","volume":0.8,"muted":false,"chime":true,"tilt":false,"zenFull":false,"haptics":true,"keepAwake":true,"frame":true,"layers":false,"ambience":"none","ambienceLevel":0.5,"breath":false,"breathPattern":"calm","durationMs":300000,"restMs":0,"rounds":1,"motionSign":0,"mendNotes":0,"hintCrack":false,"hintZen":0,"grain":0,"hintMotion":0,"realSand":true,"realSandFails":0,"realSandWhy":"","realSandNa":"","realSandNaAt":0,"realSandBuild":"","v":2,"tuneTab":"sand","sand":"sahara","sandColor":"","finish":"walnut","shape":"classic","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false,"background":"dark"}],
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","asmr"],
@@ -33,11 +34,12 @@
         ["remove","hourglass.session.v1"],
         ["save",{"realSandBuild":"7"}]
       ],
-      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":300000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false}"
+      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":300000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false,\"background\":\"dark\"}"
     },
     {
       "name": "a save from before version 2, everything changed",
       "trace": [
+        ["get","hourglass.settings.v1"],
         ["get","hourglass.settings.v1"],
         ["Sim.setPace",1.414214],
         ["new Sim",{"scale":1.527351,"seed":"(a seed)"}],
@@ -57,7 +59,7 @@
         ["sim.reset",28377],
         ["get","hourglass.session.v1"],
         ["audio.setCracked","intact"],
-        ["save",{"realSand":true,"realSandNa":"","realSandNaAt":0,"realSandBuild":"","v":2,"tuneTab":"sand","sand":"lapis","sandColor":"","finish":"gold","shape":"classic","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false}],
+        ["save",{"realSand":true,"realSandNa":"","realSandNaAt":0,"realSandBuild":"","v":2,"tuneTab":"sand","sand":"lapis","sandColor":"","finish":"gold","shape":"classic","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false,"background":"dark"}],
         ["audio.setMuted",true],
         ["save",{}],
         ["audio.setCharacter","bamboo"],
@@ -67,11 +69,12 @@
         ["remove","hourglass.session.v1"],
         ["save",{"realSandFails":0,"realSandWhy":"","realSandBuild":"7"}]
       ],
-      "saved": "{\"theme\":\"lapis\",\"character\":\"bamboo\",\"volume\":0.35,\"muted\":true,\"chime\":false,\"tilt\":false,\"zenFull\":true,\"haptics\":false,\"keepAwake\":false,\"frame\":false,\"layers\":true,\"ambience\":\"rain\",\"ambienceLevel\":0.7,\"breath\":true,\"breathPattern\":\"box\",\"durationMs\":1500000,\"restMs\":300000,\"rounds\":4,\"motionSign\":-1,\"mendNotes\":2,\"hintCrack\":true,\"hintZen\":3,\"grain\":1,\"hintMotion\":3,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"lapis\",\"sandColor\":\"\",\"finish\":\"gold\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false}"
+      "saved": "{\"theme\":\"lapis\",\"character\":\"bamboo\",\"volume\":0.35,\"muted\":true,\"chime\":false,\"tilt\":false,\"zenFull\":true,\"haptics\":false,\"keepAwake\":false,\"frame\":false,\"layers\":true,\"ambience\":\"rain\",\"ambienceLevel\":0.7,\"breath\":true,\"breathPattern\":\"box\",\"durationMs\":1500000,\"restMs\":300000,\"rounds\":4,\"motionSign\":-1,\"mendNotes\":2,\"hintCrack\":true,\"hintZen\":3,\"grain\":1,\"hintMotion\":3,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"lapis\",\"sandColor\":\"\",\"finish\":\"gold\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false,\"background\":\"dark\"}"
     },
     {
       "name": "a version-2 save, Real sand off, Real motion left on",
       "trace": [
+        ["get","hourglass.settings.v1"],
         ["get","hourglass.settings.v1"],
         ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
         ["new Renderer"],
@@ -90,7 +93,7 @@
         ["sim.reset",6327],
         ["get","hourglass.session.v1"],
         ["audio.setCracked","intact"],
-        ["save",{"muted":false,"chime":true,"zenFull":false,"haptics":true,"keepAwake":true,"frame":true,"layers":false,"breath":false,"breathPattern":"calm","durationMs":300000,"restMs":0,"rounds":1,"mendNotes":0,"hintCrack":false,"hintZen":0,"grain":0,"realSandFails":0,"realSandWhy":"","realSandNa":"","realSandNaAt":0,"tuneTab":"sand","sand":"seaglass","sandColor":"","finish":"driftwood","shape":"classic","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false}],
+        ["save",{"muted":false,"chime":true,"zenFull":false,"haptics":true,"keepAwake":true,"frame":true,"layers":false,"breath":false,"breathPattern":"calm","durationMs":300000,"restMs":0,"rounds":1,"mendNotes":0,"hintCrack":false,"hintZen":0,"grain":0,"realSandFails":0,"realSandWhy":"","realSandNa":"","realSandNaAt":0,"tuneTab":"sand","sand":"seaglass","sandColor":"","finish":"driftwood","shape":"classic","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false,"background":"dark"}],
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","dune"],
@@ -102,11 +105,12 @@
         ["save",{}],
         ["save",{"realSandBuild":"7"}]
       ],
-      "saved": "{\"theme\":\"seaglass\",\"character\":\"dune\",\"volume\":1,\"muted\":false,\"chime\":true,\"tilt\":true,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"drips\",\"ambienceLevel\":0.2,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":300000,\"restMs\":0,\"rounds\":1,\"motionSign\":1,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":3,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"seaglass\",\"sandColor\":\"\",\"finish\":\"driftwood\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false}"
+      "saved": "{\"theme\":\"seaglass\",\"character\":\"dune\",\"volume\":1,\"muted\":false,\"chime\":true,\"tilt\":true,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"drips\",\"ambienceLevel\":0.2,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":300000,\"restMs\":0,\"rounds\":1,\"motionSign\":1,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":3,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"seaglass\",\"sandColor\":\"\",\"finish\":\"driftwood\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false,\"background\":\"dark\"}"
     },
     {
       "name": "a damaged save: wrong types, unknown names, values out of range",
       "trace": [
+        ["get","hourglass.settings.v1"],
         ["get","hourglass.settings.v1"],
         ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
         ["new Renderer"],
@@ -125,7 +129,7 @@
         ["sim.reset",1155],
         ["get","hourglass.session.v1"],
         ["audio.setCracked","intact"],
-        ["save",{"theme":"sahara","character":"asmr","volume":0.8,"muted":false,"chime":true,"tilt":false,"zenFull":false,"haptics":true,"keepAwake":true,"frame":true,"layers":false,"ambience":"none","breath":false,"breathPattern":"calm","durationMs":10000,"restMs":0,"rounds":1,"motionSign":0,"mendNotes":0,"hintCrack":false,"hintZen":0,"grain":0,"hintMotion":0,"realSandFails":0,"realSandWhy":"","realSandNa":"","realSandNaAt":0,"realSandBuild":"","tuneTab":"sand","sand":"sahara","sandColor":"","finish":"walnut","shape":"classic","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false,"extra":"(gone)"}],
+        ["save",{"theme":"sahara","character":"asmr","volume":0.8,"muted":false,"chime":true,"tilt":false,"zenFull":false,"haptics":true,"keepAwake":true,"frame":true,"layers":false,"ambience":"none","breath":false,"breathPattern":"calm","durationMs":10000,"restMs":0,"rounds":1,"motionSign":0,"mendNotes":0,"hintCrack":false,"hintZen":0,"grain":0,"hintMotion":0,"realSandFails":0,"realSandWhy":"","realSandNa":"","realSandNaAt":0,"realSandBuild":"","tuneTab":"sand","sand":"sahara","sandColor":"","finish":"walnut","shape":"classic","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false,"background":"dark","extra":"(gone)"}],
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","asmr"],
@@ -135,11 +139,12 @@
         ["remove","hourglass.session.v1"],
         ["save",{"realSandBuild":"7"}]
       ],
-      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":2.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":10000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false}"
+      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":2.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":10000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false,\"background\":\"dark\"}"
     },
     {
       "name": "\"?t=45\" over a saved sequence, the finest grain",
       "trace": [
+        ["get","hourglass.settings.v1"],
         ["get","hourglass.settings.v1"],
         ["Sim.setPace",2],
         ["new Sim",{"scale":2.16,"seed":"(a seed)"}],
@@ -159,7 +164,7 @@
         ["sim.reset",9819],
         ["get","hourglass.session.v1"],
         ["audio.setCracked","intact"],
-        ["save",{"theme":"sahara","character":"asmr","volume":0.8,"muted":false,"chime":true,"tilt":false,"zenFull":false,"haptics":true,"keepAwake":true,"frame":true,"layers":false,"ambience":"none","ambienceLevel":0.5,"breath":false,"breathPattern":"calm","durationMs":45000,"restMs":0,"rounds":1,"motionSign":0,"mendNotes":0,"hintCrack":false,"hintZen":0,"hintMotion":0,"realSandFails":0,"realSandWhy":"","realSandNa":"","realSandNaAt":0,"tuneTab":"sand","sand":"sahara","sandColor":"","finish":"walnut","shape":"classic","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false}],
+        ["save",{"theme":"sahara","character":"asmr","volume":0.8,"muted":false,"chime":true,"tilt":false,"zenFull":false,"haptics":true,"keepAwake":true,"frame":true,"layers":false,"ambience":"none","ambienceLevel":0.5,"breath":false,"breathPattern":"calm","durationMs":45000,"restMs":0,"rounds":1,"motionSign":0,"mendNotes":0,"hintCrack":false,"hintZen":0,"hintMotion":0,"realSandFails":0,"realSandWhy":"","realSandNa":"","realSandNaAt":0,"tuneTab":"sand","sand":"sahara","sandColor":"","finish":"walnut","shape":"classic","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false,"background":"dark"}],
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","asmr"],
@@ -169,11 +174,12 @@
         ["remove","hourglass.session.v1"],
         ["save",{"realSandBuild":"7"}]
       ],
-      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":45000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":2,\"hintMotion\":0,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false}"
+      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":45000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":2,\"hintMotion\":0,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false,\"background\":\"dark\"}"
     },
     {
       "name": "a version-2 save, the glass in the delta shape",
       "trace": [
+        ["get","hourglass.settings.v1"],
         ["get","hourglass.settings.v1"],
         ["new Sim",{"scale":1.08,"seed":"(a seed)","shape":"delta"}],
         ["new Renderer"],
@@ -192,7 +198,7 @@
         ["sim.reset",4964],
         ["get","hourglass.session.v1"],
         ["audio.setCracked","intact"],
-        ["save",{"theme":"sahara","character":"asmr","volume":0.8,"muted":false,"chime":true,"tilt":false,"zenFull":false,"haptics":true,"keepAwake":true,"frame":true,"layers":false,"ambience":"none","ambienceLevel":0.5,"breath":false,"breathPattern":"calm","durationMs":300000,"restMs":0,"rounds":1,"motionSign":0,"mendNotes":0,"hintCrack":false,"hintZen":0,"grain":0,"hintMotion":0,"realSandFails":0,"realSandWhy":"","realSandNa":"","realSandNaAt":0,"sand":"sahara","sandColor":"","finish":"walnut","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false}],
+        ["save",{"theme":"sahara","character":"asmr","volume":0.8,"muted":false,"chime":true,"tilt":false,"zenFull":false,"haptics":true,"keepAwake":true,"frame":true,"layers":false,"ambience":"none","ambienceLevel":0.5,"breath":false,"breathPattern":"calm","durationMs":300000,"restMs":0,"rounds":1,"motionSign":0,"mendNotes":0,"hintCrack":false,"hintZen":0,"grain":0,"hintMotion":0,"realSandFails":0,"realSandWhy":"","realSandNa":"","realSandNaAt":0,"sand":"sahara","sandColor":"","finish":"walnut","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"silentRing":true,"quick":"1,5,10,15,30,60","endsAt":false,"background":"dark"}],
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","asmr"],
@@ -201,7 +207,7 @@
         ["renderer.setTheme","sahara"],
         ["remove","hourglass.session.v1"]
       ],
-      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":300000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"glass\",\"sand\":\"sahara\",\"sandColor\":\"\",\"finish\":\"walnut\",\"shape\":\"delta\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false}"
+      "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":300000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":false,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"7\",\"v\":2,\"tuneTab\":\"glass\",\"sand\":\"sahara\",\"sandColor\":\"\",\"finish\":\"walnut\",\"shape\":\"delta\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"1,5,10,15,30,60\",\"endsAt\":false,\"background\":\"dark\"}"
     }
   ]
 }
