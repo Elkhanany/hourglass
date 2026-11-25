@@ -517,6 +517,39 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   in a work and rest sequence, the switch off giving today's words exactly
   at every step, the switch in Tune, Zen and a short screen. Every check
   has a control (`--only order|quick|lit|cancel|keys|fit|ends`).
+  `app-mode` covers light and dark, the Zen button and the double-click
+  (release 1.19.0): each of the four backgrounds saved comes up in its look
+  (the page's `data-look`, its theme-color, color-scheme and status-bar
+  metas, the renderer's shading, the moon button's state and the Tune row's
+  choice); the four choices in Tune's Glass tab change the look at once with
+  nothing built again; the moon button turns to the other look and back, kept
+  over a reload, and turns Device or Daytime into a choice of its own; a save
+  of 1.18.0 comes up dark; the reset link puts it back to dark; the first
+  frame painted is in the right look for every choice (an init script reads
+  the page at its first animation frame; a copy of the page without its early
+  script must fail); Device with the browser's colour scheme emulated light and
+  dark and changed while open; Daytime with the clock (`new Date()` set by an
+  init script, in UTC) on both sides of 7:00 and 19:00, carried across each
+  while open and across a return from the background (copies of `app.js`
+  without the timer, without the return and without the scheme's listener must
+  fail); a running glass keeps its time within 40 ms over four changes of
+  look; the contrast of every text of the bars, the state line, all four tabs
+  and the dial sheet against its ground, from computed styles, 4.5 to 1 or
+  more in the light look at 393 x 852 and 320 x 568 (a paler third ink must
+  fail); in the dark look the first two inks likewise, the third measured
+  and left as it was; the glass's outline on white, from the screen's
+  pixels along a line through the empty lower bulb, for the drawn glass and
+  (software WebGL) the rendered one (without the light shading each must
+  fail); Moonstone and a very pale custom sand against the paper (the same
+  measure on a ground of the sand's own colour must fail); the Background
+  row and the dial sheet at 393 x 852 and 320 x 568; the Zen button's name
+  and icon; and the double-click of a mouse into and out of Zen and Full Zen,
+  not on the glass, a button or a pill, not by a finger, not with a second
+  click 0.75 s late, nothing started or turned (copies without it, with a
+  finger's taken, with a 2 s wait must fail), and a keyboard alone (Tab,
+  Enter, Escape) and a mouse alone (the button, a double-click) in and out.
+  `HOURGLASS_SHOTS=<folder>` keeps pictures of both looks. It runs alone
+  (`--only CHOICES,TUNE,...` for parts).
   `app-look` covers the sand and the frame's finish chosen apart (release
   1.14.0): with nothing saved the glass and the page exactly as they were,
   the renderer's own bundle; each of the nine sands tapped in Tune over the

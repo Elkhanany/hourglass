@@ -77,10 +77,14 @@ deep-water teal.
   (once, three times, or until a tap), and optional water behind it (a brook,
   rain, the ocean, a waterfall, or drips in a grotto) that can fade out before
   the end, each at its own level, all synthesised, nothing recorded.
-- **Zen.** Spread two fingers on the screen, or tap the moon, and the controls
-  fade while the glass grows to fill the screen. Pinch them together to come
+- **Zen.** Spread two fingers on the screen, tap the Zen button (four corners),
+  or double-click the background with a mouse, and the controls fade while the
+  glass grows to fill the window. Pinch, `Esc` or another double-click to come
   back. Nothing else changes the view: not a tap, not playing with the glass,
   not time.
+- **Light and dark.** The moon button turns the app to a light look on paper
+  white and back; Tune can also follow the device's own setting, or be light
+  from 7:00 to 19:00.
 - **Breathing pace.** If you like, the glow behind the glass swells as you
   breathe in and fades as you breathe out, for as long as the sand runs.
 - **A glass you can hold.** Drag it by the waist, turn it by a bulb, flick it
@@ -120,8 +124,9 @@ deep-water teal.
 | Reset: the old sand is drawn into the neck, new sand is poured in | **Reset** | `R` |
 | Duration | Pills `1 5 10 15 30 60` min, **Custom**, or tap the time (10 s to 99:59) | |
 | Work and rest | **Custom** (or tap the time): *Then rest* 1 to 60 min, *Rounds* 1 to 12 | |
-| Zen: the glass fills the screen | Spread two fingers, or the moon icon | |
-| Back from Zen | Pinch two fingers together | `Esc` |
+| Zen: the glass fills the window | Spread two fingers, the Zen button, or double-click the background (mouse, pen) | |
+| Back from Zen | Pinch two fingers together, or double-click the background | `Esc` |
+| Light or dark | The moon button (a sun in the light look); **Tune**, Glass, *Background* | |
 | Mute | Speaker icon | `M` |
 | Sand, glass, sound and time: sand, frame and its finish, ambience, motion, breathing, screen | **Tune** (four tabs) | arrow keys between the tabs |
 
