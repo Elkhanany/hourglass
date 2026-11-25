@@ -197,7 +197,16 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   mode; the six quick durations with the dial, Show when it ends), and the
   reset link's second tap, whose save now also puts back the Sand and Bowl
   levels, Rings and the fade, and which tells the sound engine those two
-  levels; no other entry changed.
+  levels; no other entry changed. Both were made again for release 1.19.0,
+  the background: the key `background` ('dark') at the end of every full
+  save; in every boot one read of the settings more, first (index.html's
+  early script, which puts the light or dark look on the page before its
+  first paint); in the Tune trace five new entries (the background Light,
+  Device, Daytime and Dark, and the moon button), and the reset link's second
+  tap, whose save also puts back the background and which tells the renderer
+  the dark look (`setPaper`); no other entry changed. A traced page is at
+  noon (the recorder sets the hour of `new Date()`), so Daytime traces the
+  same at any hour of the run.
   The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
