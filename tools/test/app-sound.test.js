@@ -48,6 +48,7 @@
 'use strict';
 var fs = require('fs'), path = require('path');
 var H = require('./stubs/harness.js');
+var paths = require('./lib/paths.js');
 var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 
@@ -717,7 +718,7 @@ function silentOk(m) {
       s.check('FADE: no page or console errors', fd.errors.ok, fd.errors.detail);
       await control('FADE: a copy without the half-glass rule', 'short', function () { return fade(env, copyOf('app.js', /    stretch = Math\.min\(stretch, len \/ 2\);\n/, '')); }, fadeOk);
       await control('FADE: a copy that fades by the wall clock while paused', 'paused', function () { return fade(env, copyOf('app.js', /    rem = T\.rem;\n/, '    rem = T.rem - (T.state === \'paused\' ? Date.now() - T.lastTick : 0);\n')); }, fadeOk);
-      await control('FADE: a copy whose sound engine steps to the share', 'turned', function () { return fade(env, copyOf('audio.js', /this\._set\('ambEnd', this\.ambEnd\.gain, fe, 0\.35\);/, 'this.ambEnd.gain.value = fe;')); }, fadeOk);
+      await control('FADE: a copy whose sound engine steps to the share', 'turned', function () { return fade(env, copyOf(paths.script('audio.js', env.root), /this\._set\('ambEnd', this\.ambEnd\.gain, fe, 0\.35\);/, 'this.ambEnd.gain.value = fe;')); }, fadeOk);
       await control('FADE: a copy that ends in quiet with the switch off too', 'off', function () {
         return fade(env, copyOf('app.js', /    if \(!stretch \|\| settings\.ambience === 'none'\) return 1;\n/, "    if (T.state === 'done') return 0;\n    if (!stretch || settings.ambience === 'none') return 1;\n"));
       }, fadeOk);
@@ -728,7 +729,7 @@ function silentOk(m) {
       s.check('SILENT: on (the default): the page\'s audio session is \'playback\' from the first tap, as before; switched off it is \'ambient\' at once, and \'playback\' again when switched on', si.on.ok, si.on.detail);
       s.check('SILENT: off: \'ambient\' from the launch (before any tap) and after the first tap, \'playback\' at once when switched on', si.off.ok, si.off.detail);
       s.check('SILENT: a browser without an audio session: the row says it decides by itself, the switch still saves, and nothing throws (nor with a session whose type cannot be set)', si.none.ok, si.none.detail);
-      await control('SILENT: a copy of audio.js that always asks for \'playback\'', 'off', function () { return silent(env, copyOf('audio.js', /if \(s\) s\.type = this\.silentRing === false \? 'ambient' : 'playback';/, "if (s) s.type = 'playback';")); }, silentOk);
+      await control('SILENT: a copy of audio.js that always asks for \'playback\'', 'off', function () { return silent(env, copyOf(paths.script('audio.js', env.root), /if \(s\) s\.type = this\.silentRing === false \? 'ambient' : 'playback';/, "if (s) s.type = 'playback';")); }, silentOk);
       await control('SILENT: a copy of app.js that leaves the session alone at the launch', 'off', function () { return silent(env, copyOf('app.js', /  if \(!settings\.silentRing\) audio\.setSilentRing\(false\);[^\n]*\n/, '')); }, silentOk);
     }
   } catch (e) {

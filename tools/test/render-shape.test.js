@@ -59,11 +59,12 @@
  *
  *   node tools/test/render-shape.test.js [--port n] [--only id[,id]]     exits 0 when every case passes
  *
- * The page and physics.js are served from memory through Playwright's
- * routing, at http://localhost:<port>/; nothing listens on the port and no
- * files are written. The port defaults to $PORT or 8802 (a bare number as the
+ * The page and HourglassPhysics (the pieces joined, served as one script,
+ * physics.js) are served from memory through Playwright's routing, at
+ * http://localhost:<port>/; nothing listens on the port and no files are
+ * written. The port defaults to $PORT or 8802 (a bare number as the
  * first argument is taken as the port too). HOURGLASS_PHYSICS=<file> draws
- * with that copy of physics.js instead of the repository's (to try a change).
+ * with that copy instead of the repository's pieces (to try a change).
  * SNAP=<dir> saves each shape's glass there, bare and framed, for a look.
  */
 'use strict';
@@ -566,7 +567,7 @@ var HTML = [
   '<script>(' + pageCode.toString() + ')();</script></body></html>'
 ].join('\n');
 
-/** A page with physics.js (`src`: another copy of it) and the checks of pageCode. */
+/** A page with HourglassPhysics (`src`: another copy of it) and the checks of pageCode. */
 function open(browser, src) {
   var page;
   return browser.newContext({ viewport: { width: 400, height: 760 } }).then(function (ctx) {

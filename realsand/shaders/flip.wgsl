@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
 // Hourglass sand engine: the flip pass (GPL-3.0 project). At a swap the app
-// turns its glass's record end for end (physics.js completeFlip), so that the
+// turns its glass's record end for end (sand/sim.js completeFlip), so that the
 // sand always drains toward -y; the GPU's points follow in the next run, which
 // begins with this pass: each point is turned half a turn about the glass's
 // centre, which on this point-symmetric glass is exact. A point exactly on

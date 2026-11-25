@@ -11,9 +11,17 @@ sound work is in [How it works](engines.md).
 index.html  styles.css      the page and its look (one screen, two sheets)
 app.js                      the controller: clock, gestures, Zen, settings, sessions
 app/settings.js             the settings store: a record for every saved key, load and save
-physics.js                  the sand simulation, the glass, cracks and spilled sand
-audio.js                    the procedural sound engine
-motion.js                   the phone's motion sensors
+glass/                      the hourglass (pieces of HourglassPhysics, below)
+  shapes.js                 the glass's geometry and the shapes it can take: makeGeometry, profile, SHAPES
+  gl.js                     the glass drawn by WebGL
+  renderer.js               the picture: the glass, the classic sand, the Reset's sweep, the frame and caps
+  cracks.js                 cracks on the glass, its mends and their glints
+  spill.js                  sand that has left the glass, falling and gathering on the desk
+sand/                       the classic sand (pieces of HourglassPhysics, below)
+  sim.js                    the simulation of every grain on the CPU, and the glass's lattice
+  sands.js                  the sands and their colours: THEMES, SANDS, the finishes, customSand
+sound/audio.js              the procedural sound engine
+motion/motion.js            the phone's motion sensors
 sw.js  manifest.json        offline cache and install metadata
 realsand/                   the GPU sand engine: the sand lab's, and the app's with Real sand on
   boot.mjs  app-sand.mjs    what the app loads, and RealSand, the GPU sand as the app's sim
@@ -27,13 +35,57 @@ icons/                      app icons and iPhone launch screens (icons/splash)
 docs/                       the guide, how it works, the architecture, the tests, and the designs
 docs/images/                the pictures in the README and the install screenshots
 tools/icons.html            regenerates the icons from one SVG
-tools/audio-identity.js     run by hand: shows that a change to audio.js changed no sound
+tools/audio-identity.js     run by hand: shows that a change to sound/audio.js changed no sound
+tools/split-physics.js      run by hand: cuts a physics.js of a branch from before the split into the pieces
 tools/test/                 development-only tests (not part of the app)
 .github/                    the quick checks on every pull request, and the pull request template
 ```
 
 The app is plain files with no build step: whatever is in the repository is
 what the browser runs.
+
+## The classic sand and the glass: seven pieces
+
+Until 1.18.0 the classic sand and the glass were one file, `physics.js`.
+They are now seven classic scripts that `index.html` loads in this order,
+before the sound engine: `glass/shapes.js`, `sand/sim.js`, `sand/sands.js`,
+`glass/gl.js`, `glass/renderer.js`, `glass/cracks.js`, `glass/spill.js`.
+Together they make one namespace, `HourglassPhysics`, with the same names
+`physics.js` exported (the app's API: `Sim`, `Renderer`, `Spill`, `SANDS`,
+`SHAPES`, `addShape` and the rest). Each piece is one or two of the old
+file's banner sections, byte for byte, inside a wrapper:
+
+```js
+(function (root) {
+  'use strict';
+  var P = root.HourglassPhysics || (root.HourglassPhysics = {});
+  var _ = P._ || (P._ = {});        // names the pieces share that are not the app's
+  if (_.loaded !== 'glass/shapes.js') return;   // a piece before this one is missing: define nothing
+  var makeGeometry = P.makeGeometry, profile = P.profile;     // what it reads from earlier pieces
+  ...the section, as it was...
+  P.Sim = Sim; _.WALL_BINS = WALL_BINS;                       // what it gives later pieces and the app
+  _.loaded = 'sand/sim.js';
+})(typeof window !== 'undefined' ? window : globalThis);
+```
+
+- A piece reads what it needs once, at load, from the pieces loaded before
+  it. A name the app uses is on `HourglassPhysics`; a name only the pieces
+  share is on `HourglassPhysics._`.
+- Each piece but the first runs only if the one before it ran. So when a
+  piece is missing from an installed copy, none after it defines anything,
+  `HourglassPhysics.Spill` is missing, and `app.js`'s pre-flight check says
+  the app is updating, as it did when `physics.js` was missing.
+- `check-pieces` (the check group) fails a name one piece uses and another
+  declares without its import line, an import from a piece loaded later, an
+  export of a name the piece does not declare, and a broken chain, by file
+  and line ([Tests](testing.md)). An unimported name would otherwise fail
+  only when its code runs; where the WebGL glass is built such an error is
+  caught and the plainer 2-D glass drawn instead.
+- To add to a piece: write the code in its section; if another piece needs
+  a new name, add it to the first piece's export line and the second's
+  import line, and run `node tools/test/run-all.js check-`. A new piece needs
+  its `<script>` tag in `index.html` (in load order), its line in `sw.js`'s
+  `SHELL`, and the wrapper above.
 
 ## `app.js`, `index.html`, `styles.css`
 
@@ -145,7 +197,7 @@ behind one cross-fade. Everything else is kept, Sound in silent mode among it
 and nothing is loaded again.
 
 The Sound tab holds, under the sand's sound cards, the sand's own level (one
-gain in `audio.js`, `gSand`, between the sand's faders and the bus: the bowl
+gain in `sound/audio.js`, `gSand`, between the sand's faders and the bus: the bowl
 and the ambience do not pass it), and under the completion bowl its rings
 and its level. The rings are kept on the wall clock (`rings` in `app.js`:
 the first ring's time, the next ring's number and the last's) and rung from
@@ -157,7 +209,7 @@ touch and mouse events, the key's lift): it stops the bowl and goes no
 further. The ambience's fade before the end is worked out by `app.js` from
 the time left (`ambFadeShare`) and handed to the sound engine with every
 frame, which glides a gain after the ambience's bus (`ambEnd`) to it. Sound in
-silent mode is the page's audio session, which `audio.js` sets when the
+silent mode is the page's audio session, which `sound/audio.js` sets when the
 sound is first unlocked and at once when the switch moves; with it off the
 app sets it at the launch too.
 
@@ -451,8 +503,9 @@ These hold until a change says otherwise, with its reason.
   is what the browser runs. Playwright is a development dependency of the
   tests only.
 - **Classic scripts for every file the page loads; ES modules only behind
-  the WebGPU switch.** `index.html` loads `physics.js`, `audio.js`,
-  `motion.js`, `app/settings.js` and `app.js` as classic ES5 scripts. A
+  the WebGPU switch.** `index.html` loads the seven pieces of `glass/` and
+  `sand/`, `sound/audio.js`, `motion/motion.js`, `app/settings.js` and
+  `app.js` as classic ES5 scripts. A
   syntax error stops a whole file, and an old parser rejects a file that
   holds `import()`, so
   `app.js` stays classic and appends `realsand/boot.mjs`, the only module
@@ -460,9 +513,9 @@ These hold until a change says otherwise, with its reason.
   exists. `check-shell` checks every classic script for module syntax,
   `import()` and the kinds of syntax newer than ES5 that it lists
   ([Tests](testing.md)). The
-  Node suites load `physics.js` as a classic script into isolated contexts,
-  two versions side by side, which ES modules would not allow without a
-  flag.
+  Node suites load the pieces, joined, as one classic script into isolated
+  contexts, two versions side by side (an old `physics.js` beside today's
+  pieces), which ES modules would not allow without a flag.
 - **The classic sand is always built.** It is the glass's model under Real
   sand too (its geometry, capacity, cracks and flaws), the source of every
   fill of the GPU sand (each grain's place and colour), the record the sound

@@ -4,7 +4,7 @@
  * offers, and the time kept when the shape changes.
  *
  *   PICK     the Glass tab opens with its Shape section, above the frame's: the shape in use
- *            drawn large with "In use", and beside it the shapes Tune offers (physics.js
+ *            drawn large with "In use", and beside it the shapes Tune offers (glass/shapes.js
  *            SHAPE_ORDER, those with offered: all nine, Classic, Lozenge, Delta, Ampoule,
  *            Trumpet, Florence, Onion, Bell, Gourd), a radiogroup three a row, each drawn
  *            small and all at one scale (Delta drawn wider than Bell by their own widths); a
@@ -49,15 +49,24 @@ var OFFERED = ['classic', 'lozenge', 'delta', 'ampoule', 'trumpet', 'florence', 
 
 /**
  * Tune offers every registered shape, so a shape held back is made on the test's page alone: an
- * init script that sets offered false on these shapes' records as physics.js hands its registry
- * to the page (before the settings and the picker read it).
+ * init script that sets offered false on these shapes' records as glass/shapes.js hands its registry
+ * to the page (before the settings and the picker read it). The namespace is made empty by the first
+ * piece and filled in by each, so the script waits on the namespace for the registry itself (SHAPES);
+ * a namespace handed over whole, as one file did, is marked at once.
  */
 function hold(ids) {
   return {
     init: function (ids) {
       var v;
+      function mark(S) { ids.forEach(function (id) { if (S && S[id]) S[id].offered = false; }); }
       Object.defineProperty(window, 'HourglassPhysics', { configurable: true, enumerable: true, get: function () { return v; },
-        set: function (P) { v = P; ids.forEach(function (id) { if (P && P.SHAPES && P.SHAPES[id]) P.SHAPES[id].offered = false; }); } });
+        set: function (P) {
+          v = P;
+          if (!P) return;
+          if (P.SHAPES) { mark(P.SHAPES); return; }
+          var s;
+          Object.defineProperty(P, 'SHAPES', { configurable: true, enumerable: true, get: function () { return s; }, set: function (S) { s = S; mark(S); } });
+        } });
     },
     initArg: ids
   };
