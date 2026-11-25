@@ -60,7 +60,7 @@ fn csMain(@builtin(global_invocation_id) id: vec3u) {
 // the same, after a substep whose beds spreadShift.wgsl summed (csBeds): its first thread also
 // keeps each bed's fastest fall (solver.mjs's prepareKeep pipeline; an entry point of its own,
 // so that csMain, every other substep's, is as it was: on a software GPU the keeping alone, in
-// the one shader, cost about a tenth of a substep)
+// the one shader, cost about an eighth of a substep)
 @compute @workgroup_size(64)
 fn csKeep(@builtin(global_invocation_id) id: vec3u) {
     clearAll(id.x);
