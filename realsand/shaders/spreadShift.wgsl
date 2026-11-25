@@ -38,18 +38,19 @@ var<workgroup> w_bed: array<atomic<u32>, 6>;
 
 @compute @workgroup_size(64)
 fn csMain(@builtin(global_invocation_id) id: vec3u) {
-    if (id.x < count[0]) { shiftPoint(id.x, false); }
+    if (id.x < count[0]) { shiftPoint(id.x); }
 }
 
-// the same, with the beds summed (solver.mjs's spreadShiftBeds pipeline, at the substeps it asks
-// for; an entry point of its own, so that csMain has no barrier and no workgroup memory: a
-// software GPU runs a shader with barriers far more slowly, whether or not they are reached)
+// the same, with the beds summed first (solver.mjs's spreadShiftBeds pipeline, at the substeps it
+// asks for; an entry point of its own, and sumBed reached from it alone, so that csMain has no
+// barrier, no workgroup memory and no atomics: a software GPU runs a shader that has them more
+// slowly, whether or not they are reached)
 @compute @workgroup_size(64)
 fn csBeds(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_index) li: u32) {
     if (li < 6u) { atomicStore(&w_bed[li], 0u); }
     workgroupBarrier();
     // (no return before the last barrier: every invocation of the workgroup must reach it)
-    if (id.x < count[0]) { shiftPoint(id.x, true); }
+    if (id.x < count[0]) { sumBed(particles[id.x]); shiftPoint(id.x); }
     workgroupBarrier();
     if (li < 6u) {
         let v = atomicLoad(&w_bed[li]);
@@ -67,7 +68,7 @@ fn csBeds(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_in
 // a point in a bed: its velocity at the substep's end (as tally.wgsl takes it, without the
 // prediction of the next substep's field) into its bulb's sums
 fn sumBed(p: Particle) {
-    if (p.color.y < Crowded) { return; }
+    if (p.enabled == 0.0 || p.material != f32(MaterialSand) || p.color.y < Crowded) { return; }
     let x = p.position; let d = p.displacement;
     if (!(x.x == x.x && x.y == x.y && d.x == d.x && d.y == d.y) || abs(x.x) > 1e9 || abs(d.x) > 1e9 || abs(d.y) > 1e9) { return; }
     let dt = g_simConstants.deltaTime;
@@ -82,10 +83,9 @@ fn sumBed(p: Particle) {
     atomicAdd(&w_bed[b + 2u], select(1u, 0x10001u, moves));
 }
 
-fn shiftPoint(i: u32, beds: bool) {
+fn shiftPoint(i: u32) {
     var p = particles[i];
     if (p.enabled == 0.0 || p.material != f32(MaterialSand)) { return; }
-    if (beds) { sumBed(p); }
     // spread.x: how far a crowded point steps (per unit of excess density times its gradient)
     let k = g_simConstants.spread.x;
     // spread.y: the others' density above which a point is crowded (an even 2 x 2 bed gives about 0.75)
