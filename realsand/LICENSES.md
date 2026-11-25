@@ -22,7 +22,7 @@ follow. Both licences are compatible with the GPL-3.0.
 | `boot.mjs` | new: the module the app loads when Real sand is on | GPL-3.0 |
 | `layers.mjs` | new: layered sand on the GPU, after the app's own layered sand (`sand/sim.js`, physics.js before the split: `_style`, `_layer`, `_siftAll`, `_pourLayer`) | GPL-3.0 |
 | `grains.mjs` | taken out of the lab page's `main.mjs`; its quad per point follows Smoosh's `density.wgsl` | GPL-3.0, with the idea from MIT (Smoosh) |
-| the lab page, `lab/sand/` (`main.mjs`, `index.html`, `lab.css`) | the Hourglass app (`glass/shapes.js`, `glass/renderer.js`, `sand/sands.js`, physics.js before the split; `styles.css`, `motion.js`) | GPL-3.0 |
+| the lab page, `lab/sand/` (`main.mjs`, `index.html`, `lab.css`) | the Hourglass app (`glass/shapes.js`, `glass/renderer.js`, `sand/sands.js`, physics.js before the split; `styles.css`, `motion/motion.js`) | GPL-3.0 |
 | the lab's Timer, `lab/sand/timer.mjs` | the Hourglass app (`app.js`: `grainsFor`, `calibrate`, `topAt`, `remAt`, the breathing) | GPL-3.0 |
 
 Sources: Smoosh, <https://github.com/ErikSom/smoosh>; EA's PB-MPM,

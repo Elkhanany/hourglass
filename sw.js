@@ -32,7 +32,7 @@ var SHELL = [
   './glass/cracks.js',
   './glass/spill.js',
   './sound/audio.js',
-  './motion.js',
+  './motion/motion.js',
   './app/settings.js',
   './app.js',
   // the manifest and the icons

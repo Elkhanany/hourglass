@@ -193,7 +193,8 @@ async function testServiceWorker(s, root) {
       });
     });
     s.check('SW: the cache is ' + ctx.VERSION + ' (sw.js VERSION)', c.keys.indexOf(ctx.VERSION) >= 0, JSON.stringify(c.keys));
-    s.check('SW: ... and it holds ./motion.js', c.files.indexOf('/motion.js') >= 0, c.files.length + ' files');
+    var motionAt = '/' + require('./lib/paths.js').script('motion.js', copy);
+    s.check('SW: ... and it holds .' + motionAt, c.files.indexOf(motionAt) >= 0, c.files.length + ' files');
     var notCached = engine.filter(function (p) { return c.files.indexOf(p) < 0; });
     s.check('SW: ... and the sand engine for Real sand offline (' + engine.length + ' files under realsand/: modules, shaders, licences)',
             engine.length >= 30 && notCached.length === 0, notCached.join(', '));
