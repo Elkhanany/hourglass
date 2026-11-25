@@ -60,7 +60,7 @@
  *    and feed nothing; a bed thrown loose, or flying along the glass as a body, slides nothing;
  *    the landing's window is time, the same at 60, 120 and 180 runs a second; after a stall the
  *    faded agitation stays faded; and the same GPU motion is the same sound at every lattice;
- *  - every glass shape (physics.js SHAPES): adopt() fills it from the CPU lattice with exactly the
+ *  - every glass shape (glass/shapes.js SHAPES): adopt() fills it from the CPU lattice with exactly the
  *    points of each bulb, and a 10 s glass and a 5-minute glass run to 00:00.0 on time, the last
  *    point out within a frame or two; the control, a delta glass whose neck passes too little sand
  *    for its pace, must miss it.

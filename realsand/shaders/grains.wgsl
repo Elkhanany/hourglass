@@ -15,7 +15,7 @@
 //   inside the neck the app draws;
 // - the light: the app's canvas turns with the glass (CSS), so the light is
 //   turned back by the glass's angle on screen and stays with the room;
-// - the Reset's sweep (physics.js Renderer._sweepOut, _sweepIn): the old sand
+// - the Reset's sweep (glass/renderer.js Renderer._sweepOut, _sweepIn): the old sand
 //   drawn into the neck, then the new sand shown from the neck up under a
 //   rising surface, with the thread that pours it.
 //-----------------------------------------------------------------------------

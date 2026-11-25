@@ -2,7 +2,7 @@
  * Hourglass sand engine: layered sand on the GPU (design 7.4).
  *
  * With layered sand on, bit 7 of a grain's colour seed is its tone (the theme's sand or its
- * companion, physics.js Renderer._buildLUT). The app's CPU sand lays its tones where its
+ * companion, glass/renderer.js Renderer._buildLUT). The app's CPU sand lays its tones where its
  * grains come to rest; here the same is done for the GPU's material points:
  *
  *  - Toner, the tone pass (shaders/tone.wgsl), once a run after the tally: a point that has
@@ -12,11 +12,11 @@
  *    trading tones in equal numbers each way (a counting pass first, then ranks), so each bulb
  *    keeps its count of each tone, as the app's sand does. It counts each bulb's tones; its
  *    first 8 words are read back with the tally (solver.mjs post).
- *  - LayerPlan, the schedule: the lower heap grows in layers of layNeed grains (physics.js
+ *  - LayerPlan, the schedule: the lower heap grows in layers of layNeed grains (sand/sim.js
  *    _layer: a style's depth of rows times the heap's width), each laid as two strata, one
  *    tone under the other in the shares the top bulb holds, the tone below changing from
- *    layer to layer (physics.js _sift, _siftAll); poured sand comes in layers of its own
- *    (physics.js _pourLayer). A grain that crosses takes the schedule's tone, not its own, within
+ *    layer to layer (sand/sim.js _sift, _siftAll); poured sand comes in layers of its own
+ *    (sand/sim.js _pourLayer). A grain that crosses takes the schedule's tone, not its own, within
  *    a debt: the tone pass keeps the tone-1 grains it gives within a slack of the tone-1 grains
  *    that crossed (about a stratum's worth), so a stratum ends early when the sand for it runs
  *    out, and the tones keep their counts within the slack.
@@ -82,7 +82,7 @@ export class Toner {
    * Encode the pass for n points into enc (after the run's substeps and tally). o: { flags, parity,
    * line, cx, cy, s, dt, gravity [x, y], appW, appH (the app lattice's size), trade (after a turn,
    * the share of the possible trades of tone made this pass), dither (0 to 1), slack (the debt
-   * allowed, points), frame, pats: [top, bottom] (physics.js _pattern objects with duty) or null,
+   * allowed, points), frame, pats: [top, bottom] (sand/sim.js _pattern objects with duty) or null,
    * segs: [[start, tone], ...] }.
    */
   encode(enc, n, o) {
@@ -129,9 +129,9 @@ export function toneWords(w) {
 }
 
 /**
- * The layer schedule (physics.js _style, _layer, _siftAll, _pourLayer), in crossing numbers:
+ * The layer schedule (sand/sim.js _style, _layer, _siftAll, _pourLayer), in crossing numbers:
  * crossing k (the k-th point to cross since the plan began) is given the tone of the segment
- * holding k. o: { ppg: points per app grain, pace: physics.js Sim.pace(), lay: physics.js
+ * holding k. o: { ppg: points per app grain, pace: sand/sim.js Sim.pace(), lay: sand/sim.js
  * Sim.LAYERS (pour: grains in a poured layer), seed }.
  */
 export class LayerPlan {
@@ -145,7 +145,7 @@ export class LayerPlan {
     this.pourTone = this.rnd() < 0.5 ? 1 : 0; this.pourLeft = 0;
     this.style();
   }
-  /** How deep the next layers are: fine, even, bold, or fine with a thick one now and then (physics.js _style). */
+  /** How deep the next layers are: fine, even, bold, or fine with a thick one now and then (sand/sim.js _style). */
   style() {
     const k = (this.rnd() * 4) | 0, P = this.pace;
     this.layMin = [3, 4, 7, 3][k] * P; this.laySpan = [4, 8, 12, 18][k] * P; this.layPow = k === 3 ? 2.5 : 1;
@@ -238,7 +238,7 @@ export class LayerPlan {
     while (i + 1 < this.segs.length && this.segs[i + 1][0] <= k) i++;
     if (i > 0) { this.segs.splice(0, i); this.ones1 = this.segs[0][2]; }
   }
-  /** The tone (as bit 7) of the next n grains poured in: layers of pour to 2 pour grains, each in the other tone (physics.js _pourLayer). */
+  /** The tone (as bit 7) of the next n grains poured in: layers of pour to 2 pour grains, each in the other tone (sand/sim.js _pourLayer). */
   pourBits(n) {
     if (this.pourLeft <= 0) {
       this.pourTone ^= 1;
@@ -276,7 +276,7 @@ export function clearMarks(data, n) {
  * grain at the same depth below the surface in the same app column, in the same bulb (the CPU
  * Sim has just laid its strata, at the ledger's counts); off: a random tone (bit 7 is noise
  * again, as in a glass that never had them). map(x, y): a grid point's app cell [x, y].
- * cpu: { W, H, gateY, cell, seed } (physics.js Sim; a cell holds sand from 2). line: the
+ * cpu: { W, H, gateY, cell, seed } (sand/sim.js Sim; a cell holds sand from 2). line: the
  * counting line, grid y.
  */
 export function retone(data, n, on, { cpu, map, line, seed = 1 }) {

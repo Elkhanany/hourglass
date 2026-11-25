@@ -73,7 +73,7 @@ export function makeFill(glass, kind, opts = {}) {
   return pts;
 }
 
-/** physics.js: a lattice cell at or above this holds a grain (REST, MOVE). */
+/** sand/sim.js: a lattice cell at or above this holds a grain (REST, MOVE). */
 const CPU_SAND = 2;
 
 /**

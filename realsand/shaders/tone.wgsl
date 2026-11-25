@@ -4,8 +4,8 @@
 // ../LICENSES.md).
 //
 // With layered sand, bit 7 of a grain's colour seed (color.x, an integer) is
-// its tone: the theme's sand or its companion (physics.js Renderer._buildLUT).
-// The app's sand lays its tones where the sand comes to rest (physics.js
+// its tone: the theme's sand or its companion (glass/renderer.js Renderer._buildLUT).
+// The app's sand lays its tones where the sand comes to rest (sand/sim.js
 // _sift, _develop); this pass does the same for the GPU's points, once a run,
 // after the tally, in one dispatch over the points:
 //
@@ -25,12 +25,12 @@
 //   throat, and the lower heap is laid in strata as it grows.
 // - After a turn. While the glass turns and for 4 s after the swap, a point
 //   that moves (faster than MoveV) is marked (bit 10); once the swap has come
-//   (the patterns are drawn then: physics.js _turned), a marked point at rest
-//   whose tone is its bulb's new pattern's at its place (physics.js _phase,
+//   (the patterns are drawn then: sand/sim.js _turned), a marked point at rest
+//   whose tone is its bulb's new pattern's at its place (sand/sim.js _phase,
 //   ported) is laid. Those of the other tone trade: a first pass (countMain)
 //   counts them in each bulb, each way; then each takes a rank, and in each
 //   bulb the same number go each way (a share of the fewer of the two, q.x,
-//   dithered by q.y), so, as the app's sand trades seeds (physics.js
+//   dithered by q.y), so, as the app's sand trades seeds (sand/sim.js
 //   _develop), each bulb keeps its count of each tone exactly, and the
 //   pattern settles in over a second or two and never snaps. Sand that lay
 //   still is left as it is.
@@ -61,7 +61,7 @@ struct Tone {
                     // z: the slack, points: how far the tone-1 grains given may run ahead of, or behind, those that crossed
     flags: vec4u,   // x: bit 0 fresh grains, bit 1 mark moving grains, bit 2 lay the patterns; y: the parity; z: segments in seg; w: the app lattice's width
     salt: vec4u,    // x, y: each bulb's pattern's salt; z: the frame (for the chance); w: unused
-    // each bulb's pattern (physics.js _pattern), app cells: [b*4]: y0, cx, hw, P; [b*4+1]: tilt, bend, fold, kx;
+    // each bulb's pattern (sand/sim.js _pattern), app cells: [b*4]: y0, cx, hw, P; [b*4+1]: tilt, bend, fold, kx;
     // [b*4+2]: ky, p1, p2, km; [b*4+3]: p3, duty (the share of tone 1), 0, 0
     pat: array<vec4f, 8>,
     // the layer schedule: x: the first crossing number of the segment, y: its tone (in order; the last one runs on)
@@ -107,7 +107,7 @@ fn scheduled(k: u32, keep: u32) -> u32 {
     return t;
 }
 
-/** Bulb b's pattern's tone at app cell (x, y) (physics.js _phase: under the duty, tone 1). */
+/** Bulb b's pattern's tone at app cell (x, y) (sand/sim.js _phase: under the duty, tone 1). */
 fn patternTone(b: u32, x: i32, y: i32) -> u32 {
     let r0 = P.pat[b * 4u]; let r1 = P.pat[b * 4u + 1u]; let r2 = P.pat[b * 4u + 2u]; let r3 = P.pat[b * 4u + 3u];
     let fx = f32(x); let fy = f32(y);

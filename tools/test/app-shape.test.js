@@ -4,7 +4,7 @@
  * offers, and the time kept when the shape changes.
  *
  *   PICK     the Glass tab opens with its Shape section, above the frame's: the shape in use
- *            drawn large with "In use", and beside it the shapes Tune offers (physics.js
+ *            drawn large with "In use", and beside it the shapes Tune offers (glass/shapes.js
  *            SHAPE_ORDER, those with offered: all nine, Classic, Lozenge, Delta, Ampoule,
  *            Trumpet, Florence, Onion, Bell, Gourd), a radiogroup three a row, each drawn
  *            small and all at one scale (Delta drawn wider than Bell by their own widths); a
@@ -49,7 +49,7 @@ var OFFERED = ['classic', 'lozenge', 'delta', 'ampoule', 'trumpet', 'florence', 
 
 /**
  * Tune offers every registered shape, so a shape held back is made on the test's page alone: an
- * init script that sets offered false on these shapes' records as physics.js hands its registry
+ * init script that sets offered false on these shapes' records as glass/shapes.js hands its registry
  * to the page (before the settings and the picker read it).
  */
 function hold(ids) {

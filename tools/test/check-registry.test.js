@@ -17,7 +17,7 @@
  *    its id, name or icon, an id that is taken; and so is a record with a field nothing reads,
  *    which is a field misspelt (`mode` for `modes` would be a character with the thin glass,
  *    `layer` for `layers` an ambience that plays nothing, `offerd` a glass that is not offered);
- *  - the shapes of physics.js are whole: SHAPE_ORDER and SHAPES name the same glasses in the same
+ *  - the shapes of glass/shapes.js are whole: SHAPE_ORDER and SHAPES name the same glasses in the same
  *    order, the classic first; each says whether Tune offers it and has the half-turn symmetry
  *    both sand engines need; addShape refuses a record that is not whole; and checkShape finds
  *    nothing wrong with any of them at the phone's size (sim-shape asks at every size, and runs
@@ -254,7 +254,7 @@ GROUPS.forEach(function (G) {
   check(typeof P.checkShape === 'function' && refused.length === 0, 'checkShape finds nothing wrong with any of them at the phone\'s size (sim-shape asks at every size)',
     refused.map(function (r) { return r[0] + ': ' + r[1].join(', '); }).join('; '));
 
-  // controls, on other copies of physics.js: records put in past addShape, and what addShape refuses
+  // controls, on other copies of HourglassPhysics: records put in past addShape, and what addShape refuses
   var PP = L.loadIsolated(L.physicsSource(), 'physics.js');
   function f(u) { return u <= 0.6 ? u / 0.6 : Math.sqrt(Math.max(0, 1 - Math.pow((u - 0.6) / 0.4, 2.2))); }
   PP.SHAPES['x-bare'] = { id: 'x-bare', name: 'put in by hand', kR: 1, kH: 1, f: f };
@@ -288,7 +288,7 @@ GROUPS.forEach(function (G) {
   var seenFields = {};
   IDS.forEach(function (id) { Object.keys(P.SHAPES[id]).forEach(function (k) { seenFields[k] = true; }); });
   var fs9 = Object.keys(seenFields).sort().join(' ');
-  check(fs9 === 'classic equator f id kH kR name offered symmetry', '... and the fields the records of physics.js hold are the ones a record may: 9 for a shape', fs9);
+  check(fs9 === 'classic equator f id kH kR name offered symmetry', '... and the fields the records of glass/shapes.js hold are the ones a record may: 9 for a shape', fs9);
   // checkShape on a glass the sand cannot use: wider than its R, and two bulges
   P2.SHAPES['x-fat'] = { id: 'x-fat', name: 'too wide', kR: 1, kH: 1, f: function (u) { return 1.05 * f(u); } };
   P2.SHAPES['x-two'] = { id: 'x-two', name: 'two bulges', kR: 1, kH: 1, f: function (u) { return f(u) * (1 - 0.4 * Math.exp(-Math.pow((u - 0.3) / 0.05, 2))); } };

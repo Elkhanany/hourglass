@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Did a change to audio.js change a sound? A tool run by hand for a change that must not
+ * Did a change to the sound engine (sound/audio.js) change a sound? A tool run by hand for a change that must not
  * (development only, not shipped; not a suite of the default run, because it needs to be told
  * what to compare with):
  *

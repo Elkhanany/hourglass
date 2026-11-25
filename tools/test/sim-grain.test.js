@@ -6,7 +6,7 @@
  * place, as many grains in the air for its size, cracked about as soon by
  * the same shaking and never by walking. Each is measured on the classic
  * sand (scale 1.08, pace 1) and on Fine (√2) and Finest (2), each in its
- * own copy of physics.js, since the pace is one for a page.
+ * own copy of HourglassPhysics, since the pace is one for a page.
  *
  *   node tools/test/sim-grain.test.js        exits 0 when every case passes
  */
