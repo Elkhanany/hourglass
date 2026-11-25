@@ -1313,12 +1313,13 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
       for (var w0 = 0; w0 < 10; w0++) hear(1000 / hz, B.rest(NH), null);
       var nSub = every * sub, dtSub = 1 / (hz * sub), t0 = -ph / hz, E = 0, n = 0, late = null;
       for (var r = 0; r < Math.ceil((0.5 + tL) * hz / every) + 2; r++) {
-        // the run's substeps: the fastest fall at the end of any but the last (none faster than 0: none kept)
+        // the run's substeps: the fastest fall at the end of every BEDS_EVERY-th back from the last, not
+        // the last itself (solver.mjs; none faster than 0: none kept)
         var best = null, bestV = 0, fs = [], gm = 0;
         for (var s = 0; s < nSub; s++) {
           var ts = t0 + (r * nSub + s + 1) * dtSub, vs = vAt(ts), gs = gAt(ts);
           fs.push({ gravity: [0, gs] }); gm += gs / nSub;
-          if (s < nSub - 1 && -vs > bestV) { bestV = -vs; best = s; }
+          if (s < nSub - 1 && (nSub - 1 - s) % SOL.BEDS_EVERY === 0 && -vs > bestV) { bestV = -vs; best = s; }
         }
         var tEnd = t0 + (r + 1) * nSub * dtSub, end = bedAt(vAt(tEnd));
         var bed = withPeak ? B.withPeak(end, best === null ? null : bedAt(-bestV), best) : end;

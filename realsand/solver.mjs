@@ -59,6 +59,10 @@ const POST_WORDS = 8;
 // words are the sums, then PEAK_BED words a bed (prepare.wgsl's header), kept across runs until a
 // readback copies them, so that a fall in a run that found no free readback slot is read with the next
 const PEAK_SUMS = 8, PEAK_BED = 6, PEAK_WORDS = PEAK_SUMS + 2 * PEAK_BED;
+// the beds are summed at every BEDS_EVERY-th substep's end, 240 times a second at 480 Hz (a fall
+// speeds up by g / 240, about 9 cells/s, between two sums, and its fastest, where it turns from
+// speeding up to being stopped, is missed by less), which halves their cost against every substep
+export const BEDS_EVERY = 2;
 // a readback slot: the counters, then the tally, then the post pass's 8 words (Solver.post), then
 // the beds' fastest falls
 const READBACK_BYTES = (COUNTER_WORDS + TALLY_WORDS + POST_WORDS + 2 * PEAK_BED) * 4;
@@ -485,7 +489,8 @@ export class Solver {
    * count above (below, in a run that flipped: those are now above) and counters[2, 4, 5, 6] are
    * cleared. The readback carries what valve.mjs onReadback takes.
    *
-   * set.beds: the beds are summed at the end of each substep but the last, and each bed's
+   * set.beds: the beds are summed at the end of every BEDS_EVERY-th substep back from the last
+   * (not the last itself, which the tally has), and each bed's
    * fastest fall kept for the readback (bedOf's peak; app-sand.mjs gives it while a fall is
    * possible: otherwise it costs nothing).
    */
@@ -548,9 +553,9 @@ export class Solver {
       // sand points that crowd together inside a cell move apart (spreadShift.wgsl)
       if (spread) {
         go(P.spreadSplat, G.spreadSplat, base, n64);
-        // (the beds summed at this substep's end only while set.beds says a fall is possible, and
-        // never at the run's last substep: its tally has it)
-        go(set.beds && s < steps - 1 ? P.spreadShiftBeds : P.spreadShift, G.spreadShift, base, n64);
+        // (the beds summed at this substep's end only while set.beds says a fall is possible, every
+        // BEDS_EVERY substeps back from the run's last, and never at the last: its tally has it)
+        go(set.beds && s < steps - 1 && (steps - 1 - s) % BEDS_EVERY === 0 ? P.spreadShiftBeds : P.spreadShift, G.spreadShift, base, n64);
       }
     }
     if (this.count) go(P.tally, G.tally, Math.max(steps - 1, 0) * MAX_IT, n64);
