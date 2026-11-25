@@ -64,8 +64,8 @@ async function testCards(s, env) {
           JSON.stringify([a.role, a.label, a.kids, a.heading, a.tab, a.withSounds]));
   s.check('CARDS: None, Brook, Rain, Ocean, Waterfall, Drips, in that order', a.cards.map(function (c) { return c.name; }).join() === NAMES.join() &&
           a.cards.map(function (c) { return c.id; }).join() === IDS.join(), a.cards.map(function (c) { return c.id + '=' + c.name; }).join(', '));
-  s.check('SCREEN READER: each card is a radio button named by its text alone, reachable, its icon hidden',
-          a.cards.every(function (c) { return c.role === 'radio' && c.type === 'button' && !c.labelled && c.hidden === 'true' && c.tab === 0; }), JSON.stringify(a.cards.map(function (c) { return [c.role, c.hidden, c.tab]; })));
+  s.check('SCREEN READER: each card is a radio button named by its text alone, its icon hidden; the group one Tab stop, its checked card (the arrows reach the others)',
+          a.cards.every(function (c) { return c.role === 'radio' && c.type === 'button' && !c.labelled && c.hidden === 'true' && c.tab === (c.checked === 'true' ? 0 : -1); }), JSON.stringify(a.cards.map(function (c) { return [c.role, c.hidden, c.tab]; })));
   s.check('SCREEN READER: exactly one is checked, None to begin with',
           a.cards.filter(function (c) { return c.checked === 'true'; }).map(function (c) { return c.id; }).join() === 'none' &&
           a.cards.every(function (c) { return c.checked === 'true' || c.checked === 'false'; }), a.cards.map(function (c) { return c.checked; }).join());

@@ -98,7 +98,9 @@ stays where it is. While a tab has more below, its rows fade into the
 bottom of the sheet and a small arrow there points down; it goes once you
 reach the end. Tune opens on the tab used last, at its top. Tap outside
 the sheet, the close button or `Esc` to close it; on a keyboard the arrow
-keys move between the tabs.
+keys move between the tabs. A set of choices (the sands, the shapes, Rings,
+the durations under the glass and the rest) is one stop for `Tab`, at the
+one chosen; the arrow keys, `Home` and `End` choose another in it.
 
 **Sand**
 

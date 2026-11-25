@@ -501,7 +501,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   tab taking a tap 3 px above and below what is drawn of it (`--only
   target`, at 393 x 852 and 320 x 568, its reach clear of the close button,
   the next tab and the rows), the focus kept in an open sheet by Tab and
-  Shift+Tab (`--only focus`, Tune and the custom-duration sheet), and the
+  Shift+Tab (`--only focus`, Tune and the custom-duration sheet), every
+  radio group one Tab stop with the arrows, Home and End choosing in it and
+  saving what a tap saves (`--only radios`, with a control for each), and the
   "more below" hint (`--only hint`): at 393 x 852 a tab that can scroll
   shows it at its top and in its middle and not at its end (every tab can, at that size); a
   scrolled tab fades its rows under the tab row; a finger on the hint

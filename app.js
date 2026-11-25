@@ -3248,6 +3248,44 @@
     });
   }
 
+  /*
+   * Every radio group (the durations under the glass, and Tune's sands, grains, shapes, finishes,
+   * looks, ambiences, fades, sounds, rings and breaths) is one stop in the Tab order, as the tab
+   * row is: its checked option (the shape looked at, for the shapes; the first, when none is) has
+   * tabindex 0 and the others -1, kept so as aria-checked changes. In a group the arrow keys
+   * (Right and Down the next, Left and Up the one before, round the ends), Home and End move the
+   * focus and choose, by the option's own click: a key does what a tap does, through the same
+   * handler, and saves the same.
+   */
+  function radiosOf(g) {
+    return Array.prototype.filter.call(g.querySelectorAll('[role="radio"]'), function (r) { return !r.disabled && !r.hidden && r.closest('[role="radiogroup"]') === g; });
+  }
+  function rove(g) {
+    var rs = radiosOf(g), on = null, i;
+    for (i = 0; i < rs.length && !on; i++) if (rs[i].getAttribute('aria-checked') === 'true') on = rs[i];
+    if (!on) on = rs[0];
+    for (i = 0; i < rs.length; i++) { var want = rs[i] === on ? 0 : -1; if (rs[i].tabIndex !== want) rs[i].tabIndex = want; }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[role="radiogroup"]'), function (g) {
+    rove(g);
+    if (window.MutationObserver) new MutationObserver(function () { rove(g); }).observe(g, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-checked', 'hidden', 'disabled'] });
+  });
+  document.addEventListener('keydown', function (e) {
+    var r = e.target, g, rs, n, i, j;
+    if (!r || !r.getAttribute || r.getAttribute('role') !== 'radio' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    g = r.closest('[role="radiogroup"]');
+    if (!g) return;
+    rs = radiosOf(g).filter(function (x) { return x.getClientRects().length > 0; });
+    n = rs.length; i = rs.indexOf(r);
+    if (i < 0) return;
+    j = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (i + 1) % n : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (i + n - 1) % n :
+        e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;
+    if (j < 0) return;
+    e.preventDefault();
+    try { rs[j].focus(); } catch (err) {}
+    if (j !== i) rs[j].click();
+  });
+
   /* ---- settings controls -------------------------------------------- */
   function setCharacter(id) {
     settings.character = id; save();
