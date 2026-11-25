@@ -110,7 +110,7 @@ const GPU_SHARE = 0.75;
 /* ------------------------------------------------------------------ *
  *  State
  * ------------------------------------------------------------------ */
-// The page's default grid and amount. Measured on the owner's iPhone (iOS 26.5, 5cc11b3): medium
+// The page's default grid and amount. Measured on an iPhone (iOS 26.5, 5cc11b3): medium
 // grid, quarter glass ran 8 frames a second at 0.39 of real time, 350 to 730 ms behind; the
 // 1-minute amounts (coarse and medium) held real time at app speed, 30 frames a second, 31 ms
 // from submit to done; coarse, 1 minute was the only setup that also held real speed (0.97).
@@ -1494,7 +1494,7 @@ const SETUP_KEY = 'hourglass-lab-sand-setup';
 const SETUP_HZ = 1440;
 // What the first-load setup may pick: the coarse grid only (the scoreboard and the lab test judged the
 // sand's realism on that grid alone), 1 minute or a quarter. GPU time a substep against coarse,
-// 1 minute, from the owner's iPhone at 5cc11b3 (its real-speed rows, where the GPU was the limit:
+// 1 minute, from an iPhone at 5cc11b3 (its real-speed rows, where the GPU was the limit:
 // coarse, 1 minute at most 0.36 ms a substep, coarse, quarter 0.99 ms): x2.74. (The cost model gave
 // x2.11 and would have picked setups the phone could not hold.) The spread pass, added since, costs
 // about the same share of both. To be refitted from the Benchmark's gpu ms/substep column.
@@ -1510,7 +1510,7 @@ function setupSave(o) { try { localStorage.setItem(SETUP_KEY, JSON.stringify(o))
  * about one display frame for a light frame), so the pick errs toward the default. Frames too light
  * to time (under 8 substeps on average) give no pick. A pick is kept for the next visit; a timing
  * that leaves only the default is not (the next visit times again; ?setup in the address too), and
- * the owner's own choice of amount or grid afterwards is kept.
+ * an amount or grid chosen by hand afterwards is kept.
  */
 async function autoSetup() {
   setupInfo.state = 'timing';
@@ -1758,7 +1758,7 @@ function bindUI() {
       if (key === 'material') { switchMaterial(val); return; }
       if (key === 'speed') { S.speed = val; Object.assign(S, SPEED_DEFAULTS[val]); solver.allocUniforms(capAlloc()); resetRate(); syncUI(); return; }
       if (key === 'amount' || key === 'res') {
-        resetSand({ [key]: val }).then(() => { setupSave({ res: S.res, amount: S.amount, by: 'owner' }); setupInfo.state = 'owner'; setupInfo.text = `chosen by hand: ${RES_NAME[S.res]} grid, ${AMOUNT_NAME[S.amount]}`; });
+        resetSand({ [key]: val }).then(() => { setupSave({ res: S.res, amount: S.amount, by: 'hand' }); setupInfo.state = 'hand'; setupInfo.text = `chosen by hand: ${RES_NAME[S.res]} grid, ${AMOUNT_NAME[S.amount]}`; });
         return;
       }
     });
@@ -2027,11 +2027,13 @@ async function boot() {
     // the amount and grid: from the address, or as picked (or chosen) on an earlier visit, or timed now
     // (?setup times it again whatever was kept; tests load with offscreen or a grid and amount: no timing)
     const saved = q.has('setup') ? null : setupSaved(), fromUrl = !q.has('setup') && (q.has('res') || q.has('amount') || q.has('offscreen') || q.has('nosetup') || ROTOR);
-    // (an automatic pick only from the setups it may make now: SETUP_CANDIDATES)
-    if (!fromUrl && saved && SETUP_POINTS[saved.res]?.[saved.amount] && (saved.by === 'owner' || SETUP_CANDIDATES.some(c => c.res === saved.res && c.amount === saved.amount))) {
+    // (an automatic pick only from the setups it may make now: SETUP_CANDIDATES; a choice made by hand
+    // is saved as 'hand', and as 'owner' before 1.18.0: both are read)
+    const byHand = !!saved && (saved.by === 'hand' || saved.by === 'owner');
+    if (!fromUrl && saved && SETUP_POINTS[saved.res]?.[saved.amount] && (byHand || SETUP_CANDIDATES.some(c => c.res === saved.res && c.amount === saved.amount))) {
       S.res = saved.res; S.amount = saved.amount;
-      setupInfo.state = saved.by === 'owner' ? 'owner' : 'saved';
-      setupInfo.text = saved.by === 'owner' ? `chosen by hand on an earlier visit: ${RES_NAME[S.res]} grid, ${AMOUNT_NAME[S.amount]}` : `picked on an earlier visit (${saved.ms} ms a substep at the default): ${RES_NAME[S.res]} grid, ${AMOUNT_NAME[S.amount]}`;
+      setupInfo.state = byHand ? 'hand' : 'saved';
+      setupInfo.text = byHand ? `chosen by hand on an earlier visit: ${RES_NAME[S.res]} grid, ${AMOUNT_NAME[S.amount]}` : `picked on an earlier visit (${saved.ms} ms a substep at the default): ${RES_NAME[S.res]} grid, ${AMOUNT_NAME[S.amount]}`;
     }
     Object.assign(S, SPEED_DEFAULTS[S.speed]);
     await resetSand({});

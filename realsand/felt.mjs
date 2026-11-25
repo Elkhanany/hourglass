@@ -53,7 +53,7 @@
  *    and its stop come as far apart as in the film, so the bed takes the path it takes at real
  *    speed, slowed. Quiet stretches (under FILM_QUIET) are played fast, so the playback catches
  *    up between jolts, and it never falls more than opt.lag (FILM_LAG, 0.5 s) behind. Its flaw,
- *    and the owner's "about 0.5 s delay": any motion above FILM_QUIET keeps it from catching up,
+ *    and the delay of about 0.5 s seen on a phone: any motion above FILM_QUIET keeps it from catching up,
  *    so under shaking, jitter or handling it plays the hand 0.5 s late, at its own pace and
  *    scaled like gravity, with about a third of the film's impulse; a flick's stop comes 0.25 to
  *    0.45 s after the hand's.

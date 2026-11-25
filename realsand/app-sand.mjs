@@ -6,7 +6,7 @@
  * Real sand runs; behind them the sand is the GPU engine of this folder, with its metered neck.
  * The CPU Sim stays alive, not stepped: it is the glass's model (its geometry, capacity, cracks
  * and flaws), the source of every GPU fill (fill.mjs fromLattice: the bed's shape and each
- * grain's colour), the owner of the per-frame record the app and the audio read (sim.frame,
+ * grain's colour), the holder of the per-frame record the app and the audio read (sim.frame,
  * sim.nev and the event arrays, shared), and the instant fallback.
  *
  * Part of the Hourglass project. License: GPL-3.0.
@@ -63,7 +63,7 @@
  *    calls onBack(), on which the app makes it its sim again (takeOver).
  *
  * ==============================================================================================
- *  WHAT THE OWNER SEES (design 6, 7.4)
+ *  WHAT IS SEEN (design 6, 7.4)
  * ==============================================================================================
  *  Each grain is drawn in its seed's colour from the Renderer's own table (setPalette: the
  *  theme, layered sand), inside the neck the app draws (the warp), lit from the room's upper
@@ -258,7 +258,7 @@ export class RealSand {
     this.times = { start: null, device: null, pipelines: null, selfTest: null, selfTestRun: null, firstFrame: null, glass: msGlass, fill: null };
     this.n = { runs: 0, skips: 0, calmSkips: 0, asleep: 0, jolts: 0, cssTurns: 0, transfers: 0, xferTimeouts: 0, residues: 0, fills: 0,
       deferred: 0, readbackFails: 0, losses: 0, rebuilds: 0, pours: 0, swaps: 0, errors: 0, refills: 0, handoverCatchUps: 0, redraws: 0, guards: 0 };
-    // the owner's report on exact time, as the lab's Timer gives it (_onTally): runs read back, open
+    // the report on exact time (stats(), ?debug=sand), as the lab's Timer gives it (_onTally): runs read back, open
     // runs whose crossings left fewer above than their lowest target (the membrane's promise
     // broken), crossings while shut, audits and failed audits, and for each glass that ended, when
     // the last point crossed against the clock's 00:00.0 (ms; the GPU's substep record)
@@ -1273,7 +1273,7 @@ export class RealSand {
   }
 
   /**
-   * Exact time for the owner's report (the lab's timerReadback does the same for its Timer): the
+   * Exact time for the report (stats(); the lab's timerReadback does the same for its Timer): the
    * membrane's promise in every open run, nothing across a shut neck, the ledger's audit, and the
    * end: the first readback with no point above at or after the clock's 00:00.0 holds the
    * substep of the last crossing (tally lastCross), given as a span of the clock's time.
@@ -1780,7 +1780,7 @@ export class RealSand {
    * ---------------------------------------------------------------------------------------- */
   _wall() { const T = this.T; return T && Number.isFinite(T.lastTick) ? T.lastTick : this.clock.wall(); }
 
-  /** For ?debug=sand and the owner's reports. */
+  /** For ?debug=sand and the Real sand report. */
   stats() {
     const t = this._tally, v = this.valve, now = this._rafLog.length ? this._rafLog[this._rafLog.length - 1] : 0;
     const F = this._fall;

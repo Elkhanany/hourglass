@@ -20,8 +20,8 @@
  *   prepare the spread's sub-cell grid): 16 dispatches a substep with the
  *   spread pass, 14 without (21 and 18 before), since on a phone a dispatch
  *   has a fixed cost (dispatchesPerSubstep). How much is not fitted: the cost
- *   model put it at about 16 us (350 points' work), but the owner's iPhone's
- *   coarse 1-minute real-speed row leaves at most about 4 us a dispatch; the
+ *   model put it at about 16 us (350 points' work), but an iPhone's coarse
+ *   1-minute real-speed row (5cc11b3) leaves at most about 4 us a dispatch; the
  *   Benchmark's gpu ms/substep column is to settle it;
  * - a per-frame tally (counts, speeds; each bulb's bed, for the sound) is read back for the HUD,
  *   the tests and the app;

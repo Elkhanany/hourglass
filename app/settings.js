@@ -69,8 +69,8 @@
    */
   var STEPS = [
     // Version 2: Real sand on, once. Every launch before 1.10.0 saved realSand: false, so such a
-    // save cannot tell "never touched" from "turned off"; from version 2 on, a saved false is
-    // the owner's choice.
+    // save cannot tell "never touched" from "turned off"; from version 2 on, a saved false was
+    // set in Tune and is kept.
     { v: 2, run: function (values) { values.realSand = true; } }
   ];
 
@@ -134,7 +134,7 @@
     { id: 'ambFade', default: 0,                 // the ambience fades out over the glass's last stretch (ms): 0 off, or 1, 5 or 10 minutes
       valid: function (v) { return v === 60000 || v === 300000 || v === 600000; } },
     { id: 'silentRing', default: true },         // sound with the ringer switched off (the page's audio session 'playback'); off: 'ambient'
-    // The Time tab: the six durations under the glass, set by the person, and when the running glass ends.
+    // The Time tab: the six durations under the glass, set in the Time tab, and when the running glass ends.
     { id: 'quick', default: '1,5,10,15,30,60',   // the six quick durations, in whole minutes, in the order they were set (one bad: all six the default)
       valid: function (v) { return !!quickOf(v); } },
     { id: 'endsAt', default: false }             // the state line says when the running glass ends: "Flowing · ends 14:35"
