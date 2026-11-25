@@ -137,7 +137,12 @@
     // The Time tab: the six durations under the glass, set by the person, and when the running glass ends.
     { id: 'quick', default: '1,5,10,15,30,60',   // the six quick durations, in whole minutes, in the order they were set (one bad: all six the default)
       valid: function (v) { return !!quickOf(v); } },
-    { id: 'endsAt', default: false }             // the state line says when the running glass ends: "Flowing · ends 14:35"
+    { id: 'endsAt', default: false },            // the state line says when the running glass ends: "Flowing · ends 14:35"
+    // The background (Tune's Glass tab, and the moon button): 'dark' as the app has always been,
+    // 'light' on paper white, 'system' as the device's own light or dark setting, 'hours' light
+    // from 7:00 to 19:00 by the device's clock and dark at night. A save from before it is dark.
+    { id: 'background', default: 'dark',
+      valid: function (v) { return v === 'light' || v === 'system' || v === 'hours'; } }
   ];
 
   /**

@@ -92,21 +92,8 @@
     '  return look(u, 0.75);',
     '}'
   ];
-  var GLASS_FS_LIGHT = [
-    'vec3 rotZ(vec3 v, float a) {',
-    '  float c = cos(a), s = sin(a);',
-    '  return vec3(v.x * c - v.y * s, v.x * s + v.y * c, v.z);',
-    '}',
-    // a rectangular soft light seen in direction d (x right, y down, z to the eye)
-    'float panel(vec3 d, vec3 c, vec2 hs, float soft) {',
-    '  float k = dot(d, c);',
-    '  if (k <= 0.02) return 0.0;',
-    '  vec3 ux = normalize(cross(vec3(0.0, 1.0, 0.0), c));',
-    '  vec3 uy = cross(c, ux);',
-    '  vec2 q = abs(vec2(dot(d, ux), dot(d, uy)) / k);',
-    '  vec2 m = 1.0 - smoothstep(hs - soft, hs + soft, q);',
-    '  return m.x * m.y;',
-    '}',
+  // The dark room: the app's own look, as it has always been lit.
+  var GLASS_FS_ROOM = [
     'vec3 room(vec3 d) {',
     '  vec3 col = vec3(0.028) * (0.7 - 0.5 * d.y);',                                                                     // the dark room
     '  col += vec3(1.0, 0.96, 0.90) * 4.6 * panel(d, normalize(vec3(-0.66, -0.52, 0.54)), vec2(0.20, 0.46), 0.12);',     // key softbox
@@ -133,7 +120,49 @@
     '  col += vec3(1.0, 0.98, 0.94) * (22.0 * smoothstep(0.99905, 0.99975, lamp) + 1.4 * pow(max(lamp, 0.0), 900.0));', // small hard lamp
     '  col += uGlow * 0.5 * smoothstep(0.25, 1.0, d.y);',                                                                // the desk below
     '  return col;',
+    '}'
+  ];
+  // The light look's room (renderer.setPaper): a white room, a paper sweep all round, in which the
+  // glass is seen as glass is on white: by the dark it gathers, not by the light. Two dark cards
+  // stand behind it, a little to each side, where the dark room has its rim strips, so that its own
+  // edge is drawn by a dark line; dark flags at the sides, which the thick rim bends round into the
+  // eye, show the wall's thickness as a soft grey; the desk below is darker than the sweep. The key
+  // softbox and the small lamp stay: their sheen is seen over the sand.
+  var GLASS_FS_ROOM_PAPER = [
+    'vec3 room(vec3 d) {',
+    '  vec3 col = vec3(0.90, 0.89, 0.87) * (0.94 - 0.10 * d.y);',                                                         // the white room
+    '  col += vec3(1.0, 0.98, 0.95) * 1.6 * panel(d, normalize(vec3(-0.66, -0.52, 0.54)), vec2(0.20, 0.46), 0.12);',     // key softbox
+    '  col *= 1.0 - 0.94 * panel(d, normalize(vec3(-0.30, -0.04, -0.95)), vec2(0.11, 0.8), 0.10);',                      // the dark cards behind:
+    '  col *= 1.0 - 0.90 * panel(d, normalize(vec3(0.30, -0.04, -0.95)), vec2(0.11, 0.8), 0.10);',                       //   the glass's edge
+    [[], [
+      '  col *= 1.0 - 0.94 * panel(d, normalize(vec3(0.0, -0.25, -0.97)), vec2(0.8, 0.11), 0.10);',                     // ... and along an end
+      '  col *= 1.0 - 0.90 * panel(d, normalize(vec3(0.0, 0.25, -0.97)), vec2(0.8, 0.11), 0.10);'
+    ]],
+    '  col *= 1.0 - 0.62 * panel(d, normalize(vec3(-1.0, -0.06, 0.04)), vec2(0.5, 0.55), 0.3);',                         // dark flags at the sides
+    '  col *= 1.0 - 0.55 * panel(d, normalize(vec3(1.0, -0.06, 0.04)), vec2(0.5, 0.55), 0.3);',
+    '  float lamp = dot(d, normalize(vec3(-0.40, -0.50, 0.77)));',
+    '  col += vec3(1.0, 0.98, 0.94) * (22.0 * smoothstep(0.99905, 0.99975, lamp) + 1.4 * pow(max(lamp, 0.0), 900.0));', // small hard lamp
+    '  col = mix(col, uGlow * 0.22 + vec3(0.16), 0.7 * smoothstep(0.25, 1.0, d.y));',                                    // the desk below
+    '  return col;',
+    '}'
+  ];
+  var GLASS_FS_LIGHT = [
+    'vec3 rotZ(vec3 v, float a) {',
+    '  float c = cos(a), s = sin(a);',
+    '  return vec3(v.x * c - v.y * s, v.x * s + v.y * c, v.z);',
     '}',
+    // a rectangular soft light seen in direction d (x right, y down, z to the eye)
+    'float panel(vec3 d, vec3 c, vec2 hs, float soft) {',
+    '  float k = dot(d, c);',
+    '  if (k <= 0.02) return 0.0;',
+    '  vec3 ux = normalize(cross(vec3(0.0, 1.0, 0.0), c));',
+    '  vec3 uy = cross(c, ux);',
+    '  vec2 q = abs(vec2(dot(d, ux), dot(d, uy)) / k);',
+    '  vec2 m = 1.0 - smoothstep(hs - soft, hs + soft, q);',
+    '  return m.x * m.y;',
+    '}',
+  ];
+  var GLASS_FS_MAIN = [
     'void main() {',
     '  vec2 p = (gl_FragCoord.xy / uRes - 0.5) * uBox;',
     '  p.y = -p.y;',
@@ -199,17 +228,28 @@
     '  }',
     '  col = vec3(1.0) - exp(-col * uGain);',                             // film-like roll-off
     '  a = clamp(max(a, max(col.r, max(col.g, col.b))), 0.0, 1.0);',
+    // on white the bore is seen through two walls: the far wall greys it a little, so that a pale
+    // sand still stands out of the glass it lies in (the light look only)
+    { dark: [], paper: ['  if (uPass < 0.5) { col += 0.075 * vec3(0.60, 0.58, 0.55) * (1.0 - a); a += 0.075 * (1.0 - a); }'] },
     '  gl_FragColor = vec4(col, a) * edge;',
     '}'
   ];
-  /** The shader's text for the classic glass (0) or for another (1): of a pair, [the classic's, another glass's], that one. */
-  function glassSource(which) {
-    var parts = GLASS_FS_HEAD.concat([[GLASS_FS_TEARDROP, GLASS_FS_TABLE]], GLASS_FS_LIGHT), out = [], i;
-    for (i = 0; i < parts.length; i++) out = out.concat(typeof parts[i] === 'string' ? parts[i] : parts[i][which]);
+  /**
+   * The shader's text for the classic glass (0) or for another (1), in the dark room or (paper) in
+   * the light look's white one. Of a pair, [the classic's, another glass's], that one; of a
+   * { dark, paper }, the look's.
+   */
+  function glassSource(which, paper) {
+    var parts = GLASS_FS_HEAD.concat([[GLASS_FS_TEARDROP, GLASS_FS_TABLE]], GLASS_FS_LIGHT, paper ? GLASS_FS_ROOM_PAPER : GLASS_FS_ROOM, GLASS_FS_MAIN), out = [], i, q;
+    for (i = 0; i < parts.length; i++) {
+      q = parts[i];
+      out = out.concat(typeof q === 'string' ? q : (Array.isArray(q) ? q[which] : (paper ? q.paper : q.dark)));
+    }
     return out.join('\n');
   }
 
   var GLASS_FS = glassSource(0), GLASS_FS_SHAPE = glassSource(1);
+  var GLASS_FS_PAPER = glassSource(0, true), GLASS_FS_SHAPE_PAPER = glassSource(1, true);
 
   /**
    * The two surfaces of a glass that is not the classic one, as its shader
@@ -279,8 +319,10 @@
     if (!gl) return null;
     var hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
     if (!hp || !hp.precision) return null;                 // needs full float precision
-    var g = { gl: gl, canvas: canvas, pass: pass, prog: null, u: {}, lost: false };
-    g.build = function () {
+    // paper: the light look's shading (renderer.setPaper). Each look's program is made when first
+    // asked for and kept (progs), so that turning between the looks compiles nothing again.
+    var g = { gl: gl, canvas: canvas, pass: pass, prog: null, u: {}, lost: false, paper: false, progs: {} };
+    function program(paper) {
       function sh(type, src) {
         var o = gl.createShader(type);
         gl.shaderSource(o, src); gl.compileShader(o);
@@ -289,19 +331,33 @@
       }
       var prog = gl.createProgram();
       gl.attachShader(prog, sh(gl.VERTEX_SHADER, GLASS_VS));
-      gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, geo.shape ? GLASS_FS_SHAPE : GLASS_FS));
+      gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, geo.shape ? (paper ? GLASS_FS_SHAPE_PAPER : GLASS_FS_SHAPE) : (paper ? GLASS_FS_PAPER : GLASS_FS)));
       gl.bindAttribLocation(prog, 0, 'p');
       gl.linkProgram(prog);
       if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'link');
       gl.useProgram(prog);
+      var u = {}, names = ['uRes', 'uBox', 'uGeo', 'uWall', 'uRot', 'uPass', 'uAbs', 'uGlow', 'uPx', 'uGain'];
+      for (var i = 0; i < names.length; i++) u[names[i]] = gl.getUniformLocation(prog, names[i]);
+      if (geo.shape) {
+        gl.uniform1i(gl.getUniformLocation(prog, 'uProf'), 0);
+        gl.uniform1f(gl.getUniformLocation(prog, 'uProfK'), shapeTable(geo).k);
+      }
+      return { prog: prog, u: u };
+    }
+    /** The program of the look asked for (made now if it is new), in use from here on. */
+    g.use = function (paper) {
+      paper = !!paper;
+      var p = g.progs[paper] || (g.progs[paper] = program(paper));
+      g.paper = paper; g.prog = p.prog; g.u = p.u;
+    };
+    g.build = function () {
+      g.progs = {};
       var buf = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, buf);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);   // one big triangle
       gl.enableVertexAttribArray(0);
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
-      var names = ['uRes', 'uBox', 'uGeo', 'uWall', 'uRot', 'uPass', 'uAbs', 'uGlow', 'uPx', 'uGain'];
-      for (var i = 0; i < names.length; i++) g.u[names[i]] = gl.getUniformLocation(prog, names[i]);
       if (geo.shape) {
         // the shape's table: made here, so that a context that was lost and
         // came back (a phone does that to a page left in the background)
@@ -316,11 +372,9 @@
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, TABLE_N, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, tb.data);
-        gl.uniform1i(gl.getUniformLocation(prog, 'uProf'), 0);
-        gl.uniform1f(gl.getUniformLocation(prog, 'uProfK'), tb.k);
         if (gl.getError() !== gl.NO_ERROR) throw new Error('table');
       }
-      g.prog = prog;
+      g.use(g.paper);
     };
     try { g.build(); } catch (e) { return null; }
     return g;

@@ -111,6 +111,10 @@ function recorder() {
     return s === null ? null : s.split(JSON.stringify(navigator.userAgent)).join('"(the user agent)"');
   };
 
+  /* the hour of the day: noon in a traced page, so that the background's Daytime (light from 7:00 to
+     19:00) traces the same at any hour of the run (Date.now and the clock's time are untouched) */
+  Date.prototype.getHours = function () { return 12; };
+
   /* the buzz */
   try {
     Object.defineProperty(Navigator.prototype, 'vibrate', { configurable: true, writable: true, value: function (p) { put(['buzz', arg(p)]); return true; } });
@@ -287,6 +291,12 @@ var DRIVE = [
   ['finish: copper', click('#finishes [data-finish="copper"]')],
   ['finish: driftwood', click('#finishes [data-finish="driftwood"]')],
   ['finish: walnut', click('#finishes [data-finish="walnut"]')],
+  // the background (a traced page is a browser asked for the light colour scheme, at noon: below)
+  ['background: light', click('#looks [data-look="light"]')],
+  ['background: device', click('#looks [data-look="system"]')],
+  ['background: daytime', click('#looks [data-look="hours"]')],
+  ['background: dark', click('#looks [data-look="dark"]')],
+  ['the light look, by the moon button (the top bar)', click('#btn-look')],
   ['layered sand: on', click('#opt-layers')],
   ['layered sand: off', click('#opt-layers')],
   ['character: warm', click('#characters [data-character="warm"]')],
