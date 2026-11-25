@@ -21,7 +21,8 @@
  *          (the classic Sim stepped in Node on the same motion beside it): it wakes, the bed
  *          lifts and lands, and one thump is fed, of the energy of the bed's fastest fall,
  *          u^2 / (2 G HB), within a factor of 2 of the classic sand's, as the bed comes to rest
- *          (within 6 frames of its fastest fall), its agitation within a factor of 2 too; thrown,
+ *          (within 6 frames of its fastest fall), its agitation within a factor of 2 too; at a slow
+ *          pace (a run every 3 frames, 24 substeps) the same flick lands a thump within 1.5 dB of it; thrown,
  *          the bed flies and is not heard as sliding (the slides fed are well under its motion
  *          within itself, which was fed in full before); with the readbacks unheard the same
  *          flick feeds nothing (control). Shaken sideways at
@@ -171,7 +172,7 @@ function virtualClock() {
     V.now = end;
   };
   V.frame = async function () {
-    V.advance(1000 / 60);
+    V.advance(V.frameMs || 1000 / 60);
     var cbs = V.rafs; V.rafs = [];
     for (var i = 0; i < cbs.length; i++) { try { cbs[i](V.now); } catch (e) { console.error(e); } }
     V.frames++;
@@ -432,12 +433,19 @@ function installWatch() {
         W.snd = { f0: V.frames, frames: [], beds: [] };
       }, { name: name, at: name ? String(MOVES[name].at) : null, heading: name && MOVES[name].heading ? String(MOVES[name].heading) : null });
     }
-    /** Play a move for its length, then on until the glass sleeps; what was fed, as classicOn counts it. */
-    async function play(name) {
+    /**
+     * Play a move for its length, then on until the glass sleeps; what was fed, as classicOn counts it.
+     * every: display frames a run takes (default 1): the page's frames that long while the move plays
+     * and the glass settles, so that each run, and each readback, covers that many frames' substeps.
+     */
+    async function play(name, every) {
+      every = every || 1;
       await frames(600, "rs.stats().mode === 'asleep' && rs.stats().inflight === 0");
+      await page.evaluate(function (k) { window.__vt.frameMs = k * 1000 / 60; }, every);
       await setMove(name);
-      await frames(Math.round(MOVES[name].ms * 60 / 1000));
+      await frames(Math.round(MOVES[name].ms * 60 / 1000 / every));
       await frames(400, "rs.stats().mode === 'asleep' && rs.stats().inflight === 0");
+      await page.evaluate(function () { window.__vt.frameMs = 0; });
       await frames(30);
       var r = await page.evaluate(function () {
         var W = window.__watch, R = W.snd, F = R.frames, o = { thumps: [], slams: 0, agit: 0, slides: 0, rate: 0, woke: null, first: null, last: null, tail: 0, asleep: F.length ? F[F.length - 1].mode === 'asleep' : false, n: F.length };
@@ -521,6 +529,19 @@ function installWatch() {
     check(gF.within > 1000 && gF.rate <= 0.6 * gF.within,
           'SOUND: thrown, the bed flies and is not heard as sliding (the classic sand\'s bed in the air slides nothing): the slides fed through the flick, at their fastest, are well under the bed\'s motion within itself, which was fed in full before (control)',
           JSON.stringify({ fedPerSecond: Math.round(gF.rate), motionWithinPerSecond: Math.round(gF.within), classicPerSecond: Math.round(cF.rate) }));
+    // a slow pace (build 8): a run every 3 display frames, 24 substeps (the cap), as a busy GPU gives. The
+    // fall and its landing can lie inside one run; the engine's fastest fall between readbacks (bed.peak)
+    // gives the thump: the same flick lands one thump within 1.5 dB of the one at a run a frame, no slam
+    var gP = await play('flick', 3), tP = gP.thumps.slice().sort(function (a, b) { return b.E - a.E; })[0];
+    var dBP = tP && tF ? 10 * Math.log10(tP.E / tF.E) : null;
+    check(gP.thumps.length >= 1 && gP.thumps.length <= 2 && !!tP && tP.upper && gP.slams === 0 && dBP !== null && Math.abs(dBP) <= 1.5 && gP.asleep && gP.tail === 0,
+          'SOUND: at a slow pace (a run every 3 frames, 24 substeps) the same flick lands a thump in the upper bulb, no slam, within 1.5 dB of the thump at a run a frame',
+          JSON.stringify({ slow: gP.thumps.map(function (t) { return +t.E.toFixed(4); }), aFrame: tF ? +tF.E.toFixed(4) : null, dB: dBP === null ? null : +dBP.toFixed(2), fastestFallSeen: gP.fall ? +(-gP.fall.vy).toFixed(1) : null }));
+    // (logged, not checked: the same slow pace hearing the readbacks alone, as before build 8)
+    await page.evaluate(function () { var rs = window.Hourglass.realSand; rs.__hear = rs._hear; rs._hear = function (w, t, p) { if (t && t.beds) t.beds.forEach(function (b) { b.peak = null; }); return rs.__hear.call(this, w, t, p); }; });
+    var gPc = await play('flick', 3);
+    await page.evaluate(function () { var rs = window.Hourglass.realSand; rs._hear = rs.__hear; delete rs.__hear; });
+    console.log('      (slow pace from the readbacks alone, as before build 8: thumps ' + JSON.stringify(gPc.thumps.map(function (t) { return +t.E.toFixed(4); })) + ', the fastest fall a readback saw ' + (gPc.fall ? (-gPc.fall.vy).toFixed(1) : '-') + ' cells/s)');
     // control: the same flick with the readbacks unheard feeds nothing
     await page.evaluate(function () { var rs = window.Hourglass.realSand; rs.__hear = rs._hear; rs._hear = function () {}; });
     var gC = await play('flick');

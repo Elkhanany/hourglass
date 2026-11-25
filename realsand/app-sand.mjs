@@ -1677,8 +1677,9 @@ export class RealSand {
   }
 
   /**
-   * What a run's readback will need of the run: its simulated time, its mean field and the
-   * direction of plain gravity (grid frame, y up), and whether the glass was being turned.
+   * What a run's readback will need of the run: its simulated time, its substeps and their rate,
+   * its mean field and the direction of plain gravity (grid frame, y up), and whether the glass
+   * was being turned.
    */
   _runSound(steps, hz, fields) {
     if (!(steps > 0)) return null;
@@ -1686,7 +1687,7 @@ export class RealSand {
     const n = Math.min(steps, fields.length);
     for (let k = 0; k < n; k++) { gx += fields[k].gravity[0]; gy += fields[k].gravity[1]; w = Math.max(w, Math.abs(fields[k].omega)); }
     const th = this.angle + this.tilt, rl = Math.sqrt(this._lam > 0 ? this._lam : LAM0);
-    return { dt: steps / hz, ax: gx / n, ay: gy / n, sx: Math.sin(th), sy: -Math.cos(th), turn: this.flipping || w > SND.TURN_W * rl };
+    return { dt: steps / hz, n: steps, hz, ax: gx / n, ay: gy / n, sx: Math.sin(th), sy: -Math.cos(th), turn: this.flipping || w > SND.TURN_W * rl };
   }
 
   /**
@@ -1701,7 +1702,11 @@ export class RealSand {
    *    slowed it), has landed with the speed u it fell at: E = u^2 / (2 G HB), the classic's
    *    energy of a bed landing at u (its kinetic energy a grain over G times the bulb's height).
    *    On the side gravity holds the sand to, a thump; on the far end, a slam; its place, the
-   *    bed's centre across the bulb. A bed stopped sideways lands nothing, as the classic sand's
+   *    bed's centre across the bulb. Between readbacks the engine keeps each bed's fastest fall
+   *    along the field at any substep's end (bed.peak, solver.mjs bedOf): a fall goes at least
+   *    that fast; a fall no readback saw starts from it, by the same tests; and a fall that lands
+   *    before the next readback lands then, the glass having taken its speed since that substep
+   *    (so a slow pace, a run of many substeps, hears the landing a readback a frame does). A bed stopped sideways lands nothing, as the classic sand's
    *    slip does not; nor does sand that slides down the glass's wall into the rest of the bed,
    *    the bed's mean falling while half of it is still (a fall once started that speeds up goes on).
    *  - slides: the bed's motion within itself, the summed speed of its moving points beyond the
@@ -1750,10 +1755,27 @@ export class RealSand {
       // slides: the moving points' speed beyond the bed's own, and beyond the speed a point moves from
       if (bed.sliding > 3) rate += pk * Math.max(0, bed.slide - bed.sliding * Math.max(sp, still)) / Math.sqrt(Math.max(SND.SLIDE_K * SND.SLIDE_K, bed.n / calPpg));
       // a landing
-      let E = 0, F = S.fall[gb];
+      let E = 0, F = S.fall[gb], fromPeak = false;
+      // the bed's fastest fall since the last readback (none: the tally's alone, as a mock's), and
+      // how long before the run's end it was (s; from a run read back with none, longer)
+      const P0 = bed.peak && bed.peak.n >= nMin && q.n > 0 && q.hz > 0 ? bed.peak : null;
+      const tP = P0 ? Math.max(0, q.n - 1 - P0.k) / q.hz : 0;
+      if (q.turn) F = null;
+      else if (P0) {
+        const psp = Math.hypot(P0.vx, P0.vy);
+        if (F) {
+          // (a fall under way went faster between the readbacks than they showed)
+          const up = P0.vx * F.dx + P0.vy * F.dy;
+          if (up > F.u && up > sp) { F.u = up; F.t = tP; F.push = (q.ax * F.dx + q.ay * F.dy) * tP; fromPeak = true; }
+        } else if (psp > sp && psp >= uMin && P0.u >= 0.5 * psp && Math.abs(P0.vy) >= 0.707 * psp && P0.share >= SND.BODY) {
+          // (a fall no readback saw: the same tests as a readback's, along the substep's own field)
+          F = { u: psp, dx: P0.vx / psp, dy: P0.vy / psp, push: (q.ax * P0.vx + q.ay * P0.vy) / psp * tP, t: tP };
+          fromPeak = true;
+        }
+      }
       if (q.turn) F = null;
       else if (F && sp <= F.u) {
-        F.push += (q.ax * F.dx + q.ay * F.dy) * q.dt; F.t += q.dt;
+        if (!fromPeak) { F.push += (q.ax * F.dx + q.ay * F.dy) * q.dt; F.t += q.dt; }
         const u = vx * F.dx + vy * F.dy;
         if (F.t > SND.FALL_S + 1e-6) F = null;                 // (too late: it slowed, it did not land)
         else if (u <= 0.5 * F.u) {

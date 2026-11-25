@@ -11,10 +11,12 @@
  *   var B = require('./lib/realsand-beds.js');
  *   tally.beds = B.beds(B.bed([{ n: 1900, v: [0, -80] }]), B.rest(0));      // the upper bed falling as one body
  *   tally.beds = B.beds(B.bed([{ n: 1700 }, { n: 200, v: [60, 0] }]), null); // 200 of its points sliding
+ *   B.withPeak(bed, B.bed([{ n: 1900, v: [0, -86] }]), 5)                    // its fastest fall, at substep 5's end
  *
  * Units are the solver's: cells and cells a second on its grid, y up (the neck's centre at 0, 0;
  * the upper bulb above). On a phone a solver cell is 1 / 0.65 of the app's, and 1.69 points make
- * one of the app's grains. A mock tally with no `beds` feeds nothing.
+ * one of the app's grains. A mock tally with no `beds` feeds nothing; a bed with no `peak` is the
+ * tally's alone (the engine's fastest fall between readbacks, solver.mjs bedOf, left out).
  */
 (function (root) {
   'use strict';
@@ -39,6 +41,18 @@
       if (sp > STILL) { sliding += k; slide += k * sp; }
     });
     return { n: n, vx: n ? sx / n : 0, vy: n ? sy / n : 0, x: n ? +x || 0 : 0, sliding: sliding, slide: slide };
+  }
+  /**
+   * bed with its fastest fall since the last readback (solver.mjs bedOf's peak): the bed `at` (as
+   * bed() gives it) at the end of substep k of the run read back (below 0: of a run before it),
+   * measured along the field's direction `down` (a unit vector; default [0, -1], the glass
+   * upright); at null: none kept.
+   */
+  function withPeak(b, at, k, down) {
+    var d = down || [0, -1], out = {};
+    for (var key in b) out[key] = b[key];
+    out.peak = at && at.n ? { u: Math.max(0, at.vx * d[0] + at.vy * d[1]), vx: at.vx, vy: at.vy, n: at.n, share: at.sliding / at.n, k: k } : null;
+    return out;
   }
   /** A bed of n points at rest. */
   function rest(n) { return bed([{ n: n }]); }
@@ -69,7 +83,7 @@
     return { list: list, peak: peak, stopped: stopped, down: o.down };
   }
 
-  var api = { STILL: STILL, bed: bed, rest: rest, beds: beds, toss: toss };
+  var api = { STILL: STILL, bed: bed, rest: rest, beds: beds, toss: toss, withPeak: withPeak };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.__RealsandBeds = api;
 })(typeof window !== 'undefined' ? window : globalThis);
