@@ -16,7 +16,8 @@
  * ==============================================================================================
  *  const real = await RealSand.create({ P, cpuSim, renderer, rotor, cSand, timer: T, settings,
  *                                        offscreen, onLost, onBack, log })
- *    P: window.HourglassPhysics; cpuSim: the app's Sim; renderer: its Renderer (the LUT, the
+ *    P: window.HourglassPhysics (needed: create refuses without it, or without a value of the
+ *    classic sand's it reads, classicValues); cpuSim: the app's Sim; renderer: its Renderer (the LUT, the
  *    scale); rotor, cSand: #rotor and #c-sand (RealSand makes #c-gpu after #c-sand and takes its
  *    CSS box); timer: the app's clock state T (state, rem, tailMs, lastTick are read);
  *    offscreen: draw into a texture and show it on a 2-D canvas (headless tests: their WebGPU
@@ -97,16 +98,13 @@ const MATERIAL = MATERIALS.coarse;
 const QUEUE = QUEUE_DEFAULT;               // frames of GPU work in flight at most (2)
 const SETTLE_S = 0.4;                      // a fresh bed settles this long, neck shut, when adopted
 const XFER_TIMEOUT_MS = 1000;              // a transfer's readback not back by then is abandoned (7.6)
-const IMPACT_V = 700;                      // px/s: a blow from this speed thumps (sand/sim.js impV[0])
 const LIFECYCLE_MS = 1000;                 // a loss within this long of becoming visible is a lifecycle event (7.9)
 const REBUILD_MS = 2000;                   // after a loss that is not, rebuild after this long
 const LOSS_WINDOW_MS = 600000;             // a second such loss within 10 minutes is final
 const LAM0 = 0.09;                         // the app's lambda before it has said one (G / g at the glass's size)
-const DT = 1 / 120;                        // the app's step
 const RC = 0.36;                           // a grain's radius, solver cells (the lab's)
 const BLUR = 1;                            // a grain in flight streaks over one display frame
 const SAMPLES = 64;                        // the app's field samples kept (half a second at 120 Hz)
-const EV_CAP = 48;                         // landings a frame for the audio (sand/sim.js EV_CAP)
 // The bed's sounds (design 8), on the classic Sim's scale (sand/sim.js _landing, _stepMotion):
 //  E_MIN: a landing under this energy is not heard (audio.js thump: 1.3 sqrt(E) under 0.05);
 //  FALL_S: a bed that lands has lost half its speed within this long (simulated s) of its
@@ -131,13 +129,41 @@ const EV_CAP = 48;                         // landings a frame for the audio (sa
 //  points crowded, against how packed it has lately been: a memory of PACK_T s), less as it
 //  loosens, and once it is under PACK_LO not at all until it has packed again; nor while it
 //  moves as a body along the glass's axis (AXIS of its speed) faster than a landing is heard
-//  from; TAU_T: the agitation's memory, s (sand/sim.js MOT.tauT), IDLE_T: under this, with the
-//  bed at rest, it is 0 (MOT.idleT);
+//  from; (the agitation's memory and the level under which a bed at rest is 0 are the classic
+//  sand's, read at create: CLASSIC.TAU_T, CLASSIC.IDLE_T);
 //  HOLD_MS: a readback's slides are fed until the next comes, this long at most; MUTE_MS: a fresh
 //  bed (a fill, a transfer) settles unheard this long; TURN_W: turned faster than this (rad/s), a
 //  bed neither lands nor heats (as the classic sand's, which a turn leaves calm)
 const SND = Object.freeze({ E_MIN: 0.0015, FALL_S: 0.15, BODY: 0.7, BED_MIN: 40, BED_SHARE: 0.03, SLIDE_K: 16, CAL_S: 0.65, PACK_LO: 0.75, PACK_HI: 0.95, PACK_T: 1, AXIS: 0.9,
-  TAU_T: 0.25, IDLE_T: 0.02, HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5 });
+  HOLD_MS: 120, MUTE_MS: 400, TURN_W: 0.5 });
+
+/**
+ * The classic sand's values RealSand goes by, read once at create from its namespace (sand/sim.js,
+ * window.HourglassPhysics: opts.P), so that the two sands cannot drift apart: STEP_HZ, DT: the
+ * app's step; EV_CAP: landings a frame for the audio (the event arrays' length); IMPACT_V: px/s, a
+ * blow from this speed thumps (MOTION.impV[0]); TAU_T: the agitation's memory, s (MOTION.tauT);
+ * IDLE_T: under this, with the bed at rest, it is 0 (MOTION.idleT); LAYERS: the layered sand's
+ * tunables (settle: steps after a turn in which sand coming to rest is laid in its new pattern; read
+ * when used, since the object is shared and changed in place); pace: the finer sand's pace.
+ * Without the namespace, or with one of these missing, create refuses and names what is missing:
+ * no number here has a fallback of its own.
+ */
+function classicValues(P) {
+  if (!P || typeof P !== 'object') throw new Error('RealSand: the classic sand\'s namespace is needed (opts.P, or window.HourglassPhysics from sand/sim.js), and there is none');
+  // (each read spelled out on P and P.Sim, so the contract check in realsand-adapter sees it)
+  const sim = !!P.Sim, mot = sim && !!P.Sim.MOTION, lay = sim && !!P.Sim.LAYERS, miss = [];
+  const num = (v, name) => { if (typeof v !== 'number' || !Number.isFinite(v)) miss.push(name); return v; };
+  const v = {
+    STEP_HZ: num(P.STEP_HZ, 'P.STEP_HZ'), DT: num(P.DT, 'P.DT'),
+    EV_CAP: num(sim ? P.Sim.EV_CAP : NaN, 'P.Sim.EV_CAP'), IMPACT_V: num(sim ? P.Sim.IMPACT_V : NaN, 'P.Sim.IMPACT_V'),
+    TAU_T: num(mot ? P.Sim.MOTION.tauT : NaN, 'P.Sim.MOTION.tauT'), IDLE_T: num(mot ? P.Sim.MOTION.idleT : NaN, 'P.Sim.MOTION.idleT'),
+    LAYERS: lay ? P.Sim.LAYERS : null, pace: sim ? P.Sim.pace : null
+  };
+  num(lay ? v.LAYERS.settle : NaN, 'P.Sim.LAYERS.settle');
+  if (typeof v.pace !== 'function') miss.push('P.Sim.pace()');
+  if (miss.length) throw new Error('RealSand: the classic sand\'s namespace lacks ' + miss.join(', '));
+  return Object.freeze(v);
+}
 const SELF_TEST_POINTS = 500;
 
 const ENGINE = { createDevice, Solver, GrainRenderer, ShaderLibrary, Toner };
@@ -157,7 +183,6 @@ function libraryFor(Lib, base) {
 }
 const SWEEP_MIN = 0.05;                    // app cells^2: a grain drawn this near the neck in the sweep's first half is swallowed (the CPU's 0.2 px^2)
 const THREAD_MAX = 1024;                   // the sweep's thread: grains drawn at most
-const DEVELOP_MS = 4000;                   // after a turn, sand coming to rest is laid in its new pattern this long (sand/sim.js LAY.settle)
 
 /** An Error for start(): code, message, and whether a capability is missing (the setting is then cleared). */
 function startError(code, message, capability = false, cause = null) {
@@ -186,7 +211,9 @@ export class RealSand {
     if (!opts.cpuSim) throw new Error('RealSand: the CPU Sim (cpuSim) is needed');
     this.o = opts;
     this.P = opts.P || globalThis.HourglassPhysics || null;
+    this.K = classicValues(this.P);
     this.cpu = opts.cpuSim;
+    if (typeof this.cpu.layerState !== 'function') throw new Error('RealSand: the CPU Sim lacks layerState() (sand/sim.js)');
     this.view = opts.renderer || null;
     this.T = opts.timer || null;
     this.engine = Object.assign({}, ENGINE, opts.engine || {});
@@ -208,7 +235,7 @@ export class RealSand {
     this.s = CELLS_AT_Q1 / geo.q;
     this.ppg = PPC * PPC * this.s * this.s;
     const tGlass = this.clock.perf();
-    this.glass = opts.glass || buildGlass({ s: this.s, neckMin: 5.5, geo, profile: this.P ? this.P.profile : undefined });
+    this.glass = opts.glass || buildGlass({ s: this.s, neckMin: 5.5, geo, profile: this.P.profile });
     const msGlass = this.clock.perf() - tGlass;
     this.Gg = this.s * cpu.G;                // gravity at app speed, solver cells/s^2
     this._bulbTable();
@@ -267,9 +294,8 @@ export class RealSand {
     // layered sand on the GPU (design 7.4, layers.mjs): the tone pass, the layer schedule, the
     // crossing numbers it has reached (known: of the plan, from the readbacks; base: the plan's
     // number of the GPU's crossing 0), tone 1's share of the top bulb, the turned bulbs' patterns
-    const Ls = this.P && this.P.Sim;
     this.toner = null; this._retoneDue = false; this._toneAt = null; this._toneField = null;
-    this._lay = { plan: new LayerPlan({ ppg: this.ppg, pace: Ls && Ls.pace ? Ls.pace() : 1, lay: Ls && Ls.LAYERS, seed: ((cpu.rng | 0) ^ 0x6C8E9CF5) >>> 0 }),
+    this._lay = { plan: new LayerPlan({ ppg: this.ppg, pace: this.K.pace(), lay: this.K.LAYERS, seed: ((cpu.rng | 0) ^ 0x6C8E9CF5) >>> 0 }),
       base: 0, known: 0, share: 0.5, words: null, wordsParity: 0, pats: null, until: -Infinity,
       // the debt: tone-1 grains given less those that crossed (the tone pass keeps it within a slack)
       debt: 0 };
@@ -605,8 +631,8 @@ export class RealSand {
     if (!(T > 0)) return 0;
     const late = (this.clock.perf() - this._snd.heardAt - SND.HOLD_MS) / 1000;
     if (!(late > 0)) return T;
-    const v = T * Math.exp(-late / SND.TAU_T);
-    return v < SND.IDLE_T ? 0 : v;
+    const v = T * Math.exp(-late / this.K.TAU_T);
+    return v < this.K.IDLE_T ? 0 : v;
   }
   /** The skater effect: each bed's mean r^2 per grain, as at the last fill (app cells^2). */
   inertiaZ() { return this.nTop * this._r2[0] + this.nBottom * this._r2[1]; }
@@ -768,7 +794,7 @@ export class RealSand {
   feel(tS, fx, fy, air, rho) {
     fx = fin(fx); fy = fin(fy); rho = fin(rho);
     this.felt.opt.mode = this.reduced ? 'plain' : (JOLT_MODES.includes(this.jolts) ? this.jolts : JOLT_MODES[0]);
-    const j = this.felt.feel(fx, fy, DT, fin(tS) / 1000, true, this._lam > 0 ? this._lam : LAM0, this.angle + this.tilt - rho);
+    const j = this.felt.feel(fx, fy, this.K.DT, fin(tS) / 1000, true, this._lam > 0 ? this._lam : LAM0, this.angle + this.tilt - rho);
     const c = Math.cos(rho), s = Math.sin(rho), G = this.cpu.G;
     const px = j[0], py = j[1] - (air ? 0.9 : 0);
     const smp = this._pend || this._takeSample();
@@ -783,7 +809,7 @@ export class RealSand {
     if (!smp) {
       smp = this._takeSample();
       const last = this._latest();
-      smp.t = last ? Math.min(this.clock.perf(), last.t + 1000 * DT) : this.clock.perf();
+      smp.t = last ? Math.min(this.clock.perf(), last.t + 1000 * this.K.DT) : this.clock.perf();
       smp.ax = fin(ax); smp.ay = fin(ay); smp.a = Math.hypot(smp.ax, smp.ay) / this.cpu.G; smp.felt = false;
     }
     smp.w = fin(w); smp.al = fin(al);
@@ -856,7 +882,7 @@ export class RealSand {
   impact(nx, ny, v) {
     // (a blow jolts the sand: awake, and full for a while, whatever it does to the glass)
     this._wake = true; this.modes.busyUntil = Math.max(this.modes.busyUntil, this._wall() + MODES.HOLD_MS);
-    return fin(v) >= IMPACT_V ? 1 : 0;
+    return fin(v) >= this.K.IMPACT_V ? 1 : 0;
   }
   knock() { return -1; }
   flick() { return 0; }
@@ -1568,11 +1594,11 @@ export class RealSand {
    * bulb held at the swap, for 4 s; the heap's next layers are laid another way too.
    */
   _turnedLayers() {
-    const cpu = this.cpu, L = this._lay, w = L.words, rec = cpu._rec;
+    const cpu = this.cpu, L = this._lay, w = L.words, st = cpu.layerState(), rec = st.rec;
     L.plan.style(); L.plan.replan(L.known);
     if (!rec || !rec[0] || !rec[1]) { L.pats = null; return; }
     // the bulb on top now was below in the orientation before the swap
-    let d0 = cpu._duty ? cpu._duty[0] : 0.5, d1 = cpu._duty ? cpu._duty[1] : 0.5;
+    let d0 = st.duty[0], d1 = st.duty[1];
     if (w) {
       const before = L.wordsParity !== this.valve.parity;
       const nowTop = before ? [w.below1, w.below] : [w.above1, w.above], nowBot = before ? [w.above1, w.above] : [w.below1, w.below];
@@ -1580,8 +1606,7 @@ export class RealSand {
       if (nowBot[1] > 0) d1 = nowBot[0] / nowBot[1];
     }
     L.pats = [Object.assign({}, rec[0], { duty: d0 }), Object.assign({}, rec[1], { duty: d1 })];
-    const LAY = this.P && this.P.Sim && this.P.Sim.LAYERS;
-    L.until = this._wall() + (LAY && LAY.settle > 0 ? LAY.settle / 120 * 1000 : DEVELOP_MS);
+    L.until = this._wall() + Math.max(0, this.K.LAYERS.settle) / this.K.STEP_HZ * 1000;
   }
 
   /* ---------------------------------------------------------------------------------------- *
@@ -1621,7 +1646,7 @@ export class RealSand {
     while (this._land.length && this._land[0].at <= now) {
       const L = this._land.shift();
       if (L.top) f.impTop += L.n; else if (glassy) f.impGlass += L.n; else f.impSand += L.n;
-      for (let i = 0; i < L.n && this.cpu.nev < EV_CAP; i++) {
+      for (let i = 0; i < L.n && this.cpu.nev < this.K.EV_CAP; i++) {
         const e = this.cpu.nev++;
         this.cpu.evX[e] = (this._rng() - 0.5) * 0.3;
         this.cpu.evV[e] = Math.min(1, L.v / vRef * (0.85 + 0.3 * this._rng()));
@@ -1697,10 +1722,10 @@ export class RealSand {
     if (S.gen !== this._gen || S.parity !== parity) { S.gen = this._gen; S.parity = parity; S.prev[0] = S.prev[1] = null; S.fall[0] = S.fall[1] = null; S.pack[0] = S.pack[1] = 0; S.loose[0] = S.loose[1] = false; }
     // (no readback for a while, a stall: what was stirred has faded by the clock meanwhile, as agitation() said)
     const late = (perf - S.heardAt - SND.HOLD_MS) / 1000;
-    if (late > 0) { const k = Math.exp(-late / SND.TAU_T); this.agit[0] *= k; this.agit[1] *= k; }
+    if (late > 0) { const k = Math.exp(-late / this.K.TAU_T); this.agit[0] *= k; this.agit[1] *= k; }
     // (a readback of a run from before a swap: its bulbs are the other way up now)
     const flipped = parity !== this.valve.parity, g = this.glass, GH = this.Gg * g.HBc, HB = this.cpu.geo.HB;
-    const am = Math.hypot(q.ax, q.ay) || 1, kT = 1 - Math.exp(-q.dt / SND.TAU_T), uMin = Math.sqrt(2 * SND.E_MIN * GH);
+    const am = Math.hypot(q.ax, q.ay) || 1, kT = 1 - Math.exp(-q.dt / this.K.TAU_T), uMin = Math.sqrt(2 * SND.E_MIN * GH);
     // (tally.wgsl: a point moves when it is faster than 2 % of a free fall over the glass in the run's field)
     const still = 0.02 * Math.sqrt(2 * Math.max(am, 1) * g.H);
     // (a few crowded points are no bed; the slides' share is of the bed's grains on the lattice it was calibrated on)
@@ -1750,7 +1775,7 @@ export class RealSand {
       if (D > 3) D = 3;
       let T = this.agit[b] + (D - this.agit[b]) * kT + E * HB / 3;
       if (T > 3) T = 3;
-      if (!moving && T < SND.IDLE_T) T = 0;
+      if (!moving && T < this.K.IDLE_T) T = 0;
       this.agit[b] = T;
       S.prev[gb] = [vx, vy];
     }

@@ -491,7 +491,8 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   /* ------------------------------------------------------------------------------------ *
    *  1. The contract (the plan's 4.2): every name app.js and audio.js bind to a sand engine,
    *     against the lists here: (a) the Sim's members, on both engines with the CPU Sim's types;
-   *     (b) the GPU engine's own, called on real, realEng, eng and realCls under their guards
+   *     (b) the GPU engine's own, called on real, realEng, eng and realCls under their guards; (c) what
+   *     RealSand reads from the classic sand (its namespace and the CPU Sim)
    * ------------------------------------------------------------------------------------ */
   var CONTRACT = {
     // (a) the CPU Sim's members, which RealSand has too, with the same types
@@ -561,6 +562,61 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   var own = CONTRACT.real.concat(CONTRACT.realEng, CONTRACT.eng).filter(function (m) { return real[m] === undefined; });
   if (typeof RS.RealSand.create !== 'function') own.push('RealSand.create (static)');
   check(own.length === 0, 'RealSand has its own ' + (CONTRACT.real.length + CONTRACT.realEng.length + CONTRACT.eng.length) + ' members the app calls on real, realEng and eng, and the static create', own.join(', '));
+
+  // (c) what RealSand reads from the classic sand, at create and after: its namespace (P), the
+  // namespace's Sim (statics), and the CPU Sim's members beyond the Sim's (a). Each must exist; a
+  // private (underscore) member read from the CPU Sim breaks the contract.
+  var READS = {
+    ns: ['DT', 'STEP_HZ', 'Sim', 'profile'],
+    simStatics: ['EV_CAP', 'IMPACT_V', 'LAYERS', 'MOTION', 'pace'],
+    realCpu: ['glassFlip', 'layerState', 'layers', 'rng']
+  };
+  var adapterSrc = fs.readFileSync(path.join(ROOT, 'realsand', 'app-sand.mjs'), 'utf8');
+  function anyOf(src, names) {
+    var seen = {};
+    names.forEach(function (nm) { scan.members(src, nm).forEach(function (m) { seen[m] = true; }); });
+    return Object.keys(seen).sort();
+  }
+  /** What app-sand.mjs reads against READS: ['realCpu._rec read: private', 'simStatics.FOO read, not in the contract'] */
+  function readsDiff(src) {
+    var got = {
+      ns: anyOf(src, ['P', 'this\\.P']),
+      simStatics: anyOf(src, ['P\\.Sim', 'this\\.P\\.Sim']),
+      realCpu: anyOf(src, ['cpu', 'this\\.cpu']).filter(function (m) { return CONTRACT.sim.indexOf(m) < 0; })
+    }, out = [];
+    Object.keys(got).forEach(function (k) {
+      got[k].forEach(function (m) {
+        if (k === 'realCpu' && m.charAt(0) === '_') out.push(k + '.' + m + ' read: private');
+        else if (READS[k].indexOf(m) < 0) out.push(k + '.' + m + ' read, not in the contract');
+      });
+      READS[k].forEach(function (m) { if (got[k].indexOf(m) < 0) out.push(k + '.' + m + ' in the contract, no longer read'); });
+    });
+    return out;
+  }
+  var rd = readsDiff(adapterSrc);
+  var rMiss = READS.ns.filter(function (m) { return P[m] === undefined; }).map(function (m) { return 'P.' + m; })
+    .concat(READS.simStatics.filter(function (m) { return P.Sim[m] === undefined; }).map(function (m) { return 'P.Sim.' + m; }))
+    .concat(READS.realCpu.filter(function (m) { return cpu[m] === undefined; }).map(function (m) { return 'cpu.' + m; }));
+  check(rd.length === 0 && rMiss.length === 0,
+    'RealSand reads from the classic sand only what is listed: ' + READS.ns.length + ' names on its namespace (' + READS.ns.join(', ') + '), ' + READS.simStatics.length + ' on P.Sim (' +
+    READS.simStatics.join(', ') + ') and ' + READS.realCpu.length + ' of the CPU Sim beyond the Sim\'s (' + READS.realCpu.join(', ') + '), each there, none private' +
+    (rd.length || rMiss.length ? ': ' + rd.concat(rMiss.map(function (m) { return m + ' missing'; })).join('; ') : ''));
+  var rdBad = readsDiff(adapterSrc.replace('const cpu = this.cpu, L = this._lay', 'const cpu = this.cpu, PROBE = cpu._rec + this.P.Sim.FOO, L = this._lay'));
+  check(rdBad.join() === 'simStatics.FOO read, not in the contract,realCpu._rec read: private',
+    '... and a copy of app-sand.mjs that reads cpu._rec and P.Sim.FOO breaks it (control): ' + rdBad.join('; '));
+  // with no namespace, or one that lacks a value, create refuses and names what is missing
+  async function refusal(o) {
+    try { await RS.RealSand.create(Object.assign({ cpuSim: cpu, glass: real.glass, canvas: { style: {}, width: 1, height: 1 } }, o)); return 'made'; }
+    catch (e) { return String(e && e.message); }
+  }
+  var refusals = [], gP = globalThis.HourglassPhysics;
+  try { delete globalThis.HourglassPhysics; refusals.push(await refusal({ P: null })); } finally { globalThis.HourglassPhysics = gP; }
+  var simLess = { MOTION: { tauT: P.Sim.MOTION.tauT }, LAYERS: P.Sim.LAYERS, pace: P.Sim.pace, IMPACT_V: P.Sim.IMPACT_V };
+  refusals.push(await refusal({ P: Object.assign({}, P, { Sim: simLess }) }));
+  refusals.push(await refusal({ P: P, cpuSim: Object.assign(Object.create(Object.getPrototypeOf(cpu)), cpu, { layerState: 0 }) }));
+  refusals.push(await refusal({ P: P }));
+  check(/namespace is needed/.test(refusals[0]) && /lacks P\.Sim\.EV_CAP, P\.Sim\.MOTION\.idleT$/.test(refusals[1]) && /lacks layerState/.test(refusals[2]) && refusals[3] === 'made',
+    'RealSand.create refuses, naming what is missing, without the classic sand\'s namespace, with one that lacks values, or with a CPU Sim without layerState() (and is made with all of them): ' + refusals.join(' | '));
   check(real.frame === cpu.frame && real.geo === cpu.geo && real.evX === cpu.evX && real.evK === cpu.evK && real.evV === cpu.evV && real.cracks === cpu.cracks &&
     real.G === cpu.G && real.capacity === cpu.capacity && real.maxTotal === cpu.maxTotal && real.W === cpu.W && real.H === cpu.H,
     'the per-frame record, the glass, the event arrays and the cracks are the CPU Sim\'s own (shared with the app and the audio)');
