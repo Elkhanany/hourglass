@@ -836,8 +836,9 @@ function timeProblems(store) {
   var out = [], keys = store.KEYS, dflt = {};
   store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
   var at = keys.indexOf('quick');
-  if (at < 0 || keys[at + 1] !== 'endsAt' || at !== keys.indexOf('silentRing') + 1 || keys.indexOf('silentRing') !== keys.indexOf('shape') + 5 || at + 2 !== keys.length)
-    out.push('the two records are not quick then endsAt, right after the shape and the Sound tab\'s five (silentRing), and last: ' + keys.slice(-9).join(', '));
+  // (they were the last two until the background came after them, in 1.19.0: section 4e)
+  if (at < 0 || keys[at + 1] !== 'endsAt' || at !== keys.indexOf('silentRing') + 1 || keys.indexOf('silentRing') !== keys.indexOf('shape') + 5 || keys[at + 2] !== 'background' || at + 3 !== keys.length)
+    out.push('the two records are not quick then endsAt, right after the shape and the Sound tab\'s five (silentRing), and then only the background: ' + keys.slice(-9).join(', '));
   if (dflt.quick !== QUICK_DEFAULT) out.push('quick\'s default is ' + show(dflt.quick));
   if (dflt.endsAt !== false) out.push('endsAt\'s default is ' + show(dflt.endsAt));
   // a save from before them: both defaults, every other setting as it gives it
@@ -846,7 +847,7 @@ function timeProblems(store) {
     if (old.quick !== dflt.quick || old.endsAt !== dflt.endsAt) out.push(c[1] + ' came up with quick ' + show(old.quick) + ', endsAt ' + show(old.endsAt));
     if (withTime.quick !== '25,5,50,10,90,3' || withTime.endsAt !== true) out.push(c[1] + ' with the two came up with quick ' + show(withTime.quick) + ', endsAt ' + show(withTime.endsAt));
     keys.forEach(function (k) {
-      if (k === 'quick' || k === 'endsAt') return;
+      if (k === 'quick' || k === 'endsAt' || k === 'background') return;
       if (!Object.is(old[k], withTime[k])) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' without the two, ' + show(withTime[k]) + ' with them');
     });
   });
@@ -876,12 +877,61 @@ var tpAny = timeProblems(withValid('quick', undefined));
 var tpPart = timeProblems(variant(function (o) {
   o.records.filter(function (r) { return r.id === 'quick'; })[0].valid = function (v) { return typeof v === 'string' && v.split(',').length === 6 && v.split(',').some(function (n) { return /^[1-9]\d?$/.test(n); }); };
 }));
-var tpOrder = timeProblems(variant(function (o) { var n = o.records.length, a = o.records[n - 1]; o.records[n - 1] = o.records[n - 2]; o.records[n - 2] = a; }));
+function recAt(o, id) { return o.records.map(function (r) { return r.id; }).indexOf(id); }
+var tpOrder = timeProblems(variant(function (o) { var q = recAt(o, 'quick'), a = o.records[q]; o.records[q] = o.records[q + 1]; o.records[q + 1] = a; }));
 var tpOff = timeProblems(variant(function (o) { o.records.filter(function (r) { return r.id === 'endsAt'; })[0].default = true; }));
-var tpBefore = timeProblems(variant(function (o) { var two = o.records.splice(o.records.length - 2, 2), at = o.records.map(function (r) { return r.id; }).indexOf('shape'); o.records.splice.apply(o.records, [at + 1, 0].concat(two)); }));
+var tpBefore = timeProblems(variant(function (o) { var two = o.records.splice(recAt(o, 'quick'), 2), at = recAt(o, 'shape'); o.records.splice.apply(o.records, [at + 1, 0].concat(two)); }));
 check(tpAny.length >= QUICK_BAD.length - 8 && tpPart.length >= 3 && tpOrder.length >= 1 && tpOff.length >= 1 && tpBefore.length >= 1,
   '... and a store that keeps any quick string, one that keeps a set of six with some bad counts in it, one with endsAt before quick, one whose endsAt is on by default, and one with the two before the Sound tab\'s five are each found out (control)',
   [tpAny.length, tpPart.length, tpOrder.length, tpOff.length, tpBefore.length].join(', ') + ' problems');
+
+/* ---- 4e. the background ------------------------------------------------------------------ */
+// One record after the Time tab's two, the last (the 44th): `background`, 'dark' by default (every
+// install looks as it always has), else 'light', 'system' (the device's own light or dark setting)
+// or 'hours' (light from 7:00 to 19:00). A save from before it comes up dark, every other setting as
+// it gives it; any other value (another word, another case, not a string, a name every object has)
+// is dark, and saved so.
+var BG_GOOD = ['dark', 'light', 'system', 'hours'];
+var BG_BAD = [['Light', 'another case'], ['auto', 'another word'], ['night', 'another word'], ['', 'an empty string'], [' light', 'a space before it'],
+  ['toString', 'a name every object has'], ['__proto__', 'a name every object has'], [true, 'a boolean'], [1, 'a number'], [null, 'null'], [['light'], 'an array'], [{ light: 1 }, 'an object']];
+function bgProblems(store) {
+  var out = [], keys = store.KEYS, dflt = {};
+  store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
+  if (keys.length !== 44 || keys[keys.length - 1] !== 'background' || keys[keys.length - 2] !== 'endsAt')
+    out.push('the background is not the 44th and last record, right after endsAt: ' + keys.length + ' records, ' + keys.slice(-3).join(', '));
+  if (dflt.background !== 'dark') out.push('the background\'s default is ' + show(dflt.background));
+  [[SAVE_1_13, 'a save of 1.13.0'], [SAVE_1_10, 'a save of 1.10.0'], [Object.assign({}, SAVE_1_13, { shape: 'delta', sand: 'garnet', finish: 'copper', quick: '25,5,50,10,90,3', endsAt: true }), 'a save of 1.18.0']].forEach(function (c) {
+    var old = quickLoad(store, c[0]), withBg = quickLoad(store, Object.assign({}, c[0], { background: 'hours' }));
+    if (old.background !== 'dark') out.push(c[1] + ' came up with the background ' + show(old.background));
+    if (withBg.background !== 'hours') out.push(c[1] + ' with the background hours came up with ' + show(withBg.background));
+    keys.forEach(function (k) {
+      if (k !== 'background' && !Object.is(old[k], withBg[k])) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' without the background, ' + show(withBg[k]) + ' with it');
+    });
+  });
+  BG_GOOD.forEach(function (g) {
+    var v = quickLoad(store, { v: 2, background: g });
+    if (v.background !== g) out.push(show(g) + ' came up as ' + show(v.background));
+  });
+  BG_BAD.forEach(function (c) {
+    var st = Storage(JSON.stringify({ v: 2, background: c[0], volume: 0.3 }), 'ok'), v = store.load(st.reach, '', REG_ALL);
+    store.save(v);
+    if (v.background !== 'dark' || JSON.parse(st.data[KEY]).background !== 'dark') out.push(c[1] + ' (' + JSON.stringify(c[0]) + ') came up as ' + show(v.background));
+    if (v.volume !== 0.3) out.push(c[1] + ': the other settings of that save were not kept');
+  });
+  return out;
+}
+var bgp = bgProblems(S);
+check(bgp.length === 0,
+  'the background: the 44th and last record, after endsAt, \'dark\' by default; a save of 1.13.0, 1.10.0 and 1.18.0 comes up dark, every other setting as it gives it; ' + BG_GOOD.join(', ') +
+  ' kept as they are; ' + BG_BAD.length + ' other values (another case or word, empty, a name every object has, not a string) are dark, and saved so',
+  bgp.slice(0, 4).join('; ') + (bgp.length > 4 ? ' (' + bgp.length + ' in all)' : ''));
+var bgAny = bgProblems(withValid('background', undefined));
+var bgLight = bgProblems(variant(function (o) { o.records[recAt(o, 'background')].default = 'light'; }));
+var bgFirst = bgProblems(variant(function (o) { var r = o.records.splice(recAt(o, 'background'), 1); o.records.splice.apply(o.records, [recAt(o, 'endsAt'), 0].concat(r)); }));
+var bgLoose = bgProblems(variant(function (o) { o.records[recAt(o, 'background')].valid = function (v) { return typeof v === 'string' && v.length > 0; }; }));
+check(bgAny.length >= 5 && bgLight.length >= 3 && bgFirst.length >= 1 && bgLoose.length >= 4,
+  '... and a store that keeps any background, one that is light by default, one with the background before endsAt, and one that keeps any word are each found out (control)',
+  [bgAny.length, bgLight.length, bgFirst.length, bgLoose.length].join(', ') + ' problems');
 
 /* ---- 5. save, a blocked storage, bindSwitch, loading ------------------------------------ */
 var st1 = Storage('{"v":2,"realSand":false,"theme":"lapis"}', 'ok'), v1 = S.load(st1.reach, '', REG);

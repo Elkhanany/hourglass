@@ -48,7 +48,7 @@ function recorder() {
   var T = window.__trace = { id: Math.random(), log: [], at: 0, mode: 'all', depth: 0, boot: null, bootSaved: null };
   // once the page runs: the calls a setting causes (everything else is the frame loop's, or,
   // like layout(), the window's: it comes with every resize and load)
-  var LATER = { 'renderer.setTheme': 1, 'renderer.setLook': 1, 'renderer.setFrame': 1, 'renderer.setLayers': 1, 'sim.setLayers': 1,
+  var LATER = { 'renderer.setTheme': 1, 'renderer.setLook': 1, 'renderer.setFrame': 1, 'renderer.setPaper': 1, 'renderer.setLayers': 1, 'sim.setLayers': 1,
     'audio.setVolume': 1, 'audio.setMuted': 1, 'audio.setCharacter': 1, 'audio.setChimeEnabled': 1, 'audio.setAmbience': 1,
     'audio.setAmbienceLevel': 1, 'audio.chime': 1, 'motion.request': 1, 'motion.start': 1, 'motion.stop': 1,
     'audio.setSandLevel': 1, 'audio.setBowlLevel': 1, 'audio.setSilentRing': 1 };
@@ -110,6 +110,10 @@ function recorder() {
     var s = get0.call(window.localStorage, KEY);
     return s === null ? null : s.split(JSON.stringify(navigator.userAgent)).join('"(the user agent)"');
   };
+
+  /* the hour of the day: noon in a traced page, so that the background's Daytime (light from 7:00 to
+     19:00) traces the same at any hour of the run (Date.now and the clock's time are untouched) */
+  Date.prototype.getHours = function () { return 12; };
 
   /* the buzz */
   try {
@@ -287,6 +291,12 @@ var DRIVE = [
   ['finish: copper', click('#finishes [data-finish="copper"]')],
   ['finish: driftwood', click('#finishes [data-finish="driftwood"]')],
   ['finish: walnut', click('#finishes [data-finish="walnut"]')],
+  // the background (a traced page is a browser asked for the light colour scheme, at noon: below)
+  ['background: light', click('#looks [data-look="light"]')],
+  ['background: device', click('#looks [data-look="system"]')],
+  ['background: daytime', click('#looks [data-look="hours"]')],
+  ['background: dark', click('#looks [data-look="dark"]')],
+  ['the light look, by the moon button (the top bar)', click('#btn-look')],
   ['layered sand: on', click('#opt-layers')],
   ['layered sand: off', click('#opt-layers')],
   ['character: warm', click('#characters [data-character="warm"]')],

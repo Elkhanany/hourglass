@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Hourglass</title>
   <!-- this page's release: sw.js's VERSION names the same (check-release); Tune's last line shows it -->
-  <meta name="hourglass-version" content="1.18.0">
+  <meta name="hourglass-version" content="1.19.0">
   <meta name="description" content="A hyper-realistic sand hourglass timer. Every grain is simulated; every sound is synthesised live.">
   <meta name="theme-color" content="#0b0c0e">
   <meta name="color-scheme" content="dark">
@@ -29,7 +29,25 @@
   <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./icons/splash/splash-1125x2436.png">
   <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="./icons/splash/splash-828x1792.png">
   <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="./icons/splash/splash-750x1334.png">
-  <style>html,body{background:#0b0c0e}</style>
+  <!-- The background, before the first paint: the saved choice (app/settings.js, 'background') read
+       here as app.js reads it ("Light and dark"), so a light look never opens on a dark frame and
+       the dark one never on a light frame. Dark is the page as it has always been: nothing is set. -->
+  <script>
+    (function () {
+      try {
+        var s = JSON.parse(localStorage.getItem('hourglass.settings.v1') || 'null'), b = s && s.background, h = new Date().getHours(), light = false;
+        if (b === 'light') light = true;
+        else if (b === 'system') light = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+        else if (b === 'hours') light = h >= 7 && h < 19;
+        if (!light) return;
+        document.documentElement.setAttribute('data-look', 'light');
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', '#f3f0ea');
+        document.querySelector('meta[name="color-scheme"]').setAttribute('content', 'light');
+        document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').setAttribute('content', 'default');
+      } catch (e) { /* (no storage: the dark page) */ }
+    })();
+  </script>
+  <style>html,body{background:#0b0c0e}html[data-look="light"],html[data-look="light"] body{background:#f3f0ea}</style>
   <!-- (a style sheet that could not be had marks itself: the page's last lines read the mark) -->
   <link rel="stylesheet" href="./styles.css" onerror="this.setAttribute('data-failed', '')">
 </head>
@@ -69,8 +87,14 @@
       <button id="btn-motion" class="icon-btn" type="button" aria-label="Allow real motion this time" hidden>
         <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="8.2" y="4.6" width="7.6" height="14.8" rx="1.8" transform="rotate(20 12 12)"/><path d="M4.4 9.2a8.6 8.6 0 0 1 2-3.4M19.6 14.8a8.6 8.6 0 0 1-2 3.4"/></svg>
       </button>
-      <button id="btn-zen" class="icon-btn" type="button" aria-label="Zen: let the glass fill the screen">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.2 14.6A7.8 7.8 0 0 1 9.4 4.8a7.8 7.8 0 1 0 9.8 9.8z"/></svg>
+      <!-- light and dark: a moon in the dark look, a sun in the light one; a tap is the other look, kept (app.js, "Light and dark") -->
+      <button id="btn-look" class="icon-btn" type="button" aria-label="Light background" aria-pressed="false">
+        <svg class="ic ic-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.2 14.6A7.8 7.8 0 0 1 9.4 4.8a7.8 7.8 0 1 0 9.8 9.8z"/></svg>
+        <svg class="ic ic-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.9"/><path d="M12 2.8v2.1M12 19.1v2.1M2.8 12h2.1M19.1 12h2.1M5.5 5.5l1.5 1.5M17 17l1.5 1.5M5.5 18.5L7 17M17 7l1.5-1.5"/></svg>
+      </button>
+      <!-- Zen: the glass fills the window (a pinch, or a double-click on the background, does the same) -->
+      <button id="btn-zen" class="icon-btn" type="button" aria-label="Zen: let the glass fill the window">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.6 9.2V4.6h4.6M14.8 4.6h4.6v4.6M19.4 14.8v4.6h-4.6M9.2 19.4H4.6v-4.6"/></svg>
       </button>
       <button id="btn-mute" class="icon-btn" type="button" aria-label="Mute sound" aria-pressed="false">
         <svg class="ic ic-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z"/><path class="wave" d="M15.2 9.2a4 4 0 0 1 0 5.6M17.6 6.8a7.4 7.4 0 0 1 0 10.4"/></svg>
@@ -238,6 +262,21 @@
               <button type="button" role="radio" aria-checked="false" data-finish="copper"><span class="cap cap-copper" aria-hidden="true"></span><span class="nm">Copper</span></button>
               <button type="button" role="radio" aria-checked="false" data-finish="driftwood"><span class="cap cap-driftwood" aria-hidden="true"></span><span class="nm">Driftwood</span></button>
             </div>
+          </div>
+        </div>
+        <!-- the background: four choices; the moon button in the top bar is the quick way between dark and light -->
+        <div class="rows rows-single" id="rows-look">
+          <div class="row" id="look-row">
+            <span><b id="look-name">Background</b></span>
+          </div>
+          <div class="sub">
+            <div id="looks" class="segmented four" role="radiogroup" aria-labelledby="look-name">
+              <button type="button" role="radio" aria-checked="true" data-look="dark">Dark</button>
+              <button type="button" role="radio" aria-checked="false" data-look="light">Light</button>
+              <button type="button" role="radio" aria-checked="false" data-look="system" aria-label="Device: as the device's own light or dark setting">Device</button>
+              <button type="button" role="radio" aria-checked="false" data-look="hours" aria-label="Daytime: light from 7 to 19, dark at night">Daytime</button>
+            </div>
+            <p class="sub-note" id="look-note">Device follows the device&rsquo;s own light or dark setting. Daytime is light from 7:00 to 19:00 and dark at night.</p>
           </div>
         </div>
       </div>
@@ -466,9 +505,11 @@
     note.id = 'updating';
     note.setAttribute('role', 'alert');
     note.textContent = navigator.onLine ? 'Hourglass is updating. Open it again in a moment.' : 'Hourglass is updating. Open it again with a connection.';
+    // (in the look the page opened with: the light one, read before the first paint, or the dark)
+    var light = document.documentElement && document.documentElement.getAttribute('data-look') === 'light';
     note.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;margin:0;padding:24px;' +
-      'display:flex;align-items:center;justify-content:center;text-align:center;background:#0b0c0e;' +
-      'color:#d8d2c8;font:16px/1.5 -apple-system,system-ui,sans-serif';
+      'display:flex;align-items:center;justify-content:center;text-align:center;' + (light ? 'background:#f3f0ea;color:#2a2723;' : 'background:#0b0c0e;color:#d8d2c8;') +
+      'font:16px/1.5 -apple-system,system-ui,sans-serif';
     document.body.appendChild(note);
   });
 </script>
