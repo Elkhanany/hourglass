@@ -693,7 +693,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   engine whose neck is the valve test's model, inside a copy of the app's
   frame (also every glass shape: its fill and a 10 s and a 5-minute glass
   out on time, with a control whose neck passes too little): every `sim.` member the app and the audio use, with the CPU Sim's
-  type; the fills from the CPU Sim's lattice (exact counts, each grain's
+  type; what RealSand reads from the classic sand (the contract's third
+  group: its namespace, `P.Sim` and the CPU Sim beyond the Sim's members,
+  each there and none private, with a copy of `app-sand.mjs` that reads
+  `cpu._rec` and `P.Sim.FOO` as its control), and its refusal, naming what is
+  missing, without the namespace, with one that lacks values, or with a CPU
+  Sim without `layerState()`; the fills from the CPU Sim's lattice (exact counts, each grain's
   colour); each place where the sand sets the clock (a start after the end,
   the Flip's swap, a tilt swap, pours, a re-time after a starved neck, a
   sequence's next phase turned unseen, also while hidden, a session restored
@@ -731,7 +736,18 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   wall into a still bed (half its points moving, the bed's mean falling at
   1.4 times the speed of the faintest landing) lands nothing, where the same
   fall of the whole bed as one body lands a thump (the control); a landing is the same thump
-  at 60, 120 and 180 runs a second; after a second without readbacks the
+  at 60, 120 and 180 runs a second; at a slow pace (a run every 2, 4 or 6
+  frames, every phase) a toss lands one thump a fall within 1.5 dB of its
+  energy and at most a run late, and so does a flick (thrown up by the field
+  turned round, then falling), from the engine's fastest fall between
+  readbacks (`bed.peak`, from build 8; the readbacks alone, the control,
+  land none or one far too weak in some phases); the engine is asked for
+  those fastest falls only while a fall is possible (never while running or
+  held still in the hand; a flick from its first run until 0.5 s after its
+  last sample); woken from sleep by a flick within a frame on a slow display
+  (frames of 50 ms), the first run covers only the time since the jolt and
+  holds no field longer than its own (the control, the time since clamped
+  at 0 as before, covers the whole frame); after a second without readbacks the
   agitation that had faded stays faded; and the same motion of the same GPU
   bed is the same sound at the phone's, a tablet's, the Fine and the Finest
   lattice.
@@ -758,7 +774,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   heard as sliding: the slides fed are well under its motion within itself,
   which was fed in full before; shaken sideways, no thump
   and the agitation and slides within a factor of 2 of the classic's;
-  leaned, sound only as far as the sand moved);
+  leaned, sound only as far as the sand moved; at a slow pace, a run every
+  3 frames of at least 20 substeps (24, the cap), in force from the flick's
+  first frame, the same flick lands one or two thumps in the upper bulb, no
+  slam, within 1.5 dB of the thump at a run a frame, from build 8; the same
+  slow pace from the readbacks alone is logged, not checked);
   a glass to its end, its last grain crossing within one frame after
   00:00.0 by the chip's own record, with no catch-up and no residue, and,
   left alone from Start to the end, no thump or slam and next to no

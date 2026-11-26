@@ -805,7 +805,9 @@ glass before its start): flicked along the glass, one thump of 0.0039 to
 0.0054 against the classic's 0.0043, agitation 0.54 to 0.67 against 0.71;
 shaken sideways at 1.5 g and 5 Hz for 1.5 s, no thump in any of the three
 runs, agitation 1.12 to 1.16 against 0.98; leaned 30°, the GPU bed did not
-move and nothing was heard. Two things differ,
+move and nothing was heard. At build 8 (four runs) the flick's thump at a
+run a frame was 0.0044 to 0.0059, and at a run every 3 frames within 0.84
+dB of it. Two things differ,
 both because the sound is made from what the GPU sand did. A phone that moves
 without moving its sand makes no sand sound: carried at a walk the GPU bed
 lies still and is silent, where the classic sand shimmers (agitation 0.07
@@ -819,11 +821,28 @@ thump (0.043), where the classic sand's heap runs back and lands nothing.
 
 The sound comes one to three frames after the sand's own motion (a
 readback's delay), a thump as the bed comes to rest. The bed is read once
-a run, so when the engine runs less than once a frame (a phone that falls
-behind, the heat guard's calm pace) a landing can sound quieter or be
-missed: a known limit, still open, to be fixed in a later build by the
-engine recording the bed's fastest fall during a run (the design, section
-8). A sleeping glass is
+a run, and up to build 7 that was all the landing had: when the engine ran
+less than once a frame (a phone that falls behind, the heat guard's calm
+pace) a landing could sound quieter or be missed (on the adapter's mock
+engine, 5.2 dB under its energy at a run every 2 frames in some phases,
+none at a run every 4 to 6 frames in some). From build 8 the engine keeps
+each bed's fastest fall toward the floor between readbacks, while a fall is
+possible (from a field 0.3 g off plain gravity, for 0.5 s after it): the
+beds are summed at every second substep's end in an entry point of their
+own, and one pass a run keeps the fastest; the readback carries it, and the
+landing's energy is that fall's (the design, section 8). On the mock engine,
+at a run every 2, 4 and 6 frames and every phase, each fall lands one thump
+0.2 to 0.3 dB under its energy, at most a run late. On WebGPU in software
+the thump at a run every 3 frames is within 0.84 dB of the one at a run a
+frame (before the wake below was fixed, up to 2.4 dB too loud once woken
+from sleep). The
+cost there (the lab's burst, ms a substep): nothing at rest, 2.6 % of a
+substep while a fall is possible. And after a jolt wakes a sleeping glass,
+its first run starts at the jolt's first sample and covers only the time
+since the jolt, also on a slow display (from build 8; until then at least
+the frame's whole time, so at a run every 3 frames 24 substeps were laid
+over a flick's first 13 ms and its push held for 15 of them, about 6 at a
+run a frame, which threw the bed about 15 % faster). A sleeping glass is
 silent and sound never keeps it awake (the feeds are read from readbacks
 the frame makes anyway); a fresh bed (a fill, a transfer) settles unheard
 for 0.4 s. The landing buzz (Android) follows the thumps, as with the
@@ -849,7 +868,7 @@ imports the same files.
 | `boot.mjs` | the one module `app.js` appends (switch on, `navigator.gpu` there): it hands `RealSand` and the build stamp to `Hourglass.attachRealSand` |
 | `app-sand.mjs` | `RealSand`, the adapter: every member of the CPU `Sim` that `app.js` and `audio.js` use, with the same types; the frame's `submit`, fills, transfers, the swap frame, the Reset's sweep, the sound record (the stream from the ledger, the bed from the readbacks), start-up, loss and rebuild, `stats()` and `audit()` |
 | `valve.mjs` | the ledger (the sand above the neck in the app's whole grains) and the controller that meters the neck once a frame; pure JavaScript |
-| `solver.mjs`, `shaders/` | the PB-MPM solver on WebGPU and its WGSL: the neck's throttle and membrane, the tally (with each bulb's bed, for the sound), the flip pass, appends, readbacks, the tone pass |
+| `solver.mjs`, `shaders/` | the PB-MPM solver on WebGPU and its WGSL: the neck's throttle and membrane, the tally (with each bulb's bed, for the sound), each bed's fastest fall between readbacks while a fall is possible (`spreadShift.wgsl` `csBeds`, `prepare.wgsl` `csKeep`, the `bedPeak` buffer; from build 8), the flip pass, appends, readbacks, the tone pass |
 | `glass.mjs` | the glass on the solver's grid, built from the app's own geometry (`makeGeometry`, `profile` of `glass/shapes.js`), with the neck's warp; the neck is widened for the solver only up to the bulb's widest row (from build 7), so that in every shape the bulb's far end, where the sand lies, is the glass the app draws |
 | `fill.mjs` | fills: the lattice, and `fromLattice`, the GPU bed laid where the CPU sand's grains are, each with its grain's colour seed |
 | `grains.mjs` | the grains drawn: the palette from the Renderer's colour table, the warp, the room's light, the sweep |
@@ -999,6 +1018,24 @@ Sim). The engine reaches the app through one door:
 refuses a build stamp other than the one `app.js` was written for
 (`REALSAND_BUILD`).
 
+**What RealSand reads from the classic sand.** RealSand keeps no copies of
+the classic sand's numbers (from build 8). At create it reads them from the
+classic sand's namespace (`HourglassPhysics`, handed over as `P`): `P.DT`
+and `P.STEP_HZ`, the app's step; `P.Sim.EV_CAP`, the landings a frame the
+event arrays hold (48); `P.Sim.IMPACT_V`, the blow's speed from which it
+thumps (`MOTION.impV[0]`, 700 px/s); `P.Sim.MOTION`'s `tauT` and `idleT`,
+the agitation's memory and its idle level; `P.Sim.LAYERS`, whose `settle`
+gives how long after a turn sand coming to rest is laid in its new pattern;
+`P.Sim.pace()`; and `P.profile` for the glass. Of the CPU Sim it reads,
+beyond the Sim's members above, `glassFlip`, `layers`, `rng` and
+`layerState()` (each bulb's pattern and its companion tone's share after the
+last turn: the Sim's own arrays, read, not changed), never a private field.
+`Sim.EV_CAP`, `Sim.IMPACT_V` and `layerState()` are published by the classic
+sand for this; they change nothing in its stepping. Without the namespace,
+or with one of these values missing, `create` refuses and names what is
+missing (for example "lacks P.Sim.EV_CAP, P.Sim.MOTION.idleT"); no number
+has a fallback of its own.
+
 **The classic sand's picture is the Renderer's**, not the Sim's. The app
 draws the CPU sand with `renderer.drawSand` and keeps the glass, the frame,
 cracks and mends, the Reset's sweep, the theme and layered sand's colours on
@@ -1017,7 +1054,14 @@ its lists: a member used and not listed, or listed and no longer used,
 fails, so a new member joins the contract on purpose. Then the CPU Sim must
 have every member of the first group, RealSand each of them with the CPU
 Sim's type and every member of the second, and the shared objects must be
-the CPU Sim's own. Real sand's side of it, member by member, is in
+the CPU Sim's own. Its third group is what RealSand reads from the classic
+sand (read from `realsand/app-sand.mjs` itself): four names on the namespace
+(`DT`, `STEP_HZ`, `Sim`, `profile`), five on `P.Sim` (`EV_CAP`, `IMPACT_V`,
+`LAYERS`, `MOTION`, `pace`) and four of the CPU Sim beyond the Sim's
+(`glassFlip`, `layerState`, `layers`, `rng`); each must exist, a read not
+listed fails, and a read of a private member (`_` first) of the CPU Sim
+fails; a copy of `app-sand.mjs` that reads `cpu._rec` and `P.Sim.FOO` must
+fail (the control). Real sand's side of it, member by member, is in
 [Real sand: the design](design/real-sand.md), section 4.
 
 A third sand engine would follow the same checklist: every member of the
