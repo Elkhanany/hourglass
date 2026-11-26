@@ -58,8 +58,8 @@ prose, is in [How it works](../engines.md#real-sand-the-switch-in-tune).
 ## 1. What the switch gives
 
 With the switch on, on a device with WebGPU: the same glass and frame, with
-the lab's sand inside; the time exact to the substep; the six sands and
-layered sand in their own colours; Flip, turning and spinning the glass,
+the lab's sand inside; the time exact to the substep; every sand, a colour
+of your own and every glass shape, and layered sand, in their own colours; Flip, turning and spinning the glass,
 **Sand**, **Reset** with its one-second transition, work and rest, Real
 motion, sessions across reloads; the sound of the stream, the landings, the
 tail and the fill, the bed when the glass is moved (section 8), the bowl,

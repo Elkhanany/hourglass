@@ -5,21 +5,38 @@ version: what it is, how to install it, and the controls.
 
 ## Zen
 
-Zen is yours to enter and to leave. Spread two fingers anywhere on the
-screen, or tap the moon icon, and the controls fade over about a second and a
-half to 12 % (or disappear entirely with *Full Zen*) as the glass grows to
-fill the screen; while they are dimmed the tenths rest. Pinch two fingers
-together and they come back at once (`Esc` on a keyboard; a trackpad's pinch
-works both ways too). Nothing else changes the view. A tap on the glass
+Zen is yours to enter and to leave. It lets the glass fill the window: the
+controls fade over about a second and a half to 12 % (or disappear entirely
+with *Full Zen*) as the glass grows to fill the app's window, and while they
+are dimmed the tenths rest. It is not the system's full screen: on a PC the
+window stays a window, its title bar and the taskbar where they were, and on
+a phone the status bar stays.
+
+- **Into Zen**: spread two fingers anywhere on the screen, tap the **Zen
+  button** in the top bar (four corners pointing outward), or, with a mouse
+  or a pen, **double-click the background**: anywhere that is not the glass,
+  a button, a pill or an open sheet.
+- **Out of Zen**: pinch two fingers together, press `Esc` on a keyboard, or
+  double-click the background again (in Full Zen, with every control hidden,
+  that is anywhere off the glass). A trackpad's pinch works both ways too.
+
+So a mouse alone needs no keyboard (the Zen button, then a double-click to
+come back), and a keyboard alone needs no mouse (`Tab` to the Zen button,
+`Enter`, then `Esc`). A finger's double tap does nothing new: on a touch
+screen Zen is the pinch and the button. A double-click is two clicks close
+together, in time (half a second) and in place; a slower second click is two
+single clicks, which off the glass do nothing, and a double-click never
+starts, pauses, moves or turns the glass.
+
+Nothing else changes the view. A tap on the glass
 starts or pauses it in Zen as it does at home; playing with the glass
 (moving, turning, spinning, catching, mending, knocking) leaves the view as
 it is; the controls do not fade by themselves however long the sand runs;
 and the end of a glass leaves Zen as it is. The fingers must travel a little
 (a fifth of the gap between them, and 36 px at least), a glass that is
 already being carried or turned is not let go for a second finger, and
-turning back within the same pinch undoes it. The first three times, the
-moon icon says how to come back. Where the browser allows it, Zen also goes
-full screen. With *Reduce Motion* turned on in the system settings, all of this
+turning back within the same pinch undoes it. The first three times, Zen
+says how to come back. With *Reduce Motion* turned on in the system settings, all of this
 happens at once instead. With *Reduce Motion* a glass that is let go glides
 home instead of falling, nothing flashes and the phone's shaking cannot crack
 the glass; what a finger does to it (a slam on the desk, knocks, hard spins)
@@ -38,10 +55,37 @@ the sand. A minute is a tenth of a bulb, five a good fifth, ten a third,
 fifteen two fifths, thirty over half. (Strictly in proportion, a minute would
 be a pinch and every glass would run with the thin thread of the hour glass.)
 Each shape of glass (Tune, Glass) has its own full glass, as much as fits
-under its neck. Delta, whose low ends hold less, is full at an hour with no
-room to spare: there the **Sand** button reads **Full**, and a tap on it says
+under its neck. Delta, whose low ends hold less, and Trumpet are full at an
+hour with no room to spare: there the **Sand** button reads **Full**, and a tap on it says
 that the glass is full. Any glass reads so once sand has been poured in to
 the brim.
+
+## Light and dark
+
+The **moon button** in the top bar turns the whole app from its dark look (a
+glass lit in a dark room, as it always was) to a light one on a soft paper
+white, and back. In the light look the button shows a sun. The glass is lit
+for a white room there, so that its outline and the thickness of its wall
+show as glass does on white; the sand keeps its colours, and even the palest
+(Moonstone, a pale colour of your own) stands out of the paper; the warm glow
+behind the glass, which white cannot show, is a quiet wash of the sand's
+colour, and the breathing pace deepens it as you breathe in.
+
+Tune's **Glass** tab has the same choice as a row, **Background**, with four:
+
+- **Dark** (as the app comes) and **Light**: the look you chose, kept.
+- **Device**: as the phone's or the computer's own light or dark setting,
+  followed while the app is open.
+- **Daytime**: light from 7:00 to 19:00 by the device's clock and dark at
+  night; it changes at the hour while the app is open, and when it comes back
+  to the front.
+
+A tap on the moon button always turns to the other look and makes it your
+choice (Light or Dark) from Device or Daytime too. The look is chosen before
+the app first draws, so it never opens in the wrong one, and a running glass
+runs on untouched when it changes. The phone's status bar and a PC window's
+title bar follow it. *Put the look and sound back as they came* puts it back
+to Dark.
 
 ## Tune
 
@@ -54,7 +98,9 @@ stays where it is. While a tab has more below, its rows fade into the
 bottom of the sheet and a small arrow there points down; it goes once you
 reach the end. Tune opens on the tab used last, at its top. Tap outside
 the sheet, the close button or `Esc` to close it; on a keyboard the arrow
-keys move between the tabs.
+keys move between the tabs. A set of choices (the sands, the shapes, Rings,
+the durations under the glass and the rest) is one stop for `Tab`, at the
+one chosen; the arrow keys, `Home` and `End` choose another in it.
 
 **Sand**
 
@@ -102,7 +148,7 @@ keys move between the tabs.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.18.0" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.19.1" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;
@@ -128,6 +174,8 @@ keys move between the tabs.
 - **Finish** (under it, while the frame is shown): what the caps and posts
   are made of, whatever the sand: Walnut (the default), Brass, Silver, Gold,
   Copper or Driftwood.
+- **Background**: Dark, Light, Device or Daytime (see "Light and dark"
+  above). It changes at once; nothing is built again.
 
 **Sound**
 
@@ -147,19 +195,30 @@ keys move between the tabs.
 - **Sand sound**: six voicings of the falling sand.
 - **Sand**: how loud the sand's own sounds are (the stream, its grains, the
   glass ringing, thumps, slides and the slosh, with either sand), from 0 to
-  100. 100 is the sand as it has always been; the bowl and the ambience keep
-  their own levels.
+  100. The glass's own sounds go with them: the creak before a crack, the
+  crack and its growth, a chip, the mend's hum and the air of a turning
+  glass, so at 0 no creak warns of a crack. 100 is the sand as it has always
+  been; the bowl and the ambience keep their own levels.
 - **End of the glass: Completion bowl**, a soft singing-bowl bloom when the
   last grain falls. While it is on:
   - **Rings**: *Once* (as it always was), *Three times* (again about 8.5 s
     and 17 s later) or *Until a tap* (again every 8.5 s, for 10 minutes at
     most). While the bowl is still to ring again, the first tap anywhere, or
     the first key, only stops it: it does nothing else (it does not start a
-    new glass or press the button it lands on). The next one works as always.
+    new glass or press the button it lands on). The next one works as always,
+    however soon it comes.
+    The bowl rings again only when it can be heard: muted, with *Sound* or
+    *Bowl* at 0, it rings no more and takes no tap, and muting or turning
+    either down to 0 while it is due stops it. (A page cannot see the
+    phone's ringer switch: with *Sound in silent mode* off and the ringer
+    off, the rings are not heard, but the first tap still only stops them.)
     The rings keep the screen on only with *Keep screen awake* on. Nothing
     can ring while the phone is locked or the app is in the background; come
     back and a ring whose time has passed is not played late, the next comes
-    on its time. Between the phases of work and rest the bowl rings once, as
+    on its time. A glass that ran out while the phone slept rings its bowl as
+    you come back, and the rings are counted from that bowl (*Until a tap*
+    still ends 10 minutes after the glass ran out). If the phone's clock is
+    set back to before the end, the rings end. Between the phases of work and rest the bowl rings once, as
     before: *Rings* is for the last end. Reset, another duration, a turn or a
     new start stop it too.
   - **Bowl**: the bowl's level, 0 to 100. 50 is the bowl as it always was,
@@ -185,7 +244,8 @@ keys move between the tabs.
   own.
 - **The clock: Show when it ends** (off as the app comes): while a glass
   runs, the line under the time says when it will reach `00:00.0`, as
-  *Flowing · ends 14:35*, in the phone's own 12 or 24 hour style. It is the
+  *Flowing · ends 14:35*, in the phone's own 12 or 24 hour style and time
+  zone (a new zone, after a flight, within 10 seconds). It is the
   end of the glass that is running now: sand added, a turn, a pause or a new
   duration moves it, and it is gone while the glass is paused, turning or
   finished. In a work and rest sequence it is the end of the phase that is
@@ -207,7 +267,8 @@ keys move between the tabs.
   and the glow eases back to rest when the glass is paused, finished or
   reset. It works in Zen and Full Zen; with *Reduce Motion* the glow only
   brightens and dims.
-- **Full Zen**: Zen hides the controls completely instead of dimming them.
+- **Full Zen**: Zen hides the controls completely instead of dimming them
+  (a pinch, `Esc` or a double-click of the background still brings them back).
 - **Touch: Haptics**: a light tick from taps on the glass, buttons and
   switches, where the phone supports it. On a phone that can vibrate it also
   covers the end of a glass, landings and cracks. Turn it off and all of them
@@ -215,7 +276,7 @@ keys move between the tabs.
 - **Put the look and sound back as they came**: tap it, then tap again
   within three seconds ("Tap again to put them back"). The sand (Sahara
   Quartz; a colour of your own is kept for its swatch), the frame and its
-  finish (walnut), layered sand, the volume, the sand sound and the Sand level
+  finish (walnut), layered sand, the background (Dark), the volume, the sand sound and the Sand level
   (100), the ambience, its level and its fade before the end (off), and the
   completion bowl, its Rings (Once) and the Bowl level (50) go back to how the
   app came; everything else stays as you set it (Real sand and the grain, the
@@ -372,7 +433,8 @@ does, and the running time is kept. The app never turns it off by itself.
 
 What stays as it was: the clock (the last grain leaves the neck at
 `00:00.0`; in the sand lab on an iPhone it left within 5 ms of it in every
-run), the glass and its frame, the six sands and layered sand, Flip,
+run), the glass and its frame, every glass shape, every sand and a colour
+of your own, layered sand, Flip,
 turning and spinning the glass, **Sand**, **Reset** with its one-second
 transition, work and rest, Real motion with the phone lying still or in the
 hand, the glass carrying on across reloads, the sound of the stream, the
@@ -552,8 +614,9 @@ and after each.
 - Keep screen awake needs the Screen Wake Lock API: Safari 16.4+ on iOS, and
   iOS 18.4+ when installed to the home screen.
 - A web app cannot hide the iPhone status bar or silence notifications. On
-  Android the installed app runs full screen; in desktop and Android browsers
-  the moon icon enters full screen.
+  Android the installed app runs full screen. Zen fills the app's window and
+  never asks for the system's full screen (a browser's own full screen, F11,
+  is there for that).
 - Haptics use `navigator.vibrate` on Android. An iPhone has no vibration
   API. Since iOS 18 a switch control taps the Taptic Engine when it flips,
   and since iOS 26.5 only when a finger really lands on it or on its label.

@@ -42,6 +42,8 @@
  *       launch (the next launch reads it), so that one failed read never writes the defaults
  *       over the settings
  *   HourglassSettings.preset(search)    "?t=300": { durationMs }, else null
+ *   HourglassSettings.unpreset(search)  the same query without its "t=" items, every other
+ *       item kept in its order ("?t=45&debug=motion" -> "?debug=motion", "?t=300" -> "")
  *   HourglassSettings.bindSwitch(el, key, after)   a plain switch of Tune:
  *       it shows the loaded value from then on (so load comes first), and
  *       when it flips the value is set and saved, then after(value) called
@@ -69,8 +71,8 @@
    */
   var STEPS = [
     // Version 2: Real sand on, once. Every launch before 1.10.0 saved realSand: false, so such a
-    // save cannot tell "never touched" from "turned off"; from version 2 on, a saved false was
-    // set in Tune and is kept.
+    // save cannot tell "never touched" from "turned off"; from version 2 on, a saved false is
+    // the person's choice.
     { v: 2, run: function (values) { values.realSand = true; } }
   ];
 
@@ -137,7 +139,12 @@
     // The Time tab: the six durations under the glass, set in the Time tab, and when the running glass ends.
     { id: 'quick', default: '1,5,10,15,30,60',   // the six quick durations, in whole minutes, in the order they were set (one bad: all six the default)
       valid: function (v) { return !!quickOf(v); } },
-    { id: 'endsAt', default: false }             // the state line says when the running glass ends: "Flowing · ends 14:35"
+    { id: 'endsAt', default: false },            // the state line says when the running glass ends: "Flowing · ends 14:35"
+    // The background (Tune's Glass tab, and the moon button): 'dark' as the app has always been,
+    // 'light' on paper white, 'system' as the device's own light or dark setting, 'hours' light
+    // from 7:00 to 19:00 by the device's clock and dark at night. A save from before it is dark.
+    { id: 'background', default: 'dark',
+      valid: function (v) { return v === 'light' || v === 'system' || v === 'hours'; } }
   ];
 
   /**
@@ -160,6 +167,12 @@
   function preset(search) {
     var m = /[?&]t=(\d{1,5})(?:&|$)/.exec(search);
     return m ? { durationMs: +m[1] * 1000 } : null;
+  }
+  /** The query without the preset: what is left once it has been applied (app.js puts it in the address). */
+  function unpreset(search) {
+    var re = /([?&])t=\d{1,5}(&|$)/, m;
+    while ((m = re.exec(search))) search = search.slice(0, m.index) + (m[2] ? m[1] : '') + search.slice(m.index + m[0].length);
+    return search === '?' ? '' : search;
   }
 
   /**
@@ -269,5 +282,6 @@
   store.repair = repair;
   store.colorOf = colorOf;
   store.quickOf = quickOf;
+  store.unpreset = unpreset;
   root.HourglassSettings = store;
 })(typeof window !== 'undefined' ? window : globalThis);

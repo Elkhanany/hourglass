@@ -16,7 +16,8 @@
  *            again in Delta and Tune comes back open on the Glass tab at once, Delta in use;
  *            the time left is what it was (within a frame), the sand counted anew as the same
  *            share of Delta's full glass, as much of it above the neck as the clock asks (within
- *            a grain), and the glass runs out at 00:00.0 on time; the focus is on Tune itself, so no
+ *            a grain), and the glass runs out at 00:00.0 on time, the last grain out no more than
+ *            a frame before it or two after (sand that runs out early fails it, as late does); the focus is on Tune itself, so no
  *            button wears a focus ring that no tap asked for
  *   SHAPES   in each shape Tune offers, on the classic sand: a 60-minute glass filled to its cap
  *            (the clock's full glass for that shape), all of it above the neck; a 10 s glass run
@@ -50,14 +51,23 @@ var OFFERED = ['classic', 'lozenge', 'delta', 'ampoule', 'trumpet', 'florence', 
 /**
  * Tune offers every registered shape, so a shape held back is made on the test's page alone: an
  * init script that sets offered false on these shapes' records as glass/shapes.js hands its registry
- * to the page (before the settings and the picker read it).
+ * to the page (before the settings and the picker read it). The namespace is made empty by the first
+ * piece and filled in by each, so the script waits on the namespace for the registry itself (SHAPES);
+ * a namespace handed over whole, as one file did, is marked at once.
  */
 function hold(ids) {
   return {
     init: function (ids) {
       var v;
+      function mark(S) { ids.forEach(function (id) { if (S && S[id]) S[id].offered = false; }); }
       Object.defineProperty(window, 'HourglassPhysics', { configurable: true, enumerable: true, get: function () { return v; },
-        set: function (P) { v = P; ids.forEach(function (id) { if (P && P.SHAPES && P.SHAPES[id]) P.SHAPES[id].offered = false; }); } });
+        set: function (P) {
+          v = P;
+          if (!P) return;
+          if (P.SHAPES) { mark(P.SHAPES); return; }
+          var s;
+          Object.defineProperty(P, 'SHAPES', { configurable: true, enumerable: true, get: function () { return s; }, set: function (S) { s = S; mark(S); } });
+        } });
     },
     initArg: ids
   };
@@ -158,18 +168,26 @@ function record(t) {
     (function f() { R.push({ now: Date.now(), state: W.timer.state, nTop: W.sim.nTop, rem: W.timer.rem }); if (R.length < 40000) requestAnimationFrame(f); })();
   });
 }
-/** The end as recorded: when the readout reached 00:00.0, and when the last grain left the neck. */
+/**
+ * The end as recorded: when the readout reached 00:00.0, and when the last grain left the neck
+ * (the frame where the count above it fell to 0, before the clock's end or after it): `frames`
+ * is that frame less the clock's, negative when the sand ran out first.
+ */
 function endOf(t, expectEnd) {
   return t.eval(function (want) {
     var R = window.__rec, done = null, empty = null, k;
     for (k = 0; k < R.length; k++) {
       if (done === null && R[k].state === 'done') done = k;
-      if (done !== null && empty === null && R[k].nTop === 0) empty = k;
+      if (R[k].nTop === 0 && (k === 0 || R[k - 1].nTop > 0)) empty = k;        // (the last time it fell to 0)
     }
     return { doneAt: done === null ? null : R[done].now, frames: done === null || empty === null ? null : empty - done,
-             late: done === null ? null : R[done].now - want, topAtDone: done === null ? null : R[done].nTop, n: R.length };
+             late: done === null ? null : R[done].now - want, topAtDone: done === null ? null : R[done].nTop,
+             emptyMs: done === null || empty === null ? null : R[empty].now - R[done].now, n: R.length };
   }, expectEnd);
 }
+/** The end holds: the clock's 00:00.0 on time, and the last grain out within a frame before it or two after. */
+function endHolds(e) { return e.frames !== null && e.frames >= -1 && e.frames <= 2 && Math.abs(e.late) <= 2 * FRAME + 5; }
+function endSaid(e) { return (e.late === null ? '?' : e.late.toFixed(0)) + ' ms, the last grain ' + (e.frames === null ? '?' : (e.frames >= 0 ? '+' : '') + e.frames + ' frames (' + (e.emptyMs === null ? '?' : e.emptyMs.toFixed(0)) + ' ms)'); }
 
 /* ---- PICK ----------------------------------------------------------------------------------- */
 async function pick(env, o) {
@@ -306,8 +324,8 @@ function useOk(m) {
             detail: b.total + ' grains of the classic glass (full ' + b.full + ') -> ' + a.total + ' of Delta (full ' + a.full + '; the same share: ' + want + '); as app.js has run ' +
                     bt.nTop + ' above the neck, the clock asks ' + (bt.topAt || 0).toFixed(1) + ' (and ' + (bt.rate * bt.ms / 1000).toFixed(1) + ' grains more over the ' + Math.round(bt.ms) + ' ms app.js took)' }
   };
-  if (m.end) out.end = { ok: m.end.frames !== null && m.end.frames <= 2 && Math.abs(m.end.late) <= 2 * FRAME + 5 && m.errors.length === 0,
-                         detail: '00:00.0 ' + (m.end.late === null ? '?' : m.end.late.toFixed(0)) + ' ms from when it was due; the last grain out ' + m.end.frames + ' frames after; errors: ' + m.errors.length };
+  if (m.end) out.end = { ok: endHolds(m.end) && m.errors.length === 0,
+                         detail: '00:00.0 ' + endSaid(m.end) + ' from it; errors: ' + m.errors.length };
   return out;
 }
 
@@ -345,13 +363,13 @@ async function shapes(env, o) {
 function shapesOk(list) {
   var fill = list.map(function (r) { var f = r.fill; return { id: r.id, ok: f.shape === r.id && f.total === f.cap && f.nTop === f.total && f.dur === 3600000, f: f }; });
   var ends = list.filter(function (r) { return r.end; }).map(function (r) {
-    return { id: r.id, ok: r.end.frames !== null && r.end.frames <= 2 && Math.abs(r.end.late) <= 2 * FRAME + 5 && r.census.fails === 0 && r.errors.length === 0, e: r.end, c: r.census };
+    return { id: r.id, ok: endHolds(r.end) && r.census.fails === 0 && r.errors.length === 0, e: r.end, c: r.census };
   });
   return {
     fill: { ok: fill.length === OFFERED.length && fill.every(function (x) { return x.ok; }),
             detail: fill.map(function (x) { return x.id + (x.ok ? ' ' + x.f.total : ' WRONG ' + JSON.stringify({ shape: x.f.shape, total: x.f.total, cap: x.f.cap, nTop: x.f.nTop })); }).join('; ') },
     end: { ok: ends.length === OFFERED.length && ends.every(function (x) { return x.ok; }),
-           detail: ends.map(function (x) { return x.id + ' ' + (x.e.late === null ? '?' : x.e.late.toFixed(0)) + ' ms, last grain +' + x.e.frames + ' frames' + (x.ok ? '' : ' WRONG ' + JSON.stringify({ e: x.e, census: x.c })); }).join('; ') }
+           detail: ends.map(function (x) { return x.id + ' ' + endSaid(x.e) + (x.ok ? '' : ' WRONG ' + JSON.stringify({ e: x.e, census: x.c })); }).join('; ') }
   };
 }
 
@@ -534,6 +552,9 @@ async function main() {
       await control('a copy that does not open Tune again after the reload', 'tune', function () {
         return use(env, Object.assign({ short: true }, app(swap('  if (reopen === \'glass\') {', '  if (false) {'))));
       }, useOk);
+      await control('a copy whose sand runs out 3 s before the clock (the valve aims 3 s ahead)', 'end', function () {
+        return use(env, app(swap('      var ideal = topAt(T.rem);', '      var ideal = topAt(T.rem - 3000);')));
+      }, useOk);
       await control('a copy that gives the focus to the close button after the reload', 'focus', function () {
         return use(env, Object.assign({ short: true }, app(swap('openSheet(sheetSettings, btnSettings, sheetSettings);', 'openSheet(sheetSettings, btnSettings);'))));
       }, useOk);
@@ -542,6 +563,9 @@ async function main() {
       var sh = shapesOk(await shapes(env));
       s.check('SHAPES: in each shape Tune offers, a 60-minute glass filled to its cap, all above the neck', sh.fill.ok, sh.fill.detail);
       s.check('SHAPES: ... and a 10 s glass runs out at 00:00.0 on time, the last grain with it (census exact, no errors)', sh.end.ok, sh.end.detail);
+      await control('a copy whose sand runs out 3 s before the clock (the valve aims 3 s ahead)', 'end', function () {
+        return shapes(env, app(swap('      var ideal = topAt(T.rem);', '      var ideal = topAt(T.rem - 3000);')));
+      }, shapesOk);
       await control('a copy that builds every glass classic', 'fill', function () {
         return shapes(env, Object.assign({ short: true }, app(swap('    if (id !== \'classic\' && P.SHAPES', '    if (false && P.SHAPES'))));
       }, shapesOk);

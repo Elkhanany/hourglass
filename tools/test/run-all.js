@@ -14,8 +14,9 @@
  *                                             -shell); "app-realsand" the Real sand
  *                                             switch in the app on a mock graphics chip
  *                                             (about 2 minutes); "realsand-gpu" the app's
- *                                             Real sand on WebGPU in software (10 to 15
- *                                             minutes, run only when named)
+ *                                             Real sand on WebGPU in software (about an
+ *                                             hour with the nine shapes, run only when
+ *                                             named; see docs/testing.md)
  *                                             --port: every suite on that one port (they
  *                                             run one at a time); else each on its own,
  *                                             from 8811 up
@@ -32,7 +33,8 @@ var port = 8810, failed = [], t0 = Date.now();
 // runs about an hour and a half and records open problems as failing checks,
 // so it runs only when the filter names it ("lab"). The lab's Node suites
 // (lab-pace, lab-timer: seconds) run with the rest. realsand-gpu runs the app's
-// Real sand on WebGPU in software (10 to 15 minutes, every core busy): it too
+// Real sand on WebGPU in software (about an hour with the nine shapes, every
+// core busy; see docs/testing.md): it too
 // runs only when named ("gpu").
 var files = fs.readdirSync(__dirname).filter(function (f) {
   return /\.test\.js$/.test(f) && f.indexOf(filter) >= 0 &&

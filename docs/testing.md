@@ -165,7 +165,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   not added to it, and it is not made again. The two traces were first made from
   release 1.11.0, whose new engine build (6) is in their saves, made again
   (`--write`) from the tree that joined it with the new Tune (release
-  1.13.0), and last made again for release 1.14.0, the sand and the frame's
+  1.13.0), and made again for release 1.14.0, the sand and the frame's
   finish chosen apart: the keys `sand`, `sandColor` and `finish` at the end
   of every full save, the six material cards' lines replaced by those of the
   ten sands, the custom sand's colour well (a colour let go: `input`, then
@@ -197,7 +197,20 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   mode; the six quick durations with the dial, Show when it ends), and the
   reset link's second tap, whose save now also puts back the Sand and Bowl
   levels, Rings and the fade, and which tells the sound engine those two
-  levels; no other entry changed.
+  levels; no other entry changed. Both were made again for release 1.19.0,
+  the background: the key `background` ('dark') at the end of every full
+  save; in every boot one read of the settings more, first (index.html's
+  early script, which puts the light or dark look on the page before its
+  first paint); in the Tune trace five new entries (the background Light,
+  Device, Daytime and Dark, and the moon button), and the reset link's second
+  tap, whose save also puts back the background and which tells the renderer
+  the dark look (`setPaper`); and the boots after the five reloads of the
+  walk between the moon button and the reset (two shapes used, the three
+  grains), which now open in the light look the button left (`setPaper`
+  true); no other entry changed. `renderer.setPaper` is one of the calls a
+  setting causes (kept after the boot, as `setTheme` is). A traced page is at
+  noon (the recorder sets the hour of `new Date()`), so Daytime traces the
+  same at any hour of the run.
   The two traces use three ports: the suite's own and the next two.
 - `sim-*`: the simulation, in Node. `sim-identity` runs it side by side with
   the version before motion (f446085, read from git) and checks that, with
@@ -335,7 +348,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the app as an iPhone would after the update, Real sand on. `app-session`
   ends with the app's shortcut: `./?t=300` over a saved session of a running
   5-minute glass is a new glass, after a plain launch has picked that glass
-  up (the control). `app-breath` covers breathing pace: the Tune row and what is
+  up (the control); then, launched at `./?t=300`, a running glass is kept
+  with its time through the browser's reload and the app's own for "Use this
+  shape", Grain and Real sand, and so is a duration picked after the launch
+  (the control: a copy of `app.js` that leaves `?t=` in the address loses
+  all five). `app-breath` covers breathing pace: the Tune row and what is
   saved, the toast's place just above the sheet, the three patterns against
   the wall clock, a blocked main thread, a hidden page and a long sleep,
   easing back to rest, Reduce Motion, Full Zen, the landscape halo, a damaged
@@ -484,7 +501,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   tab taking a tap 3 px above and below what is drawn of it (`--only
   target`, at 393 x 852 and 320 x 568, its reach clear of the close button,
   the next tab and the rows), the focus kept in an open sheet by Tab and
-  Shift+Tab (`--only focus`, Tune and the custom-duration sheet), and the
+  Shift+Tab (`--only focus`, Tune and the custom-duration sheet), every
+  radio group one Tab stop with the arrows, Home and End choosing in it and
+  saving what a tap saves (`--only radios`, with a control for each), and the
   "more below" hint (`--only hint`): at 393 x 852 a tab that can scroll
   shows it at its top and in its middle and not at its end (every tab can, at that size); a
   scrolled tab fades its rows under the tab row; a finger on the hint
@@ -515,8 +534,43 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   page, later after sand is added, right after a turn, gone while paused
   and later by the pause, gone at the end, across midnight, the phase's end
   in a work and rest sequence, the switch off giving today's words exactly
-  at every step, the switch in Tune, Zen and a short screen. Every check
+  at every step, the switch in Tune, Zen and a short screen, and the time
+  zone changed while the glass runs (Berlin to New York, the end given in
+  the new zone within 10 s). Every check
   has a control (`--only order|quick|lit|cancel|keys|fit|ends`).
+  `app-mode` covers light and dark, the Zen button and the double-click
+  (release 1.19.0): each of the four backgrounds saved comes up in its look
+  (the page's `data-look`, its theme-color, color-scheme and status-bar
+  metas, the renderer's shading, the moon button's state and the Tune row's
+  choice); the four choices in Tune's Glass tab change the look at once with
+  nothing built again; the moon button turns to the other look and back, kept
+  over a reload, and turns Device or Daytime into a choice of its own; a save
+  of 1.18.0 comes up dark; the reset link puts it back to dark; the first
+  frame painted is in the right look for every choice (an init script reads
+  the page at its first animation frame; a copy of the page without its early
+  script must fail); Device with the browser's colour scheme emulated light and
+  dark and changed while open; Daytime with the clock (`new Date()` set by an
+  init script, in UTC) on both sides of 7:00 and 19:00, carried across each
+  while open and across a return from the background (copies of `app.js`
+  without the timer, without the return and without the scheme's listener must
+  fail); a running glass keeps its time within 40 ms over four changes of
+  look; the contrast of every text of the bars, the state line, all four tabs
+  and the dial sheet against its ground, from computed styles, 4.5 to 1 or
+  more in the light look at 393 x 852 and 320 x 568 (a paler third ink must
+  fail); in the dark look the first two inks likewise, the third measured
+  and left as it was; the glass's outline on white, from the screen's
+  pixels along a line through the empty lower bulb, for the drawn glass and
+  (software WebGL) the rendered one (without the light shading each must
+  fail); Moonstone and a very pale custom sand against the paper (the same
+  measure on a ground of the sand's own colour must fail); the Background
+  row and the dial sheet at 393 x 852 and 320 x 568; the Zen button's name
+  and icon; and the double-click of a mouse into and out of Zen and Full Zen,
+  not on the glass, a button or a pill, not by a finger, not with a second
+  click 0.75 s late, nothing started or turned (copies without it, with a
+  finger's taken, with a 2 s wait must fail), and a keyboard alone (Tab,
+  Enter, Escape) and a mouse alone (the button, a double-click) in and out.
+  `HOURGLASS_SHOTS=<folder>` keeps pictures of both looks. It runs alone
+  (`--only CHOICES,TUNE,...` for parts).
   `app-look` covers the sand and the frame's finish chosen apart (release
   1.14.0): with nothing saved the glass and the page exactly as they were,
   the renderer's own bundle; each of the nine sands tapped in Tune over the
@@ -530,7 +584,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   320 px four sands and three finishes a row. Each check has a control.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-sound` covers the
-  Sound tab's own rows (`--only layout,levels,rings,tap,away,rounds,awake,fade,silent`):
+  Sound tab's own rows (`--only layout,levels,rings,tap,twice,quiet,away,rounds,awake,asleep,back,fade,silent`):
   at 393 x 852, 375 x 667 and 320 x 568 the rows in the design's order and
   words, nothing wider than the sheet, no sideways scroll, no word cut off,
   44 px for every new control, each named for a screen reader, the bowl's
@@ -540,10 +594,16 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Three times (8.5 and 17 s after the first) and Until a tap (every 8.5 s,
   the last within 10 minutes), the first tap on the glass, the first button
   (Tune) and the first key (F) used up by stopping the bowl and the next one
-  working, nothing rung while the page is hidden and nothing late when it is
+  working, Start tapped twice 0.25 s apart (by a finger, by a mouse) where
+  only the first is used up, no rings and no tap taken when the bowl cannot
+  be heard (muted, Sound at 0, Bowl at 0) and the rings stopped when it
+  becomes so, nothing rung while the page is hidden and nothing late when it is
   back (and nothing after 10 minutes away), a sequence's soft bowl once
   between phases with the next phase not held and the last end ringing as
-  Rings says, the wake lock held for the rings only with Keep screen awake;
+  Rings says, the wake lock held for the rings only with Keep screen awake,
+  a glass found run out 8 s late ringing its rings 8.5 s apart from the late
+  bowl and one found 11 minutes late ringing no rings, the clock set back an
+  hour after the end ending the rings and letting the screen go;
   the fade's share at given times left for each length, a glass shorter
   than twice the stretch, pause, sand added and a turn (the engine's gain
   gliding, no step), the switch off as before and only a sequence's last
@@ -571,7 +631,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the Glass tab, the time left kept within a frame, the sand the same share
   of the new full glass, the glass out at 00:00.0 on time); every offered
   shape on the classic sand (a 60-minute glass filled to its cap, a 10 s
-  glass out on time); the shapes drawn in the sand chosen in the Sand tab
+  glass out on time); in both, the last grain leaves within a frame before
+  00:00.0 or two after it, so sand that runs out early fails as late sand
+  does (the control: a copy whose valve aims 3 s ahead); the shapes drawn in the sand chosen in the Sand tab
   (not the material's) and repainted when it changes; the Sand button of a
   full glass (Delta's and Trumpet's at 60 minutes); and saves of 1.14.0 (sand, colour and finish, no shape),
   1.13.0 and 1.10.0, and ones naming a held-back shape (held on its page)

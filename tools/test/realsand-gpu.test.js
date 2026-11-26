@@ -279,11 +279,19 @@ function installWatch() {
       localStorage.setItem('hourglass.settings.v1', JSON.stringify({ realSand: true, durationMs: 10000, layers: true }));
     });
     if (SHAPE_HELD.length) {
-      // --shapes named a shape Tune holds back (the settings take only offered ones): offered on this page, for the test
+      // --shapes named a shape Tune holds back (the settings take only offered ones): offered on this page, for the test.
+      // (The first piece makes the namespace empty and fills it in, so the script waits on it for the registry itself.)
       await ctx.addInitScript(function (ids) {
         var v;
+        function mark(S) { ids.forEach(function (id) { if (S && S[id]) S[id].offered = true; }); }
         Object.defineProperty(window, 'HourglassPhysics', { configurable: true, enumerable: true, get: function () { return v; },
-          set: function (P) { v = P; ids.forEach(function (id) { if (P && P.SHAPES && P.SHAPES[id]) P.SHAPES[id].offered = true; }); } });
+          set: function (P) {
+            v = P;
+            if (!P) return;
+            if (P.SHAPES) { mark(P.SHAPES); return; }
+            var s;
+            Object.defineProperty(P, 'SHAPES', { configurable: true, enumerable: true, get: function () { return s; }, set: function (S) { s = S; mark(S); } });
+          } });
       }, SHAPE_HELD);
     }
     var page = await ctx.newPage();

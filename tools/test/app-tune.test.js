@@ -26,6 +26,9 @@
  *   KEYS      with the focus on a tab the arrows (round the ends), Home and End show and save
  *             the tab they move to and take the focus there, without a buzz; elsewhere they do
  *             nothing; Escape closes
+ *   RADIOS    every radio group is one Tab stop, its checked option; in a group the arrows (round
+ *             the ends), Home and End move the focus and choose, saving what a tap saves (Tune's
+ *             groups, and the durations under the glass)
  *   FOCUS     with a keyboard the focus stays in an open sheet: Tab twenty times and Shift+Tab
  *             twenty times from the close button never leave Tune (on the Sand and the Time
  *             tab) nor the custom-duration sheet, and go round from the last control to the
@@ -37,8 +40,8 @@
  *             goes with it
  *   RESET     "Put the look and sound back as they came": the first tap only asks (and gives
  *             up after 3 s, when another tab is shown, when Tune is closed; a double tap is one
- *             tap); the second puts back the fourteen settings it names and no other (the sand
- *             and its finish among them, the Sand and Bowl levels, the Rings and the fade before
+ *             tap); the second puts back the fifteen settings it names and no other (the sand
+ *             and its finish among them, the background, the Sand and Bowl levels, the Rings and the fade before
  *             the end; the custom sand's colour is kept, and so is Sound in silent mode), tells the
  *             engines what differed and nothing else, in order, rings no bowl, says so above the
  *             sheet, and loads nothing again; the first tap's question is said to a screen reader
@@ -76,7 +79,7 @@ var SIZES = [[390, 844], [375, 667], [430, 932]];
 var TOP_AT = { '390 x 844': 454, '375 x 667': 365, '430 x 932': 502 };   // the design's measurements of the app
 var ASK = 'Put the look and sound back as they came', SURE = 'Tap again to put them back', DONE = 'Look and sound put back';
 // what the reset puts back: a new install's values
-var BACK = { theme: 'sahara', sand: 'sahara', finish: 'walnut', frame: true, layers: false, volume: 0.8, character: 'asmr', ambience: 'none', ambienceLevel: 0.5, chime: true,
+var BACK = { theme: 'sahara', sand: 'sahara', finish: 'walnut', frame: true, layers: false, background: 'dark', volume: 0.8, character: 'asmr', ambience: 'none', ambienceLevel: 0.5, chime: true,
              sandLevel: 1, bowlLevel: 1, bowlRings: 'once', ambFade: 0 };
 
 /* ---- a copy with something broken, for a control ---------------------------------------- */
@@ -748,7 +751,7 @@ function focusOk(m) {
 // mute button, the grain, a sequence, breathing, Full Zen, the screen not kept awake, what the app
 // has learned and hinted). Real motion is left off: left on, it has a life of its own at the boot.
 var CHANGED = {
-  theme: 'lapis', sand: 'garnet', sandColor: '185,0.5,0.5', finish: 'copper', frame: false, layers: true, volume: 0.35, character: 'bamboo', ambience: 'rain', ambienceLevel: 0.7, chime: false,
+  theme: 'lapis', sand: 'garnet', sandColor: '185,0.5,0.5', finish: 'copper', frame: false, layers: true, background: 'light', volume: 0.35, character: 'bamboo', ambience: 'rain', ambienceLevel: 0.7, chime: false,
   sandLevel: 0.4, bowlLevel: 1.6, bowlRings: 'tap', ambFade: 600000, silentRing: false,
   muted: true, grain: 1, zenFull: true, keepAwake: false, breath: true, breathPattern: 'box', durationMs: 600000, restMs: 120000, rounds: 3,
   motionSign: -1, mendNotes: 2, hintCrack: true, hintZen: 3, hintMotion: 3, tuneTab: 'time',
@@ -869,7 +872,7 @@ function resetOk(m, save) {
   var quiet = function (st) { return names(st.events).filter(function (n) { return n !== 'buzz'; }).length === 0; };
   // 1. the first tap
   var ask = {
-    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 14 &&
+    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 15 &&
         m.idle.link.join('|') === 'idle|' + ASK && m.asked.link.join('|') === 'armed|' + SURE && untouched(m.asked) && JSON.stringify(m.asked.events) === '[["buzz",8]]' &&
         m.gaveUp.link.join('|') === 'idle|' + ASK && untouched(m.gaveUp) && m.gaveUp.events.length === 0 && m.waited >= 2900 && m.waited < 5500,
     detail: JSON.stringify(m.place) + '; ' + m.idle.link.join(': ') + ' → ' + m.asked.link.join(': ') + ' ' + JSON.stringify(m.asked.events) + (untouched(m.asked) ? '' : ' AND THE SAVE CHANGED') +
@@ -888,17 +891,18 @@ function resetOk(m, save) {
   var back = {
     ok: notBack.length === 0 && defaults.length === 0 && differ.every(function (k) { return !(k in save) || was[k] === save[k]; }) && Object.keys(was).join() === Object.keys(now).join(),
     detail: notBack.length ? 'not put back: ' + notBack.map(function (k) { return k + ' ' + JSON.stringify(now[k]); }).join(', ')
-                           : differ.length + ' of the fourteen differed (' + differ.join(', ') + '), all fourteen are a new install\'s'
+                           : differ.length + ' of the fifteen differed (' + differ.join(', ') + '), all fifteen are a new install\'s'
   };
   var kept = {
     ok: lost.length === 0 && Object.keys(was).length >= 32 && m.done.alive && m.later.alive && m.done.state === m.idle.state && m.done.rem === m.idle.rem && m.later.saved === m.done.saved,
-    detail: lost.length ? 'changed besides the fourteen: ' + lost.map(function (k) { return k + ' ' + JSON.stringify(was[k]) + ' → ' + JSON.stringify(now[k]); }).join(', ')
+    detail: lost.length ? 'changed besides the fifteen: ' + lost.map(function (k) { return k + ' ' + JSON.stringify(was[k]) + ' → ' + JSON.stringify(now[k]); }).join(', ')
                         : (Object.keys(was).length - keys.length) + ' other keys as they were (muted ' + now.muted + ', grain ' + now.grain + ', breath ' + now.breath + ' ' + now.breathPattern +
                           ', zenFull ' + now.zenFull + ', keepAwake ' + now.keepAwake + ', silentRing ' + now.silentRing + ', tuneTab ' + now.tuneTab + '); the page not loaded again: ' + (m.done.alive && m.later.alive) +
                           '; the glass ' + m.done.state
   };
   // 3. what the engines are told, in order: only what differed
-  var told = { volume: ['audio.setVolume', BACK.volume], character: ['audio.setCharacter', BACK.character], ambience: ['audio.setAmbience', BACK.ambience, false],
+  // (the background is shown at once, in the tap: the dark look, by the renderer's shading)
+  var told = { background: ['renderer.setPaper', false], volume: ['audio.setVolume', BACK.volume], character: ['audio.setCharacter', BACK.character], ambience: ['audio.setAmbience', BACK.ambience, false],
                ambienceLevel: ['audio.setAmbienceLevel', BACK.ambienceLevel, false], chime: ['audio.setChimeEnabled', BACK.chime],
                sandLevel: ['audio.setSandLevel', BACK.sandLevel], bowlLevel: ['audio.setBowlLevel', BACK.bowlLevel] };
   // (the sand, its finish and the material are one look: one call, Sahara Quartz over walnut, the renderer's own bundle)
@@ -1161,6 +1165,93 @@ function hintReducedOk(m) {
            detail: 'fades ' + (s.more ? s.more.fade + ' and ' + s.top.fade : 'not read') + '; read at once: ' + [s, g, mid].map(edgeSays).join('; ') };
 }
 
+/* ---- RADIOS ------------------------------------------------------------------------------ */
+// The groups whose arrow keys are tried in Tune (Grain is left out: a choice there builds the page again).
+var RADIO_TRY = ['sands', 'shapes', 'finishes', 'looks', 'ambiences', 'characters', 'rings', 'ambfades', 'breaths'];
+async function radios(env, o) {
+  o = o || {};
+  var st = {}; st[KEY] = { ambience: 'brook', ambFade: 300000, chime: true, breath: true };
+  var t = await env.open({ storage: st, routes: o.routes || [] }), m = { groups: [], tried: [], pills: null };
+  function stops() {
+    return t.eval(function () {
+      return Array.prototype.map.call(document.querySelectorAll('[role="radiogroup"]'), function (g) {
+        var rs = Array.prototype.filter.call(g.querySelectorAll('[role="radio"]'), function (r) { return !r.hidden && !r.disabled; });
+        var on = rs.filter(function (r) { return r.getAttribute('aria-checked') === 'true'; });
+        return { id: g.id, n: rs.length, zero: rs.filter(function (r) { return r.tabIndex === 0; }).map(function (r) { return rs.indexOf(r); }),
+                 checked: on.map(function (r) { return rs.indexOf(r); }) };
+      });
+    });
+  }
+  function state(id) {
+    return t.eval(function (id) {
+      var g = document.getElementById(id), rs = Array.prototype.filter.call(g.querySelectorAll('[role="radio"]'), function (r) { return !r.hidden && !r.disabled && r.getClientRects().length; });
+      return { n: rs.length, focus: rs.indexOf(document.activeElement), checked: rs.map(function (r) { return r.getAttribute('aria-checked') === 'true'; }).indexOf(true),
+               zero: rs.filter(function (r) { return r.tabIndex === 0; }).map(function (r) { return rs.indexOf(r); }) };
+    }, id);
+  }
+  try {
+    await sleep(700);
+    m.groups = await stops();
+    for (var i = 0; i < RADIO_TRY.length; i++) {
+      var id = RADIO_TRY[i];
+      await tune.show(t, '#' + id);
+      await sleep(250);
+      // the group's Tab stop takes the focus, as Tab brings it there
+      var ok = await t.eval(function (id) {
+        var g = document.getElementById(id), r = Array.prototype.filter.call(g.querySelectorAll('[role="radio"]'), function (x) { return x.tabIndex === 0; })[0];
+        if (!r || !r.getClientRects().length) return false;
+        r.focus(); return true;
+      }, id);
+      if (!ok) { m.tried.push({ id: id, shown: false }); continue; }
+      var a = await state(id), was = await saved(t);
+      await t.page.keyboard.press('ArrowRight');
+      await sleep(350);
+      var b = await state(id), now = await saved(t);
+      await t.page.keyboard.press('ArrowLeft');
+      await sleep(350);
+      var c = await state(id);
+      await t.page.keyboard.press('End');
+      await sleep(350);
+      var d = await state(id);
+      var changed = Object.keys(now || {}).filter(function (k) { return JSON.stringify(now[k]) !== JSON.stringify((was || {})[k]); });
+      m.tried.push({ id: id, shown: true, a: a, b: b, c: c, d: d, changed: changed });
+    }
+    // the durations under the glass, with Tune closed
+    await tune.close(t);
+    await sleep(300);
+    m.pills = await t.eval(function () { var r = Array.prototype.filter.call(document.querySelectorAll('#durations [role="radio"]'), function (x) { return x.tabIndex === 0; })[0]; if (r) r.focus(); return { at: r ? r.dataset.quick : null, dur: window.Hourglass.timer.durationMs }; });
+    await t.page.keyboard.press('ArrowRight');
+    await sleep(400);
+    m.pills.after = await t.eval(function () {
+      var a = document.activeElement;
+      return { focus: a && a.dataset ? a.dataset.quick : null, checked: a ? a.getAttribute('aria-checked') : null, dur: window.Hourglass.timer.durationMs,
+               saved: JSON.parse(localStorage.getItem('hourglass.settings.v1')).durationMs };
+    });
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+function radiosOk(m) {
+  var badStops = m.groups.filter(function (g) { return g.zero.length !== 1 || g.zero[0] !== (g.checked.length ? g.checked[0] : 0); });
+  var shown = m.tried.filter(function (x) { return x.shown; });
+  var badKeys = shown.filter(function (x) {
+    var nx = (x.a.checked + 1) % x.a.n;
+    return !(x.b.focus === nx && x.b.checked === nx && x.b.zero.join() === String(nx) &&
+             x.c.focus === x.a.checked && x.c.checked === x.a.checked && x.d.focus === x.a.n - 1 && x.d.checked === x.a.n - 1);
+  });
+  var rings = shown.filter(function (x) { return x.id === 'rings'; })[0], sands = shown.filter(function (x) { return x.id === 'sands'; })[0];
+  var p = m.pills;
+  return {
+    stops: { ok: m.groups.length >= 11 && badStops.length === 0,
+             detail: m.groups.length + ' radio groups; ' + (badStops.length ? 'not one stop, the checked one: ' + badStops.map(function (g) { return g.id + ' (stops ' + g.zero.join(',') + ' of ' + g.n + ', checked ' + g.checked.join(',') + ')'; }).join('; ') : 'each one Tab stop, its checked option') },
+    keys: { ok: shown.length >= 8 && badKeys.length === 0 && !m.errors.length,
+            detail: shown.map(function (x) { return x.id + ' ' + x.a.checked + '->' + x.b.checked + ' (focus ' + x.b.focus + ')->' + x.c.checked + ', End ' + x.d.checked + '/' + (x.a.n - 1); }).join('; ') +
+                    (badKeys.length ? '; WRONG ' + badKeys.map(function (x) { return x.id; }).join(', ') : '') + '; not shown: ' + m.tried.filter(function (x) { return !x.shown; }).map(function (x) { return x.id; }).join(', ') + (m.errors.length ? '; ' + m.errors.join(' | ') : '') },
+    saves: { ok: !!rings && rings.changed.indexOf('bowlRings') >= 0 && !!sands && sands.changed.indexOf('sand') >= 0 && !!p && p.after.focus === String((+p.at + 1) % 6) && p.after.checked === 'true' && p.after.dur !== p.dur && p.after.saved === p.after.dur,
+             detail: 'saved by ArrowRight: Rings ' + (rings ? rings.changed.join(',') : '?') + ', Sand ' + (sands ? sands.changed.join(',') : '?') + '; the durations under the glass: pill ' + (p && p.at) + ' -> ' + (p && p.after.focus) + ' (' + (p && p.after.checked) + '), ' + (p && p.dur) + ' -> ' + (p && p.after.dur) + ' ms, saved ' + (p && p.after.saved) }
+  };
+}
+
 /* ---- the run ----------------------------------------------------------------------------- */
 function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].ok; }); }
 (async function () {
@@ -1320,6 +1411,19 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       }, keysOk);
     }
 
+    if (wanted('radios')) {
+      var rd = radiosOk(await radios(env));
+      s.check('RADIOS: every radio group (the durations under the glass and Tune\'s) is one stop in the Tab order: its checked option', rd.stops.ok, rd.stops.detail);
+      s.check('RADIOS: in Tune\'s groups ArrowRight moves the focus to the next option and chooses it (it alone the Tab stop), ArrowLeft back, End to the last', rd.keys.ok, rd.keys.detail);
+      s.check('RADIOS: ... and a key saves what a tap saves (Rings, Sand), and the durations under the glass take the arrows too', rd.saves.ok, rd.saves.detail);
+      await control('RADIOS: a copy with every option its own Tab stop (as up to 1.19.0)', 'stops', function () {
+        return radios(env, { routes: [broken(env, 'app.js', swap(/  function rove\(g\) \{\n/, '  function rove(g) { return;\n'))] });
+      }, radiosOk);
+      await control('RADIOS: a copy without the arrow keys in a radio group (as up to 1.19.0)', 'keys', function () {
+        return radios(env, { routes: [broken(env, 'app.js', swap(/if \(!r \|\| !r\.getAttribute \|\| r\.getAttribute\('role'\) !== 'radio'/, 'if (true'))] });
+      }, radiosOk);
+    }
+
     if (wanted('target')) {
       for (var ts = 0; ts < TARGET_SIZES.length; ts++) {
         var tg = targetOk(await target(env, TARGET_SIZES[ts]));
@@ -1399,7 +1503,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       var v = resetOk(m);
       s.check('RESET: the link is a button at the end of the Time tab, no row; its first tap only asks ("' + SURE + '", one buzz, nothing set or saved) and after 3 s it has given up', v.ask.ok, v.ask.detail);
       s.check('RESET: it gives up at once when another tab is shown and when Tune is closed; a double tap is one tap and still only asks', v.gives.ok, v.gives.detail);
-      s.check('RESET: the second tap puts back the fourteen it names (the sand, the material that follows it, the finish, frame, layered sand, volume, sand sound and the Sand level, ambience, its level and its fade before the end, bowl, its Rings and the Bowl level), each to a new install\'s value', v.back.ok, v.back.detail);
+      s.check('RESET: the second tap puts back the fifteen it names (the sand, the material that follows it, the finish, frame, layered sand, the background, volume, sand sound and the Sand level, ambience, its level and its fade before the end, bowl, its Rings and the Bowl level), each to a new install\'s value', v.back.ok, v.back.detail);
       s.check('RESET: ... and keeps every other saved setting byte for byte (the custom sand\'s colour too, for its swatch; Sound in silent mode as it was set, off here; the six quick durations and "Show when it ends" as they were set), loads nothing again and leaves the glass as it is', v.kept.ok, v.kept.detail);
       s.check('RESET: saved once, then the sound engine told its seven in order and one buzz, inside the tap; the look (one call for sand and finish), the frame and the layers behind one cross-fade; the bowl is not rung', v.engines.ok, v.engines.detail);
       s.check('RESET: the controls and the engines show it (the mute button left as it was)', v.shown.ok, v.shown.detail);

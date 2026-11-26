@@ -45,9 +45,11 @@
       note.setAttribute('role', 'alert');
       // (online, the new release is on its way in: an older copy, with a hole, that met this release's app.js)
       note.textContent = navigator.onLine ? 'Hourglass is updating. Open it again in a moment.' : 'Hourglass is updating. Open it again with a connection.';
+      // (in the look the page opened with: index.html puts the light one on it before the first paint)
+      var light = document.documentElement && document.documentElement.getAttribute('data-look') === 'light';
       note.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:2147483647;margin:0;padding:24px;' +
-        'display:flex;align-items:center;justify-content:center;text-align:center;background:#0b0c0e;' +
-        'color:#d8d2c8;font:16px/1.5 -apple-system,system-ui,sans-serif';
+        'display:flex;align-items:center;justify-content:center;text-align:center;' + (light ? 'background:#f3f0ea;color:#2a2723;' : 'background:#0b0c0e;color:#d8d2c8;') +
+        'font:16px/1.5 -apple-system,system-ui,sans-serif';
       (document.body || document.documentElement).appendChild(note);
     } catch (e) { /* nothing more to do */ }
     try { console.warn('Hourglass: not started; missing ' + what.join(', ')); } catch (e) {}
@@ -84,6 +86,10 @@
   var settings = Store.load(function () { return localStorage; }, location.search, { themes: P.THEMES, sands: P.SANDS, finishes: P.FINISHES, finishOf: P.finishOf, shapes: P.SHAPES });
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts (a saved session gives way to it)
   var qt = Store.preset(location.search);
+  // Applied once: ?t= then leaves the address, every other item of the query kept. A reload (the
+  // app's own for a shape, a grain or Real sand, or the browser's) is then a plain launch, which
+  // picks the running glass up and keeps the duration chosen since (the boot's saves hold it).
+  if (qt) try { history.replaceState(history.state, '', location.pathname + Store.unpreset(location.search) + location.hash); } catch (e) {}
   function save() { Store.save(settings); }
 
   /* ======================================================================
@@ -296,14 +302,21 @@
    * standing still) would be said again each minute. A screen reader finds it in the time's label.
    */
   var endsEl = document.createElement('span'), endsShown = null, endsMin = NaN, endsWords = '', endsFmt = null;
+  var endsZone = null, endsZoneAt = -1e15;          // the time zone the words were made in, and when it was last looked at
   var READOUT_SAID = $('readout').getAttribute('aria-label');
   endsEl.id = 'ends';
   endsEl.setAttribute('aria-hidden', 'true');
   /** "ends 14:35" (or "ends 2:35 PM") for a glass now running, else ''. */
   function endsText() {
     if (!settings.endsAt || T.state !== 'running' || flip.active || seq.gap || T.rem <= 0) return '';
-    var at = Date.now() + T.rem, min = Math.floor(at / 60000);
-    if (min !== endsMin) {                             // (worked out again only when its minute changes)
+    var now = Date.now(), at = now + T.rem, min = Math.floor(at / 60000);
+    if (now - endsZoneAt > 10000 || now < endsZoneAt) {   // (every 10 s: the phone's time zone may change while the app is open, after a flight)
+      endsZoneAt = now;
+      var zone = null;
+      try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (e) {}
+      if (zone !== endsZone) { endsZone = zone; endsFmt = null; endsMin = NaN; }
+    }
+    if (min !== endsMin) {                             // (worked out again only when its minute changes, or the zone)
       endsMin = min;
       try {
         if (!endsFmt) endsFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
@@ -377,7 +390,9 @@
   function finish(over) {
     if (seq.rest) seq.phase = 2 * seq.rounds;   // a sequence is over: turned again, it starts from its first glass
     endWall = Date.now();            // before setState: the wake lock covers the ending
-    ringsBegin(endWall - (over > 0 ? over : 0) + BOWL_AT);
+    // the rings are counted from the bowl as it is rung now (late, when the end was found late: after
+    // a sleep), so that the next is never crowded on it; Until a tap still ends 10 minutes after the end
+    ringsBegin(endWall + BOWL_AT, endWall - (over > 0 ? over : 0) + BOWL_AT);
     setState('done');
     audio.chime(BOWL_AT / 1000);     // after the last grain has landed
     audio.end(BOWL_AT / 1000);       // the stream flows on to the bowl, then recedes under it
@@ -414,7 +429,9 @@
    * phase is never held up. The rings keep their times on the wall clock and are rung from the
    * frame loop, so nothing rings while the page is hidden (a locked phone, another app): back
    * on screen, a ring whose time has passed is dropped, not played late, and the rings end at
-   * their 10 minutes whatever happened meanwhile. While the bowl is still to ring again, the
+   * their 10 minutes whatever happened meanwhile. A glass found run out late (after a sleep)
+   * rings its bowl then, and the rings are counted from that bowl; a clock set back to before
+   * the end ends them (and lets the screen go). While the bowl is still to ring again, the
    * first tap (on the glass, a button, anywhere), or the first key, only stops it: it is used
    * up, and does nothing else. Reset, another duration, a turn and a start stop it too. The
    * screen is kept awake for the rings only when Keep screen awake is on.
@@ -424,11 +441,19 @@
   var rings = null;                  // { t0: the first ring's time (Date.now()), k: the next ring's number, n: the last's }
   /** The ring numbers after the first, for a choice: 'three' 1 and 2; 'tap' up to 10 minutes; 'once' none. */
   function ringsLast(choice) { return choice === 'three' ? 2 : choice === 'tap' ? Math.floor(RING_MAX / RING_GAP) : 0; }
-  function ringsBegin(t0) {
+  function ringsBegin(t0, end) {
     ringsStop();
-    var n = settings.chime ? ringsLast(settings.bowlRings) : 0;
-    if (n) rings = { t0: t0, k: 1, n: n };
+    var n = ringsHeard() ? ringsLast(settings.bowlRings) : 0;
+    if (settings.bowlRings === 'tap' && end !== undefined) n = Math.min(n, Math.floor((end + RING_MAX - t0) / RING_GAP));   // (no later than 10 minutes after the end)
+    if (n > 0) rings = { t0: t0, k: 1, n: n };
   }
+  /**
+   * The bowl can be heard: on, the app not muted, Sound and Bowl above 0. Only then do the rings
+   * begin (and take the first tap); muted or turned down to 0 while they are due, they stop.
+   * (The phone's own ringer switch cannot be seen by a page.)
+   */
+  function ringsHeard() { return !!settings.chime && !settings.muted && settings.volume > 0 && settings.bowlLevel > 0; }
+  function ringsUnheard() { if (!ringsHeard()) ringsStop(); }
   /** The bowl is still to ring again: a tap now only stops it. */
   function ringsDue() { return rings !== null && T.state === 'done'; }
   /** No more rings; `hush`: the bowl that rings now fades away too (a tap stopped it). */
@@ -443,36 +468,46 @@
     if (!rings || document.hidden) return;
     if (T.state !== 'done') { ringsStop(); return; }
     var now = Date.now(), due = Math.floor((now - rings.t0) / RING_GAP);   // the last ring whose time has come
+    if (now < endWall - 1000) { ringsStop(); return; }                     // (the clock was set back to before the end: no ring would come for as long, so none does)
     if (due < rings.k) return;
     if (due > rings.n) { ringsStop(); return; }                             // (over while away)
     if (now - (rings.t0 + due * RING_GAP) <= RING_LATE) audio.chime(0);     // (those before it, long past, are dropped; so is it, if it is late too)
     if (due >= rings.n) ringsStop(); else rings.k = due + 1;
   }
   // The tap that stops the bowl is used up: seen first (on the window, capturing), it goes no
-  // further, nor do the rest of its gesture (its pointer's moves and lift, the click and the
-  // touch and mouse events that follow it) or the key's own lift and click.
-  var ringEat = null;                // { id: the pointer, up: when it lifted (0: still down) } or { key }
+  // further, nor does the rest of that one gesture: its pointer's moves and lift, its touch's
+  // events, and the mouse events and the click that follow its lift, or the key's own repeats,
+  // lift and click. The next gesture is never eaten: a new pointer down (a finger, a mouse
+  // button), a new touch or another key gets through as always, however soon it comes.
+  var ringEat = null;                // { id: the pointer, touch: its touch's identifier, up: when it lifted (0: still down) } or { key, up }
   function ringEaten(e) {
     onGesture();                     // (what every gesture does still happens: the sound unlocked, the wake lock asked for)
     e.stopImmediatePropagation();
     if (e.cancelable) e.preventDefault();
   }
+  /** The touch event is the eaten gesture's own touch (a new finger's is not). */
+  function ringTouch(e, q) {
+    var c = e.changedTouches || [];
+    for (var i = 0; i < c.length; i++) if (c[i].identifier === q.touch) return true;
+    return false;
+  }
   window.addEventListener('pointerdown', function (e) {
+    if (ringEat && (ringEat.up || ringEat.key !== undefined || e.pointerId !== ringEat.id)) ringEat = null;   // (a new gesture: never eaten)
     if (!ringsDue()) return;
     ringsStop(true);
-    ringEat = { id: e.pointerId, up: 0 };
+    ringEat = { id: e.pointerId, touch: null, up: 0 };
     ringEaten(e);
     buzz(10);
   }, true);
   window.addEventListener('keydown', function (e) {
     if (ringEat && ringEat.key === e.key && !ringEat.up) { ringEaten(e); return; }   // (a key held down repeats)
-    if (ringEat && ringEat.up) ringEat = null;                          // (that key has come up: its gesture is over)
+    if (ringEat && (ringEat.up || ringEat.key !== e.key)) ringEat = null;           // (another key, or that one again: a new gesture)
     if (!ringsDue() || e.metaKey || e.ctrlKey || e.altKey || /^(Shift|Control|Alt|Meta|CapsLock)$/.test(e.key)) return;
     ringsStop(true);
     ringEat = { key: e.key, up: 0 };
     ringEaten(e);
   }, true);
-  ['pointermove', 'pointerup', 'pointercancel', 'touchstart', 'touchmove', 'touchend', 'mousedown', 'mouseup', 'click', 'keyup', 'contextmenu'].forEach(function (type) {
+  ['pointermove', 'pointerup', 'pointercancel', 'touchstart', 'touchmove', 'touchend', 'touchcancel', 'mousedown', 'mouseup', 'click', 'keyup', 'contextmenu'].forEach(function (type) {
     window.addEventListener(type, function (e) {
       var q = ringEat;
       if (!q) return;
@@ -482,8 +517,14 @@
         if (type === 'click' && (!q.up || performance.now() - q.up < 50)) ringEaten(e);
         return;
       }
-      if ((type === 'pointerup' || type === 'pointercancel') && e.pointerId === q.id) q.up = performance.now();
-      if (type.indexOf('pointer') === 0 && e.pointerId !== q.id) return;
+      if (type.indexOf('pointer') === 0) {                                       // (its own pointer only, until it lifts)
+        if (e.pointerId !== q.id || q.up) return;
+        if (type !== 'pointermove') q.up = performance.now();
+      } else if (type.indexOf('touch') === 0) {                                  // (its own touch only: the first to start after its pointer went down)
+        if (q.touch === null && type === 'touchstart' && !q.up) q.touch = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].identifier : -1;
+        else if (!ringTouch(e, q)) return;
+        if (type === 'touchend' || type === 'touchcancel') { ringEaten(e); ringEat = null; return; }   // (a touch's lift cancelled: no mouse events, no click follow it)
+      }
       ringEaten(e);
       if (type === 'click') ringEat = null;
     }, true);
@@ -1831,15 +1872,21 @@
   /* ======================================================================
    *  Zen
    *
-   *  The controls dim and the glass takes the whole screen. Only three
-   *  things change that. Two fingers spreading on the screen bring it, and
-   *  so does the moon button; two fingers pinching together leave it, as
-   *  Escape does for a keyboard. Nothing else: not a tap, not playing with
-   *  the glass, not the passing of time, not the end of a glass.
+   *  The controls dim and the glass grows to fill the window: the window,
+   *  never the system's full screen (a PC's window stays a window). Only
+   *  these change it: two fingers spreading on the screen bring it, and so
+   *  does the Zen button; two fingers pinching together leave it, as Escape
+   *  does for a keyboard; a double-click of a mouse or a pen on the
+   *  background (anywhere but the glass, a control or an open sheet) brings
+   *  it and takes it away again, Full Zen too. Nothing else: not a tap, not
+   *  a finger's double tap, not playing with the glass, not the passing of
+   *  time, not the end of a glass.
    * ==================================================================== */
   var ZEN_SETTLE = 1500;             // ms: the fade into Zen (styles.css), after which the dim controls take no taps
   var END_AWAKE = 12000, endWall = -1e9;
-  var zenSince = 0, zenFs = false;
+  /** The glass ended less than END_AWAKE ago (a clock set back to before the end is not "just"). */
+  function justEnded() { var ago = Date.now() - endWall; return ago >= -1000 && ago < END_AWAKE; }
+  var zenSince = 0;
   /** Enter or leave Zen. True if that changed anything. */
   function setZen(on) {
     if (on === app.classList.contains('zen')) return false;
@@ -1847,32 +1894,8 @@
     app.classList.toggle('zen', on);
     if (!on) app.classList.remove('zen-deep');
     applyZoom();
-    var inFs = document.fullscreenElement || document.webkitFullscreenElement;
-    if (on) {
-      // where the browser allows, hide its chrome too
-      var el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
-      if (req && !inFs) {
-        try {
-          var p = req.call(el, { navigationUI: 'hide' });
-          zenFs = true;
-          if (p && p.catch) p.catch(function () { zenFs = false; });
-        } catch (e) { zenFs = false; }
-      }
-    } else if (zenFs) {
-      zenFs = false;
-      var exit = document.exitFullscreen || document.webkitExitFullscreen;
-      if (exit && inFs) {
-        try { var q = exit.call(document); if (q && q.catch) q.catch(function () {}); } catch (e2) {}
-      }
-    }
     return true;
   }
-  // the browser's own way out of full screen (Escape, a swipe) leaves Zen too
-  ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (t) {
-    document.addEventListener(t, function () {
-      if (zenFs && !(document.fullscreenElement || document.webkitFullscreenElement)) { zenFs = false; setZen(false); }
-    });
-  });
   function updateZen(now) {
     // settled: once fully dim, stop re-blurring the panel and stop taking taps on the controls
     var on = app.classList.contains('zen');
@@ -1880,13 +1903,129 @@
     var deep = on && now - zenSince > ZEN_SETTLE;
     if (deep !== app.classList.contains('zen-deep')) app.classList.toggle('zen-deep', deep);
   }
-  /** The moon button leads where no control shows the way back: say it, the first three times. */
+  /** Zen leads where no control shows the way back: say it, the first three times. */
   function zenHint() {
     var n = settings.hintZen | 0;
     if (n >= 3) return;
     settings.hintZen = n + 1; save();
-    toast(window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 'Pinch in to come back' : 'Esc to come back', 3600);
+    toast(window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? 'Pinch in to come back' : 'Double-click or Esc to come back', 3600);
   }
+  /*
+   * The double-click. Two clicks of a mouse or a pen on the background, the second pressed within
+   * DBL.ms of the first and within DBL.px of it, each a click (let go where it was pressed, soon):
+   * Zen comes, or goes. A slower second click is two single clicks, as ever, and a single click
+   * there does what it always did (nothing). The background is anything a click lands on that is
+   * not the glass (the same box a tap on the glass is measured by), not a control of the top or
+   * the bottom bar and not an open sheet; in Zen the dim controls no longer take clicks once they
+   * have settled, so there the whole window is background. A finger is not asked: Zen by touch
+   * is the pinch and the button.
+   */
+  var DBL = { ms: 500, px: 8 };
+  var dblDown = null, dblLast = null;
+  function isBackground(e) {
+    if (sheetOpen) return false;
+    var el = e.target;
+    if (el && el.closest && el.closest('button, input, label, a, [role], .panel, .top-row, #readout, .sheet, #scrim')) return false;
+    if (!stage.contains(el) && !(el && el.closest && el.closest('.hud'))) return false;
+    var r = assembly.getBoundingClientRect(), padX = r.width * 0.04, padY = r.height * 0.01;
+    return e.clientX < r.left + padX || e.clientX > r.right - padX || e.clientY < r.top + padY || e.clientY > r.bottom - padY;
+  }
+  window.addEventListener('pointerdown', function (e) {
+    if (e.pointerType !== 'mouse' && e.pointerType !== 'pen') { dblDown = dblLast = null; return; }
+    dblDown = e.button === 0 && isBackground(e) ? { x: e.clientX, y: e.clientY, t: performance.now() } : null;
+    if (!dblDown) dblLast = null;
+  }, { capture: true, passive: true });
+  window.addEventListener('pointerup', function (e) {
+    var d = dblDown, now = performance.now();
+    dblDown = null;
+    if (!d || (e.pointerType !== 'mouse' && e.pointerType !== 'pen') || e.button !== 0) return;
+    var dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (dx * dx + dy * dy > DBL.px * DBL.px || now - d.t > DBL.ms) { dblLast = null; return; }   // a drag or a hold: no click
+    var p = dblLast;
+    if (p && d.t - p.t < DBL.ms && (d.x - p.x) * (d.x - p.x) + (d.y - p.y) * (d.y - p.y) <= DBL.px * DBL.px) {
+      dblLast = null;
+      var on = !app.classList.contains('zen');
+      if (setZen(on) && on) zenHint();
+      return;
+    }
+    dblLast = { x: d.x, y: d.y, t: d.t };
+  }, { capture: true, passive: true });
+
+  /* ======================================================================
+   *  Light and dark
+   *
+   *  The background (settings.background, Tune's Glass tab): 'dark', the app
+   *  as it has always looked; 'light', the same on paper white; 'system', as
+   *  the device's own light or dark setting, followed while the app is open;
+   *  'hours', light from 7:00 to 19:00 by the device's clock and dark at
+   *  night, changed at the hour and looked at again whenever the app comes
+   *  back to the front. index.html puts the saved choice on the page before
+   *  its first paint, by the same rule (lookIn); from then on this keeps it.
+   *  A look is the page's colours (styles.css, html[data-look]), the glass's
+   *  own shading (renderer.setPaper) and the page's theme-color and
+   *  color-scheme, which a phone's status bar and a PC's title bar follow.
+   *  Changing it builds nothing again: a running glass runs on, untouched.
+   *  The moon button shows the look in use (a moon in the dark, a sun in the
+   *  light) and turns to the other one, as a choice of its own, kept.
+   * ==================================================================== */
+  var DAY = [7, 19];                 // the hours of the light look, by the device's clock: from 7:00 to 19:00
+  var LOOK_PAGE = { dark: ['#0b0c0e', 'dark', 'black-translucent'], light: ['#f3f0ea', 'light', 'default'] };   // theme-color, color-scheme, the status bar
+  var schemeQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  var btnLook = $('btn-look'), lookTimer = 0;
+  var lookShown = document.documentElement.getAttribute('data-look') === 'light' ? 'light' : 'dark';
+  /** The look a choice gives at `date`: 'light' or 'dark'. */
+  function lookIn(choice, date) {
+    if (choice === 'light') return 'light';
+    if (choice === 'system') return schemeQ && schemeQ.matches ? 'light' : 'dark';
+    if (choice === 'hours') { var h = date.getHours(); return h >= DAY[0] && h < DAY[1] ? 'light' : 'dark'; }
+    return 'dark';
+  }
+  /** The page in the look the choice gives now; the button and Tune's row show it. */
+  function showLook() {
+    var now = new Date(), look = lookIn(settings.background, now), light = look === 'light', root = document.documentElement;
+    if (light) root.setAttribute('data-look', 'light'); else root.removeAttribute('data-look');
+    var pg = LOOK_PAGE[look], m;
+    if ((m = document.querySelector('meta[name="theme-color"]'))) m.setAttribute('content', pg[0]);
+    if ((m = document.querySelector('meta[name="color-scheme"]'))) m.setAttribute('content', pg[1]);
+    if ((m = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]'))) m.setAttribute('content', pg[2]);
+    if (look !== lookShown || renderer.paper !== light) {
+      lookShown = look;
+      renderer.setPaper(light);
+      dirty = true;
+    }
+    if (btnLook) btnLook.setAttribute('aria-pressed', light ? 'true' : 'false');
+    checkOne('#looks [data-look]', 'look', settings.background);
+    // Daytime: again at the next 7:00 or 19:00 (and whenever the app comes back to the front, below)
+    clearTimeout(lookTimer);
+    if (settings.background === 'hours') {
+      var next = new Date(now.getTime()), h = now.getHours();
+      next.setHours(h < DAY[0] ? DAY[0] : (h < DAY[1] ? DAY[1] : DAY[0] + 24), 0, 0, 0);
+      lookTimer = setTimeout(showLook, Math.max(1000, next.getTime() - now.getTime() + 250));
+    }
+  }
+  /** Choose the background: 'dark', 'light', 'system' or 'hours'. Saved, and shown at once. */
+  function setBackground(v) {
+    if (v !== 'dark' && v !== 'light' && v !== 'system' && v !== 'hours') return;
+    settings.background = v;
+    save();
+    showLook();
+  }
+  if (btnLook) btnLook.addEventListener('click', function () {
+    buzz(8);
+    setBackground(lookShown === 'light' ? 'dark' : 'light');      // the other look, as a choice of its own
+  });
+  if ($('looks')) $('looks').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-look]');
+    if (b) { setBackground(b.dataset.look); buzz(8); }
+  });
+  if (schemeQ) {
+    var onScheme = function () { if (settings.background === 'system') showLook(); };
+    if (schemeQ.addEventListener) schemeQ.addEventListener('change', onScheme); else if (schemeQ.addListener) schemeQ.addListener(onScheme);
+  }
+  // back to the front (a phone's timers sleep in the background): the hour may have passed meanwhile
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && settings.background === 'hours') showLook(); });
+  window.addEventListener('pageshow', function () { if (settings.background === 'hours') showLook(); });
+  window.addEventListener('focus', function () { if (settings.background === 'hours') showLook(); });
 
   /* ======================================================================
    *  Breathing pace
@@ -2195,7 +2334,7 @@
   var awakeNote = $('awake-note');
   function wantAwake() {
     return settings.keepAwake && !document.hidden &&
-      (T.state === 'running' || (T.state === 'done' && (Date.now() - endWall < END_AWAKE || ringsDue())));
+      (T.state === 'running' || (T.state === 'done' && (justEnded() || ringsDue())));
   }
   function showAwake() {
     awakeNote.textContent =
@@ -2679,6 +2818,7 @@
   function setMuted(m) {
     settings.muted = m; save();
     audio.setMuted(m);
+    ringsUnheard();
     btnMute.setAttribute('aria-pressed', m ? 'true' : 'false');
     btnMute.setAttribute('aria-label', m ? 'Unmute sound' : 'Mute sound');
   }
@@ -3108,6 +3248,44 @@
     });
   }
 
+  /*
+   * Every radio group (the durations under the glass, and Tune's sands, grains, shapes, finishes,
+   * looks, ambiences, fades, sounds, rings and breaths) is one stop in the Tab order, as the tab
+   * row is: its checked option (the shape looked at, for the shapes; the first, when none is) has
+   * tabindex 0 and the others -1, kept so as aria-checked changes. In a group the arrow keys
+   * (Right and Down the next, Left and Up the one before, round the ends), Home and End move the
+   * focus and choose, by the option's own click: a key does what a tap does, through the same
+   * handler, and saves the same.
+   */
+  function radiosOf(g) {
+    return Array.prototype.filter.call(g.querySelectorAll('[role="radio"]'), function (r) { return !r.disabled && !r.hidden && r.closest('[role="radiogroup"]') === g; });
+  }
+  function rove(g) {
+    var rs = radiosOf(g), on = null, i;
+    for (i = 0; i < rs.length && !on; i++) if (rs[i].getAttribute('aria-checked') === 'true') on = rs[i];
+    if (!on) on = rs[0];
+    for (i = 0; i < rs.length; i++) { var want = rs[i] === on ? 0 : -1; if (rs[i].tabIndex !== want) rs[i].tabIndex = want; }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[role="radiogroup"]'), function (g) {
+    rove(g);
+    if (window.MutationObserver) new MutationObserver(function () { rove(g); }).observe(g, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-checked', 'hidden', 'disabled'] });
+  });
+  document.addEventListener('keydown', function (e) {
+    var r = e.target, g, rs, n, i, j;
+    if (!r || !r.getAttribute || r.getAttribute('role') !== 'radio' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    g = r.closest('[role="radiogroup"]');
+    if (!g) return;
+    rs = radiosOf(g).filter(function (x) { return x.getClientRects().length > 0; });
+    n = rs.length; i = rs.indexOf(r);
+    if (i < 0) return;
+    j = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (i + 1) % n : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (i + n - 1) % n :
+        e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;
+    if (j < 0) return;
+    e.preventDefault();
+    try { rs[j].focus(); } catch (err) {}
+    if (j !== i) rs[j].click();
+  });
+
   /* ---- settings controls -------------------------------------------- */
   function setCharacter(id) {
     settings.character = id; save();
@@ -3181,6 +3359,7 @@
     audio.setVolume(settings.volume);
     if (settings.muted && settings.volume > 0) setMuted(false);
     showVolume(); save();
+    ringsUnheard();
   });
   $('opt-chime').addEventListener('change', function (e) {
     settings.chime = e.target.checked; save();
@@ -3228,6 +3407,7 @@
     bowlLevel.addEventListener('input', function () {
       settings.bowlLevel = bowlLevel.value / 50; save();
       audio.setBowlLevel(settings.bowlLevel);
+      ringsUnheard();
       showBowl();
     });
     bowlLevel.addEventListener('change', function () { if (settings.chime) audio.chime(0); });   // heard at its new level once let go
@@ -3463,7 +3643,7 @@
   /* ---- the look and the sound as they came ---------------------------- */
   // The quiet link at the end of the Time tab (settings design 3.4). A first tap asks for a
   // second one within three seconds; the second puts the look and the sound back as a new
-  // install has them: the sand, the frame and its finish, layered sand, the volume, the sand's sound
+  // install has them: the sand, the frame and its finish, layered sand, the background (dark), the volume, the sand's sound
   // and its level, the ambience, its level and its fade before the end, the bowl, its rings and its
   // level. Everything else is kept: Real sand and the grain, the durations and a sequence,
   // breathing, Zen, the screen kept awake, haptics, Real motion, sound in silent mode (how the
@@ -3490,13 +3670,14 @@
   /** The look and the sound back as they came: saved once, then each one that differed shown and told to its engine. */
   function resetLook() {
     var was = {
-      theme: settings.theme, sand: settings.sand, finish: settings.finish, frame: settings.frame, layers: settings.layers, volume: settings.volume,
+      theme: settings.theme, sand: settings.sand, finish: settings.finish, frame: settings.frame, layers: settings.layers, background: settings.background, volume: settings.volume,
       character: settings.character, ambience: settings.ambience, ambienceLevel: settings.ambienceLevel, chime: settings.chime,
       sandLevel: settings.sandLevel, bowlLevel: settings.bowlLevel, bowlRings: settings.bowlRings, ambFade: settings.ambFade
     };
     // (each by its name: the settings store's check follows every settings.<name> in this file)
     settings.theme = settingDefault('theme'); settings.sand = settingDefault('sand'); settings.finish = settingDefault('finish');
     settings.frame = settingDefault('frame'); settings.layers = settingDefault('layers');
+    settings.background = settingDefault('background');
     settings.volume = settingDefault('volume'); settings.character = settingDefault('character');
     settings.ambience = settingDefault('ambience'); settings.ambienceLevel = settingDefault('ambienceLevel');
     settings.chime = settingDefault('chime');
@@ -3510,6 +3691,7 @@
     }
     if (was.frame !== settings.frame) { $('opt-frame').checked = settings.frame; showFinishRow(); swapFrame(); }
     if (was.layers !== settings.layers) { $('opt-layers').checked = settings.layers; swapLayers(); }
+    if (was.background !== settings.background) showLook();       // (at once: the page is not faded for it)
     // the sound (nothing is auditioned, and the bowl is not rung)
     if (was.volume !== settings.volume) { audio.setVolume(settings.volume); showVolume(); }
     if (was.character !== settings.character) { audio.setCharacter(settings.character); showCharacter(); }
@@ -3923,7 +4105,7 @@
    *  takes over between two frames (handover): `sim` becomes the GPU sand,
    *  which has every member of the CPU Sim this script uses, and the two
    *  canvases cross-fade. Any failure gives the CPU sand back in the same
-   *  frame, the clock untouched. The switch is the owner's alone: this
+   *  frame, the clock untouched. The switch is the person's alone: this
    *  script never turns it off, and never disables it.
    *    - no WebGPU at all: "Needs WebGPU", found at every launch for
    *      nothing; nothing is stored;
@@ -4435,6 +4617,7 @@
   showQuick();
   syncPills();
   hapticMountAll();
+  showLook();                                         // the background (index.html has put it on the page already)
   zoom.style.transition = 'none';                     // arrive in place, not shrinking from the Zen size
   layout();
   void zoom.offsetWidth;
@@ -4460,7 +4643,7 @@
     requestAnimationFrame(function () { holdVeil(performance.now()); });   // the first frame is drawn
   });
   /*
-   * The dark opening (settings design 5.3, the owner's answer): while Real sand starts, the veil
+   * The dark opening (settings design 5.3, a decision of the design): while Real sand starts, the veil
    * waits up to 1 s more for the engine's first frame, so that most launches open on Real sand;
    * then, or at once if the engine is slower (the classic sand shows meanwhile), it fades up as
    * ever. A reload that should open at once (a later "Use this shape") sets sessionStorage
