@@ -218,6 +218,16 @@
               <button type="button" role="radio" aria-checked="false" data-grain="2" aria-label="Finest: four times the grains">Finest <i>×4</i></button>
             </div>
           </div>
+          <!-- how the sand is lit: one key light from the upper left, or the even light it had before -->
+          <div class="row" id="light-row">
+            <span><b id="light-name">Light</b><small>Sunlit: one light from the upper left, a lit side and a shaded side</small></span>
+          </div>
+          <div class="sub">
+            <div id="lights" class="segmented two" role="radiogroup" aria-labelledby="light-name">
+              <button type="button" role="radio" aria-checked="true" data-light="sunlit" aria-label="Sunlit: one light from the upper left">Sunlit</button>
+              <button type="button" role="radio" aria-checked="false" data-light="soft" aria-label="Soft: an even light, as before">Soft</button>
+            </div>
+          </div>
         </div>
 
         <h3>In the hand</h3>

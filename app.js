@@ -126,6 +126,7 @@
     glBack: $('c-glass-back'), glFront: $('c-glass-front')
   });
   renderer.setFrame(settings.frame);
+  renderer.setSandLight(settings.sandLight);   // (Tune's Light: the sunlit sand, or the soft light of before)
   sim.setLayers(settings.layers);    // (before the glass is filled: the fill is laid in bands)
   renderer.setLayers(settings.layers);
   // sand that got out of the glass, on the desk below it
@@ -2016,6 +2017,7 @@
     if (lookFade.anim) { try { lookFade.anim.cancel(); } catch (e) {} lookFade.anim = null; }
     lookRoot.classList.remove('look-fade');
     renderer._paperMix(renderer.paper ? 1 : 0);
+    sandLightTo(renderer.paper ? 1 : 0);
     lookMetas(0, lookShown);
   }
   /** One frame of the fade: the glass and the metas as far as the page has got. */
@@ -2025,6 +2027,7 @@
     var k = lookNow(), done = lookFade.anim.playState === 'finished';
     renderer._paperMix(done ? lookFade.to : k);
     if (done) { lookFadeEnd(); return; }
+    sandLightTo(k);
     lookMetas(k);
     lookFade.raf = requestAnimationFrame(lookFadeStep);
   }
@@ -2039,6 +2042,17 @@
     // (the glass is drawn at `from` in the next frame, before the browser paints: setPaper's picture of the end is never seen)
     cancelAnimationFrame(lookFade.raf);
     lookFade.raf = requestAnimationFrame(lookFadeStep);
+  }
+  /**
+   * The sand's light (Tune's Sand tab, Light): 'sunlit' or 'soft' to the classic sand, and to Real
+   * sand with how much of the light look is shown, m (0 the dark, 1 the light, between while the
+   * looks fade), as real.setLight(light, m). The classic sand reads the look from the renderer's own
+   * (setPaper, _paperMix). An engine without setLight is left as it is.
+   */
+  function sandLightTo(m) {
+    renderer.setSandLight(settings.sandLight);
+    if (real && typeof real.setLight === 'function') { try { real.setLight(settings.sandLight, m); } catch (e) { /* (the sand draws on as it was) */ } }
+    dirty = true;
   }
   /** The look a choice gives at `date`: 'light' or 'dark'. */
   function lookIn(choice, date) {
@@ -3545,6 +3559,17 @@
     var bs = $('grains').querySelectorAll('[data-grain]');
     for (var i = 0; i < bs.length; i++) bs[i].setAttribute('aria-checked', +bs[i].dataset.grain === settings.grain ? 'true' : 'false');
   }
+  /* Light: the sand lit by one key light (Sunlit, as the app comes) or the even light of before (Soft). */
+  function syncLights() { checkOne('#lights [data-light]', 'light', settings.sandLight); }
+  if ($('lights')) $('lights').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-light]') : null;
+    if (!b || b.dataset.light === settings.sandLight) return;
+    settings.sandLight = b.dataset.light === 'soft' ? 'soft' : 'sunlit';
+    save(); syncLights();
+    sandLightTo(lookNow());
+    buzz(8);
+  });
+  syncLights();
   $('grains').addEventListener('click', function (e) {
     var b = e.target.closest ? e.target.closest('[data-grain]') : null;
     if (!b) return;
@@ -3714,7 +3739,7 @@
   /* ---- the look and the sound as they came ---------------------------- */
   // The quiet link at the end of the Time tab (settings design 3.4). A first tap asks for a
   // second one within three seconds; the second puts the look and the sound back as a new
-  // install has them: the sand, the frame and its finish, layered sand, the background (dark), the volume, the sand's sound
+  // install has them: the sand, the frame and its finish, layered sand, the sand's light (Sunlit), the background (dark), the volume, the sand's sound
   // and its level, the ambience, its level and its fade before the end, the bowl, its rings and its
   // level. Everything else is kept: Real sand and the grain, the durations and a sequence,
   // breathing, Zen, the screen kept awake, haptics, Real motion, sound in silent mode (how the
@@ -3741,7 +3766,7 @@
   /** The look and the sound back as they came: saved once, then each one that differed shown and told to its engine. */
   function resetLook() {
     var was = {
-      theme: settings.theme, sand: settings.sand, finish: settings.finish, frame: settings.frame, layers: settings.layers, background: settings.background, volume: settings.volume,
+      theme: settings.theme, sand: settings.sand, finish: settings.finish, frame: settings.frame, layers: settings.layers, background: settings.background, volume: settings.volume, sandLight: settings.sandLight,
       character: settings.character, ambience: settings.ambience, ambienceLevel: settings.ambienceLevel, chime: settings.chime,
       sandLevel: settings.sandLevel, bowlLevel: settings.bowlLevel, bowlRings: settings.bowlRings, ambFade: settings.ambFade
     };
@@ -3749,6 +3774,7 @@
     settings.theme = settingDefault('theme'); settings.sand = settingDefault('sand'); settings.finish = settingDefault('finish');
     settings.frame = settingDefault('frame'); settings.layers = settingDefault('layers');
     settings.background = settingDefault('background');
+    settings.sandLight = settingDefault('sandLight');
     settings.volume = settingDefault('volume'); settings.character = settingDefault('character');
     settings.ambience = settingDefault('ambience'); settings.ambienceLevel = settingDefault('ambienceLevel');
     settings.chime = settingDefault('chime');
@@ -3763,6 +3789,7 @@
     if (was.frame !== settings.frame) { $('opt-frame').checked = settings.frame; showFinishRow(); swapFrame(); }
     if (was.layers !== settings.layers) { $('opt-layers').checked = settings.layers; swapLayers(); }
     if (was.background !== settings.background) showLook();       // (faded, as any change of look)
+    if (was.sandLight !== settings.sandLight) { syncLights(); sandLightTo(lookNow()); }
     // the sound (nothing is auditioned, and the bowl is not rung)
     if (was.volume !== settings.volume) { audio.setVolume(settings.volume); showVolume(); }
     if (was.character !== settings.character) { audio.setCharacter(settings.character); showCharacter(); }
@@ -4452,6 +4479,7 @@
         return;
       }
       real = sim = realEng;
+      sandLightTo(lookNow());        // (Real sand is told the light and the look it is shown in)
       app.classList.add('real');     // #c-gpu fades in over the CPU sand's canvas (styles.css)
       if (settings.realSandFails || settings.realSandWhy) { settings.realSandFails = 0; settings.realSandWhy = ''; save(); }
       realRetries = 0;               // (the retries are a start's own: a session can have many starts, days apart)

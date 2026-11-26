@@ -745,6 +745,8 @@ html[data-look="light"] #btn-look .ic-moon { display: none; }
 }
 /* four short choices in a row (the background: Dark, Light, Device, Daytime), and the plain line under them */
 .segmented.four { grid-template-columns: repeat(4, 1fr); }
+/* two (the sand's Light: Sunlit, Soft) */
+.segmented.two { grid-template-columns: repeat(2, 1fr); }
 .sub-note { margin: 9px 4px 0; font-size: 12.5px; line-height: 1.35; color: var(--ink-3); }
 .segmented.chars .ic { width: 34px; height: 34px; stroke-width: 1.2; opacity: 0.8; flex: none; transition: color 0.22s var(--ease), opacity 0.22s var(--ease); }
 .segmented.chars button[aria-checked="true"] .ic { opacity: 1; color: var(--accent); }

@@ -229,21 +229,50 @@
    *  can never drift from them. Renderer.setLook puts a sand over a frame.
    * ==================================================================== */
 
-  function sandOf(id, ui) {
+  function sandOf(id, ui, sun) {
     var t = THEMES[id];
-    return { id: id, name: t.short, sand: t.sand, sand2: t.sand2, glint: t.glint, light: t.light, glass: t.glass, glow: t.glow, ui: ui };
+    return { id: id, name: t.short, sand: t.sand, sand2: t.sand2, glint: t.glint, light: t.light, glass: t.glass, glow: t.glow, ui: ui, sun: sun };
   }
+  /*
+   * The sunlit sand (Tune's Light: Sunlit). One key light falls on the sand from the upper left
+   * and in front, the side the glass's own key softbox is on (glass/gl.js's room), so the sand's
+   * lit flank and the glass's highlight agree. KEY_LIGHT is that direction in the screen's axes
+   * (x to the right, y up, z toward the eye), a unit vector; both sands read it from here.
+   * SUNLIT holds how each look lights the sand (glass/renderer.js, the sunlit sand):
+   *   A ambient, K key, X exposure, wrap (how far round the terminator light still reaches),
+   *   C the crescent the glass throws past the terminator, kw the contact shade where the sand
+   *   meets the glass, kd the darkening with depth, ks how much colour a shadow gains, wd how far
+   *   (in grains) the free surface's light reaches into the bed, hlK how far a lit grain rolls
+   *   toward the light's tint, and tint itself.
+   * The white room lights the sand from everywhere, so its ambient is twice the dark room's; on
+   * the paper a lit grain rolls only half as far toward white, or it is lost on the page.
+   *
+   * Each sand's own `sun` record says how it takes that light:
+   *   key     the key's gain in both looks
+   *   paper   the key's gain in the light look, and the square of it on the roll toward white:
+   *           a pale sand gets less, as a photographer dims the key on a white subject
+   *   lift    ambient added in both looks, so that a dark sand's shaded flank is not black
+   *   glints  the share of grains that can glint at all: the cap on the sparkle
+   *   mica    how near the key's mirror direction a mica facet must face to glint (0.955 the
+   *           pale sands; higher is fewer: a dark sand's gold flecks sparkle quietly)
+   */
+  var KEY_LIGHT = (function () { var v = [-0.66, 0.52, 0.54], l = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); return Object.freeze([v[0] / l, v[1] / l, v[2] / l]); })();
+  var SUNLIT = Object.freeze({
+    dark: Object.freeze({ A: 0.36, K: 0.95, X: 0.95, wrap: 0.40, C: 0.38, kw: 0.36, kd: 0.16, ks: 0.50, wd: 2.4, hlK: 0.8, tint: Object.freeze([255, 246, 230]) }),
+    paper: Object.freeze({ A: 0.44, K: 1.26, X: 1.00, wrap: 0.42, C: 0.32, kw: 0.32, kd: 0.10, ks: 0.45, wd: 2.4, hlK: 0.45, tint: Object.freeze([255, 242, 218]) })
+  });
+
   // Each sand's accent is its own and of its sand (1.20.1): the selected pill, the Start button and the
   // lit tab say which sand is chosen, so no two are alike (black sand a silver-graphite, lapis a blue,
   // garnet a deeper red than rose quartz's pink).
   var SANDS = {
-    sahara: sandOf('sahara', { accent: '#e9b872', accentInk: '#1b1206', glow: '255, 176, 92', glowA: 0.20, orb: ['#f0c98a', '#cf9645', '#8f5b23'] }),
+    sahara: sandOf('sahara', { accent: '#e9b872', accentInk: '#1b1206', glow: '255, 176, 92', glowA: 0.20, orb: ['#f0c98a', '#cf9645', '#8f5b23'] }, { key: 1, paper: 0.95, lift: 0, glints: 0.10, mica: 0.955 }),
     // (the page's glow for the black sand is a shade warmer than the room's, as it has always been)
-    volcanic: sandOf('volcanic', { accent: '#9ba2ad', accentInk: '#0e1116', glow: '214, 164, 78', glowA: 0.15, orb: ['#4a4658', '#201f29', '#0c0c11'] }),
-    moonstone: sandOf('moonstone', { accent: '#c9d6ea', accentInk: '#0d131c', glow: '168, 196, 235', glowA: 0.19, orb: ['#f6f3ec', '#cfd6e2', '#8e99ab'] }),
-    lapis: sandOf('lapis', { accent: '#86a6f2', accentInk: '#0a1022', glow: '104, 136, 230', glowA: 0.16, orb: ['#3c5bb8', '#1e2f72', '#0d1638'] }),
-    rosequartz: sandOf('rosequartz', { accent: '#e9b0b2', accentInk: '#1f1012', glow: '236, 168, 178', glowA: 0.17, orb: ['#fbe3e4', '#e8b4ba', '#b97f88'] }),
-    seaglass: sandOf('seaglass', { accent: '#a3d6c9', accentInk: '#0b1816', glow: '150, 212, 198', glowA: 0.17, orb: ['#e6f6f1', '#a9d6cb', '#5f9a8e'] }),
+    volcanic: sandOf('volcanic', { accent: '#9ba2ad', accentInk: '#0e1116', glow: '214, 164, 78', glowA: 0.15, orb: ['#4a4658', '#201f29', '#0c0c11'] }, { key: 1, paper: 1, lift: 0.07, glints: 0.05, mica: 0.985 }),
+    moonstone: sandOf('moonstone', { accent: '#c9d6ea', accentInk: '#0d131c', glow: '168, 196, 235', glowA: 0.19, orb: ['#f6f3ec', '#cfd6e2', '#8e99ab'] }, { key: 1, paper: 0.76, lift: 0, glints: 0.10, mica: 0.955 }),
+    lapis: sandOf('lapis', { accent: '#86a6f2', accentInk: '#0a1022', glow: '104, 136, 230', glowA: 0.16, orb: ['#3c5bb8', '#1e2f72', '#0d1638'] }, { key: 1, paper: 1, lift: 0.05, glints: 0.07, mica: 0.975 }),
+    rosequartz: sandOf('rosequartz', { accent: '#e9b0b2', accentInk: '#1f1012', glow: '236, 168, 178', glowA: 0.17, orb: ['#fbe3e4', '#e8b4ba', '#b97f88'] }, { key: 1, paper: 0.83, lift: 0, glints: 0.10, mica: 0.955 }),
+    seaglass: sandOf('seaglass', { accent: '#a3d6c9', accentInk: '#0b1816', glow: '150, 212, 198', glowA: 0.17, orb: ['#e6f6f1', '#a9d6cb', '#5f9a8e'] }, { key: 1, paper: 0.82, lift: 0, glints: 0.10, mica: 0.955 }),
     // Almandine garnet: the wine-red heavy sand of Pfeiffer Beach and Emerald Creek.
     garnet: {
       id: 'garnet', name: 'Red Garnet',
@@ -269,7 +298,8 @@
       },
       glass: { tint: [255, 226, 230], smoke: 0.13 },
       glow: [226, 110, 122],
-      ui: { accent: '#ee8593', accentInk: '#1c0a0d', glow: '226, 110, 122', glowA: 0.16, orb: ['#c4506a', '#8a2a3f', '#3a0e1a'] }
+      ui: { accent: '#ee8593', accentInk: '#1c0a0d', glow: '226, 110, 122', glowA: 0.16, orb: ['#c4506a', '#8a2a3f', '#3a0e1a'] },
+      sun: { key: 1, paper: 1, lift: 0.05, glints: 0.07, mica: 0.97 }
     },
     // Olivine: the green sand of Papakolea, Hawaii. Glassy peridot crystals weathered out of basalt.
     olivine: {
@@ -296,7 +326,8 @@
       },
       glass: { tint: [240, 248, 214], smoke: 0.09 },
       glow: [196, 210, 138],
-      ui: { accent: '#c6d28a', accentInk: '#13190a', glow: '196, 210, 138', glowA: 0.17, orb: ['#c3d07c', '#8a9c45', '#46521f'] }
+      ui: { accent: '#c6d28a', accentInk: '#13190a', glow: '196, 210, 138', glowA: 0.17, orb: ['#c3d07c', '#8a9c45', '#46521f'] },
+      sun: { key: 1, paper: 1, lift: 0.02, glints: 0.09, mica: 0.96 }
     },
     // Amethyst: violet quartz, banded with white as chevron amethyst is.
     amethyst: {
@@ -322,7 +353,8 @@
       },
       glass: { tint: [238, 226, 255], smoke: 0.09 },
       glow: [188, 150, 228],
-      ui: { accent: '#c9afe6', accentInk: '#140d1e', glow: '188, 150, 228', glowA: 0.17, orb: ['#cdb2ea', '#9670c4', '#4d3273'] }
+      ui: { accent: '#c9afe6', accentInk: '#140d1e', glow: '188, 150, 228', glowA: 0.17, orb: ['#cdb2ea', '#9670c4', '#4d3273'] },
+      sun: { key: 1, paper: 1, lift: 0.01, glints: 0.10, mica: 0.955 }
     }
   };
   var SAND_ORDER = ['sahara', 'volcanic', 'moonstone', 'lapis', 'rosequartz', 'seaglass', 'garnet', 'olivine', 'amethyst'];
@@ -408,6 +440,8 @@
     // the two ways the presets are lit: pale sand, and volcanic black
     var LIGHT = { rim0: 3, rim1: 1, aoMax: 8, gloss: 0.14, glossBoost: 4, hl: 0.9, bloom: 0.5, eMica: 0.10, eGloss: 0.02, eRim: 0.05, eHaze: 0.006, backlight: 0.045 };
     var DARK = { rim0: 10, rim1: 5, aoMax: 5, gloss: 0.24, glossBoost: 12, hl: 1.15, bloom: 0.85, eMica: 0.34, eGloss: 0.04, eRim: 0.18, eHaze: 0.010, backlight: 0.09 };
+    // ... and the sunlit sand's: a black sand's ambient lifted and its gold sparkling quietly (the paper's key, the third, is the colour's own: below)
+    var SUN_LIGHT = { lift: 0, glints: 0.10, mica: 0.955 }, SUN_DARK = { lift: 0.07, glints: 0.05, mica: 0.985 };
 
     /**
      * How much of the dark-sand lighting a sand needs, 0 (pale) to 1 (volcanic
@@ -535,6 +569,11 @@
         emit: { mica: r2(L('eMica')), gloss: r3(L('eGloss')), rim: r2(L('eRim')), haze: r3(L('eHaze')) },
         backlight: r3(L('backlight'))
       };
+      // the sunlit sand: as dark as it is between the two ways, and the key on paper dimmed for a pale
+      // colour by its mean brightness at mid light (moonstone 0.76, sahara 0.95, no dimming from about 0.6 down)
+      function SL(a) { return lerp(SUN_LIGHT[a], SUN_DARK[a], k); }
+      var tm = toneMean(sand), yb = (0.2126 * tm[0] + 0.7152 * tm[1] + 0.0722 * tm[2]) / 255 * (0.991 / (0.34 + 24 * 0.031));
+      var sun = { key: 1, paper: r2(clamp(0.62 / Math.max(yb, 0.01), 0.55, 1)), lift: r3(SL('lift')), glints: r3(SL('glints')), mica: r3(SL('mica')) };
 
       // --- the room and the glass follow the sand ---
       var amber = smooth(60, 20, Math.abs(hueTo(h, 35))) * wC;      // warm sands glow like a candle (sahara)
@@ -607,7 +646,7 @@
 
       return {
         id: 'custom', name: 'Custom',
-        sand: sand, sand2: sand2, glint: glint, light: light, glass: glass, glow: glow,
+        sand: sand, sand2: sand2, glint: glint, light: light, glass: glass, glow: glow, sun: sun,
         ui: {
           accent: hex(accent), accentInk: hex(ink),
           glow: glow.join(', '), glowA: r2(0.18 - 0.03 * k),
@@ -622,6 +661,6 @@
 
   _.hash01 = hash01; _.hsl = hsl; _.rgba = rgba; _.mix = mix; P.finishOf = finishOf; P.THEMES = THEMES;
   P.SANDS = SANDS; P.SAND_ORDER = SAND_ORDER; P.FINISHES = FINISHES; P.FINISH_ORDER = FINISH_ORDER;
-  P.customSand = customSand;
+  P.customSand = customSand; P.KEY_LIGHT = KEY_LIGHT; P.SUNLIT = SUNLIT;
   _.loaded = 'sand/sands.js';
 })(typeof window !== 'undefined' ? window : globalThis);
