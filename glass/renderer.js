@@ -192,7 +192,7 @@
                            dens * (0.6 + 2.4 * (1 - tint[2] / 255)));
       gl.uniform3f(u.uGlow, th.glow[0] / 255, th.glow[1] / 255, th.glow[2] / 255);
       gl.uniform1f(u.uPx, box.w / gl.drawingBufferWidth);
-      gl.uniform1f(u.uGain, paper ? 2.4 : 1.1);           // (the white room is held near white by a steeper roll-off)
+      gl.uniform1f(u.uGain, paper ? 1.15 : 1.1);          // (the white room mirrored at about the page's own white)
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     for (var i = 0; i < gs.length; i++) {
