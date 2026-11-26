@@ -278,7 +278,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the theme `setLook` puts together from a sand and a theme's caps; the
   six finishes (each a theme's caps, named by its material, and the swatch
   Tune draws in its tones); and the page's colours and swatch of each sand
-  in `styles.css`. It is in GitHub's list.
+  in `styles.css`; and (release 1.20.1) every sand its own accent: no two
+  of the nine closer than 10 (CIEDE2000, `lib/colour.js`), each a fill with
+  its ink (4.5 to 1) and, mixed with the deep brown as the light look writes
+  it, a text on the paper and a sheet that keeps the accent's hue; a black,
+  a navy, a dark brown and a white custom sand each its own (a black not
+  sahara's gold), with 1.20.0's accents and custom rule as the control that
+  must fail. It is in GitHub's list.
 - `motion-*` and `audio-*`: the sensor pipeline (against a model of a phone
   being shaken, in each browser's sign convention) and its permission, and
   the sound engine's calls and levels, and the water ambiences: that each
@@ -485,7 +491,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   (`--only "old saves"`): each of the six materials, chosen with its own card
   in release 1.13.0 and in release 1.10.0 (with layered sand on, the bowl
   off and the rain), comes through the update to this tree with the same
-  colour table, caps and picture, drawn by the renderer's own bundle, saved
+  colour table, caps and picture, drawn by the renderer's own bundle, the
+  page's accent the sand's own (the same as before but for Volcanic Black's
+  and Lapis Lazuli's, new in 1.20.1), saved
   as that sand over its own finish, and every other setting as it was,
   online and offline (what the app keeps of its Real sand engine aside); a
   copy without the finish's migration is found out. It needs
@@ -609,7 +617,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   well showing the colour used; a colour dragged (the table once a frame,
   nothing drawn or saved until it is let go); the chip, with and without a
   custom sand; `Hourglass.setTheme` as the material of old; reloads; and at
-  320 px four sands and three finishes a row. Each check has a control.
+  320 px four sands and three finishes a row; ACCENT (release 1.20.1): each
+  of the nine and a custom sand chosen in Tune, in both looks, puts its own
+  accent on the selected pill and the Start button, no two of the ten within
+  10 (CIEDE2000; a style sheet with 1.20.0's gold for the black sand must
+  fail), with pictures of the bottom bar for each under `HOURGLASS_SHOTS`.
+  Each check has a control.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-sound` covers the
   Sound tab's own rows (`--only layout,levels,rings,tap,twice,quiet,away,rounds,awake,asleep,back,fade,silent`):

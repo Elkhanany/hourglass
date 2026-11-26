@@ -37,8 +37,8 @@
           "Book Antiqua", "Noto Serif", Cambria, "Times New Roman", serif;
 }
 [data-theme="volcanic"] {
-  --accent: #d9b061;
-  --accent-ink: #171003;
+  --accent: #9ba2ad;
+  --accent-ink: #0e1116;
   --glow: 214, 164, 78;
   --glow-a: 0.15;
 }
@@ -49,7 +49,7 @@
   --glow-a: 0.19;
 }
 [data-theme="lapis"] {
-  --accent: #d1ad5e;
+  --accent: #86a6f2;
   --accent-ink: #0a1022;
   --glow: 104, 136, 230;
   --glow-a: 0.16;
@@ -67,7 +67,7 @@
   --glow-a: 0.17;
 }
 [data-theme="garnet"] {
-  --accent: #e59aa2;
+  --accent: #ee8593;
   --accent-ink: #1c0a0d;
   --glow: 226, 110, 122;
   --glow-a: 0.16;

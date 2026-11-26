@@ -117,6 +117,11 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   colour is kept when you choose another sand, and Custom brings it back.
   The name at the top of the screen steps through the nine sands (and your
   own, once you have made one); the frame keeps its finish.
+  The selection colour follows the sand: the chosen duration, the Start
+  button, the lit tab and the switches wear a colour of the sand's own (a
+  silver-graphite for Volcanic Black, a blue for Lapis Lazuli, a rose for Red
+  Garnet, the sand's own hue for a colour of your own; from 1.20.1), so no
+  two sands look alike there.
   A glass set up before 1.14.0 keeps its look: its material's sand, and its
   frame's finish (Volcanic Black keeps its brass caps, Lapis Lazuli its gold,
   and so on).
