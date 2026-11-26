@@ -58,7 +58,10 @@
  *    glass awake; each with its control (the same motion on an engine that hears nothing). A few
  *    crowded points (the plug of the stream under the neck of a glass just started) are no bed
  *    and feed nothing; a bed thrown loose, or flying along the glass as a body, slides nothing;
- *    the landing's window is time, the same at 60, 120 and 180 runs a second; after a stall the
+ *    the landing's window is time, the same at 60, 120 and 180 runs a second; at a slow pace (a
+ *    run every 2, 4 or 6 frames, every phase) a toss lands one thump within 1.5 dB of its fall's
+ *    energy, at most a run late, from the engine's fastest fall between readbacks (bed.peak; the
+ *    readbacks alone, the control, do not); after a stall the
  *    faded agitation stays faded; and the same GPU motion is the same sound at every lattice;
  *  - every glass shape (glass/shapes.js SHAPES): adopt() fills it from the CPU lattice with exactly the
  *    points of each bulb, and a 10 s glass and a 5-minute glass run to 00:00.0 on time, the last
@@ -153,6 +156,7 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     Mock.prototype.run = function (steps, set, fieldAt, after, neck) {
       steps = Math.min(steps, this.cap);
       for (var s = 0; s < Math.max(steps, 1); s++) { var f = fieldAt(s); if (env.recordFields) this.fields.push(f); this.lastField = f; }
+      if (env.recordSets) env.recordSets.push({ beds: !!set.beds, perf: env.V.perf, steps: steps });
       if (after) after({});
       this.runs++;
       var pl = this.plant, out;
@@ -376,7 +380,9 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
         while (app.acc >= STEP_MS && n < MAX_STEPS) {
           tS += STEP_MS;
           if (app.flip.active) app.turnStep(DT);
-          var fx = mi ? mi.fx : 0, fy = mi ? mi.fy : 0, w = (mi ? mi.w : 0) + (app.flip.active ? app.body.w : 0);
+          // (app.motionPerStep: the motion at each step's own time, as motion.js gives it; else the frame's)
+          var ms = app.motionPerStep && app.motionIn ? app.motionIn(app, tS) : mi;
+          var fx = ms ? ms.fx : 0, fy = ms ? ms.fy : 0, w = (ms ? ms.w : 0) + (app.flip.active ? app.body.w : 0);
           var rho = sim.angle + app.grav.base, c = Math.cos(rho), s = Math.sin(rho), G = sim.G;
           if (real && app.sim === real) real.feel(tS, fx, fy, false, rho);
           sim.setMotion(G * (fx * c + fy * s), G * (-fx * s + fy * c), w, 0, 0.09, 0);
@@ -491,7 +497,8 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   /* ------------------------------------------------------------------------------------ *
    *  1. The contract (the plan's 4.2): every name app.js and audio.js bind to a sand engine,
    *     against the lists here: (a) the Sim's members, on both engines with the CPU Sim's types;
-   *     (b) the GPU engine's own, called on real, realEng, eng and realCls under their guards
+   *     (b) the GPU engine's own, called on real, realEng, eng and realCls under their guards; (c) what
+   *     RealSand reads from the classic sand (its namespace and the CPU Sim)
    * ------------------------------------------------------------------------------------ */
   var CONTRACT = {
     // (a) the CPU Sim's members, which RealSand has too, with the same types
@@ -561,6 +568,61 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   var own = CONTRACT.real.concat(CONTRACT.realEng, CONTRACT.eng).filter(function (m) { return real[m] === undefined; });
   if (typeof RS.RealSand.create !== 'function') own.push('RealSand.create (static)');
   check(own.length === 0, 'RealSand has its own ' + (CONTRACT.real.length + CONTRACT.realEng.length + CONTRACT.eng.length) + ' members the app calls on real, realEng and eng, and the static create', own.join(', '));
+
+  // (c) what RealSand reads from the classic sand, at create and after: its namespace (P), the
+  // namespace's Sim (statics), and the CPU Sim's members beyond the Sim's (a). Each must exist; a
+  // private (underscore) member read from the CPU Sim breaks the contract.
+  var READS = {
+    ns: ['DT', 'STEP_HZ', 'Sim', 'profile'],
+    simStatics: ['EV_CAP', 'IMPACT_V', 'LAYERS', 'MOTION', 'pace'],
+    realCpu: ['glassFlip', 'layerState', 'layers', 'rng']
+  };
+  var adapterSrc = fs.readFileSync(path.join(ROOT, 'realsand', 'app-sand.mjs'), 'utf8');
+  function anyOf(src, names) {
+    var seen = {};
+    names.forEach(function (nm) { scan.members(src, nm).forEach(function (m) { seen[m] = true; }); });
+    return Object.keys(seen).sort();
+  }
+  /** What app-sand.mjs reads against READS: ['realCpu._rec read: private', 'simStatics.FOO read, not in the contract'] */
+  function readsDiff(src) {
+    var got = {
+      ns: anyOf(src, ['P', 'this\\.P']),
+      simStatics: anyOf(src, ['P\\.Sim', 'this\\.P\\.Sim']),
+      realCpu: anyOf(src, ['cpu', 'this\\.cpu']).filter(function (m) { return CONTRACT.sim.indexOf(m) < 0; })
+    }, out = [];
+    Object.keys(got).forEach(function (k) {
+      got[k].forEach(function (m) {
+        if (k === 'realCpu' && m.charAt(0) === '_') out.push(k + '.' + m + ' read: private');
+        else if (READS[k].indexOf(m) < 0) out.push(k + '.' + m + ' read, not in the contract');
+      });
+      READS[k].forEach(function (m) { if (got[k].indexOf(m) < 0) out.push(k + '.' + m + ' in the contract, no longer read'); });
+    });
+    return out;
+  }
+  var rd = readsDiff(adapterSrc);
+  var rMiss = READS.ns.filter(function (m) { return P[m] === undefined; }).map(function (m) { return 'P.' + m; })
+    .concat(READS.simStatics.filter(function (m) { return P.Sim[m] === undefined; }).map(function (m) { return 'P.Sim.' + m; }))
+    .concat(READS.realCpu.filter(function (m) { return cpu[m] === undefined; }).map(function (m) { return 'cpu.' + m; }));
+  check(rd.length === 0 && rMiss.length === 0,
+    'RealSand reads from the classic sand only what is listed: ' + READS.ns.length + ' names on its namespace (' + READS.ns.join(', ') + '), ' + READS.simStatics.length + ' on P.Sim (' +
+    READS.simStatics.join(', ') + ') and ' + READS.realCpu.length + ' of the CPU Sim beyond the Sim\'s (' + READS.realCpu.join(', ') + '), each there, none private' +
+    (rd.length || rMiss.length ? ': ' + rd.concat(rMiss.map(function (m) { return m + ' missing'; })).join('; ') : ''));
+  var rdBad = readsDiff(adapterSrc.replace('const cpu = this.cpu, L = this._lay', 'const cpu = this.cpu, PROBE = cpu._rec + this.P.Sim.FOO, L = this._lay'));
+  check(rdBad.join() === 'simStatics.FOO read, not in the contract,realCpu._rec read: private',
+    '... and a copy of app-sand.mjs that reads cpu._rec and P.Sim.FOO breaks it (control): ' + rdBad.join('; '));
+  // with no namespace, or one that lacks a value, create refuses and names what is missing
+  async function refusal(o) {
+    try { await RS.RealSand.create(Object.assign({ cpuSim: cpu, glass: real.glass, canvas: { style: {}, width: 1, height: 1 } }, o)); return 'made'; }
+    catch (e) { return String(e && e.message); }
+  }
+  var refusals = [], gP = globalThis.HourglassPhysics;
+  try { delete globalThis.HourglassPhysics; refusals.push(await refusal({ P: null })); } finally { globalThis.HourglassPhysics = gP; }
+  var simLess = { MOTION: { tauT: P.Sim.MOTION.tauT }, LAYERS: P.Sim.LAYERS, pace: P.Sim.pace, IMPACT_V: P.Sim.IMPACT_V };
+  refusals.push(await refusal({ P: Object.assign({}, P, { Sim: simLess }) }));
+  refusals.push(await refusal({ P: P, cpuSim: Object.assign(Object.create(Object.getPrototypeOf(cpu)), cpu, { layerState: 0 }) }));
+  refusals.push(await refusal({ P: P }));
+  check(/namespace is needed/.test(refusals[0]) && /lacks P\.Sim\.EV_CAP, P\.Sim\.MOTION\.idleT$/.test(refusals[1]) && /lacks layerState/.test(refusals[2]) && refusals[3] === 'made',
+    'RealSand.create refuses, naming what is missing, without the classic sand\'s namespace, with one that lacks values, or with a CPU Sim without layerState() (and is made with all of them): ' + refusals.join(' | '));
   check(real.frame === cpu.frame && real.geo === cpu.geo && real.evX === cpu.evX && real.evK === cpu.evK && real.evV === cpu.evV && real.cracks === cpu.cracks &&
     real.G === cpu.G && real.capacity === cpu.capacity && real.maxTotal === cpu.maxTotal && real.W === cpu.W && real.H === cpu.H,
     'the per-frame record, the glass, the event arrays and the cracks are the CPU Sim\'s own (shared with the app and the audio)');
@@ -962,6 +1024,63 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     'asleep, a flick (a frame of 0.2 g, then 2 g for 50 ms and the stop) wakes the glass in the first frame of its 2 g (' + (wokeFrames === null ? 'never' : 'frame ' + wokeFrames + ', ending ' + Math.round(wokeAfter) + ' ms after it began') +
     '), and the first run starts from its first sample (its first substep ' + f1(gx1[0]) + ' g, then up to ' + f1(push1) + ' g); the hand\'s jitter is no jolt (' + Object.keys(jwWhys).join(', ') + ')');
 
+  // ... and on a slow display (frames of 50 ms, a run each, as a busy GPU's page gives), woken by a
+  // jolt within the frame, the first run is the time since the jolt's first sample alone, not the
+  // whole frame's substeps laid over that time (which held the push for most of them: the bed was
+  // thrown faster than at a run a frame). Control: the time since clamped at 0, as before
+  async function slowWake(old) {
+    var A = makeApp({ ms: 10000, seed: 206 });
+    var rA = await A.attach(); A.calibrate(); A.T.rem = A.T.durationMs;
+    A.T.state = 'paused';
+    await A.run(3500);
+    var asleep = rA.modes.mode === 'asleep', fj = rA._fromJolt, woke = null;
+    rA._fromJolt = function (now, dt) { fj.call(this, now, dt); if (old) this._acc = Math.max(0, this._acc); woke = { now: now, from: this._lastRunPerf }; };
+    var runs0 = A.env.solver.runs, first = null;
+    A.env.recordFields = true; A.env.solver.fields = [];
+    var tF = A.V.perf + 30;
+    A.motionPerStep = true;
+    A.motionIn = function (a, now) { var u = now - tF; return u < 0 ? null : u <= 50 ? { fx: 2, fy: 0, w: 0 } : u <= 100 ? { fx: -2, fy: 0, w: 0 } : null; };
+    for (var k = 0; k < 6; k++) {
+      A.V.frame++; A.env.pump(); await tick(); A.frame(50);
+      if (first === null && A.env.solver.runs > runs0) first = A.env.solver.fields.slice();
+    }
+    A.motionIn = null; A.motionPerStep = false; A.env.recordFields = false;
+    var hz = rA.rate.hz, gx = first ? first.map(function (f) { return f.gravity[0] / rA.Gg; }) : [];
+    // (the longest stretch of substeps that hold one field, ms: the app's samples are 1/120 s apart)
+    var hold = 0, h = 0;
+    for (var i = 0; i < gx.length; i++) { h = i && gx[i] === gx[i - 1] ? h + 1 : 1; if (h > hold) hold = h; }
+    return { asleep: asleep, sinceMs: woke ? woke.now - woke.from : null, runMs: first ? 1000 * first.length / hz : null, holdMs: 1000 * hold / hz, push: gx.length ? Math.max.apply(null, gx) : 0 };
+  }
+  var swNew = await slowWake(false), swOld = await slowWake(true);
+  var swTxt = function (s) { return 'its first run ' + f1(s.runMs) + ' ms of substeps for ' + f1(s.sinceMs) + ' ms since the jolt, one field held at most ' + f1(s.holdMs) + ' ms, up to ' + f1(s.push) + ' g'; };
+  check(swNew.asleep && swOld.asleep && swNew.sinceMs > 5 && swNew.sinceMs < 50 && Math.abs(swNew.runMs - swNew.sinceMs) <= 1000 / 480 + 0.5 && swNew.holdMs <= 1000 / 120 + 2.5 && swNew.push > 1 &&
+    swOld.runMs >= swOld.sinceMs + 20 && swOld.holdMs > 1000 / 120 + 2.5,
+    'a slow display (frames of 50 ms), woken by a flick within a frame: ' + swTxt(swNew) + '; with the time since clamped at 0 (control, as before) ' + swTxt(swOld));
+
+  // the beds' fastest falls between readbacks cost the GPU only while a fall is possible: a glass
+  // running in a hand that holds it still (0.01 g of tremor) never asks for them; a flick (2 g, then
+  // -2 g, 50 ms each) asks from its first run until 0.5 s of simulated time after its last sample
+  var BF = makeApp({ ms: 60000, seed: 207 });
+  var rBF = await BF.attach(); BF.calibrate(); BF.T.rem = BF.T.durationMs; BF.start();
+  var heldB = L.rng(19);
+  BF.motionIn = function (a, now) { return { fx: 0.012 * (heldB() - 0.5), fy: 0.012 * (heldB() - 0.5), w: 0 }; };
+  await BF.run(3000);
+  BF.env.recordSets = [];
+  await BF.run(4000);
+  var setsHeld = BF.env.recordSets;
+  BF.env.recordSets = [];
+  var tFB = BF.V.perf;
+  BF.motionIn = function (a, now) { var u = now - tFB; return u <= 50 ? { fx: 0, fy: 2, w: 0 } : u <= 100 ? { fx: 0, fy: -2, w: 0 } : { fx: 0.012 * (heldB() - 0.5), fy: 0.012 * (heldB() - 0.5), w: 0 }; };
+  await BF.run(1500);
+  BF.motionIn = null;
+  var setsB = BF.env.recordSets, onB = setsB.filter(function (x) { return x.beds && x.steps > 0; });
+  var firstOnB = onB.length ? onB[0].perf - tFB : null, lastOnB = onB.length ? onB[onB.length - 1].perf - tFB : null;
+  var firstRunB = setsB.filter(function (x) { return x.steps > 0; })[0];
+  check(setsHeld.length > 100 && setsHeld.every(function (x) { return !x.beds; }) && onB.length > 0 && firstRunB && firstRunB.beds &&
+    lastOnB >= 100 + 450 && lastOnB <= 100 + 500 + 50 && setsB.filter(function (x) { return x.perf - tFB > 700; }).every(function (x) { return !x.beds; }),
+    'the beds\' fastest falls are asked of the GPU only while a fall is possible: running, held still in the hand, never (' + setsHeld.filter(function (x) { return x.beds; }).length + ' of ' + setsHeld.length +
+    ' runs); a flick from its first run (' + (firstRunB ? (firstRunB.beds ? 'asked' : 'not asked') : 'none') + ', ' + (firstOnB === null ? '-' : Math.round(firstOnB) + ' ms') + ') to ' + (lastOnB === null ? 'never' : Math.round(lastOnB) + ' ms') + ' after it began (its last sample at 100 ms), and not after');
+
   /* ------------------------------------------------------------------------------------ *
    *  The bed's sounds (design 8): the mock solver's sand does what the test says
    *  (lib/realsand-beds.js), one readback a frame late
@@ -1197,6 +1316,84 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     'the landing\'s window is time, not runs: a bed falling at 86 cells/s that the glass slows to half in 0.12 s lands one thump of ' + Efall.toFixed(4) + ' at 60, 120 and 180 runs a second (' +
     landed.map(function (l) { return l.hz + ': ' + l.n + ' of ' + l.E.toFixed(4); }).join(', ') + '); slowed to half only in 0.2 s it has not landed at that speed, only as fast as the glass then stopped it (control: ' +
     slow14.map(function (l) { return l.E.toFixed(4); }).join(', ') + ')');
+  // a slow pace: one run (and one readback) every 2, 4 or 6 display frames at 60 Hz, 8 substeps a frame
+  // (480 Hz), as a busy GPU gives. A bed thrown up at 60 cells/s falls back to 86 cells/s and the glass
+  // stops it in 2 frames' time (the field 2145 cells/s^2 throughout); every phase of the toss against the
+  // runs. With the engine's fastest fall between readbacks (bed.peak: the bed at the end of each substep
+  // but a run's last, along the field) each toss lands one thump of the fall's energy within 1.5 dB, at
+  // the readback of the run in which the glass stopped it or the next. Without it (control: the tally
+  // alone, as before build 8) some phases land none or one far too weak.
+  // o.launch: s the bed is first thrown up by the field turned round (as a flick's stop turns it: up
+  // at the bed's own pace, the field up/launch cells/s^2 toward the top), each substep's field then
+  // given to the run (q.f); the engine keeps the fastest fall toward the glass's floor (-y)
+  function paceToss(every, hz, sub, withPeak, up, o) {
+    o = o || {};
+    var g = rHR.Gg, stopS = 2 / 60, down = 86, tL = o.launch || 0;
+    var vAt = function (t) {
+      var tUp = up / g, tDown = down / g;
+      if (t < 0) return 0;
+      if (t < tL) return up * t / tL;
+      t -= tL;
+      if (t < tUp) return up - g * t;
+      t -= tUp; if (t < tDown) return -g * t;
+      t -= tDown; if (t < stopS) return -down * (1 - t / stopS);
+      return 0;
+    };
+    var gAt = function (t) { return t >= 0 && t < tL ? up / tL : -g; };
+    var bedAt = function (v) { return v === 0 ? B.rest(NH) : B.bed([{ n: NH, v: [0, v] }]); };
+    var tStop = tL + up / g + down / g + stopS / 2;          // (the bed at half its speed)
+    var rows = [];
+    for (var ph = 0; ph < every; ph++) {
+      rHR._quiet(false); rHR._snd.muteUntil = -Infinity;
+      for (var w0 = 0; w0 < 10; w0++) hear(1000 / hz, B.rest(NH), null);
+      var nSub = every * sub, dtSub = 1 / (hz * sub), t0 = -ph / hz, E = 0, n = 0, late = null;
+      for (var r = 0; r < Math.ceil((0.5 + tL) * hz / every) + 2; r++) {
+        // the run's substeps: the fastest fall at the end of every BEDS_EVERY-th back from the last, not
+        // the last itself (solver.mjs; none faster than 0: none kept)
+        var best = null, bestV = 0, fs = [], gm = 0;
+        for (var s = 0; s < nSub; s++) {
+          var ts = t0 + (r * nSub + s + 1) * dtSub, vs = vAt(ts), gs = gAt(ts);
+          fs.push({ gravity: [0, gs] }); gm += gs / nSub;
+          if (s < nSub - 1 && (nSub - 1 - s) % SOL.BEDS_EVERY === 0 && -vs > bestV) { bestV = -vs; best = s; }
+        }
+        var tEnd = t0 + (r + 1) * nSub * dtSub, end = bedAt(vAt(tEnd));
+        var bed = withPeak ? B.withPeak(end, best === null ? null : bedAt(-bestV), best) : end;
+        HR.V.perf += 1000 * every / hz; HR.V.wall += 1000 * every / hz;
+        rHR._hear({ snd: { dt: every / hz, n: nSub, hz: hz * sub, ax: 0, ay: tL ? gm : -g, f: tL ? fs : undefined, sx: 0, sy: -1, turn: false } }, { above: NH, below: 0, beds: B.beds(bed, null) }, rHR.valve.parity);
+        var f = { thump: new Float32Array(4), slam: new Float32Array(2), slides: 0, moved: 0 };
+        rHR._bedSound(f, HR.V.perf);
+        if (f.thump[0] > 0) {
+          E += f.thump[0]; n++;
+          // (runs after the one in which the glass had it at half speed)
+          late = Math.floor((tEnd - tStop) / (every / hz) - 1e-9);
+        }
+        if (f.slam[0] > 0) n += 100;
+      }
+      rows.push({ ph: ph, n: n, E: E / Efall, late: late });
+    }
+    return rows;
+  }
+  var dB = function (x) { return x > 0 ? 10 * Math.log10(x) : -Infinity; };
+  var paceOk = function (rows) { return rows.every(function (p) { return p.n === 1 && Math.abs(dB(p.E)) <= 1.5 && p.late >= 0 && p.late <= 1; }); };
+  var paceTxt = function (rows) { return rows.map(function (p) { return p.n + 'x' + (p.n ? dB(p.E).toFixed(1) + ' dB' : '') + (p.late > 0 ? ' (a run late)' : ''); }).join(' '); };
+  var pace15 = [2, 4, 6].map(function (every) { return { every: every, rows: paceToss(every, 60, 8, true, 60), ball: paceToss(every, 60, 8, true, 86), ctl: paceToss(every, 60, 8, false, 60) }; });
+  check(pace15.every(function (p) { return paceOk(p.rows) && paceOk(p.ball); }) && pace15.some(function (p) { return !paceOk(p.ctl); }),
+    'a slow pace (a run every 2, 4 and 6 frames, every phase of the toss): one thump a fall, within 1.5 dB of the fall\'s energy and at most a run late, from the engine\'s fastest fall between readbacks: ' +
+    pace15.map(function (p) { return 'every ' + p.every + ': ' + paceTxt(p.rows) + '; thrown up at 86: ' + paceTxt(p.ball); }).join(' | ') +
+    '; from the readbacks alone (control, as before) not: ' + pace15.map(function (p) { return 'every ' + p.every + ': ' + paceTxt(p.ctl); }).join(' | '));
+  // ... and a flick: the bed is thrown up by the field turned round (the flick's stop: 0.1 s of it, the
+  // bed up to 86 cells/s), then falls back under gravity and lands; each substep's field goes with the
+  // run. A readback may see the bed going up with that field (a motion along the field, under way) and
+  // the run after it hold the fall: the fastest fall toward the glass's floor ends the motion up (the
+  // field turned it round) and lands one thump a fall within 1.5 dB, at most a run late. From the
+  // readbacks alone (control) some phases land none or one far too weak
+  var flick15 = [2, 4, 6].map(function (every) {
+    return { every: every, rows: paceToss(every, 60, 8, true, 86, { launch: 0.1 }), ctl: paceToss(every, 60, 8, false, 86, { launch: 0.1 }) };
+  });
+  check(flick15.every(function (p) { return paceOk(p.rows); }) && flick15.some(function (p) { return !paceOk(p.ctl); }),
+    'a flick at a slow pace (thrown up by the field turned round, then falling and landing): one thump a fall within 1.5 dB, at most a run late, from the fastest fall toward the glass\'s floor: ' +
+    flick15.map(function (p) { return 'every ' + p.every + ': ' + paceTxt(p.rows); }).join(' | ') +
+    '; from the readbacks alone (control) not: ' + flick15.map(function (p) { return 'every ' + p.every + ': ' + paceTxt(p.ctl); }).join(' | '));
   // a slip is no landing: after a sideways shake the sand thrown up the wall slides back down it (55 degrees
   // from the level, as the GPU sand does down the funnel) into the rest of the bed, which lies still. Half the
   // bed moving at 2.8 times the speed of the faintest landing makes the bed's mean fall at 1.4 times it along

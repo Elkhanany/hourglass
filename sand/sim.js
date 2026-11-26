@@ -246,6 +246,7 @@
 
   Sim.STEP_HZ = STEP_HZ;
   Sim.DT = DT;
+  Sim.EV_CAP = EV_CAP;            // audio impact events kept per frame (evX, evV, evK hold this many)
 
   /**
    * Motion and glass tunables. Every inertial effect enters at the g-ratio it
@@ -3777,6 +3778,18 @@
     settle: 480,         // steps after a turn in which sand coming to rest is laid in its new pattern (4 s)
     lay: 36,             // … at most this many grains a step in each bulb, so it settles in, never snaps
     pour: 420            // grains in a poured layer: pour … 2·pour
+  };
+
+  /** The blow's speed on screen, px/s, below which it only clinks (MOTION.impV[0]): for Real sand. */
+  Sim.IMPACT_V = MOT.impV[0];
+
+  /**
+   * The layered sand's state after the last turn (_turned), for Real sand, which lays its own
+   * sand in the same patterns: rec, each bulb's pattern (null until a turn); duty, the companion
+   * tone's share of each bulb's sand at that turn. The arrays are the Sim's own: read, not changed.
+   */
+  Sim.prototype.layerState = function () {
+    return { rec: this._rec, duty: this._duty };
   };
 
   /*

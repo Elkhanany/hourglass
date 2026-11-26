@@ -7,7 +7,7 @@ WebGPU, in the glass the app draws, keeping the app's exact time. The engine
 is `realsand/`; the app runs it by default where WebGPU works, and the
 **Real sand** switch in Tune turns it off and on.
 
-This document is the design as it is built (engine build 7), written from the
+This document is the design as it is built (engine build 8), written from the
 code. The code cites it by section: a comment that says "(design 7.4)" means
 section 7.4 below, and the section numbers are kept so that those citations
 stay true. Where this document and the code disagree, the code is right and
@@ -115,8 +115,9 @@ never stored when the page that asked is a lab page; the worker tells it by
 the request's client (a module imported by another module carries no lab
 referrer), and every other request is the app's.
 
-The build stamp lives in four places, raised together with any change to the
-engine: `realsand/build.mjs` (`BUILD`), the line "Engine build" in
+The build stamp lives in four places, raised together whenever the engine's
+code changes (a module or a shader under `realsand/`; not for a change in
+comments alone): `realsand/build.mjs` (`BUILD`), the line "Engine build" in
 `shaders/common.inc.wgsl`, `REALSAND_BUILD` in `app.js` and `BUILD_EXPECTED`
 in `lab/sand/main.mjs`. A page fetches its shaders once (one shader library
 per base URL), so a rebuild after a lost device, or a retried start, compiles
@@ -646,7 +647,9 @@ grain sharp: not the falling stream, not spray): how many points, their
 summed velocity and place across the glass, and the number and summed speed
 of those that move (faster than 2 % of a free fall over the glass, the sleep
 rule's own measure): 12 words (`tally.wgsl`; `solver.mjs` `bedOf` gives
-`beds`, two records). Each run keeps its simulated time, its mean field and
+`beds`, two records). Each record also carries the bed's fastest fall
+toward the floor since the last readback (`peak`, from build 8: below).
+Each run keeps its simulated time, its mean field and
 the direction of plain gravity for its readback (`_runSound`); `_hear`
 makes the classic sand's record from the two, and `_bedSound` writes it
 into the frame's record in `submit`, after the app's `beginFrame` and
@@ -683,11 +686,13 @@ before its sound:
   move (0.47 to 0.62 of them, where a flicked bed's fall moves 0.75 to 0.94),
   so it is no body falling and lands nothing (before the rule, a sideways
   shake gave such a thump, 0.0016 to 0.0030, in six of ten shakes). The
-  speed is the fastest a readback saw: one readback a run, so when the
-  engine runs fewer than 60 times a second (a phone that falls behind, the
-  heat guard's calm pace) a short fall's fastest moment can fall between two
-  readbacks and its thump is quieter, or, at a run every four to six frames,
-  not heard (section 8's note below).
+  speed is the bed's fastest fall, not only what a readback saw (from build
+  8; the note below): a fall under way goes at least as fast as the
+  engine's `peak` shows; a fall no readback saw starts from the peak, by the
+  same tests in that substep's own field (with the field, along the axis,
+  seven in ten of its points moving); and a fall that ends before the next
+  readback lands then, its time and the field's push counted from the
+  peak's substep. The energy is still `u² / (2 G HB)`.
 - `frame.slides` (and `frame.moved`): the bed's motion within itself: the
   summed speed of its moving points, less their number times the bed's own
   speed (a bed that flies or slides as one body slides nothing) or the
@@ -730,25 +735,61 @@ with the readback, one to three frames after the sand's own motion; a thump
 in the run in which the bed has lost half its speed, about four frames after
 its fastest fall, as it comes to rest.
 
-The landing is judged from one snapshot of the bed a run, and its energy is
-that of the fastest fall a snapshot saw. A flicked bed falls for about 40 ms,
-so when the engine runs less often than every frame the snapshots can miss
-its fastest moment. On the adapter's mock engine, a toss up at 60 cells/s and
-down at 86 (60 frames a second): at a run every frame, one thump at 0.93 of
-the fall's full energy; at a run every 2 frames, 0.93 or 0.30 (5 dB quieter)
-by where the runs fall; at a run every 4 to 6 frames, in some phases no
-snapshot sees the bed fall faster than the quietest thump and none is heard.
-Estimating the speed it struck at was tried and is not done: the strike lies
-somewhere in the run that found the bed stopped, the readbacks carry no
-moment for it, and every estimate tried either was louder than the fall could
-have been (by up to 5 to 11 dB at a run every 3 to 6 frames) or no better than
-the fastest speed seen. A phone runs a run every frame unless it falls
-behind or the heat guard calms it (the calm pace is a run every 2 frames).
-This is a known limit and it is still open: a landing can sound quieter, or
-be missed, when the engine runs less than once a frame. The fix is the
-engine's, in a later build: each run would record the bed's fastest fall
-during its own substeps, so that the readback carries the fall itself and
-not one snapshot of it. Build 7 does not.
+**The fastest fall between readbacks (from build 8).** There is one
+readback a run, and a flicked bed falls for about 40 ms, so when the engine
+runs less often than every frame (a phone that falls behind, the heat
+guard's calm pace of a run every 2 frames) one run can hold a fall's fastest
+moment, or the whole fall and its landing. Up to build 7 the landing was
+judged from those snapshots alone: on the adapter's mock engine, a toss up
+at 60 cells/s and down at 86 landed, at a run every 2 frames, 0.3 or 5.2 dB
+under its energy by where the runs fell, and at a run every 4 to 6 frames
+none at all in some phases. So the engine keeps each bed's fastest fall:
+
+- while a fall is possible, the end of every second substep of a run (counted
+  back from its last, never the last, which the tally has) sums each bulb's
+  bed: its crowded points' velocity, how many, how many move (an entry point
+  of its own, `csBeds` in `spreadShift.wgsl`, into a slot of sums for that
+  substep); after the run one pass of a single workgroup (`csKeep` in
+  `prepare.wgsl`) keeps each bed's fastest fall toward the glass's floor
+  (along its axis, whatever the field: a flick turns the field round while
+  it throws the bed up, and a bed thrown up is not falling) with the
+  substep it was at, and clears the sums. The fastest falls live in a small
+  buffer of their own (`bedPeak`), copied into the readback and cleared
+  only when a readback slot is free, so a fall in a run that got no slot is
+  read with the next; a flip clears them (the bulbs have traded places);
+- a fall is possible from a substep whose field departs 0.3 g from plain
+  gravity, for 0.5 s of simulated time after it (`SND.LIFT_G`, `LIFT_S`; a
+  bed thrown up at 100 cells/s is back on its floor within 0.1 s); the
+  adapter asks for the sums then alone (`set.beds`), so a glass at rest, held
+  in the hand or running pays nothing for them. With the spread pass off (a
+  lab option only) nothing is summed and the sound has the readbacks alone,
+  as before;
+- `bedOf` gives each bed its `peak` (its speed toward the floor, its
+  velocity, its points, the share that moves, the substep), and `_hear`
+  uses it as the list above says. A motion under way the other way (the bed
+  thrown up the glass) is dropped once the peak shows the bed coming down.
+
+On the mock engine, at a run every 2, 4 and 6 frames and every phase of the
+toss, each fall now lands one thump 0.2 to 0.3 dB under its energy, at most
+a run late; a flick (thrown up by the field turned round, then falling and
+landing) lands one thump 0.2 dB under, where the readbacks alone gave 3.6
+or 7.8 dB under, or none. On WebGPU in software (realsand-gpu's SOUND case,
+a run every 3 frames of 24 substeps against a run a frame, the same flick),
+four runs: 0.0039 against 0.0048 (-0.84 dB), 0.0051 against 0.0044 (+0.68),
+0.0049 against 0.0059 (-0.75), 0.0044 against 0.0045 (-0.12). At a run a
+frame the thump is the fall's energy within 3 %. At that pace the readbacks
+alone come as near (0.0045 to 0.0053, logged by the case, not checked): on
+this engine a run every 3 frames still catches the fall; the peak's gain is
+at a run every 4 to 6 frames and in the phases the mock engine shows.
+Before the wake after a jolt was fixed (9.1), the same slow flick, woken
+from sleep, was 1.45 to 2.36 dB too loud (six runs). The cost, on the
+software GPU, the lab's same-page burst, beds off and on in turn (4 rounds,
+ms a substep): nothing at rest (42.62 against 42.65 for the engine before
+them), and 2.6 % of a
+substep while a fall is possible (43.75); kept at every substep inside
+`prepare`'s own pass it had cost 12 to 13 %, and summed in `spreadShift`'s
+main entry point every substep 4 to 9 % at rest too, which is why each has
+an entry point of its own.
 
 Measured against the classic sand on the same scripted motions (the app's
 10 s glass before its start, all the sand above; WebGPU in software, the
@@ -771,7 +812,9 @@ measured:
   upper bulb in each run, of 0.0039 to 0.0054 (from a fastest fall of 49 to
   58 cells/s), where the classic sand has one of 0.0043; no slam; the
   agitation at its highest 0.54 to 0.67, where the classic's is 0.71. With
-  the readbacks unheard (the control) the same flick fed nothing.
+  the readbacks unheard (the control) the same flick fed nothing. At
+  build 8, four runs of the case: one thump of 0.0044 to 0.0059 at a run a
+  frame, and at a run every 3 frames within 0.84 dB of it (the note above).
 - shaken sideways at 1.5 g and 5 Hz for 1.5 s: no thump and no slam in any
   of the three runs, as with the classic sand; the agitation at its highest
   1.12 to 1.16, where the classic's is 0.98; the slides 26,600 to 29,400 in
@@ -878,7 +921,17 @@ haptic is the app's own, tied to its own events.
   thresholds every frame; these are coarser, so a held phone runs calm.
 - A jolt counts at once: 0.3 g at any moment since the last frame wakes a
   sleeping glass in the frame it comes; the hand's jitter (0.28 g and less)
-  does not.
+  does not. The first run after such a wake starts from the jolt's first
+  sample, so its push is not lost, and covers only the time since the jolt,
+  also on a slow display (from build 8). Until build 7 it covered at least
+  the whole frame: on a display of 50 ms frames, woken by a flick 16.7 ms
+  before the frame, the run was 50 ms of substeps laid over 16.7 ms of
+  samples, one field held for 25 ms where it lasts 8.3 ms (the adapter's
+  check, with that rule as its control); on the software GPU at a run every
+  3 frames, 24 substeps over the flick's first 13 ms, its push held for 15
+  substeps (about 6 at a run a frame), the bed thrown about 15 % faster and
+  its thump, from build 8's fastest fall, 1.45 to 2.36 dB too loud until
+  this was fixed.
 - Asleep, the glass also wakes once its lean has changed by more than 1°
   since it fell asleep, however slowly (the app's `wakeAll`).
 - Calm is entered only while auto Hz is at the base rate, so a change of mode
@@ -901,6 +954,15 @@ of the work, so calm saves little on a long glass. At most two frames of work
 are in flight, and the substeps a frame may run (the GPU's budget) follow the
 back-pressure of frames skipped, not a timing (`realsand/pace.mjs`), never
 below the base rate's real-time need unless the GPU cannot give even that.
+The beds' fastest falls (section 8, from build 8) add no dispatch to a
+substep: while a fall is possible, every second substep runs the spread's
+shift through its summing entry point instead of its plain one, and the run
+ends with one pass of a single workgroup. On the software GPU (the lab's
+burst, the same page with them off and on, 4 rounds) that is 2.6 % of a
+substep while a fall is possible and nothing at rest (42.62 ms a substep
+against 42.65 for the engine before them); the lab's Benchmark, on separate pages, varies
+by about 5 % on that machine and cannot settle a figure this small. A
+phone's figure is not measured yet.
 
 ### 9.3 What the lab measures
 

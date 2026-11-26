@@ -148,7 +148,7 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.19.1" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.20.0" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;
@@ -458,7 +458,11 @@ than the classic sand's and hardly slide (one of the lab's known faults,
 below), so a lean alone is all but silent with Real sand for now, where the
 classic sand's avalanche hisses; a shake, a jolt, a flick or a turn is
 heard. A glass asleep (its sand at rest) is silent, and the sound never
-keeps it awake; a jolt wakes it and is heard as the sand moves.
+keeps it awake; a jolt wakes it and is heard as the sand moves. From
+version 1.20.0 a landing sounds the same when the phone runs the sand less
+often than every frame (a phone that falls behind, or the calmer pace it
+takes when it grows warm): before, such a landing could come out quieter or
+not be heard.
 
 What it needs: WebGPU, which Safari has from iOS 26, also in a web app on
 the home screen. Without it the switch shows off and says *Needs WebGPU (iOS

@@ -15,7 +15,7 @@
  * frame, a display changes its rate) it is scaled with it (paceFrame): what the back-pressure
  * found is the GPU's substeps a second.
  *
- * Why not the submit-to-done time: on the owner's iPhone (5cc11b3, 30 Hz display) a
+ * Why not the submit-to-done time: on an iPhone measured at 5cc11b3 (30 Hz display) a
  * frame of 48 substeps and one of 47 on a larger bed both reported 31 ms, where the
  * real-speed rows put their work at 17 and 26 ms. A light frame reports about one
  * display frame whatever its work (the GPU's clock drops under light load, or the
