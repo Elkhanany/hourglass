@@ -208,7 +208,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   walk between the moon button and the reset (two shapes used, the three
   grains), which now open in the light look the button left (`setPaper`
   true); no other entry changed. `renderer.setPaper` is one of the calls a
-  setting causes (kept after the boot, as `setTheme` is). A traced page is at
+  setting causes (kept after the boot, as `setTheme` is). Both were made
+  again for release 1.20.0, engine build 8: the stamp "8" for "7" wherever a
+  boot saves it, and in the sixth boot (a save of build 7's stamp, now an
+  earlier build's) one save more at its end, the new stamp; no other entry
+  changed. A traced page is at
   noon (the recorder sets the hour of `new Date()`), so Daytime traces the
   same at any hour of the run.
   The two traces use three ports: the suite's own and the next two.
