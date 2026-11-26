@@ -969,9 +969,10 @@ The engine, `realsand/`, is its own folder so that the lab and the app
 solver's grid, the fills, the grains' drawing, auto Hz, the felt jolts, the
 GPU's pace, and the valve (`valve.mjs`), which keeps the count above the
 neck in the app's whole grains and meters the GPU's neck once a frame.
-`realsand/build.mjs` holds a build stamp, raised with every change to the
-engine; Copy results says which stamp the lab found and which it was written
-for. **Timer** (under More) runs the sand as the app will: it fills the
+`realsand/build.mjs` holds a build stamp, raised whenever the engine's code
+changes (a module or a shader; not for a change in comments alone); Copy
+results says which stamp the lab found and which it was written for.
+**Timer** (under More) runs the sand as the app will: it fills the
 app's amount for a glass (10 s, 1, 10 or 60 minutes, or the 60-minute amount
 timed to 4 or 30 minutes; the app's square-root rule on its phone glass, so
 1,155 grains for 10 s and 21,917 for an hour, 1.69 points a grain on the

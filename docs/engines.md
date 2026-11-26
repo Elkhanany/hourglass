@@ -911,7 +911,9 @@ from before a fill or a transfer is dropped. After the end, grains still
 above (the residue) are moved below by a transfer once they have had 1.5 s
 to flow (from the end, or from a fill or transfer made after it).
 
-Any change to the engine raises the stamp in `realsand/build.mjs`,
+The stamp goes up whenever the engine's code changes (a module or a shader
+under `realsand/`), not for a change in comments alone: in
+`realsand/build.mjs`, the line "Engine build" in `shaders/common.inc.wgsl`,
 `REALSAND_BUILD` in `app.js` and `BUILD_EXPECTED` in `lab/sand/main.mjs`
 together (`realsand-shell` checks that they match), and `VERSION` in
 `sw.js`; a new module or shader goes into the worker's `SHELL` too

@@ -7,7 +7,7 @@ WebGPU, in the glass the app draws, keeping the app's exact time. The engine
 is `realsand/`; the app runs it by default where WebGPU works, and the
 **Real sand** switch in Tune turns it off and on.
 
-This document is the design as it is built (engine build 7), written from the
+This document is the design as it is built (engine build 8), written from the
 code. The code cites it by section: a comment that says "(design 7.4)" means
 section 7.4 below, and the section numbers are kept so that those citations
 stay true. Where this document and the code disagree, the code is right and
@@ -115,8 +115,9 @@ never stored when the page that asked is a lab page; the worker tells it by
 the request's client (a module imported by another module carries no lab
 referrer), and every other request is the app's.
 
-The build stamp lives in four places, raised together with any change to the
-engine: `realsand/build.mjs` (`BUILD`), the line "Engine build" in
+The build stamp lives in four places, raised together whenever the engine's
+code changes (a module or a shader under `realsand/`; not for a change in
+comments alone): `realsand/build.mjs` (`BUILD`), the line "Engine build" in
 `shaders/common.inc.wgsl`, `REALSAND_BUILD` in `app.js` and `BUILD_EXPECTED`
 in `lab/sand/main.mjs`. A page fetches its shaders once (one shader library
 per base URL), so a rebuild after a lost device, or a retried start, compiles
