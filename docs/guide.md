@@ -83,7 +83,9 @@ Tune's **Glass** tab has the same choice as a row, **Background**, with four:
 A tap on the moon button always turns to the other look and makes it your
 choice (Light or Dark) from Device or Daytime too. The look is chosen before
 the app first draws, so it never opens in the wrong one, and a running glass
-runs on untouched when it changes. The phone's status bar and a PC window's
+runs on untouched when it changes. A change while the app is open fades the
+whole picture, glass and sand and bars, from one look to the other in about a
+third of a second (at once with Reduce Motion). The phone's status bar and a PC window's
 title bar follow it. *Put the look and sound back as they came* puts it back
 to Dark.
 
@@ -148,7 +150,7 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.20.0" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.20.1" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;

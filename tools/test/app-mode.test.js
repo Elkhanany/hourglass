@@ -4,8 +4,8 @@
  *   CHOICES   each of the four backgrounds saved (dark, light, system, hours) comes up in its look:
  *             the page's data-look, its theme-color and color-scheme, the renderer's shading, the
  *             moon button's state and name, the Tune row's choice
- *   TUNE      a choice in Tune's Glass tab changes the look at once and is saved; nothing is built
- *             again (the same Sim and Renderer, no cross-fade, no reset)
+ *   TUNE      a choice in Tune's Glass tab changes the look and is saved; nothing is built again
+ *             (the same Sim and Renderer, the glass not swapped out, no reset)
  *   BUTTON    the moon button turns to the other look and back, saved as a choice of its own
  *             ('light', 'dark'), also from 'system' and from 'hours'; a reload keeps it
  *   OLD       a save from before the background (1.18.0's) comes up dark and saves 'dark'
@@ -93,7 +93,12 @@ function firstFrame() {
 }
 
 /* ---- what the page shows of the look ----------------------------------------------------- */
-function lookOf(t) {
+/** Until a change of look has faded in (1.20.1: about a third of a second); the look once it has. */
+async function settled(t) {
+  await t.page.waitForFunction(function () { return !document.documentElement.classList.contains('look-fade'); }, null, { timeout: 5000 });
+}
+async function lookOf(t) {
+  await settled(t);
   return t.eval(function (KEY) {
     var root = document.documentElement, W = window.Hourglass, b = document.getElementById('btn-look');
     var checked = document.querySelector('#looks [aria-checked="true"]');
@@ -226,7 +231,7 @@ async function tuneRow(s, env) {
     seen.push(c + ':' + l.look + (quiet ? '' : ' REBUILT') + (l.saved === c ? '' : ' saved ' + l.saved));
   }
   var note = await t.eval(function () { var n = document.getElementById('look-note'), r = n.getBoundingClientRect(); return { text: n.textContent, h: r.height }; });
-  s.check('TUNE: Dark, Light, Device and Daytime in the Glass tab change the look at once and are saved; nothing is built again, nothing fades',
+  s.check('TUNE: Dark, Light, Device and Daytime in the Glass tab change the look (one cross-fade of the page, FADE) and are saved; nothing is built again, the glass is not swapped out',
     seen.join() === 'light:light,system:light,hours:' + (new Date().getHours() >= 7 && new Date().getHours() < 19 ? 'light' : 'dark') + ',dark:dark', seen.join(', '));
   s.check('TUNE: one plain line under the choices says what Device and Daytime do', /Device/.test(note.text) && /Daytime/.test(note.text) && /7:00/.test(note.text) && note.h > 10, JSON.stringify(note));
   s.check('TUNE: no page errors', t.errors.length === 0, t.errors.slice(0, 2).join(' | '));
@@ -448,16 +453,46 @@ async function outlines(s, env) {
   var o = await outlineCase(s, env), d = await outlineCase(s, env, null, { storage: { background: 'dark', frame: false } });
   s.check('OUTLINE: on white the drawn glass has its outline: a line ' + o.dark + ' levels darker than the paper and the bore beside it (paper ' + o.paper + ', bore ' + o.bore + ', line ' + o.line + ')',
     o.dark >= 25 && o.paper > 200, JSON.stringify(o) + '; the dark look: ' + JSON.stringify(d));
-  var flat = routed(env, 'glass/renderer.js', function (src) { return src.replace('if (drawn && this.paper) tint = PAPER_INK;', ''); });
+  var flat = routed(env, 'glass/renderer.js', function (src) { return src.replace('if (drawn && m > 0) tint = m >= 1 ? PAPER_INK : mix(tint, PAPER_INK, m);', ''); });
   var c = await outlineCase(s, env, null, { routes: [flat] });
   s.check('... and without the light shading the drawn glass\'s outline is lost on white (control)', c.dark < 25, JSON.stringify(c));
 }
 
-async function webglOutline(s, root, port) {
+/**
+ * The rendered glass half way through a change of look: its two programs' pictures, one over the
+ * other, against the glass at either end (an idle glass, the region of the assembly on screen).
+ */
+async function webglFade(env, routes) {
+  var t = await opn(env, { storage: { background: 'dark' }, viewport: { width: 390, height: 844 }, routes: routes });
+  await sleep(2500);
+  var g = await t.glass(), clip = { x: Math.round(g.left + g.w * 0.2), y: Math.round(g.top + g.h * 0.55), width: Math.round(g.w * 0.6), height: Math.round(g.h * 0.3) };
+  var a = await pixels(t, clip);
+  await t.page.tap('#btn-look');
+  var h = await holdFade(t, 0.5);
+  await sleep(2500);                                   // (software WebGL: a frame takes most of a second)
+  var m = await pixels(t, clip);
+  await letGo(t); await settled(t); await sleep(2500);
+  var b = await pixels(t, clip);
+  await t.close();
+  function dist(p, q) { var s2 = 0; for (var i = 0; i < p.d.length; i++) if ((i & 3) !== 3) s2 += Math.abs(p.d[i] - q.d[i]); return s2 / (p.d.length * 0.75); }
+  var r = { held: !!h, fromDark: Math.round(dist(a, m) * 100) / 100, toLight: Math.round(dist(m, b) * 100) / 100, whole: Math.round(dist(a, b) * 100) / 100 };
+  r.between = r.held && r.fromDark > 0.2 * r.whole && r.toLight > 0.2 * r.whole && r.fromDark < r.whole && r.toLight < r.whole;
+  return r;
+}
+
+async function webglOutline(s, root, port, outlines, fades) {
   var env = await H.start({ webgl: true, port: port, root: root });
   try {
     var has = await (async function () { var t = await opn(env, {}); var g = await t.eval(function () { return !!window.Hourglass.renderer.glass; }); await t.close(); return g; })();
-    if (!has) { s.skip('OUTLINE (WebGL): the rendered glass', 'no WebGL here'); return; }
+    if (!has) { s.skip('OUTLINE and FADE (WebGL): the rendered glass', 'no WebGL here'); return; }
+    if (fades) {
+      var f = await webglFade(env);
+      s.check('FADE (WebGL): half way through a change of look the rendered glass is between its two pictures (its two programs drawn one over the other): ' + f.fromDark + ' from the dark one and ' + f.toLight + ' from the light, of ' + f.whole + ' between them (mean levels)', f.between, JSON.stringify(f));
+      var one = routed(env, 'glass/renderer.js', function (src) { return src.replace('if (m > 0 && m < 1) { try {', 'if (false) { try {'); });
+      var fc = await webglFade(env, [one]);
+      s.check('... and a glass that only switches program is already the light one half way (control)', !fc.between, JSON.stringify(fc));
+    }
+    if (!outlines) return;
     var o = await outlineCase(s, env);
     // glass on white: a deep line at its edge (100 levels under the paper at least) and a clear bore
     // (within 10 of the paper), not a smoked one: the dark room's shading on white gives a greyed bore
@@ -644,6 +679,295 @@ async function keys(s, env) {
   s.check('KEYS: a mouse alone: the Zen button brings Zen, a double-click on the background takes it away', m.inn.zen && !m.out.zen, JSON.stringify(m));
 }
 
+/* ---- the ground: one paper from the top edge of the screen to the bottom (1.20.1) --------- */
+// The iPhone's home-screen app, as near as a test browser comes to it: the safe-area insets a
+// phone has (47 px above, 34 px below), put in through the page's own variables, and a dynamic
+// viewport shorter than the screen by the inset below (on the phone, 100dvh can come out so).
+var PHONES = [[390, 844], [393, 852], [430, 932], [375, 667], [320, 568]];
+var INSETS = function () { var s = document.documentElement.style; s.setProperty('--sat', '47px'); s.setProperty('--sab', '34px'); window.dispatchEvent(new Event('resize')); };
+function shortDvh(env, change) {
+  return routed(env, 'styles.css', function (src) { return (change ? change(src) : src).split('100dvh').join('calc(100dvh - 34px)'); });
+}
+/**
+ * A step in the ground: each of four columns near the screen's two sides scanned from the top edge
+ * to the bottom, the mean of the 5 pixels above each point against the 5 below it, outside every
+ * control (the bars, the chip, the buttons, the time, a sheet, the glass and its shadow). A
+ * gradient of the room changes by a few levels over that span; a seam by more than 12.
+ * -> { steps: [{ x, y, above, below }], box: whether the app's own box is the window's }
+ */
+async function seams(t) {
+  var size = await t.eval(function () { return { w: innerWidth, h: innerHeight }; });
+  var px = await pixels(t, { x: 0, y: 0, width: size.w, height: size.h });
+  var info = await t.eval(function () {
+    var boxes = [];
+    document.querySelectorAll('.panel, .chip, .icon-btn, #readout, #status, .sheet.open, #toast.show, #assembly, #shadow').forEach(function (e) {
+      var r = e.getBoundingClientRect(), cs = getComputedStyle(e);
+      if (r.width && r.height && cs.visibility !== 'hidden' && +cs.opacity > 0) boxes.push([r.left - 2, r.top - (e.classList.contains('sheet') ? 90 : 4), r.right + 2, r.bottom + 4]);
+    });
+    var a = document.getElementById('app').getBoundingClientRect();
+    return { boxes: boxes, app: [a.left, a.top, a.right, a.bottom] };
+  });
+  var W = px.w, Hh = px.h, d = px.d, steps = [];
+  function inside(x, y) { return info.boxes.some(function (b) { return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; }); }
+  function mean(x, y0, y1) { var r = [0, 0, 0]; for (var y = y0; y < y1; y++) { var i = (y * W + x) * 4; r[0] += d[i]; r[1] += d[i + 1]; r[2] += d[i + 2]; } return r.map(function (v) { return Math.round(v / (y1 - y0)); }); }
+  [3, 6, W - 7, W - 4].forEach(function (x) {
+    for (var y = 6; y < Hh - 6; y++) {
+      if (inside(x, y - 6) || inside(x, y + 6)) continue;
+      var a = mean(x, y - 6, y - 1), b = mean(x, y + 1, y + 6);
+      if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 12) { steps.push({ x: x, y: y, above: a, below: b }); y += 8; }
+    }
+  });
+  var box = Math.abs(info.app[0]) < 0.5 && Math.abs(info.app[1]) < 0.5 && Math.abs(info.app[2] - W) < 0.5 && Math.abs(info.app[3] - Hh) < 0.5;
+  return { steps: steps, box: box, app: info.app.map(Math.round) };
+}
+async function groundCase(env, look, size, how, routes, tag) {
+  var t = await opn(env, { storage: { background: look }, viewport: { width: size[0], height: size[1] }, routes: routes });
+  await sleep(700);
+  await t.eval(INSETS);
+  await sleep(300);
+  if (how === 'zen') { await t.page.tap('#btn-zen'); await sleep(1900); }
+  if (how === 'tune') { await tune.open(t); await sleep(900); }
+  var r = await seams(t);
+  if (SHOTS && size[0] === 390) await t.page.screenshot({ path: path.join(SHOTS, 'mode-ground-' + look + '-' + how + (tag ? '-' + tag : '') + '.png') });
+  await t.close();
+  return r;
+}
+async function ground(s, env) {
+  var rows = [], ok = true, look, size, r;
+  for (look of ['light', 'dark']) {
+    var phone = [shortDvh(env)];
+    for (size of PHONES) {
+      r = await groundCase(env, look, size, 'plain', phone);
+      ok = ok && r.box && r.steps.length === 0;
+      rows.push(look + ' ' + size.join('x') + (r.box ? '' : ' box ' + r.app.join(',')) + (r.steps.length ? ' ' + JSON.stringify(r.steps.slice(0, 2)) : ' one'));
+    }
+    for (var how of ['zen', 'tune']) {
+      r = await groundCase(env, look, [390, 844], how, phone);
+      ok = ok && r.box && r.steps.length === 0;
+      rows.push(look + ' 390x844 ' + how + (r.box ? '' : ' box ' + r.app.join(',')) + (r.steps.length ? ' ' + JSON.stringify(r.steps.slice(0, 2)) : ' one'));
+    }
+  }
+  s.check('GROUND: as the home-screen app has it (the insets, a dynamic viewport short of the screen), the ground is one from the top edge to the bottom at 390 x 844, 393 x 852, 430 x 932, 375 x 667 and 320 x 568, in Zen and with Tune open, in both looks: the app\'s box is the window\'s, and no column near either side steps outside a control',
+    ok, rows.join('; '));
+  // control: the app's box a viewport unit tall again (as before 1.20.1): the page's own ground shows as a band under it
+  var old = shortDvh(env, function (src) { return src.replace('#app {\n  position: fixed; inset: 0;\n', '#app {\n  position: fixed; inset: 0;\n  height: 100vh; height: 100dvh;\n'); });
+  var c1 = await groundCase(env, 'light', [390, 844], 'plain', [old], 'old'), c2 = await groundCase(env, 'dark', [390, 844], 'plain', [old], 'old');
+  s.check('... and with the app\'s box 100dvh tall again a band of another ground shows along the bottom, in the light look (' + (c1.steps[0] ? c1.steps[0].above.join('.') + ' over ' + c1.steps[0].below.join('.') : 'none') + ') and the dark (control)',
+    c1.steps.length > 0 && c2.steps.length > 0 && !c1.box, JSON.stringify(c1.steps.slice(0, 2)) + ' | ' + JSON.stringify(c2.steps.slice(0, 2)));
+}
+
+/* ---- the fade between the looks (1.20.1) ------------------------------------------------- */
+/** The fade's animation held at `f` of its way (or null: there is none), and two frames drawn there. */
+function holdFade(t, f) {
+  return t.eval(function (f) {
+    var a = document.documentElement.getAnimations().filter(function (x) { return x.effect && x.effect.getKeyframes().some(function (k) { return '--lk' in k; }); })[0];
+    if (!a) return Promise.resolve(null);
+    a.pause(); a.currentTime = a.effect.getComputedTiming().duration * f;
+    return new Promise(function (done) { requestAnimationFrame(function () { requestAnimationFrame(function () { requestAnimationFrame(function () {
+      done({ lk: +getComputedStyle(document.documentElement).getPropertyValue('--lk'), mix: window.Hourglass.renderer.mix, body: getComputedStyle(document.body).backgroundColor,
+             theme: document.querySelector('meta[name="theme-color"]').content, ink: getComputedStyle(document.getElementById('t-main')).color });
+    }); }); }); });
+  }, f);
+}
+function letGo(t) { return t.eval(function () { document.documentElement.getAnimations().forEach(function (a) { a.play(); }); }); }
+/** The picture's numbers: a patch of the room beside the glass, the bar's ground, and the glass's own drawn layers. */
+async function picture(t) {
+  var g = await t.glass();
+  var room = await pixels(t, { x: 4, y: Math.round(g.top + g.h * 0.4), width: 24, height: 24 });
+  var bar = await t.eval(function () { var r = document.querySelector('.panel').getBoundingClientRect(); return { x: Math.round(r.left + 6), y: Math.round(r.bottom - 10) }; });
+  var panel = await pixels(t, { x: bar.x, y: bar.y, width: 6, height: 4 });
+  var layers = await t.eval(function () {
+    return ['c-back', 'c-front'].map(function (id) { var c = document.getElementById(id); return Array.prototype.slice.call(c.getContext('2d').getImageData(0, 0, c.width, c.height).data); });
+  });
+  function mean(p) { var r = [0, 0, 0], n = p.d.length / 4; for (var i = 0; i < p.d.length; i += 4) { r[0] += p.d[i]; r[1] += p.d[i + 1]; r[2] += p.d[i + 2]; } return r.map(function (v) { return v / n; }); }
+  return { room: mean(room), bar: mean(panel), layers: layers };
+}
+/** m lies well between a and b, in each of its three channels (a and b far apart). */
+function between(a, m, b) { return a.every(function (v, i) { var lo = Math.min(v, b[i]), hi = Math.max(v, b[i]); return hi - lo > 8 && m[i] > lo + 0.15 * (hi - lo) && m[i] < hi - 0.15 * (hi - lo); }); }
+function layerDist(a, b) { var s = 0; for (var k = 0; k < a.length; k++) for (var i = 0; i < a[k].length; i++) s += Math.abs(a[k][i] - b[k][i]); return s; }
+async function fadeMid(env, routes, shots) {
+  var t = await opn(env, { storage: { background: 'dark' }, viewport: { width: 390, height: 844 }, routes: routes });
+  await sleep(700);
+  await t.eval(function () { window.Hourglass.setDuration(60000); });
+  await sleep(2600);
+  await t.eval(function () { window.Hourglass.start(); });
+  await sleep(1200);
+  var dark = await picture(t);
+  if (shots) await t.page.screenshot({ path: path.join(SHOTS, 'mode-fade-0.png') });
+  await t.page.tap('#btn-look');
+  var mid = null, held = null;
+  for (var f of [0.25, 0.5, 0.75]) {
+    var h = await holdFade(t, f);
+    if (f === 0.5) { held = h; mid = h ? await picture(t) : null; }
+    if (shots && h) await t.page.screenshot({ path: path.join(SHOTS, 'mode-fade-' + Math.round(f * 4) + '.png') });
+  }
+  await letGo(t);
+  await settled(t); await sleep(200);
+  var light = await picture(t);
+  if (shots) await t.page.screenshot({ path: path.join(SHOTS, 'mode-fade-4.png') });
+  var running = await t.eval(function () { return window.Hourglass.timer.state; });
+  await t.close();
+  if (!held || !mid) return { held: held, between: false };
+  var gd = layerDist(dark.layers, mid.layers), gl = layerDist(mid.layers, light.layers), all = layerDist(dark.layers, light.layers);
+  return { held: held, running: running, room: [dark.room, mid.room, light.room].map(function (c) { return c.map(Math.round).join('.'); }), bar: [dark.bar, mid.bar, light.bar].map(function (c) { return c.map(Math.round).join('.'); }),
+    glass: { fromDark: gd, toLight: gl, whole: all },
+    between: between(dark.room, mid.room, light.room) && between(dark.bar, mid.bar, light.bar) && gd > 0.15 * all && gl > 0.15 * all && gd < all && gl < all,
+    lk: held.lk };
+}
+async function fadeCase(s, env) {
+  var m = await fadeMid(env, null, !!SHOTS);
+  s.check('FADE: half way through a change of look (dark to light, a glass running) the page is between the two: the room beside the glass ' + (m.room || []).join(' / ') + ', the bar ' + (m.bar || []).join(' / ') + ', the glass\'s drawn layers, and the body\'s colour and the theme-color mixed',
+    m.between && m.held && m.held.lk > 0.3 && m.held.lk < 0.7 && m.held.mix > 0.3 && m.held.mix < 0.7 && m.held.theme !== '#0b0c0e' && m.held.theme !== '#f3f0ea' && m.running === 'running', JSON.stringify(m));
+  var none = routed(env, 'app.js', function (src) { return src.replace('var canFadeLook = !!(', 'var canFadeLook = false && !!('); });
+  var c = await fadeMid(env, [none]);
+  s.check('... and an app without the fade has nothing between the two: the look is changed at once (control)', !c.between, JSON.stringify(c));
+
+  // the ends: after a fade, exactly the look as it is opened (the page's colours, the metas, the glass's drawn layers)
+  async function endOf(look, act) {
+    var t = await opn(env, { storage: { background: look }, viewport: { width: 390, height: 844 } });
+    await sleep(800);
+    if (act) { await act(t); await settled(t); await sleep(300); }
+    var l = await lookOf(t), p = await picture(t), page = await pixels(t, { x: 0, y: 0, width: 390, height: 120 });
+    await t.close();
+    return { l: l, p: p, page: page.d };
+  }
+  var rows = [], ok = true;
+  for (var pair of [['dark', 'light'], ['light', 'dark']]) {
+    var faded = await endOf(pair[0], function (t) { return t.page.tap('#btn-look'); }), plain = await endOf(pair[1]);
+    var same = lookIs(faded.l, pair[1]) && layerDist(faded.p.layers, plain.p.layers) === 0 && faded.page.every(function (v, i) { return v === plain.page[i]; }) &&
+      faded.p.room.every(function (v, i) { return Math.abs(v - plain.p.room[i]) < 0.01; });
+    ok = ok && same;
+    rows.push(pair.join('→') + (same ? ' exact' : ' ' + said(faded.l) + ' glass ' + layerDist(faded.p.layers, plain.p.layers) + ' room ' + faded.p.room.map(Math.round) + ' vs ' + plain.p.room.map(Math.round)));
+  }
+  s.check('FADE: each end is exactly its look as the app opens in it: the page\'s top and the room, the metas, the moon button, and the glass\'s drawn layers to the pixel (' + rows.join(', ') + ')', ok, rows.join(' | '));
+}
+
+/** Whether the page ever fades (the class, or an animation of --lk), watched from its first line. */
+function watchFades() {
+  window.__fades = 0;
+  var bump = function () { window.__fades++; };
+  var anim = Element.prototype.animate;
+  Element.prototype.animate = function (k) { if (JSON.stringify(k || '').indexOf('--lk') >= 0) bump(); return anim.apply(this, arguments); };
+  new MutationObserver(function () { if (document.documentElement.classList.contains('look-fade')) bump(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+}
+async function launchCase(s, env) {
+  async function one(choice, routes) {
+    var t = await opn(env, { storage: { background: choice }, routes: routes, init: watchFades });
+    await t.reload();
+    await sleep(1500);
+    var r = await t.eval(function () { return window.__fades; }), l = await lookOf(t);
+    await t.close();
+    return { fades: r, look: l.look };
+  }
+  var a = await one('light'), b = await one('dark');
+  s.check('LAUNCH: the app opens in its look with no fade (light: ' + a.fades + ' fades, dark: ' + b.fades + ')', a.fades === 0 && b.fades === 0 && a.look === 'light' && b.look === 'dark', JSON.stringify([a, b]));
+  var late = routed(env, 'index.html', function (src) { return src.replace(/<script>\s*\(function \(\) \{\s*try \{\s*var s = JSON\.parse[\s\S]*?<\/script>/, ''); });
+  var fades = routed(env, 'app.js', function (src) { return src.replace('showLook(true);  ', 'showLook();      '); });
+  var c = await one('light', [late, fades]);
+  s.check('... and an app that put its look on only after the first frame, and faded to it, would fade at the launch (control)', c.fades > 0, JSON.stringify(c));
+}
+
+async function reduceCase(s, env) {
+  async function one(routes) {
+    var t = await opn(env, { storage: { background: 'dark' }, reducedMotion: true, routes: routes, init: watchFades });
+    await sleep(700);
+    await t.page.tap('#btn-look');
+    var at = await t.eval(function () { return new Promise(function (done) { requestAnimationFrame(function () { done({ body: getComputedStyle(document.body).backgroundColor, mix: window.Hourglass.renderer.mix }); }); }); });
+    var r = await t.eval(function () { return window.__fades; });
+    await t.close();
+    return { fades: r, at: at };
+  }
+  var a = await one();
+  s.check('REDUCE: with Reduce Motion a change of look is at once, as before: no fade, the next frame already light (' + a.at.body + ')', a.fades === 0 && a.at.body === 'rgb(243, 240, 234)' && a.at.mix === 1, JSON.stringify(a));
+  var deaf = routed(env, 'app.js', function (src) { return src.replace('canFadeLook && !reduceMotion && !document.hidden', 'canFadeLook && !document.hidden'); });
+  var c = await one([deaf]);
+  s.check('... and an app that fades all the same fades with Reduce Motion (control)', c.fades > 0, JSON.stringify(c));
+}
+
+async function twiceCase(s, env) {
+  async function one(taps, routes) {
+    var t = await opn(env, { storage: { background: 'dark' }, routes: routes });
+    await sleep(700);
+    await t.eval(function () {
+      var w = window.__lks = [];
+      (function step(n) { var c = document.documentElement.classList.contains('look-fade'); w.push([n || performance.now(), c ? +getComputedStyle(document.documentElement).getPropertyValue('--lk') : (document.documentElement.getAttribute('data-look') === 'light' ? 1 : 0)]); if (w.length < 400) requestAnimationFrame(step); })();
+    });
+    for (var i = 0; i < taps; i++) { await t.page.tap('#btn-look'); await sleep(110); }
+    var l = await lookOf(t);
+    // a jump: more of the way from one frame to the next than the fade goes in the time between them
+    // (it goes at most pi/2 of its way in LOOK_FADE_MS, 340 ms; a slow frame is allowed its time)
+    var w = await t.eval(function () { return window.__lks.slice(); }), jump = 0;
+    for (var k = 1; k < w.length; k++) jump = Math.max(jump, Math.abs(w[k][1] - w[k - 1][1]) - 0.0055 * (w[k][0] - w[k - 1][0]));
+    var mix = await t.eval(function () { return window.Hourglass.renderer.mix; });
+    await t.close();
+    return { l: l, jump: Math.round(jump * 1000) / 1000, mix: mix };
+  }
+  var two = await one(2), three = await one(3);
+  s.check('TWICE: two quick changes (dark, light, dark again within a fade) end exactly dark, three end exactly light, and the page goes on from where it is: never more from one frame to the next than the fade goes in that time (by ' + Math.max(two.jump, three.jump) + ' at most)',
+    lookIs(two.l, 'dark', 'dark') && lookIs(three.l, 'light', 'light') && two.mix === 0 && three.mix === 1 && two.jump < 0.06 && three.jump < 0.06, JSON.stringify([two, three]));
+  var restart = routed(env, 'app.js', function (src) { return src.replace('var from = lookNow(), fade', "var from = lookShown === 'light' ? 1 : 0, fade"); });
+  var c = await one(2, [restart]);
+  s.check('... and an app that starts each change again from the look it left jumps when changed in a fade (control)', c.jump >= 0.06, JSON.stringify(c));
+}
+
+async function paceCase(s, env) {
+  var t = await opn(env, { storage: { background: 'dark' } });
+  await sleep(700);
+  await t.eval(function () { window.Hourglass.setDuration(60000); });
+  await sleep(2600);
+  await t.eval(function () {
+    window.Hourglass.start();
+    var r = window.Hourglass.renderer, f = r._paperMix, w = window.__pace = { cost: [], frames: [] }, last = performance.now();
+    r._paperMix = function () { var t0 = performance.now(); try { return f.apply(this, arguments); } finally { w.cost.push(performance.now() - t0); } };
+    (function step(n) { w.frames.push(n - last); last = n; if (w.frames.length < 240) requestAnimationFrame(step); })(last);
+  });
+  await sleep(600);
+  var a = await t.eval(function () { var W = window.Hourglass, T = W.timer; return { rem: T.rem - (Date.now() - T.lastTick), at: Date.now(), sim: W.sim, n: W.sim.total }; });
+  for (var i = 0; i < 3; i++) { await t.page.tap('#btn-look'); await sleep(500); }
+  var b = await t.eval(function () {
+    var W = window.Hourglass, T = W.timer, w = window.__pace, c = w.cost.slice().sort(function (x, y) { return x - y; });
+    return { rem: T.rem - (Date.now() - T.lastTick), at: Date.now(), state: T.state, calls: c.length, worst: c[c.length - 1], median: c[c.length >> 1] };
+  });
+  await t.close();
+  var drift = Math.abs((a.rem - (b.at - a.at)) - b.rem);
+  s.check('PACE: three changes of look while a glass runs: its time the wall clock\'s (drift ' + Math.round(drift) + ' ms), the glass redrawn in each frame of a fade in ' + (b.median || 0).toFixed(1) + ' ms (the longest ' + (b.worst || 0).toFixed(1) + ' ms)',
+    b.state === 'running' && drift <= 40 && b.calls >= 10 && b.worst < 16, JSON.stringify(b));
+}
+
+/* ---- the pills under the glass at every width (1.20.1) --------------------------------- */
+async function pillsAt(env, w, look, quick, routes) {
+  var st = { background: look }; if (quick) st.quick = quick;
+  var t = await opn(env, { storage: st, viewport: { width: w, height: w >= 760 ? 800 : 844 }, routes: routes });
+  await sleep(450);
+  var r = await t.eval(function () {
+    var row = document.getElementById('durations'), c = document.getElementById('pill-custom'), rr = row.getBoundingClientRect(), cr = c.getBoundingClientRect(), pr = document.querySelector('.panel').getBoundingClientRect();
+    var ps = Array.prototype.map.call(row.querySelectorAll('.pill'), function (p) { var b = p.getBoundingClientRect(); return { t: p.textContent.trim(), l: b.left, r: b.right }; });
+    return { n: ps.length, whole: ps.every(function (p) { return p.l >= rr.left - 0.5 && p.r <= rr.right + 0.5 && p.r <= cr.left + 0.5; }) && cr.right <= pr.right + 0.5 && cr.left >= pr.left,
+      scroll: row.scrollWidth - row.clientWidth, last: ps[5] && ps[5].t, unit: getComputedStyle(row.querySelector('.pill i') || row).display, minW: getComputedStyle(row.querySelector('.pill')).minWidth };
+  });
+  if (SHOTS && w === 1280 && !quick) await t.page.screenshot({ path: path.join(SHOTS, 'mode-pills-' + look + '-1280' + (routes ? '-old' : '') + '.png'), clip: { x: 300, y: 600, width: 680, height: 200 } });
+  await t.close();
+  return r;
+}
+async function pillsCase(s, env) {
+  var rows = [], ok = true, phone = true;
+  for (var quick of [null, '99,99,99,99,99,99']) for (var w of [320, 360, 390, 430, 440, 441, 480, 560, 600, 768, 1024, 1280, 1600, 2560]) {
+    for (var look of (w === 1280 || w === 390 ? ['dark', 'light'] : ['dark'])) {
+      var r = await pillsAt(env, w, look, quick);
+      var good = r.n === 6 && r.whole && r.scroll <= 0;
+      ok = ok && good;
+      // a phone keeps its own pills: no "m", the narrow ones
+      if (w <= 440) phone = phone && r.unit === 'none' && (w <= 340 ? r.minW === '30px' : r.minW === '34px');
+      if (!good) rows.push(w + ' ' + look + (quick ? ' 99s' : '') + ' ' + JSON.stringify(r));
+    }
+  }
+  s.check('PILLS: the six pills and Custom show whole, with no scroll, at every width from 320 to 2560 px (the quick durations as they come and six of 99), in both looks', ok, rows.join(' | ') || 'all whole');
+  s.check('PILLS: on a phone (440 px and under) they are the phone\'s pills, as they were: no "m", 34 px at least (30 on the narrowest)', phone, '');
+  var old = routed(env, 'styles.css', function (src) { return src.replace('@container (max-width: 519px) {', '@container (max-width: 1px) {').replace('  .panel { max-width: 560px; }\n', ''); });
+  var c = await pillsAt(env, 1280, 'dark', null, [old]);
+  s.check('... and without the bar\'s own measure (the pills sized by the window alone, as before) the last pill is cut off by Custom at 1280 x 800 (control)', !c.whole || c.scroll > 0, JSON.stringify(c));
+}
+
 async function pictures(env) {
   if (!SHOTS) return;
   for (var look of ['dark', 'light']) {
@@ -676,15 +1000,22 @@ async function pictures(env) {
     if (want('ZEN')) await zenButton(s, env);
     if (want('DBL')) await dbl(s, env);
     if (want('KEYS')) await keys(s, env);
+    if (want('GROUND')) await ground(s, env);
+    if (want('FADE')) await fadeCase(s, env);
+    if (want('LAUNCH')) await launchCase(s, env);
+    if (want('REDUCE')) await reduceCase(s, env);
+    if (want('TWICE')) await twiceCase(s, env);
+    if (want('PACE')) await paceCase(s, env);
+    if (want('PILLS')) await pillsCase(s, env);
     await pictures(env);
   } catch (e) {
     s.check('the suite ran to its end', false, e && e.stack ? e.stack.split('\n').slice(0, 3).join(' ') : String(e));
   } finally {
     await env.close();
   }
-  if (want('OUTLINE')) {
-    try { await webglOutline(s, env.root, env.port); }
-    catch (e) { s.check('OUTLINE (WebGL) ran', false, String(e && e.message)); }
+  if (want('OUTLINE') || want('FADE')) {
+    try { await webglOutline(s, env.root, env.port, want('OUTLINE'), want('FADE')); }
+    catch (e) { s.check('OUTLINE and FADE (WebGL) ran', false, String(e && e.message)); }
   }
   s.done();
 })();

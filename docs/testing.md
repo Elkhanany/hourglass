@@ -546,8 +546,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   (release 1.19.0): each of the four backgrounds saved comes up in its look
   (the page's `data-look`, its theme-color, color-scheme and status-bar
   metas, the renderer's shading, the moon button's state and the Tune row's
-  choice); the four choices in Tune's Glass tab change the look at once with
-  nothing built again; the moon button turns to the other look and back, kept
+  choice); the four choices in Tune's Glass tab change the look with
+  nothing built again (a look is read once its fade is over); the moon button turns to the other look and back, kept
   over a reload, and turns Device or Daytime into a choice of its own; a save
   of 1.18.0 comes up dark; the reset link puts it back to dark; the first
   frame painted is in the right look for every choice (an init script reads
@@ -573,6 +573,30 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   click 0.75 s late, nothing started or turned (copies without it, with a
   finger's taken, with a 2 s wait must fail), and a keyboard alone (Tab,
   Enter, Escape) and a mouse alone (the button, a double-click) in and out.
+  Release 1.20.1 added: GROUND, the ground one from the top edge of the
+  screen to the bottom, as the home-screen app has it (the insets, 47 px above
+  and 34 px below, put in through the page's own variables, and `100dvh`
+  served 34 px short of the window), at 390 x 844, 393 x 852, 430 x 932, 375 x
+  667 and 320 x 568, in Zen and with Tune open, in both looks: the app's box is
+  the window's, and four columns near the sides, scanned from the screen's
+  pixels (5 above each point against 5 below), step by no more than 12 levels
+  outside a control (the app's box 100dvh tall again must fail); FADE, a
+  change of look held half way (its animation paused, `--lk` at 0.5) lies
+  between the two looks for the room beside the glass, the bar, the glass's
+  drawn layers, the body's colour and the theme-color, with a glass running
+  (an app without the fade must fail), and the rendered glass (software
+  WebGL) between its two programs' pictures (one that only switches program
+  must fail); each end of a fade exactly the look as the app opens in it, to
+  the pixel; LAUNCH, no fade at the launch in either look (a page that put
+  its look on after the first frame and faded to it must fail); REDUCE, at
+  once with Reduce Motion (an app that fades all the same must fail); TWICE,
+  two and three quick changes end exactly dark and light and never move
+  further in a frame than the fade goes in that time (an app that starts each
+  change again from the look it left must fail); PACE, a running glass keeps
+  the wall clock's time over three fades and the glass is redrawn in each
+  frame in under 16 ms; PILLS, the six pills and Custom whole with no scroll
+  at every width from 320 to 2560 px, also with six of 99, a phone's pills as
+  they were (without the bar's own measure the last pill is cut at 1280 px).
   `HOURGLASS_SHOTS=<folder>` keeps pictures of both looks. It runs alone
   (`--only CHOICES,TUNE,...` for parts).
   `app-look` covers the sand and the frame's finish chosen apart (release
