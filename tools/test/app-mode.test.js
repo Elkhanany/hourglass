@@ -460,19 +460,32 @@ async function outlines(s, env) {
 
 /**
  * The rendered glass half way through a change of look: its two programs' pictures, one over the
- * other, against the glass at either end (an idle glass, the region of the assembly on screen).
+ * other, against the glass at either end (an idle glass, the region of the assembly on screen, its
+ * two canvases alone on a fixed grey, so that the page fading behind it is not counted).
  */
+/** The rendered glass's two canvases alone on a fixed grey (on) or the page as it is (off): what is read is the glass's own picture. */
+function glassAlone(t, on) {
+  return t.eval(function (on) {
+    var st = document.getElementById('glass-alone');
+    if (!on) { if (st) st.remove(); return; }
+    st = document.createElement('style'); st.id = 'glass-alone';
+    st.textContent = 'html, body, html.look-fade, html.look-fade body { background: #808080 !important; } #app * { visibility: hidden !important; } ' +
+      '#c-glass-back, #c-glass-front { visibility: visible !important; } #ambient { display: none !important; }';
+    document.head.appendChild(st);
+  }, on);
+}
+async function glassPixels(t, clip) { await glassAlone(t, true); await sleep(300); var p = await pixels(t, clip); await glassAlone(t, false); return p; }
 async function webglFade(env, routes) {
   var t = await opn(env, { storage: { background: 'dark' }, viewport: { width: 390, height: 844 }, routes: routes });
   await sleep(2500);
   var g = await t.glass(), clip = { x: Math.round(g.left + g.w * 0.2), y: Math.round(g.top + g.h * 0.55), width: Math.round(g.w * 0.6), height: Math.round(g.h * 0.3) };
-  var a = await pixels(t, clip);
+  var a = await glassPixels(t, clip);
   await t.page.tap('#btn-look');
   var h = await holdFade(t, 0.5);
   await sleep(2500);                                   // (software WebGL: a frame takes most of a second)
-  var m = await pixels(t, clip);
+  var m = await glassPixels(t, clip);
   await letGo(t); await settled(t); await sleep(2500);
-  var b = await pixels(t, clip);
+  var b = await glassPixels(t, clip);
   await t.close();
   function dist(p, q) { var s2 = 0; for (var i = 0; i < p.d.length; i++) if ((i & 3) !== 3) s2 += Math.abs(p.d[i] - q.d[i]); return s2 / (p.d.length * 0.75); }
   var r = { held: !!h, fromDark: Math.round(dist(a, m) * 100) / 100, toLight: Math.round(dist(m, b) * 100) / 100, whole: Math.round(dist(a, b) * 100) / 100 };

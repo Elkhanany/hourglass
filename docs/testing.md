@@ -593,7 +593,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   between the two looks for the room beside the glass, the bar, the glass's
   drawn layers, the body's colour and the theme-color, with a glass running
   (an app without the fade must fail), and the rendered glass (software
-  WebGL) between its two programs' pictures (one that only switches program
+  WebGL, its two canvases read alone on a grey) between its two programs' pictures (one that only switches program
   must fail); each end of a fade exactly the look as the app opens in it, to
   the pixel; LAUNCH, no fade at the launch in either look (a page that put
   its look on after the first frame and faded to it must fail); REDUCE, at
