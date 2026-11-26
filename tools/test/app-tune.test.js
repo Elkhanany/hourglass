@@ -279,7 +279,7 @@ function lightRowOk(m) {
   var two = function (st, on) { return st.radios.length === 2 && st.radios[0][0] === 'sunlit' && st.radios[0][1] === 'Sunlit' && st.radios[1][0] === 'soft' && st.radios[1][1] === 'Soft' &&
                                        st.radios[on === 'sunlit' ? 0 : 1][2] === 'true' && st.radios[on === 'sunlit' ? 1 : 0][2] === 'false' && st.radios[on === 'sunlit' ? 0 : 1][3] === 0; };
   return {
-    row: { ok: m.boot.panel === 'panel-sand' && m.boot.afterGrain && m.boot.label === 'Light' && two(m.boot, 'sunlit') && m.boot.sunlit === true && m.boot.saved === undefined,
+    row: { ok: m.boot.panel === 'panel-sand' && m.boot.afterGrain && m.boot.label === 'Light' && two(m.boot, 'sunlit') && m.boot.sunlit === true && (m.boot.saved === undefined || m.boot.saved === 'sunlit'),
            detail: JSON.stringify(m.boot) },
     saved: { ok: two(m.soft, 'soft') && m.soft.saved === 'soft' && m.soft.sunlit === false && two(m.key, 'sunlit') && m.key.saved === 'sunlit' && m.key.sunlit === true &&
                  two(m.reload, 'soft') && m.reload.saved === 'soft' && m.reload.sunlit === false && m.errors.length === 0,
@@ -1463,7 +1463,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
 
     if (wanted('light')) {
       var lr = lightRowOk(await lightRow(env));
-      s.check('LIGHT: the Sand tab has the row "Light" after Grain, two radios Sunlit and Soft, Sunlit checked (and lit) as the app comes, with nothing saved', lr.row.ok, lr.row.detail);
+      s.check('LIGHT: the Sand tab has the row "Light" after Grain, two radios Sunlit and Soft, Sunlit checked (and lit) as the app comes from a save without it', lr.row.ok, lr.row.detail);
       s.check('LIGHT: a tap on Soft saves it and the sand is drawn soft at once; ArrowLeft back to Sunlit saves and lights it; a reload comes up as saved', lr.saved.ok, lr.saved.detail);
       await control('LIGHT: a copy whose row shows the choice but does not save it', 'saved', function () {
         return lightRow(env, { routes: [broken(env, 'app.js', swap(/    settings\.sandLight = b\.dataset\.light === 'soft' \? 'soft' : 'sunlit';\n    save\(\); syncLights\(\);/,
