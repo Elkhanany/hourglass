@@ -118,8 +118,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   record's `from` and the steps' order, on a made-up store, and an example
   for every `from` the app has, which must come up with something other
   than the default; the Time tab's two records (`quick` then `endsAt`,
-  the last two, right after the Sound tab's five, "1,5,10,15,30,60" and
-  false by default): saves of
+  right after the Sound tab's five, "1,5,10,15,30,60" and
+  false by default, followed only by the background and the sand's light): saves of
   1.13.0, 1.10.0 and 1.15.0 come up with both defaults and every other
   setting as they give them, good sets of six (two the same, all 99) are
   kept, and eighteen bad ones (five or seven counts, a nought, 100, a
@@ -127,7 +127,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   whole, and are saved so (a store that keeps any string, one that keeps a
   set with bad counts in it, one with the two the other way round, one
   whose switch is on by default and one with the two before the Sound tab's
-  five must fail); the names (every `settings.…` in `app.js` is a record,
+  five must fail); the sand's light (`sandLight`, the last record, after
+  the background, 'sunlit' by default: saves of 1.13.0, 1.10.0 and 1.20.0
+  come up sunlit with every other setting as they give them, 'soft' is
+  kept, eight other values are sunlit and saved so; a store that keeps any
+  value, one that is soft by default and one with it before the background
+  must fail); the names (every `settings.…` in `app.js` is a record,
   every record but the version is named there, none is read by a computed
   name); `bindSwitch` (the loaded value shown as it binds; then set, save
   and the callback inside the event); and that the file reads nothing when
@@ -260,7 +265,23 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   determinism, the valve, the clock and performance.
 - `render-*`: the crack paths, their redraw and the spilled sand's physics in
   Node; cracks, their glint, kintsugi and the spill in the real app; and,
-  with no cracks, the picture against f446085, pixel for pixel.
+  with no cracks, the picture against f446085, pixel for pixel (a Renderer
+  as it comes draws the sand Soft, so that comparison is Soft's).
+  `render-unit` also holds the sunlit sand (Tune's Light), in Node: on a
+  still, symmetric heap the left flank (toward the key) has at least 1.8
+  times the right's mean relative luminance in the light look and 1.5 times
+  in the dark, and with the glass turned over the lit flank is the one on
+  the screen's left (controls: the same heap drawn Soft, about 1 : 1, and a
+  key that does not turn back with the glass); Soft draws the sand's buffer
+  and the bloom byte for byte as 9937dc8 did, three running glasses (upright,
+  turned over, leaned) in both looks, hashed against that commit's own pieces
+  (`HOURGLASS_SOFT_BASE` names another; control: the same frames drawn
+  Sunlit differ); the tables are made once per shape, again on a change of
+  look or sand and on each frame of a fade, again for the light on a turn of
+  0.01 rad and not below, and never on a still frame (control: a look made
+  anew every frame is counted); and no pixel of sand, sunlit, lies outside
+  the glass's edge on any shape, upright, turned over and leaned, in both
+  looks (control: a drawing without the edge mask is found out).
   `render-shape` draws every glass shape as the app would, once with the
   drawn glass and once with the WebGL glass, and reads the layers back: no
   pixel of sand outside the glass, mid-run and through the Reset sweep; the
@@ -501,6 +522,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   13a9772 from git (`HOURGLASS_MAIN=<ref>` names another first release;
   the old saves are always made by those two releases).
   `app-tune` covers Tune's four tabs: one panel shown and remembered, the
+  Sand tab's Light row (after Grain, Sunlit checked and lit as the app comes,
+  a tap or an arrow key saves it and lights or softens the sand at once, a
+  reload as saved; control: a copy that shows the choice and does not save
+  it), the
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
   at boot, the reset link (what it puts back, the sand and its finish among it,

@@ -258,8 +258,8 @@
    */
   var KEY_LIGHT = (function () { var v = [-0.66, 0.52, 0.54], l = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); return Object.freeze([v[0] / l, v[1] / l, v[2] / l]); })();
   var SUNLIT = Object.freeze({
-    dark: Object.freeze({ A: 0.36, K: 0.95, X: 0.95, wrap: 0.40, C: 0.38, kw: 0.36, kd: 0.16, ks: 0.50, wd: 2.4, hlK: 0.8, tint: Object.freeze([255, 246, 230]) }),
-    paper: Object.freeze({ A: 0.44, K: 1.26, X: 1.00, wrap: 0.42, C: 0.32, kw: 0.32, kd: 0.10, ks: 0.45, wd: 2.4, hlK: 0.45, tint: Object.freeze([255, 242, 218]) })
+    dark: Object.freeze({ A: 0.52, K: 0.60, X: 0.95, wrap: 0.40, C: 0.30, kw: 0.30, kd: 0.16, ks: 0.50, wd: 2.4, hlK: 0.8, tint: Object.freeze([255, 246, 230]) }),
+    paper: Object.freeze({ A: 0.58, K: 0.95, X: 1.00, wrap: 0.42, C: 0.32, kw: 0.32, kd: 0.10, ks: 0.45, wd: 2.4, hlK: 0.45, tint: Object.freeze([255, 242, 218]) })
   });
 
   // Each sand's accent is its own and of its sand (1.20.1): the selected pill, the Start button and the

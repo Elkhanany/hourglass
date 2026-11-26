@@ -55,9 +55,11 @@ the pieces fit together).
 - **Sleep map.** Only rows near something that changed are swept, so a settled
   pile costs almost nothing during long timers.
 - **Sand rendering.** Each grain is a lit 2×2 bead with a persistent colour
-  seed, depth-based ambient occlusion, a rim-lit surface, glossy facets and
-  mica glints, written straight into an `ImageData` buffer. A half-resolution
-  bloom layer adds the light scattered around the brightest grains.
+  seed, written straight into an `ImageData` buffer. Under Tune's Light: Soft
+  (the sand as it was drawn up to 1.20) it has depth-based ambient occlusion,
+  a rim-lit surface, glossy facets and mica glints; under Sunlit (as the app
+  comes) it is lit by one key light, below. A half-resolution bloom layer adds
+  the light scattered around the brightest grains.
 - **Glass rendering.** The vessel is a surface of revolution, so every pixel
   has an exact 3-D normal. A WebGL fragment shader lights it like a renderer
   would: Fresnel reflection of a small studio (softbox, strip, kickers, a
@@ -75,6 +77,80 @@ the pieces fit together).
 - **Sand stays inside the glass.** The lattice only knows whole cells, so
   grains, motion streaks and the glow are all clipped at half-cell resolution
   to the same smooth inner surface the glass is drawn with.
+
+### The sunlit sand
+
+Tune's **Light: Sunlit** (`settings.sandLight`, `renderer.setSandLight`)
+lights the classic sand with one key light; Soft is `drawSand` as it was,
+byte for byte. The key is `HourglassPhysics.KEY_LIGHT` (`sand/sands.js`), a
+unit vector in the screen's axes (x right, y up, z toward the eye) from the
+upper left and in front, the quarter of the glass's key softbox in
+`glass/gl.js`'s room, so the glass's highlight and the sand's lit flank
+agree; Real sand reads the same constant. The light stays in the room: it is
+turned back by the angle the glass was last drawn at (`drawGlass`'s `rot`),
+so it stays upper left on screen when the glass leans or is turned over.
+
+- **The body** of sand pressed against the front glass is a surface of
+  revolution like the bore: across a row its normal is (s, 0, √(1 − s²)) with
+  s = (x − cx) / r(y), r from the shape's own `profile`, so all nine shapes
+  are lit by their own walls. Its light is ambient plus the key through the
+  glass (Fresnel transmission at both surfaces, falling toward the grazing
+  side), a wrapped Lambert term (sand is rough and a little translucent, so
+  its terminator is soft), a thin crescent just past the terminator (light
+  that runs inside the wall), all times a contact shade where the sand
+  meets the glass.
+- **The free surface** (heap, crater): each column's height in each bed is
+  the first resting grain the bead writer met in the frame before; the slope
+  over three spans gives the normal, and a horizon test toward the light (at
+  1, 2, 4, 8, 16 and 24 columns) a soft shadow where the bed hides the light
+  from itself. A grain's light goes from the surface's to the body's over
+  about two grains of depth, with a gentle darkening below.
+- **Colour.** A 48-level table per seed, as Soft's, but a shadow gains
+  chroma as it darkens (light bounced among coloured grains) and a lit grain
+  rolls toward the key's warm tint, on paper only half as far.
+- **Glints.** Each seed has a fixed facet tilt; a grain glints when its facet
+  faces the key's mirror direction, so a still bed glints in the same places
+  every frame and a tumbling grain (a moving cell) flashes. Only a share of
+  the seeds can glint at all, set per sand.
+- **Grains in flight** are small beads lit by half the key, a facet now and
+  then catching it.
+
+The two looks have their own constants (`HourglassPhysics.SUNLIT.dark` and
+`.paper`: ambient, key, exposure, wrap, crescent, contact, depth, shadow
+chroma, the surface's reach, the roll toward the tint). The white room
+lights the sand from everywhere, so it has the larger ambient; it also has
+the stronger key, so the light look's lit flank is about 2.4 times the shaded
+one in relative luminance across a symmetric heap and the dark look's about
+2 (render-unit measures both). While the looks fade (`_paperMix`) every
+constant is mixed by the same share and the tables rebuilt each frame of
+the fade; at rest each look's constants are exactly its own. Each sand's
+`sun` record says how it takes the light: `key` (the key's gain), `paper`
+(the key's gain on paper, and its square on the roll toward white: a pale
+sand gets less, or its lit side is lost in the page), `lift` (ambient added
+so that a dark sand's shaded flank is not black), `glints` (the share of
+seeds that can glint) and `mica` (how near the mirror direction a mica facet
+must face: higher is fewer). `customSand` works them out from the colour as
+it does the rest of the light (the paper key from the colour's mean
+brightness at mid light).
+
+The work is in tables: per shape, 16 bits a cell (the body normal's angle and
+the distance to the glass in half cells), made once; per look and sand, the
+constants, the colour table and the per-seed glint thresholds; per light (the
+glass turned by 0.01 rad or more, the same rule as the glass's redraw), the
+body's light and glint by angle and band, and each seed's facet term (3 ×
+256 entries and 16 × 256); per frame, the columns. A grain then costs a few
+lookups and multiply-adds; nothing is allocated per frame. Measured in Node
+on a filled phone-size glass (207 × 453 cells, 24,165 grains), `drawSand`
+takes about the same time under Sunlit as Soft does (about 1 ms on a
+desktop JIT for either). The timer, the physics and the sound read nothing
+of it: the light only reads the bed.
+
+Real sand is told the light and the look through the adapter, where it has
+the method: `real.setLight(light, m)`, `light` 'sunlit' or 'soft', `m` how
+much of the light look is shown (0 the dark, 1 the light, between while the
+looks fade). The app calls it when Real sand takes over, on every frame of a
+fade and at its end, and when the row changes; an engine without it draws on
+as before.
 
 Grain counts depend on the duration: on phones from about 10,000 (one minute)
 to 21,000 (45 minutes), up to 24,000 after adding sand; roughly 45 % more on

@@ -66,7 +66,8 @@ The **moon button** in the top bar turns the whole app from its dark look (a
 glass lit in a dark room, as it always was) to a light one on a soft paper
 white, and back. In the light look the button shows a sun. The glass is lit
 for a white room there, so that its outline and the thickness of its wall
-show as glass does on white; the sand keeps its colours, and even the palest
+show as glass does on white; the sand keeps its colours (lit, under Tune's
+Sunlit, by a brighter, warmer light than in the dark), and even the palest
 (Moonstone, a pale colour of your own) stands out of the paper; the warm glow
 behind the glass, which white cannot show, is a quiet wash of the sand's
 colour, and the breathing pace deepens it as you breathe in.
@@ -144,6 +145,17 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   behind a short fade; the running time is kept, a crack is not. Finer sand
   is more work for the phone: if the glass ever stutters on Finest, Fine has
   half as many grains for about a third of the work.
+- **Light** is Sunlit (as the app comes) or Soft. Sunlit lights the sand with
+  one light from the upper left, the side the glass's own highlight is on: the
+  heap has a lit flank and a shaded one, the sand darkens softly where it
+  touches the glass, a thin line of light lies along the far side of each bed,
+  and here and there a grain that faces the light glints, the same grains for
+  as long as the sand lies still. The light stays where it is in the room, so
+  it stays upper left when the glass is leaned or turned over. In the light
+  look the sand is lit more brightly and warmly than in the dark one, where it
+  keeps its calm. Soft is the even light the sand had before 1.21.0, exactly.
+  Nothing else changes with it: not the timer, the flow or the sounds. *Put
+  the look and sound back as they came* puts it back to Sunlit.
 - **In the hand: Real motion**: the sand feels what the phone feels. Lean it
   and the piles slump, lay it on its side and the flow (and the clock) stop,
   turn it over and the other bulb becomes the top. Walk and the falling
