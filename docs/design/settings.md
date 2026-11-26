@@ -1,11 +1,55 @@
 # Settings: the design, as built so far
 
 The settings design plans Tune's overhaul in steps, each its own release.
-This file holds the part that is built: its section 5, Real sand as the
+This file holds the parts that are built, each in short: section 2, Tune
+in four tabs (release 1.13.0); sections 3.3 and 3.4, the Sound tab's and
+the Time tab's own rows (release 1.17.0); and section 5, Real sand as the
 default (release 1.10.0). Section numbers are the design's own, so that a
-code comment can cite "(settings design 5.2)". Later steps (Tune in tabs,
-the sands and finishes, sound, time, the glass shapes) add their sections
-here as they are built.
+code comment can cite "(settings design 5.2)". The guide says what each
+row does; the sands and finishes (1.14.0) and the glass shapes (1.15.0)
+are described in [Architecture](../architecture.md) and the guide.
+
+---
+
+## 2. Tune in four tabs
+
+Tune is one sheet of four tabs, Sand, Glass, Sound and Time, one panel
+shown at a time. The tab shown last is saved (`tuneTab`) and Tune opens on
+it, at its top. The tab row is a tablist: one tab selected and alone in
+the Tab order, the arrow keys, Home and End moving between the tabs.
+Everything that can be set in Tune is in one of the four panels.
+
+### 2.2 One height
+
+The sheet has one height on all four tabs: its top edge sits 44 px under
+the neck of the glass as it is drawn (`TUNE_GAP` in `app.js`), so that the
+upper bulb, the neck and the stream stay in view while anything is chosen.
+It is never shorter than 220 px (`TUNE_MIN`); a phone on its side keeps the
+older limit, 28 px from the top. A tab too long for the sheet scrolls
+inside it, and the tab row stays where it is.
+
+## 3. The tabs' own rows
+
+### 3.3 The Sound tab
+
+After the volume, the ambience and its level, and the sand's sound, the
+Sound tab has five rows of its own, each with a default that is the sound
+as it was before them: the fade of the ambience before the end (off, or
+over the last 1, 5 or 10 minutes: `ambFade`), the Sand level (`sandLevel`,
+the sand's own sounds and the glass's), the bowl's Rings (`bowlRings`:
+once, three times, or until a tap) and its level (`bowlLevel`), and Sound
+in silent mode (`silentRing`, the page's audio session where the browser
+lets a page choose). The bowl's rows are shown only while the bowl is on,
+the fade's only with an ambience.
+
+### 3.4 The Time tab
+
+The Time tab holds the six quick durations under the glass, each set by
+the person with the custom-duration dial (`quick`), and Show when it ends
+(`endsAt`), with the rows that were Tune's before: the screen kept awake,
+breathing, Zen, and the buttons' tick. It ends with a quiet link that puts
+the look and the sound back as a new install has them: a first tap asks,
+a second within three seconds puts them back; everything else is kept.
 
 ---
 
@@ -13,7 +57,7 @@ here as they are built.
 
 Real sand (the GPU sand engine, [Real sand: the design](real-sand.md)) is on
 by default. Where it cannot run, the classic sand runs as it always has,
-and the app says why; the switch is the owner's alone.
+and the app says why; the switch is the person's alone.
 
 ### 5.1 The setting and the migrations
 
@@ -25,7 +69,7 @@ and the app says why; the switch is the owner's alone.
   cannot tell "never touched" from "turned off". After loading, `v` is set
   to 2 (the typed copy of the saved keys would otherwise carry an older
   `v` over the default). From then on a saved `realSand: false` is the
-  owner's choice and is kept.
+  person's choice and is kept.
 - Every later migration is keyed on the absence of its own key in the raw
   saved object, never on `v`, so each step can ship alone in any order.
 - **A new engine build gives a device that gave up a fresh try.**
@@ -71,11 +115,11 @@ and the app says why; the switch is the owner's alone.
 
 The classic sand shows first and Real sand cross-fades in once the engine
 has drawn its first frame (0.6 s in Chrome to 3.4 s in a home-screen web
-app opened cold, on an iPhone). The owner chose to hold the dark opening
+app opened cold, on an iPhone). The design holds the dark opening
 veil up to 1 s longer for that frame, so that most launches open straight
 on Real sand: the veil waits while Real sand is starting, at most 1 s from
 the first frame, then fades up as before. A reload that should open at once
-(the planned "Use this shape") sets sessionStorage `hourglass.openNow`
+("Use this shape") sets sessionStorage `hourglass.openNow`
 before it reloads; the boot takes the key and does not wait.
 
 ### 5.4 The hang watchdog

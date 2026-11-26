@@ -68,7 +68,7 @@
  *        CPU sand stays, never "On".
  *  NOREBUILD a rebuild that cannot open a device: the CPU sand stays, the note says it will try
  *        again next launch, nothing is counted, and the next launch takes over again.
- *  CRASH the glass does not crack with Real sand on (owner's choice: crash waits for a later
+ *  CRASH the glass does not crack with Real sand on (a decision of the design: crash waits for a later
  *        stage): a drop that cracks the CPU sand's glass (the control, switch off) only thumps and
  *        clacks on the GPU sand, and quick knocks creak nothing; a crack from before the switch was
  *        turned on stays, leaks nothing and can be mended; Reset makes the glass whole. The theme
@@ -1571,7 +1571,7 @@ async function testMigrate(s, env) {
     s.check('MIGRATE: a save without a version, with realSand false: Real sand comes up on and takes over; saved with v 2 and realSand true; the rest kept',
             st.live && st.dstate === 'on' && st.setting === true && st.v === 2 && keep.theme === 'lapis' && keep.durationMs === 10000 && keep.grain === 1,
             JSON.stringify({ dstate: st.dstate, setting: st.setting, v: st.v, keep: keep }));
-    // turned off by the owner now: a version-2 save, kept off from then on
+    // turned off by the person now: a version-2 save, kept off from then on
     await t.page.$eval('#opt-realsand', function (el) { el.click(); });
     await sleep(900);
     await waitFor(t, function () { return !!window.Hourglass && !!window.__mon && __mon.hooked; }, 15000);
@@ -1588,7 +1588,7 @@ async function testMigrate(s, env) {
     var st2 = await state(t2);
     s.check('MIGRATE: a save of version 1 with realSand false: on, saved with v 2', st2.live && st2.setting === true && st2.v === 2, JSON.stringify({ dstate: st2.dstate, setting: st2.setting, v: st2.v }));
   } finally { await t2.close(); }
-  // control: a save of version 2 with realSand false (the owner's own choice): off, nothing loaded
+  // control: a save of version 2 with realSand false (the person's own choice): off, nothing loaded
   var t3 = await open1({ v: 2, realSand: false, durationMs: 10000 });
   try {
     await sleep(1500);

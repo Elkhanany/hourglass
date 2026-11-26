@@ -35,7 +35,8 @@
  *            end of the phase now running; the switch off: today's words exactly, and none of
  *            the page's markup added; the end hidden from a screen reader in the live state line
  *            and given in the time's label instead; in Zen dimmed with the state line, and on a
- *            short screen hidden with it
+ *            short screen hidden with it; the phone's time zone changed while the glass runs
+ *            (Berlin to New York): within 10 s the end is given in the new zone
  *
  * Every check has its control: the same measurements on a copy with that one thing broken (a
  * line of app.js, a rule of the style sheet, the page's markup), handed to the page in place of
@@ -375,6 +376,31 @@ function endState(t) {
     };
   });
 }
+/** A glass running in Berlin, then the phone's time zone changed to New York (a flight), 11 s on. */
+async function endsZone(env, o) {
+  o = o || {};
+  // (the zone is set by this test's own DevTools session, which can change it later: one set as the page opens cannot be)
+  var t = await env.open(Object.assign({ locale: BERLIN.locale, init: clockInit, initArg: BERLIN.start,
+                                         storage: { 'hourglass.settings.v1': { durationMs: 600000, endsAt: true } } }, o.open || {})), m = {};
+  try {
+    await t.cdp.send('Emulation.setTimezoneOverride', { timezoneId: BERLIN.timezoneId });
+    await t.reload();
+    await sleep(800);
+    await t.page.tap('#btn-play');
+    await sleep(500);
+    m.before = await endState(t);
+    await t.cdp.send('Emulation.setTimezoneOverride', { timezoneId: 'America/New_York' });
+    await t.eval(function () { window.__jump(11000); });
+    await sleep(500);
+    m.after = await endState(t);
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+function endsZoneOk(m) {
+  return { zone: { ok: m.before.text === 'Flowing · ends 14:34' && m.after.want === '08:34' && m.after.text === 'Flowing · ends 08:34' && /ends 08:34/.test(m.after.label) && !m.errors.length,
+                   detail: 'in Berlin "' + m.before.text + '"; the zone changed to New York: "' + m.after.text + '" (the page\'s clock says ' + m.after.want + '), the label "' + m.after.label + '"' } };
+}
 var BERLIN = { locale: 'en-GB', timezoneId: 'Europe/Berlin', start: Date.UTC(2026, 10, 24, 13, 24, 40) };      // 14:24:40 there
 var NEW_YORK = { locale: 'en-US', timezoneId: 'America/New_York', start: Date.UTC(2026, 10, 24, 19, 24, 40) };  // 2:24:40 PM there
 async function ends(env, place, o) {
@@ -591,6 +617,8 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       s.check('ENDS: on a short screen (320 x 568), where the state line is not drawn, the end is not drawn either', sh.start.text === 'Flowing · ends 14:34' && !sh.start.statusDrawn && !sh.start.ends.drawn,
               '"' + sh.start.text + '", the line drawn: ' + sh.start.statusDrawn + ', the end drawn: ' + sh.start.ends.drawn);
 
+      var zn = endsZoneOk(await endsZone(env));
+      s.check('ENDS: the phone\'s time zone changed while the glass runs (Berlin to New York): within 10 s the end is in the new zone, on the line and in the label', zn.zone.ok, zn.zone.detail);
       // the controls
       var endsCopy = function (file, change, place) { return function () { return ends(env, place || BERLIN, { open: copy(file, change) }); }; };
       await control('ENDS: a copy that writes the end to the page at every frame', 'minute',
@@ -605,6 +633,9 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
         endsCopy('app.js', swap("{ timeStyle: 'short' }", "{ hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }"), NEW_YORK), function (m) { return endsOk(m, NEW_YORK); });
       await control('ENDS: a style sheet that draws the end in Zen at full strength', 'zen',
         endsCopy('styles.css', add('#app.zen .hud { opacity: 1 !important; }')), function (m) { return endsOk(m, BERLIN); });
+      await control('ENDS: a copy that keeps the time zone it started in (as up to 1.19.0)', 'zone', function () {
+        return endsZone(env, { open: copy('app.js', swap('if (zone !== endsZone) {', 'if (false) {')) });
+      }, endsZoneOk);
       await control('ENDS: a copy that shows the end whatever the switch says', null, function () {
         return ends(env, BERLIN, { save: { endsAt: false }, open: copy('app.js', swap("if (!settings.endsAt || T.state !== 'running'", "if (T.state !== 'running'")) });
       }, function (o2) { return { off: { ok: plain(o2.start, 'Flowing'), detail: '"' + o2.start.text + '"' } }; });

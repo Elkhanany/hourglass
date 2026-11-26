@@ -48,6 +48,10 @@ deep-water teal.
   as it comes, each one yours to change in Tune), or any time from 10
   seconds to 99:59. The last grain leaves the neck at `00:00.0`,
   even if the phone slept in between.
+- **Nine glasses.** Classic, Lozenge, Delta, Ampoule, Trumpet, Florence,
+  Onion, Bell and Gourd, chosen in Tune's Glass tab. Each holds its own full
+  glass and runs out on time; a glass running when its shape is changed keeps
+  its time.
 - **Work and rest.** A custom time can be followed by a rest, and the pair
   repeated: 25 minutes, then 5, four times. When a glass runs out a soft bowl
   sounds, the glass turns itself over, and the same sand runs the rest.
@@ -122,13 +126,13 @@ deep-water teal.
 | Mend a crack | Hold a finger still on the glass | |
 | Add sand (extends the timer) | Tap or hold **Sand** | focus + hold `Space` |
 | Reset: the old sand is drawn into the neck, new sand is poured in | **Reset** | `R` |
-| Duration | Pills `1 5 10 15 30 60` min, **Custom**, or tap the time (10 s to 99:59) | |
+| Duration | Six quick pills (`1 5 10 15 30 60` min as it comes, each set in **Tune**), **Custom**, or tap the time (10 s to 99:59) | arrow keys among the pills |
 | Work and rest | **Custom** (or tap the time): *Then rest* 1 to 60 min, *Rounds* 1 to 12 | |
 | Zen: the glass fills the window | Spread two fingers, the Zen button, or double-click the background (mouse, pen) | |
 | Back from Zen | Pinch two fingers together, or double-click the background | `Esc` |
 | Light or dark | The moon button (a sun in the light look); **Tune**, Glass, *Background* | |
 | Mute | Speaker icon | `M` |
-| Sand, glass, sound and time: sand, frame and its finish, ambience, motion, breathing, screen | **Tune** (four tabs) | arrow keys between the tabs |
+| Sand, glass, sound and time: sand, shape, frame and its finish, ambience, the bowl, motion, breathing, screen | **Tune** (four tabs) | arrow keys between the tabs and in a set of choices |
 
 ## Documents
 

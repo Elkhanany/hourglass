@@ -55,8 +55,8 @@ the sand. A minute is a tenth of a bulb, five a good fifth, ten a third,
 fifteen two fifths, thirty over half. (Strictly in proportion, a minute would
 be a pinch and every glass would run with the thin thread of the hour glass.)
 Each shape of glass (Tune, Glass) has its own full glass, as much as fits
-under its neck. Delta, whose low ends hold less, is full at an hour with no
-room to spare: there the **Sand** button reads **Full**, and a tap on it says
+under its neck. Delta, whose low ends hold less, and Trumpet are full at an
+hour with no room to spare: there the **Sand** button reads **Full**, and a tap on it says
 that the glass is full. Any glass reads so once sand has been poured in to
 the brim.
 
@@ -98,7 +98,9 @@ stays where it is. While a tab has more below, its rows fade into the
 bottom of the sheet and a small arrow there points down; it goes once you
 reach the end. Tune opens on the tab used last, at its top. Tap outside
 the sheet, the close button or `Esc` to close it; on a keyboard the arrow
-keys move between the tabs.
+keys move between the tabs. A set of choices (the sands, the shapes, Rings,
+the durations under the glass and the rest) is one stop for `Tab`, at the
+one chosen; the arrow keys, `Home` and `End` choose another in it.
 
 **Sand**
 
@@ -146,7 +148,7 @@ keys move between the tabs.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.19.0" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.19.1" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;
@@ -193,19 +195,30 @@ keys move between the tabs.
 - **Sand sound**: six voicings of the falling sand.
 - **Sand**: how loud the sand's own sounds are (the stream, its grains, the
   glass ringing, thumps, slides and the slosh, with either sand), from 0 to
-  100. 100 is the sand as it has always been; the bowl and the ambience keep
-  their own levels.
+  100. The glass's own sounds go with them: the creak before a crack, the
+  crack and its growth, a chip, the mend's hum and the air of a turning
+  glass, so at 0 no creak warns of a crack. 100 is the sand as it has always
+  been; the bowl and the ambience keep their own levels.
 - **End of the glass: Completion bowl**, a soft singing-bowl bloom when the
   last grain falls. While it is on:
   - **Rings**: *Once* (as it always was), *Three times* (again about 8.5 s
     and 17 s later) or *Until a tap* (again every 8.5 s, for 10 minutes at
     most). While the bowl is still to ring again, the first tap anywhere, or
     the first key, only stops it: it does nothing else (it does not start a
-    new glass or press the button it lands on). The next one works as always.
+    new glass or press the button it lands on). The next one works as always,
+    however soon it comes.
+    The bowl rings again only when it can be heard: muted, with *Sound* or
+    *Bowl* at 0, it rings no more and takes no tap, and muting or turning
+    either down to 0 while it is due stops it. (A page cannot see the
+    phone's ringer switch: with *Sound in silent mode* off and the ringer
+    off, the rings are not heard, but the first tap still only stops them.)
     The rings keep the screen on only with *Keep screen awake* on. Nothing
     can ring while the phone is locked or the app is in the background; come
     back and a ring whose time has passed is not played late, the next comes
-    on its time. Between the phases of work and rest the bowl rings once, as
+    on its time. A glass that ran out while the phone slept rings its bowl as
+    you come back, and the rings are counted from that bowl (*Until a tap*
+    still ends 10 minutes after the glass ran out). If the phone's clock is
+    set back to before the end, the rings end. Between the phases of work and rest the bowl rings once, as
     before: *Rings* is for the last end. Reset, another duration, a turn or a
     new start stop it too.
   - **Bowl**: the bowl's level, 0 to 100. 50 is the bowl as it always was,
@@ -231,7 +244,8 @@ keys move between the tabs.
   own.
 - **The clock: Show when it ends** (off as the app comes): while a glass
   runs, the line under the time says when it will reach `00:00.0`, as
-  *Flowing · ends 14:35*, in the phone's own 12 or 24 hour style. It is the
+  *Flowing · ends 14:35*, in the phone's own 12 or 24 hour style and time
+  zone (a new zone, after a flight, within 10 seconds). It is the
   end of the glass that is running now: sand added, a turn, a pause or a new
   duration moves it, and it is gone while the glass is paused, turning or
   finished. In a work and rest sequence it is the end of the phase that is
@@ -419,7 +433,8 @@ does, and the running time is kept. The app never turns it off by itself.
 
 What stays as it was: the clock (the last grain leaves the neck at
 `00:00.0`; in the sand lab on an iPhone it left within 5 ms of it in every
-run), the glass and its frame, the six sands and layered sand, Flip,
+run), the glass and its frame, every glass shape, every sand and a colour
+of your own, layered sand, Flip,
 turning and spinning the glass, **Sand**, **Reset** with its one-second
 transition, work and rest, Real motion with the phone lying still or in the
 hand, the glass carrying on across reloads, the sound of the stream, the

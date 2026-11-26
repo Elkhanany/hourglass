@@ -8,6 +8,11 @@
  *  - The app's shortcut ("./?t=300", manifest.json) over a saved session of
  *    the same glass: the session gives way to it (a new glass, idle, 5:00);
  *    a plain launch before it, the control, picks the running glass up.
+ *  - Launched at "./?t=300", the preset is applied once and ?t= leaves the
+ *    address: a running glass is kept, with its time, through the browser's
+ *    reload and the app's own for "Use this shape", Grain and Real sand, and
+ *    a duration picked after the launch is kept (a pill, then a reload). The
+ *    control: a copy of app.js that leaves ?t= in the address loses them.
  *
  *   node tools/test/app-session.test.js [--root <dir>] [--port <n>]
  */
@@ -147,12 +152,88 @@ async function shortcut(s, env) {
   }
 }
 
+/**
+ * After a launch at "./?t=300": each way the page is loaded again keeps the running glass. `how`
+ * is what reloads it; `pick` taps a pill first (a duration chosen after the launch). With
+ * opts.leaveT, app.js is served without the line that takes ?t= out of the address (the control).
+ */
+var KEPT = [
+  { name: 'the browser\'s reload', how: function (t) { return t.page.reload(); } },
+  { name: '"Use this shape" (Delta)', how: function (t) {
+      return t.eval(function () {
+        var b = document.querySelector('#shapes [data-shape="delta"]'); b.click();
+        document.getElementById('shape-use').click();
+      });
+    } },
+  { name: 'another Grain', how: function (t) {
+      return t.eval(function () {
+        var bs = document.querySelectorAll('#grains [data-grain]');
+        for (var i = 0; i < bs.length; i++) if (bs[i].getAttribute('aria-checked') !== 'true') { bs[i].click(); return; }
+      });
+    } },
+  { name: 'the Real sand switch', how: function (t) { return t.page.$eval('#opt-realsand', function (el) { el.click(); }); } },
+  { name: 'the 15-minute pill after the launch, then the browser\'s reload', pick: 15, how: function (t) { return t.page.reload(); } }
+];
+async function shortcutKept(s, env, opts) {
+  opts = opts || {};
+  var out = [];
+  var routes = [];
+  if (opts.leaveT) {
+    var src = require('fs').readFileSync(require('path').join(env.root, 'app.js'), 'utf8');
+    var cut = src.replace(/\n *if \(qt\) try \{ history\.replaceState\([^\n]*\n/, '\n');
+    if (cut === src) return [{ name: 'the control copy', ok: false, got: 'the line was not found in app.js' }];
+    routes.push({ url: '**/app.js', handler: function (route) { route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: cut }); } });
+  }
+  for (var i = 0; i < KEPT.length; i++) {
+    var k = KEPT[i], t = await env.open({ motionStub: CFG.stub, query: '?t=300', routes: routes });
+    try {
+      if (k.pick) {
+        await t.eval(function (min) { document.querySelector('.pill[data-min="' + min + '"]').click(); }, k.pick);
+        await sleep(400);
+      }
+      await t.eval(function () { window.Hourglass.start(); });
+      await sleep(1500);
+      var before = await t.eval(function () {
+        var T = window.Hourglass.timer; window.__before = 1;
+        return { search: location.search, state: T.state, durationMs: T.durationMs, rem: T.rem, now: Date.now() };
+      });
+      await k.how(t);
+      await t.page.waitForFunction(function () { return !window.__before && window.Hourglass && window.__mon && window.__mon.hooked; }, null, { timeout: 20000 });
+      await sleep(600);
+      var after = await t.eval(function () {
+        var T = window.Hourglass.timer, saved = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}');
+        return { search: location.search, state: T.state, durationMs: T.durationMs, rem: T.rem, now: Date.now(), saved: saved.durationMs };
+      });
+      var want = (k.pick ? k.pick * 60000 : 300000), off = after.rem - (before.rem - (after.now - before.now));
+      out.push({ name: k.name, ok: before.search === '' && before.state === 'running' && before.durationMs === want &&
+                 after.state === 'running' && after.durationMs === want && after.saved === want && Math.abs(off) <= 150 && t.errors.length === 0,
+                 got: 'before ' + JSON.stringify({ search: before.search, state: before.state, dur: before.durationMs }) +
+                      ', after ' + JSON.stringify({ state: after.state, dur: after.durationMs, saved: after.saved }) + ', time left ' + Math.round(off) + ' ms off' +
+                      (t.errors.length ? ', errors ' + t.errors.slice(0, 2).join(' | ') : '') });
+    } finally {
+      await t.close();
+    }
+  }
+  return out;
+}
+async function shortcutReloads(s, env) {
+  var got = await shortcutKept(s, env, {});
+  got.forEach(function (r) {
+    s.check('SHORTCUT KEPT: launched at "./?t=300", ?t= gone from the address, a running glass is kept with its time through ' + r.name, r.ok, r.got);
+  });
+  var ctl = await shortcutKept(s, env, { leaveT: true });
+  var lost = ctl.filter(function (r) { return !r.ok; });
+  s.check('SHORTCUT KEPT: ... and a copy of app.js that leaves ?t= in the address loses the glass in every one of them (control)',
+          lost.length === KEPT.length, ctl.map(function (r) { return r.name + ': ' + r.got; }).join(' || ').slice(0, 900));
+}
+
 async function main() {
   var s = new H.Suite('app-session');
   var env = await H.start();
   try {
     await run(s, env, {});
     await shortcut(s, env);
+    await shortcutReloads(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {
@@ -161,5 +242,5 @@ async function main() {
   s.done();
 }
 
-module.exports = { CFG: CFG, run: run, shortcut: shortcut };
+module.exports = { CFG: CFG, run: run, shortcut: shortcut, shortcutReloads: shortcutReloads };
 if (require.main === module) main();

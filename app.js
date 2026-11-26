@@ -86,6 +86,10 @@
   var settings = Store.load(function () { return localStorage; }, location.search, { themes: P.THEMES, sands: P.SANDS, finishes: P.FINISHES, finishOf: P.finishOf, shapes: P.SHAPES });
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts (a saved session gives way to it)
   var qt = Store.preset(location.search);
+  // Applied once: ?t= then leaves the address, every other item of the query kept. A reload (the
+  // app's own for a shape, a grain or Real sand, or the browser's) is then a plain launch, which
+  // picks the running glass up and keeps the duration chosen since (the boot's saves hold it).
+  if (qt) try { history.replaceState(history.state, '', location.pathname + Store.unpreset(location.search) + location.hash); } catch (e) {}
   function save() { Store.save(settings); }
 
   /* ======================================================================
@@ -298,14 +302,21 @@
    * standing still) would be said again each minute. A screen reader finds it in the time's label.
    */
   var endsEl = document.createElement('span'), endsShown = null, endsMin = NaN, endsWords = '', endsFmt = null;
+  var endsZone = null, endsZoneAt = -1e15;          // the time zone the words were made in, and when it was last looked at
   var READOUT_SAID = $('readout').getAttribute('aria-label');
   endsEl.id = 'ends';
   endsEl.setAttribute('aria-hidden', 'true');
   /** "ends 14:35" (or "ends 2:35 PM") for a glass now running, else ''. */
   function endsText() {
     if (!settings.endsAt || T.state !== 'running' || flip.active || seq.gap || T.rem <= 0) return '';
-    var at = Date.now() + T.rem, min = Math.floor(at / 60000);
-    if (min !== endsMin) {                             // (worked out again only when its minute changes)
+    var now = Date.now(), at = now + T.rem, min = Math.floor(at / 60000);
+    if (now - endsZoneAt > 10000 || now < endsZoneAt) {   // (every 10 s: the phone's time zone may change while the app is open, after a flight)
+      endsZoneAt = now;
+      var zone = null;
+      try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (e) {}
+      if (zone !== endsZone) { endsZone = zone; endsFmt = null; endsMin = NaN; }
+    }
+    if (min !== endsMin) {                             // (worked out again only when its minute changes, or the zone)
       endsMin = min;
       try {
         if (!endsFmt) endsFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
@@ -379,7 +390,9 @@
   function finish(over) {
     if (seq.rest) seq.phase = 2 * seq.rounds;   // a sequence is over: turned again, it starts from its first glass
     endWall = Date.now();            // before setState: the wake lock covers the ending
-    ringsBegin(endWall - (over > 0 ? over : 0) + BOWL_AT);
+    // the rings are counted from the bowl as it is rung now (late, when the end was found late: after
+    // a sleep), so that the next is never crowded on it; Until a tap still ends 10 minutes after the end
+    ringsBegin(endWall + BOWL_AT, endWall - (over > 0 ? over : 0) + BOWL_AT);
     setState('done');
     audio.chime(BOWL_AT / 1000);     // after the last grain has landed
     audio.end(BOWL_AT / 1000);       // the stream flows on to the bowl, then recedes under it
@@ -416,7 +429,9 @@
    * phase is never held up. The rings keep their times on the wall clock and are rung from the
    * frame loop, so nothing rings while the page is hidden (a locked phone, another app): back
    * on screen, a ring whose time has passed is dropped, not played late, and the rings end at
-   * their 10 minutes whatever happened meanwhile. While the bowl is still to ring again, the
+   * their 10 minutes whatever happened meanwhile. A glass found run out late (after a sleep)
+   * rings its bowl then, and the rings are counted from that bowl; a clock set back to before
+   * the end ends them (and lets the screen go). While the bowl is still to ring again, the
    * first tap (on the glass, a button, anywhere), or the first key, only stops it: it is used
    * up, and does nothing else. Reset, another duration, a turn and a start stop it too. The
    * screen is kept awake for the rings only when Keep screen awake is on.
@@ -426,11 +441,19 @@
   var rings = null;                  // { t0: the first ring's time (Date.now()), k: the next ring's number, n: the last's }
   /** The ring numbers after the first, for a choice: 'three' 1 and 2; 'tap' up to 10 minutes; 'once' none. */
   function ringsLast(choice) { return choice === 'three' ? 2 : choice === 'tap' ? Math.floor(RING_MAX / RING_GAP) : 0; }
-  function ringsBegin(t0) {
+  function ringsBegin(t0, end) {
     ringsStop();
-    var n = settings.chime ? ringsLast(settings.bowlRings) : 0;
-    if (n) rings = { t0: t0, k: 1, n: n };
+    var n = ringsHeard() ? ringsLast(settings.bowlRings) : 0;
+    if (settings.bowlRings === 'tap' && end !== undefined) n = Math.min(n, Math.floor((end + RING_MAX - t0) / RING_GAP));   // (no later than 10 minutes after the end)
+    if (n > 0) rings = { t0: t0, k: 1, n: n };
   }
+  /**
+   * The bowl can be heard: on, the app not muted, Sound and Bowl above 0. Only then do the rings
+   * begin (and take the first tap); muted or turned down to 0 while they are due, they stop.
+   * (The phone's own ringer switch cannot be seen by a page.)
+   */
+  function ringsHeard() { return !!settings.chime && !settings.muted && settings.volume > 0 && settings.bowlLevel > 0; }
+  function ringsUnheard() { if (!ringsHeard()) ringsStop(); }
   /** The bowl is still to ring again: a tap now only stops it. */
   function ringsDue() { return rings !== null && T.state === 'done'; }
   /** No more rings; `hush`: the bowl that rings now fades away too (a tap stopped it). */
@@ -445,36 +468,46 @@
     if (!rings || document.hidden) return;
     if (T.state !== 'done') { ringsStop(); return; }
     var now = Date.now(), due = Math.floor((now - rings.t0) / RING_GAP);   // the last ring whose time has come
+    if (now < endWall - 1000) { ringsStop(); return; }                     // (the clock was set back to before the end: no ring would come for as long, so none does)
     if (due < rings.k) return;
     if (due > rings.n) { ringsStop(); return; }                             // (over while away)
     if (now - (rings.t0 + due * RING_GAP) <= RING_LATE) audio.chime(0);     // (those before it, long past, are dropped; so is it, if it is late too)
     if (due >= rings.n) ringsStop(); else rings.k = due + 1;
   }
   // The tap that stops the bowl is used up: seen first (on the window, capturing), it goes no
-  // further, nor do the rest of its gesture (its pointer's moves and lift, the click and the
-  // touch and mouse events that follow it) or the key's own lift and click.
-  var ringEat = null;                // { id: the pointer, up: when it lifted (0: still down) } or { key }
+  // further, nor does the rest of that one gesture: its pointer's moves and lift, its touch's
+  // events, and the mouse events and the click that follow its lift, or the key's own repeats,
+  // lift and click. The next gesture is never eaten: a new pointer down (a finger, a mouse
+  // button), a new touch or another key gets through as always, however soon it comes.
+  var ringEat = null;                // { id: the pointer, touch: its touch's identifier, up: when it lifted (0: still down) } or { key, up }
   function ringEaten(e) {
     onGesture();                     // (what every gesture does still happens: the sound unlocked, the wake lock asked for)
     e.stopImmediatePropagation();
     if (e.cancelable) e.preventDefault();
   }
+  /** The touch event is the eaten gesture's own touch (a new finger's is not). */
+  function ringTouch(e, q) {
+    var c = e.changedTouches || [];
+    for (var i = 0; i < c.length; i++) if (c[i].identifier === q.touch) return true;
+    return false;
+  }
   window.addEventListener('pointerdown', function (e) {
+    if (ringEat && (ringEat.up || ringEat.key !== undefined || e.pointerId !== ringEat.id)) ringEat = null;   // (a new gesture: never eaten)
     if (!ringsDue()) return;
     ringsStop(true);
-    ringEat = { id: e.pointerId, up: 0 };
+    ringEat = { id: e.pointerId, touch: null, up: 0 };
     ringEaten(e);
     buzz(10);
   }, true);
   window.addEventListener('keydown', function (e) {
     if (ringEat && ringEat.key === e.key && !ringEat.up) { ringEaten(e); return; }   // (a key held down repeats)
-    if (ringEat && ringEat.up) ringEat = null;                          // (that key has come up: its gesture is over)
+    if (ringEat && (ringEat.up || ringEat.key !== e.key)) ringEat = null;           // (another key, or that one again: a new gesture)
     if (!ringsDue() || e.metaKey || e.ctrlKey || e.altKey || /^(Shift|Control|Alt|Meta|CapsLock)$/.test(e.key)) return;
     ringsStop(true);
     ringEat = { key: e.key, up: 0 };
     ringEaten(e);
   }, true);
-  ['pointermove', 'pointerup', 'pointercancel', 'touchstart', 'touchmove', 'touchend', 'mousedown', 'mouseup', 'click', 'keyup', 'contextmenu'].forEach(function (type) {
+  ['pointermove', 'pointerup', 'pointercancel', 'touchstart', 'touchmove', 'touchend', 'touchcancel', 'mousedown', 'mouseup', 'click', 'keyup', 'contextmenu'].forEach(function (type) {
     window.addEventListener(type, function (e) {
       var q = ringEat;
       if (!q) return;
@@ -484,8 +517,14 @@
         if (type === 'click' && (!q.up || performance.now() - q.up < 50)) ringEaten(e);
         return;
       }
-      if ((type === 'pointerup' || type === 'pointercancel') && e.pointerId === q.id) q.up = performance.now();
-      if (type.indexOf('pointer') === 0 && e.pointerId !== q.id) return;
+      if (type.indexOf('pointer') === 0) {                                       // (its own pointer only, until it lifts)
+        if (e.pointerId !== q.id || q.up) return;
+        if (type !== 'pointermove') q.up = performance.now();
+      } else if (type.indexOf('touch') === 0) {                                  // (its own touch only: the first to start after its pointer went down)
+        if (q.touch === null && type === 'touchstart' && !q.up) q.touch = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].identifier : -1;
+        else if (!ringTouch(e, q)) return;
+        if (type === 'touchend' || type === 'touchcancel') { ringEaten(e); ringEat = null; return; }   // (a touch's lift cancelled: no mouse events, no click follow it)
+      }
       ringEaten(e);
       if (type === 'click') ringEat = null;
     }, true);
@@ -1845,6 +1884,8 @@
    * ==================================================================== */
   var ZEN_SETTLE = 1500;             // ms: the fade into Zen (styles.css), after which the dim controls take no taps
   var END_AWAKE = 12000, endWall = -1e9;
+  /** The glass ended less than END_AWAKE ago (a clock set back to before the end is not "just"). */
+  function justEnded() { var ago = Date.now() - endWall; return ago >= -1000 && ago < END_AWAKE; }
   var zenSince = 0;
   /** Enter or leave Zen. True if that changed anything. */
   function setZen(on) {
@@ -2293,7 +2334,7 @@
   var awakeNote = $('awake-note');
   function wantAwake() {
     return settings.keepAwake && !document.hidden &&
-      (T.state === 'running' || (T.state === 'done' && (Date.now() - endWall < END_AWAKE || ringsDue())));
+      (T.state === 'running' || (T.state === 'done' && (justEnded() || ringsDue())));
   }
   function showAwake() {
     awakeNote.textContent =
@@ -2777,6 +2818,7 @@
   function setMuted(m) {
     settings.muted = m; save();
     audio.setMuted(m);
+    ringsUnheard();
     btnMute.setAttribute('aria-pressed', m ? 'true' : 'false');
     btnMute.setAttribute('aria-label', m ? 'Unmute sound' : 'Mute sound');
   }
@@ -3206,6 +3248,44 @@
     });
   }
 
+  /*
+   * Every radio group (the durations under the glass, and Tune's sands, grains, shapes, finishes,
+   * looks, ambiences, fades, sounds, rings and breaths) is one stop in the Tab order, as the tab
+   * row is: its checked option (the shape looked at, for the shapes; the first, when none is) has
+   * tabindex 0 and the others -1, kept so as aria-checked changes. In a group the arrow keys
+   * (Right and Down the next, Left and Up the one before, round the ends), Home and End move the
+   * focus and choose, by the option's own click: a key does what a tap does, through the same
+   * handler, and saves the same.
+   */
+  function radiosOf(g) {
+    return Array.prototype.filter.call(g.querySelectorAll('[role="radio"]'), function (r) { return !r.disabled && !r.hidden && r.closest('[role="radiogroup"]') === g; });
+  }
+  function rove(g) {
+    var rs = radiosOf(g), on = null, i;
+    for (i = 0; i < rs.length && !on; i++) if (rs[i].getAttribute('aria-checked') === 'true') on = rs[i];
+    if (!on) on = rs[0];
+    for (i = 0; i < rs.length; i++) { var want = rs[i] === on ? 0 : -1; if (rs[i].tabIndex !== want) rs[i].tabIndex = want; }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[role="radiogroup"]'), function (g) {
+    rove(g);
+    if (window.MutationObserver) new MutationObserver(function () { rove(g); }).observe(g, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-checked', 'hidden', 'disabled'] });
+  });
+  document.addEventListener('keydown', function (e) {
+    var r = e.target, g, rs, n, i, j;
+    if (!r || !r.getAttribute || r.getAttribute('role') !== 'radio' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    g = r.closest('[role="radiogroup"]');
+    if (!g) return;
+    rs = radiosOf(g).filter(function (x) { return x.getClientRects().length > 0; });
+    n = rs.length; i = rs.indexOf(r);
+    if (i < 0) return;
+    j = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (i + 1) % n : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (i + n - 1) % n :
+        e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1;
+    if (j < 0) return;
+    e.preventDefault();
+    try { rs[j].focus(); } catch (err) {}
+    if (j !== i) rs[j].click();
+  });
+
   /* ---- settings controls -------------------------------------------- */
   function setCharacter(id) {
     settings.character = id; save();
@@ -3279,6 +3359,7 @@
     audio.setVolume(settings.volume);
     if (settings.muted && settings.volume > 0) setMuted(false);
     showVolume(); save();
+    ringsUnheard();
   });
   $('opt-chime').addEventListener('change', function (e) {
     settings.chime = e.target.checked; save();
@@ -3326,6 +3407,7 @@
     bowlLevel.addEventListener('input', function () {
       settings.bowlLevel = bowlLevel.value / 50; save();
       audio.setBowlLevel(settings.bowlLevel);
+      ringsUnheard();
       showBowl();
     });
     bowlLevel.addEventListener('change', function () { if (settings.chime) audio.chime(0); });   // heard at its new level once let go
@@ -4023,7 +4105,7 @@
    *  takes over between two frames (handover): `sim` becomes the GPU sand,
    *  which has every member of the CPU Sim this script uses, and the two
    *  canvases cross-fade. Any failure gives the CPU sand back in the same
-   *  frame, the clock untouched. The switch is the owner's alone: this
+   *  frame, the clock untouched. The switch is the person's alone: this
    *  script never turns it off, and never disables it.
    *    - no WebGPU at all: "Needs WebGPU", found at every launch for
    *      nothing; nothing is stored;
@@ -4561,7 +4643,7 @@
     requestAnimationFrame(function () { holdVeil(performance.now()); });   // the first frame is drawn
   });
   /*
-   * The dark opening (settings design 5.3, the owner's answer): while Real sand starts, the veil
+   * The dark opening (settings design 5.3, a decision of the design): while Real sand starts, the veil
    * waits up to 1 s more for the engine's first frame, so that most launches open on Real sand;
    * then, or at once if the engine is slower (the classic sand shows meanwhile), it fades up as
    * ever. A reload that should open at once (a later "Use this shape") sets sessionStorage

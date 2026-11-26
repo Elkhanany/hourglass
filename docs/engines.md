@@ -635,7 +635,7 @@ sets, `WATER`, `SURF`, `FALLS`, `DRIPS`, the ambiences' records, `LEVEL`) as a s
 1.10.0 (settings design 5). With it off nothing of the GPU engine is
 requested and the app runs the classic sand, as it was. On or off, the page
 saves the session and loads again, as for another grain, so the running
-time is kept. The setting is the owner's alone: the app never writes it off.
+time is kept. The setting is the person's alone: the app never writes it off.
 The settings carry a version, `v: 2`, read once from the saved object: a
 save without it, or of version 1, comes up with Real sand on (every launch
 before 1.10.0 saved `realSand: false`, so such a save cannot say "turned
@@ -1034,15 +1034,17 @@ reads and which a picker in Tune can show. So each is added in one place,
 and a record that cannot work is refused by name: as the page loads where
 seeing it costs nothing, by a check where it does. A field nothing reads is
 refused too, since it is a field misspelt (`layer` for `layers` would be an
-ambience that plays nothing). The sands are still a table (`THEMES`) until
-the nine sands of the coming Tune land. Whatever is added, a shipped change
+ambience that plays nothing). The sands are `SANDS` (the nine and the
+custom colour; their order is `SAND_ORDER`) and the frame's finishes `FINISHES`, both
+in `sand/sands.js`; how to add a sand is below. Whatever is added, a shipped change
 also goes through the release checklist in [Architecture](architecture.md):
 `VERSION` in `sw.js` goes up, and a new file needs its `<script>` tag and
 its line in `SHELL`.
 
 A record refused as the page loads stops its script, so the engine it would
 have defined is not there, and the page says "Hourglass is updating. Open
-it again with a connection." as it does for a missing file. The reason is
+it again with a connection." (offline; online it says "Open it again in a
+moment.") as it does for a missing file. The reason is
 in the console (`defineCharacter "tin": lp is undefined, not a number`), and
 `node tools/test/check-registry.test.js` stops with it, without a browser.
 
@@ -1245,10 +1247,9 @@ and the rest stays by hand in the controller. In order:
    tools/test/app-tune-trace.test.js --write` write them from the tree
    just run. Read the diff: the new key in each save, the new control's
    lines and each file's `from` line, and nothing else.
-7. The row counts: five suites pin Tune's rows at ten (`app-regression`,
-   `e2e-calm`, `app-breath`, `app-sequence`, `app-realsand`), and
-   `app-layers` pins Layered sand right after Frame, so a new row changes
-   those on purpose.
+7. The row count: five suites count Tune's rows (`app-regression`,
+   `e2e-calm`, `app-breath`, `app-sequence`, `app-realsand`), so a new row
+   changes those on purpose.
 
 `settings-unit` needs no change for a record after the old ones: it holds
 the store's first 31 records to the app before the store, and leaves newer
