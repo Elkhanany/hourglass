@@ -899,29 +899,39 @@ async function reduceCase(s, env) {
 }
 
 async function twiceCase(s, env) {
+  // The changes are made in the page itself, 120 ms apart (a third of the way into each fade), so
+  // that each one after the first lands in a fade whatever the load; every frame's --lk is kept.
   async function one(taps, routes) {
     var t = await opn(env, { storage: { background: 'dark' }, routes: routes });
-    await sleep(700);
-    await t.eval(function () {
-      var w = window.__lks = [];
-      (function step(n) { var c = document.documentElement.classList.contains('look-fade'); w.push([n || performance.now(), c ? +getComputedStyle(document.documentElement).getPropertyValue('--lk') : (document.documentElement.getAttribute('data-look') === 'light' ? 1 : 0)]); if (w.length < 400) requestAnimationFrame(step); })();
-    });
-    for (var i = 0; i < taps; i++) { await t.page.tap('#btn-look'); await sleep(110); }
+    await sleep(900);
+    var w = await t.eval(function (taps) {
+      return new Promise(function (done) {
+        var root = document.documentElement, w = { lk: [], taps: [] }, b = document.getElementById('btn-look');
+        function now() { return root.classList.contains('look-fade') ? +getComputedStyle(root).getPropertyValue('--lk') : (root.getAttribute('data-look') === 'light' ? 1 : 0); }
+        (function step(n) {
+          w.lk.push([n, now()]);
+          if (w.lk.length < 90) requestAnimationFrame(step); else done(w);
+        })(performance.now());
+        for (var i = 0; i < taps; i++) setTimeout(function () { w.taps.push([performance.now(), root.classList.contains('look-fade'), now()]); b.click(); }, 100 + 120 * i);
+      });
+    }, taps);
     var l = await lookOf(t);
     // a jump: more of the way from one frame to the next than the fade goes in the time between them
     // (it goes at most pi/2 of its way in LOOK_FADE_MS, 340 ms; a slow frame is allowed its time)
-    var w = await t.eval(function () { return window.__lks.slice(); }), jump = 0;
-    for (var k = 1; k < w.length; k++) jump = Math.max(jump, Math.abs(w[k][1] - w[k - 1][1]) - 0.0055 * (w[k][0] - w[k - 1][0]));
+    var jump = 0, k;
+    for (k = 1; k < w.lk.length; k++) jump = Math.max(jump, Math.abs(w.lk[k][1] - w.lk[k - 1][1]) - 0.0055 * (w.lk[k][0] - w.lk[k - 1][0]));
     var mix = await t.eval(function () { return window.Hourglass.renderer.mix; });
     await t.close();
-    return { l: l, jump: Math.round(jump * 1000) / 1000, mix: mix };
+    // (each change after the first was made while a fade was under way: else the case says nothing)
+    var inFade = w.taps.slice(1).every(function (x) { return x[1]; });
+    return { l: l, jump: Math.round(jump * 1000) / 1000, mix: mix, inFade: inFade, taps: w.taps.map(function (x) { return Math.round(x[2] * 100) / 100; }) };
   }
   var two = await one(2), three = await one(3);
   s.check('TWICE: two quick changes (dark, light, dark again within a fade) end exactly dark, three end exactly light, and the page goes on from where it is: never more from one frame to the next than the fade goes in that time (by ' + Math.max(two.jump, three.jump) + ' at most)',
-    lookIs(two.l, 'dark', 'dark') && lookIs(three.l, 'light', 'light') && two.mix === 0 && three.mix === 1 && two.jump < 0.06 && three.jump < 0.06, JSON.stringify([two, three]));
+    lookIs(two.l, 'dark', 'dark') && lookIs(three.l, 'light', 'light') && two.mix === 0 && three.mix === 1 && two.inFade && three.inFade && two.jump < 0.06 && three.jump < 0.06, JSON.stringify([two, three]));
   var restart = routed(env, 'app.js', function (src) { return src.replace('var from = lookNow(), fade', "var from = lookShown === 'light' ? 1 : 0, fade"); });
   var c = await one(2, [restart]);
-  s.check('... and an app that starts each change again from the look it left jumps when changed in a fade (control)', c.jump >= 0.06, JSON.stringify(c));
+  s.check('... and an app that starts each change again from the look it left jumps when changed in a fade (control)', c.inFade && c.jump >= 0.06, JSON.stringify(c));
 }
 
 async function paceCase(s, env) {
