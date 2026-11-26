@@ -297,6 +297,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `customSand` over a sweep of 6336 colours against what the colour table,
   layered sand and the eye need; what `customSand.clamp` makes of a colour;
   the theme `setLook` puts together from a sand and a theme's caps; the
+  sunlit sand's `sun` record of each of the nine and of 144 custom colours, in
+  range, the custom rule near every preset's (a bad record is the control); the
   six finishes (each a theme's caps, named by its material, and the swatch
   Tune draws in its tones); and the page's colours and swatch of each sand
   in `styles.css`; and (release 1.20.1) every sand its own accent: no two

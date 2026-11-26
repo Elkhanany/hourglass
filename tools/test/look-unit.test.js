@@ -290,6 +290,37 @@ test('customSand over a sweep of 6336 colours: every one a sound sand', function
     ', lit surface ' + rMin.toFixed(2) + '; at most ' + cMax + ' grains clip; ink on accent at least ' + uMin.toFixed(1);
 });
 
+/* the sunlit sand's record of each sand (Tune's Light: Sunlit), and the custom colour's worked out */
+function sunProblems(sun, tag) {
+  var out = [];
+  if (!sun) return [tag + ': no sun record'];
+  ['key', 'paper', 'lift', 'glints', 'mica'].forEach(function (k) { if (typeof sun[k] !== 'number' || !isFinite(sun[k])) out.push(tag + '.sun.' + k + ' is ' + js(sun[k])); });
+  if (!(sun.key > 0.5 && sun.key <= 1.5)) out.push(tag + ': key ' + sun.key);
+  if (!(sun.paper >= 0.55 && sun.paper <= 1)) out.push(tag + ': paper ' + sun.paper);
+  if (!(sun.lift >= 0 && sun.lift <= 0.12)) out.push(tag + ': lift ' + sun.lift);
+  if (!(sun.glints > 0 && sun.glints <= 0.12)) out.push(tag + ': glints ' + sun.glints + ' (the cap on the sparkle)');
+  if (!(sun.mica >= 0.95 && sun.mica < 1)) out.push(tag + ': mica ' + sun.mica);
+  return out;
+}
+test('the sunlit sand: every sand has its light record, in range; a custom colour\'s is worked out as the presets\' are (a pale one\'s key dimmed on paper, a dark one lifted and its sparkle quieter)', function () {
+  var bad = [], n = 0;
+  P.SAND_ORDER.forEach(function (id) { bad = bad.concat(sunProblems(P.SANDS[id].sun, id)); });
+  for (var hh = 0; hh < 360; hh += 30) [0.1, 0.4, 0.7].forEach(function (ss) { [0.25, 0.45, 0.6, 0.8].forEach(function (ll) { bad = bad.concat(sunProblems(P.customSand(hh, ss, ll).sun, 'custom ' + hh + ' ' + ss + ' ' + ll)); n++; }); });
+  ok(!bad.length, bad.slice(0, 4).join('; '));
+  // custom as the presets: a colour of each preset gives about its record
+  var near = [];
+  P.SAND_ORDER.forEach(function (id) {
+    var c = P.SANDS[id].sand, a = P.customSand(c.h, c.s, c.l).sun, b = P.SANDS[id].sun;
+    if (Math.abs(a.paper - b.paper) > 0.06 || Math.abs(a.lift - b.lift) > 0.04) near.push(id + ' ' + js(a) + ' vs ' + js(b));
+  });
+  ok(!near.length, 'the custom rule strays from the presets: ' + near.join('; '));
+  var pale = P.customSand(40, 0.1, 0.84).sun, dark = P.customSand(236, 0.1, 0.22).sun;
+  ok(pale.paper < 0.85 && dark.paper === 1 && dark.lift > pale.lift && dark.mica > pale.mica && dark.glints < pale.glints, 'pale ' + js(pale) + ', dark ' + js(dark));
+  // control: a record without its cap, or a mica that glints at any angle, is found out
+  ok(sunProblems({ key: 1, paper: 1, lift: 0, mica: 0.955 }, 'c').length && sunProblems({ key: 1, paper: 1, lift: 0, glints: 0.1, mica: 0.5 }, 'c').length, 'control: a bad record passed');
+  return 'nine records and ' + n + ' custom colours in range; the custom rule within 0.06 of every preset; pale ' + js(pale) + ', dark ' + js(dark) + '; controls found out';
+});
+
 test('customSand.clamp: a good colour is kept, one that is not is brought in, and its own answer is left alone', function () {
   var C = P.customSand.clamp, n = 0, h, s, l, c, c2;
   function is(inp, want) { var got = C(inp[0], inp[1], inp[2]); ok(js(got) === js(want), 'clamp(' + inp + ') is ' + js(got) + ', want ' + js(want)); }
