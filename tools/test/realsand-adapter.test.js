@@ -380,7 +380,9 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
         while (app.acc >= STEP_MS && n < MAX_STEPS) {
           tS += STEP_MS;
           if (app.flip.active) app.turnStep(DT);
-          var fx = mi ? mi.fx : 0, fy = mi ? mi.fy : 0, w = (mi ? mi.w : 0) + (app.flip.active ? app.body.w : 0);
+          // (app.motionPerStep: the motion at each step's own time, as motion.js gives it; else the frame's)
+          var ms = app.motionPerStep && app.motionIn ? app.motionIn(app, tS) : mi;
+          var fx = ms ? ms.fx : 0, fy = ms ? ms.fy : 0, w = (ms ? ms.w : 0) + (app.flip.active ? app.body.w : 0);
           var rho = sim.angle + app.grav.base, c = Math.cos(rho), s = Math.sin(rho), G = sim.G;
           if (real && app.sim === real) real.feel(tS, fx, fy, false, rho);
           sim.setMotion(G * (fx * c + fy * s), G * (-fx * s + fy * c), w, 0, 0.09, 0);
@@ -1021,6 +1023,39 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   check(jwAsleep && !jwWhys.jolt && jwAsleep2 && wokeFrames === 2 && rJW.n.jolts === jolts0 + 1 && gx1[0] > 0.05 && gx1[0] < 0.3 && push1 > 1,
     'asleep, a flick (a frame of 0.2 g, then 2 g for 50 ms and the stop) wakes the glass in the first frame of its 2 g (' + (wokeFrames === null ? 'never' : 'frame ' + wokeFrames + ', ending ' + Math.round(wokeAfter) + ' ms after it began') +
     '), and the first run starts from its first sample (its first substep ' + f1(gx1[0]) + ' g, then up to ' + f1(push1) + ' g); the hand\'s jitter is no jolt (' + Object.keys(jwWhys).join(', ') + ')');
+
+  // ... and on a slow display (frames of 50 ms, a run each, as a busy GPU's page gives), woken by a
+  // jolt within the frame, the first run is the time since the jolt's first sample alone, not the
+  // whole frame's substeps laid over that time (which held the push for most of them: the bed was
+  // thrown faster than at a run a frame). Control: the time since clamped at 0, as before
+  async function slowWake(old) {
+    var A = makeApp({ ms: 10000, seed: 206 });
+    var rA = await A.attach(); A.calibrate(); A.T.rem = A.T.durationMs;
+    A.T.state = 'paused';
+    await A.run(3500);
+    var asleep = rA.modes.mode === 'asleep', fj = rA._fromJolt, woke = null;
+    rA._fromJolt = function (now, dt) { fj.call(this, now, dt); if (old) this._acc = Math.max(0, this._acc); woke = { now: now, from: this._lastRunPerf }; };
+    var runs0 = A.env.solver.runs, first = null;
+    A.env.recordFields = true; A.env.solver.fields = [];
+    var tF = A.V.perf + 30;
+    A.motionPerStep = true;
+    A.motionIn = function (a, now) { var u = now - tF; return u < 0 ? null : u <= 50 ? { fx: 2, fy: 0, w: 0 } : u <= 100 ? { fx: -2, fy: 0, w: 0 } : null; };
+    for (var k = 0; k < 6; k++) {
+      A.V.frame++; A.env.pump(); await tick(); A.frame(50);
+      if (first === null && A.env.solver.runs > runs0) first = A.env.solver.fields.slice();
+    }
+    A.motionIn = null; A.motionPerStep = false; A.env.recordFields = false;
+    var hz = rA.rate.hz, gx = first ? first.map(function (f) { return f.gravity[0] / rA.Gg; }) : [];
+    // (the longest stretch of substeps that hold one field, ms: the app's samples are 1/120 s apart)
+    var hold = 0, h = 0;
+    for (var i = 0; i < gx.length; i++) { h = i && gx[i] === gx[i - 1] ? h + 1 : 1; if (h > hold) hold = h; }
+    return { asleep: asleep, sinceMs: woke ? woke.now - woke.from : null, runMs: first ? 1000 * first.length / hz : null, holdMs: 1000 * hold / hz, push: gx.length ? Math.max.apply(null, gx) : 0 };
+  }
+  var swNew = await slowWake(false), swOld = await slowWake(true);
+  var swTxt = function (s) { return 'its first run ' + f1(s.runMs) + ' ms of substeps for ' + f1(s.sinceMs) + ' ms since the jolt, one field held at most ' + f1(s.holdMs) + ' ms, up to ' + f1(s.push) + ' g'; };
+  check(swNew.asleep && swOld.asleep && swNew.sinceMs > 5 && swNew.sinceMs < 50 && Math.abs(swNew.runMs - swNew.sinceMs) <= 1000 / 480 + 0.5 && swNew.holdMs <= 1000 / 120 + 2.5 && swNew.push > 1 &&
+    swOld.runMs >= swOld.sinceMs + 20 && swOld.holdMs > 1000 / 120 + 2.5,
+    'a slow display (frames of 50 ms), woken by a flick within a frame: ' + swTxt(swNew) + '; with the time since clamped at 0 (control, as before) ' + swTxt(swOld));
 
   // the beds' fastest falls between readbacks cost the GPU only while a fall is possible: a glass
   // running in a hand that holds it still (0.01 g of tremor) never asks for them; a flick (2 g, then

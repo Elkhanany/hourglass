@@ -1181,7 +1181,11 @@ export class RealSand {
     }
     if (from === null) return;
     this._lastRunPerf = Math.max(now - span, from - 0.001);
-    this._acc = Math.max(0, (now - this._lastRunPerf) / 1000 - dtReal);
+    // (below 0 when the jolt came within this frame: the frame's own time is added before its run,
+    // which is then the time since the jolt alone. Clamped at 0 it was the whole frame: at a run
+    // every 3 frames, 24 substeps laid over the flick's first 13 ms, its push held for most of them,
+    // and the bed thrown about 15 % faster than at a run a frame)
+    this._acc = (now - this._lastRunPerf) / 1000 - dtReal;
     this.n.jolts++;
   }
 
