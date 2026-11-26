@@ -397,7 +397,7 @@ async function accents(env, o, look) {
         return { look: root.getAttribute('data-look') || 'dark', accent: getComputedStyle(root).getPropertyValue('--accent').trim(),
                  pill: pill ? getComputedStyle(pill).backgroundColor : null, start: go ? getComputedStyle(go).backgroundColor : null };
       });
-      if (SHOTS) {
+      if (SHOTS && !o) {                   // (a control's pictures are not kept)
         var box = await t.eval(function () { var r = document.querySelector('.panel').getBoundingClientRect(); return { x: 0, y: Math.max(0, r.top - 12), width: window.innerWidth, height: Math.min(window.innerHeight, r.bottom + 12) - Math.max(0, r.top - 12) }; });
         await t.page.screenshot({ path: path.join(SHOTS, 'accent-' + look + '-' + (i + 1 < 10 ? '0' : '') + (i + 1) + '-' + ids[i] + '.png'), clip: box });
       }
