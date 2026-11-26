@@ -121,7 +121,7 @@ const LAYOUTS = {
   load: 'urrrs',
   rescale: 'urs',
   spreadSplat: 'urrs',
-  spreadShift: 'ursrrr',
+  spreadShift: 'ursrr',
   tally: 'urrrss',
   flip: 'urs'
 };
@@ -203,6 +203,21 @@ const LAYOUTS = {
  * 21.8 and a fast turn ran out to 8 degrees: shear kept without the pressure
  * that goes with it pulls the sand apart.
  *
+ * surfPush (sand; from build 8): a leaned bed sheds sheets off its surface
+ * instead of standing over-steep until it fails as a block. Each substep the
+ * first gridClear (no dispatch of its own) finds the nodes of a free surface
+ * steeper than surfStart to gravity (surfStop once a push ran there within
+ * surfMem s), in the top surfDepth cells, slower than surfV1 to surfV2 times
+ * the tally's moving speed, 3 cells or more inside the glass, not covered by
+ * glass along "up", and beyond surfNeck + surfNeckFade neck half-widths of the
+ * neck; there the push is surfPush x g x cos(face), ramped in over surfRamp
+ * degrees. g2p2g.wgsl sets it as a speed in each sand point's next
+ * prediction, 200 cells/s per g of push (at most 120): a point moves down the
+ * surface at least that fast. Added as a force (0.3 or 0.6 g) the solve
+ * absorbed it; shifting the points after the substep combed the surface (a
+ * per-node field read bilinearly); set as a speed, read through the B-spline,
+ * it does neither. The figures: docs/design/real-sand.md, 7.2.
+ *
  * Syrup wets the glass (wallDrag 1: no slip) and is three times as viscous as
  * before, so it oozes; its viscosity term is at its ceiling (1), so it still
  * drains faster than sand. Fine sand grips the glass as coarse does (0.5):
@@ -225,8 +240,7 @@ export const MATERIALS = {
  */
 export function dispatchesPerSubstep(iterations, m) {
   const sand = m.model === 2;
-  const shift = sand && !m.surfProbe && m.surfPush > 0 && !!(m.surfShift || m.surfSkin);
-  return 4 + 2 * iterations + (sand && m.yieldLoop && m.yieldStep >= 2 ? 1 : 0) + (sand && m.spread ? 2 : shift ? 1 : 0);
+  return 4 + 2 * iterations + (sand && m.yieldLoop && m.yieldStep >= 2 ? 1 : 0) + (sand && m.spread ? 2 : 0);
 }
 
 export class Solver {
@@ -358,7 +372,7 @@ export class Solver {
       load: [b.grid0, b.grid1].map(g => group('load', [g, b.gridBuckets, b.gridArgs, b.load])),
       rescale: group('rescale', [b.count, b.particles]),
       spreadSplat: group('spreadSplat', [b.count, b.particles, b.fine]),
-      spreadShift: group('spreadShift', [b.count, b.particles, b.fine, b.domain, b.load]),
+      spreadShift: group('spreadShift', [b.count, b.particles, b.fine, b.domain]),
       tally: group('tally', [b.count, b.particles, b.domain, b.tally, b.surface]),
       flip: group('flip', [b.count, b.particles])
     };
@@ -457,7 +471,7 @@ export class Solver {
     F[o + 48] = m.yieldLoop ?? 0; F[o + 49] = m.yieldScale ?? 1; F[o + 50] = m.yieldStep ?? 0; F[o + 51] = m.yieldStep >= 2 ? (m.loadScale ?? 2) : (m.yieldStepScale ?? 1);
     // the surface push (gridClear.wgsl, g2p2g.wgsl): sand only; surfProbe computes it without applying it
     const sand = m.model === 2, sp = sand ? (m.surfPush ?? 0) : 0;
-    F[o + 52] = sand && m.surfProbe ? 2 : sp > 0 ? (m.surfVel ? 6 : m.surfSkin ? (m.surfShift === false ? 5 : 4) : m.surfShift ? 3 : 1) : 0; F[o + 53] = sp; F[o + 54] = m.surfStart ?? 33; F[o + 55] = m.surfStop ?? 31;
+    F[o + 52] = sand && m.surfProbe ? 2 : sp > 0 ? 1 : 0; F[o + 53] = sp; F[o + 54] = m.surfStart ?? 33; F[o + 55] = m.surfStop ?? 31;
     F[o + 56] = m.surfRamp ?? 3; F[o + 57] = m.surfDepth ?? 3; F[o + 58] = m.surfNeck ?? 4; F[o + 59] = m.surfNeckFade ?? 2;
     F[o + 60] = m.surfV1 ?? 1.3; F[o + 61] = m.surfV2 ?? 2.6; F[o + 62] = set.g0 ?? 0; F[o + 63] = Math.max(1, Math.round((m.surfMem ?? 0.05) * set.hz));
   }
@@ -509,8 +523,6 @@ export class Solver {
     const useLoad = set.material.model === 2 && set.material.yieldLoop && set.material.yieldStep >= 2;
     if (steps && this.lastHz && this.lastHz !== set.hz && this.count) go(P.rescale, G.rescale, 0, n64);
     const spread = set.material.model === 2 && !!set.material.spread;
-    // the surface push's shift (surfShift) rides on the spread's shift pass
-    const shift = set.material.model === 2 && !set.material.surfProbe && set.material.surfPush > 0 && !!(set.material.surfShift || set.material.surfSkin);
     if (this.count) for (let s = 0; s < steps; s++) {
       const base = s * MAX_IT;
       // (with the spread on, prepare also clears the sub-cell grid: one thread a node of it)
@@ -530,8 +542,10 @@ export class Solver {
         this.gridIndex = next;
       }
       // sand points that crowd together inside a cell move apart (spreadShift.wgsl)
-      if (spread) go(P.spreadSplat, G.spreadSplat, base, n64);
-      if (spread || shift) go(P.spreadShift, G.spreadShift, base, n64);
+      if (spread) {
+        go(P.spreadSplat, G.spreadSplat, base, n64);
+        go(P.spreadShift, G.spreadShift, base, n64);
+      }
     }
     if (this.count) go(P.tally, G.tally, Math.max(steps - 1, 0) * MAX_IT, n64);
     pass.end();

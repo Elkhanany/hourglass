@@ -51,8 +51,8 @@ fn fillAt(q: vec2i) -> f32 {
 fn surfaceNode(id: vec2u) {
     let n = id.y * g_simConstants.gridSize.x + id.x;
     let c = vec2i(id);
-    // (w: the memory, whole substeps, + 0.5 on a node of the surface layer with the skin hold, surf.x = 4)
-    let mPrev = floor(load[n].w);
+    // (w: the memory, whole substeps)
+    let mPrev = load[n].w;
     let depthWas = load[n].x;
     let mNew = max(mPrev - 1.0, 0.0);
     load[n] = vec4f(depthWas, 0.0, 0.0, mNew);
@@ -93,8 +93,6 @@ fn surfaceNode(id: vec2u) {
         k++;
     }
     let wD = 1.0 - smoothstep(Ds - 1.0, Ds, f32(k - 1) + 0.5);
-    let skin = select(0.0, 0.5, g_simConstants.surf.x > 3.5 && g_simConstants.surf.x < 5.5 && f32(k - 1) + 0.5 <= Ds);
-    load[n].w = mNew + skin;
     if (wD <= 0.0) { return; }
     // the free surface's outward normal: the fill's gradient, Gaussian-weighted over 5 x 5 nodes
     var G = vec2f(0.0);
@@ -120,11 +118,11 @@ fn surfaceNode(id: vec2u) {
     let tl = length(t);
     if (tl < 1e-3) { return; }
     t = t / tl;
-    // (the probe, surf.x = 2: the push at 0.3 g, for the readout only; 3: the push and its shift)
+    // (the probe, surf.x = 2: the push at 0.3 g, for the readout only)
     let dmu = select(g_simConstants.surf.y, 0.3, g_simConstants.surf.x > 1.5 && g_simConstants.surf.x < 2.5);
     let a = dmu * gl * max(cphi, 0.3) * s * slow * wD * wN;
     if (a <= 0.0) { return; }
-    load[n] = vec4f(depthWas, t * a, g_simConstants.surf3.w + skin);
+    load[n] = vec4f(depthWas, t * a, g_simConstants.surf3.w);
 }
 
 @compute @workgroup_size(64)
