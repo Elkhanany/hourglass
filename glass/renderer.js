@@ -624,9 +624,21 @@
   Renderer.prototype._sunLook = function (S) {
     var k = S.k = this._sunConsts(this.mix), sun = k.sun, src = this.lut, out = S.lut, s, lv, d;
     var m0 = 0.34 + 21 * 0.031, base = [0, 0, 0], tint = k.tint, ks = k.ks, hl = this.theme.light.hl * k.hlK;
+    // the bed's mean colour (its grains but the mica): a mica fleck far brighter than its bed (gold on black)
+    // is drawn part of the way toward it, so that it sparkles when it glints and is quiet when it does not
+    var mean = [0, 0, 0], nm = 0, v, c3;
+    for (s = 0; s < 256; s++) if (!this.isMica[s]) { v = src[(21 << 8) | s] >>> 0; mean[0] += v & 255; mean[1] += (v >>> 8) & 255; mean[2] += (v >>> 16) & 255; nm++; }
+    if (nm) { mean[0] /= nm; mean[1] /= nm; mean[2] /= nm; }
+    var yMean = 0.2126 * mean[0] + 0.7152 * mean[1] + 0.0722 * mean[2] + 1;
     for (s = 0; s < 256; s++) {
-      var v = src[(21 << 8) | s] >>> 0;
-      base[0] = (v & 255) / m0; base[1] = ((v >>> 8) & 255) / m0; base[2] = ((v >>> 16) & 255) / m0;
+      v = src[(21 << 8) | s] >>> 0;
+      base[0] = v & 255; base[1] = (v >>> 8) & 255; base[2] = (v >>> 16) & 255;
+      if (this.isMica[s] && nm) {
+        var q0 = ((0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2] + 1) / yMean - 1.5) / 3;
+        q0 = q0 < 0 ? 0 : (q0 > 0.55 ? 0.55 : q0);
+        for (c3 = 0; c3 < 3; c3++) base[c3] += (mean[c3] - base[c3]) * q0;
+      }
+      base[0] /= m0; base[1] /= m0; base[2] /= m0;
       for (lv = 0; lv < LEVELS; lv++) {
         var mm = 0.34 + lv * 0.031, r = base[0] * mm, gg = base[1] * mm, b = base[2] * mm;
         if (mm < 1) {                                  // a shadow deepens in colour: light bounced among coloured grains
