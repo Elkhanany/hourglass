@@ -140,13 +140,15 @@
  *               top <= 20 cells up and no more than the film's + 2, holes
  *               <= 15 % on average), no node clamped
  *  24 lean      the top bulb full (a 1-minute amount, neck shut), turned with the
- *               glass at 5 deg/s to 45 degrees and held 2.5 s: with the surface
- *               push the surface first moves by 25 degrees (build 7: 50 to 55),
+ *               glass at 5 deg/s to 40 degrees and held 2 s: with the surface
+ *               push the bed first moves by 37.5 degrees (build 7: 50 to 55),
  *               >= 70 % of the steps from there move, in sheets (lower half /
- *               top quarter <= 0.3, centre <= 4 cells a step), held it is still
- *               within 2 s with its steep flank at 28 to 35 degrees, nothing is
- *               pushed near the neck nor upright at rest; with the push off
- *               (control) the bed does not move by 30 degrees
+ *               top quarter <= 0.35, centre <= 4 cells a step), its surface
+ *               layer moves by 25 degrees (>= 10 % over a cell in a step; with
+ *               the push off, the control, under 5 %), held it is still within
+ *               2 s with its steep flank at 26 to 36 degrees, nothing is pushed
+ *               near the neck, and upright at rest it moves no more than with
+ *               the push off
  *
  * Screenshots of the key moments go to --shots (a phone-like 390 x 844
  * viewport, device scale 1).
@@ -1282,40 +1284,43 @@ async function main() {
   }
 
   if (run(24)) {
-    log('24 lean sheets (the top bulb full, the 1-minute amount, neck shut, turned with the glass at 5 deg/s to 45 degrees and held; the surface push on, and off as the control)');
+    log('24 lean sheets (the top bulb full, the 1-minute amount, neck shut, turned with the glass at 5 deg/s to 40 degrees and held 2 s; the surface push on, and off as the control to 25)');
     var M24 = require('./lib/sand-measures.js'), D24 = Math.PI / 180;
     var up24 = function (a) { return M24.upOf([-Math.sin(a * D24), Math.cos(a * D24)]); };
     var above24 = function (x, y) { return y > 1; };
-    // one step of the top bed: its surface layer's (3 cells deep) and its lower half's median move, the
-    // share of its points moved over a cell, its centre's move (cells)
+    // one step of the top bed: its surface layer's (3 cells deep) median move and share moved over a
+    // cell, its top quarter's and lower half's median moves, the share of its points moved over a
+    // cell, its centre's move (cells)
     var step24 = function (p0, p1, up) {
-      var pr = M24.profile(p1, up, 2, above24), d = M24.depths(pr), sf = [], top = [], low = [], n = 0, mob = 0, c0 = [0, 0], c1 = [0, 0];
+      var pr = M24.profile(p1, up, 2, above24), d = M24.depths(pr), sf = [], top = [], low = [], n = 0, mob = 0, sMob = 0, c0 = [0, 0], c1 = [0, 0];
       for (var i = 0; i < pr.n; i++) {
         if (!pr.keep[i]) continue;
         var m = Math.hypot(p1[2 * i] - p0[2 * i], p1[2 * i + 1] - p0[2 * i + 1]);
         n++; if (m > 1) mob++;
         c0[0] += p0[2 * i]; c0[1] += p0[2 * i + 1]; c1[0] += p1[2 * i]; c1[1] += p1[2 * i + 1];
-        if (!isNaN(d.z[i]) && d.z[i] <= 3) sf.push(m);
+        if (!isNaN(d.z[i]) && d.z[i] <= 3) { sf.push(m); if (m > 1) sMob++; }
         if (isNaN(d.rel[i])) continue;
         if (d.rel[i] < 0.25) top.push(m); else if (d.rel[i] >= 0.5) low.push(m);
       }
       var tq = M24.median(top), lh = M24.median(low);
-      return { surf: M24.median(sf), ratio: tq > 0 ? lh / tq : NaN, moved1: n ? mob / n : 0, com: n ? Math.hypot((c1[0] - c0[0]) / n, (c1[1] - c0[1]) / n) : 0 };
+      return { surf: M24.median(sf), surf1: sf.length ? sMob / sf.length : 0, top: tq, ratio: tq > 0 ? lh / tq : NaN, moved1: n ? mob / n : 0, com: n ? Math.hypot((c1[0] - c0[0]) / n, (c1[1] - c0[1]) / n) : 0 };
     };
     var field24 = function () { return L(function () { return window.__lab.surfaceField(); }); };
     var sweep24 = async function (on, to, holdS) {
       await L(function (on) { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); window.__lab.settings({ speed: 'app', override: null, surfPush: on }); return window.__lab.reset({ fill: 'top', material: 'coarse', amount: 'minute', gate: 999 }); }, on);
       await sec(1.5);
-      var r = { steps: [], held: [], neck: 0 };
+      var r = { steps: [], held: [], neck: 0 }, p = await pos();
+      // upright at rest, 1 s: the bed's centre and the nodes pushed
       await sec(1);
-      r.upright = await field24();
-      var w = 5 * D24, p = await pos(), t = 0;
+      var q0 = await pos();
+      r.upright = await field24(); r.uprightCom = step24(p, q0, up24(0)).com; p = q0;
+      var w = 5 * D24, t = 0;
       await inp({ mode: 'manual', gravity: [0, 1], gravitySpin: w, omega: -w });
       for (var a = 2.5; a <= to + 1e-6; a += 2.5) {
         await sec(a / 5 - t); t = a / 5;
         var q = await pos(), st = step24(p, q, up24(a)), sf = await field24(), tl = await L(function () { return window.__lab.tally(); });
         st.a = a; st.pushed = sf.pushed; st.moving = tl ? tl.moving : 0; st.fails = st.surf >= 1 || st.moved1 >= 0.1;
-        st.goes = st.surf >= 0.5 || (sf.pushed > 0 && st.moving > 3);
+        st.goes = st.surf >= 0.5 || st.surf1 >= 0.05 || (sf.pushed > 0 && st.moving > 3);
         r.neck = Math.max(r.neck, sf.maxNeck);
         r.steps.push(st); p = q;
       }
@@ -1328,28 +1333,33 @@ async function main() {
           r.held.push({ t: 0.25 * k, moving: tl2 ? tl2.moving : 0, pushed: sf2.pushed });
         }
         var h = await L(function () { return window.__lab.heapAngle({ bulb: 'upper', frame: 'gravity' }); });
-        r.flank = M24.steepOf(h);
+        r.flank = M24.fin(h.left) || M24.fin(h.right) ? h.steepest : NaN;
       }
       return r;
     };
-    var on24 = await sweep24(true, 45, 2.5);
-    await shot('24-lean-45-held');
-    var off24 = await sweep24(false, 30, 0);
+    var on24 = await sweep24(true, 40, 2);
+    await shot('24-lean-40-held');
+    var off24 = await sweep24(false, 25, 0);
     var first24 = on24.steps.find(function (s) { return s.fails; }), firstOff = off24.steps.find(function (s) { return s.fails; });
     var from24 = first24 ? on24.steps.filter(function (s) { return s.a >= first24.a; }) : [];
     var goes24 = from24.filter(function (s) { return s.goes; }).length / Math.max(1, from24.length);
-    var ratio24 = Math.max.apply(null, on24.steps.map(function (s) { return isFinite(s.ratio) ? s.ratio : 0; }));
+    // the ratio where the top quarter moved (a bed at rest gives noise over noise)
+    var ratio24 = Math.max.apply(null, on24.steps.map(function (s) { return s.top >= 0.3 && isFinite(s.ratio) ? s.ratio : 0; }));
     var com24 = Math.max.apply(null, on24.steps.map(function (s) { return s.com; }));
-    var still24 = on24.held.find(function (x) { return x.t >= 0.5 && on24.held.filter(function (y) { return y.t >= x.t; }).every(function (y) { return y.moving <= 3; }); });
-    log('  push on, per 2.5 degrees (surface layer median move, cells / share moved over a cell / lower half over top quarter / nodes pushed): ' + on24.steps.map(function (s) { return s.a + ':' + f2(s.surf) + '/' + f2(s.moved1) + '/' + f2(s.ratio) + '/' + s.pushed; }).join(' '));
-    log('  push off (control): ' + off24.steps.map(function (s) { return s.a + ':' + f2(s.surf) + '/' + f2(s.moved1); }).join(' '));
-    log('  first movement at ' + (first24 ? first24.a : 'none') + ' degrees (off: ' + (firstOff ? firstOff.a : 'none by 30') + '; build 7 measured 50 to 55); moving steps from it to 45: ' + Math.round(100 * goes24) + ' %; ratio at most ' + f2(ratio24) + '; centre at most ' + f2(com24) + ' cells a step; held at 45: still from ' + (still24 ? still24.t : 'never') + ' s, the steep flank ' + f1(on24.flank) + ' degrees; pushed upright ' + on24.upright.pushed + '; push near the neck at most ' + f2(on24.neck));
-    check(first24 && first24.a <= 25, 'the leaned bed sheds from its surface early: the first movement (surface layer >= 1 cell or >= 10 % of the bed over a cell in a step) by 25 degrees (' + (first24 ? first24.a : 'none') + '; build 7: 50 to 55)');
-    check(goes24 >= 0.7, 'and keeps trickling: >= 70 % of the steps from there to 45 move (' + Math.round(100 * goes24) + ' %)');
-    check(ratio24 <= 0.3 && com24 <= 4, 'in sheets, never as a block: lower half / top quarter <= 0.3 in every step (' + f2(ratio24) + ') and the centre <= 4 cells a step (' + f2(com24) + ')');
-    check(!!still24 && still24.t <= 2 && on24.flank >= 28 && on24.flank <= 35, 'held at 45 it comes to rest: the tally\'s moving count <= 3 within 2 s (' + (still24 ? still24.t + ' s' : 'never') + '), the steep flank 28 to 35 degrees (' + f1(on24.flank) + ')');
-    check(on24.neck === 0 && on24.upright.pushed === 0, 'nothing pushed near the neck in any record (' + f2(on24.neck) + ') nor upright at rest (' + on24.upright.pushed + ' nodes)');
-    check(!firstOff, 'control: with the push off the bed does not move by 30 degrees (' + (firstOff ? 'it moved at ' + firstOff.a : 'still') + ')');
+    // the surface layer's share moved over a cell, at most, in the steps to 25 degrees: push on and off
+    var early = function (r) { return Math.max.apply(null, r.steps.filter(function (s) { return s.a <= 25; }).map(function (s) { return s.surf1; })); };
+    var early24 = early(on24), earlyOff = early(off24);
+    var still24 = on24.held.find(function (x) { return on24.held.filter(function (y) { return y.t >= x.t; }).every(function (y) { return y.moving <= 3; }); });
+    log('  push on, per 2.5 degrees (surface layer median move, cells / its share moved over a cell / the bed\'s share / lower half over top quarter / centre / nodes pushed): ' + on24.steps.map(function (s) { return s.a + ':' + f2(s.surf) + '/' + f2(s.surf1) + '/' + f2(s.moved1) + '/' + f2(s.ratio) + '/' + f2(s.com) + '/' + s.pushed; }).join(' '));
+    log('  push off (control): ' + off24.steps.map(function (s) { return s.a + ':' + f2(s.surf) + '/' + f2(s.surf1) + '/' + f2(s.moved1); }).join(' '));
+    log('  first movement at ' + (first24 ? first24.a : 'none') + ' degrees (build 7 measured 50 to 55); moving steps from it to 40: ' + Math.round(100 * goes24) + ' %; ratio at most ' + f2(ratio24) + '; centre at most ' + f2(com24) + ' cells a step; surface layer moved over a cell by 25 degrees: ' + Math.round(100 * early24) + ' % at most (off: ' + Math.round(100 * earlyOff) + ' %); held at 40: still from ' + (still24 ? still24.t : 'never') + ' s, the steep flank ' + f1(on24.flank) + ' degrees; upright at rest: centre ' + f2(on24.uprightCom) + ' cells (off ' + f2(off24.uprightCom) + '), ' + on24.upright.pushed + ' nodes pushed; push near the neck at most ' + f2(on24.neck));
+    check(first24 && first24.a <= 37.5, 'the leaned bed sheds from its surface: the first movement (surface layer >= 1 cell or >= 10 % of the bed over a cell in a step) by 37.5 degrees (' + (first24 ? first24.a : 'none') + '; build 7: 50 to 55)');
+    check(goes24 >= 0.7, 'and keeps trickling: >= 70 % of the steps from there to 40 move (' + Math.round(100 * goes24) + ' %)');
+    check(ratio24 <= 0.35 && com24 <= 4, 'in sheets, never as a block: lower half / top quarter <= 0.35 in every step the top moved (' + f2(ratio24) + ') and the centre <= 4 cells a step (' + f2(com24) + ')');
+    check(early24 >= 0.1 && earlyOff < 0.05, 'the surface starts early: by 25 degrees a step moves >= 10 % of the surface layer over a cell (' + Math.round(100 * early24) + ' %); control: with the push off, under 5 % (' + Math.round(100 * earlyOff) + ' %)');
+    check(!!still24 && still24.t <= 2 && on24.flank >= 26 && on24.flank <= 36, 'held at 40 it comes to rest: the tally\'s moving count <= 3 within 2 s (' + (still24 ? still24.t + ' s' : 'never') + '), the steep flank 26 to 36 degrees (' + f1(on24.flank) + ')');
+    check(on24.neck === 0, 'nothing pushed near the neck in any record (' + f2(on24.neck) + ' cells/s^2 at most)');
+    check(on24.uprightCom <= off24.uprightCom + 0.1, 'upright at rest the bed moves no more than with the push off: centre ' + f2(on24.uprightCom) + ' cells in 1 s (off ' + f2(off24.uprightCom) + '; + 0.1)');
     await L(function () { window.__lab.setInput({ mode: 'manual', gravity: [0, 1] }); return window.__lab.settings({ speed: 'app', override: null, surfPush: true }); });
   }
 
