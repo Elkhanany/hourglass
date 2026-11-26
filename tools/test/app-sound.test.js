@@ -19,6 +19,10 @@
  *   TAP       while the bowl is still to ring, the first tap on the glass, the first button (the
  *             Tune button) and the first key (F) only stop it (the ringing bowl fades): used up,
  *             they start no glass, open nothing and turn nothing; the next one works as always
+ *   TWICE     ... and a second tap 0.25 s after the first (Start, by a finger and by a mouse) is
+ *             not eaten with it: only the rest of the first gesture is
+ *   QUIET     muted, Sound at 0 or Bowl at 0, the rings do not begin and the first tap after the
+ *             end works as always; muted, or a slider brought to 0, while they are due, they stop
  *   AWAY      nothing rings while the page is hidden (a locked phone, another app): back on
  *             screen, the rings whose time has passed are dropped, not played late, the next
  *             comes on its time, and after 10 minutes away there is none
@@ -26,6 +30,10 @@
  *             bowl rings once and the next phase is not held up; the last end rings three times
  *   AWAKE     the rings keep the screen awake (the wake lock held past the 12 s the end has
  *             always had) only with Keep screen awake on; it is let go once they end
+ *   ASLEEP    a glass that ran out while the phone slept: the bowl as it comes back, the rings
+ *             counted from it (never crowded on it), none past 10 minutes after the real end
+ *   BACK      the clock set back an hour after the end: the rings end (with the screen's lock and
+ *             the tap they would take); with Rings once, the end's 12 s of screen let go
  *   FADE      the ambience's share as the glass runs out, for each length, at given times left:
  *             (left / stretch)^1.5 inside the stretch, whole before it; a glass shorter than twice
  *             the stretch fades over its last half; 0 once ended; paused it holds; sand added or the
@@ -43,7 +51,7 @@
  * fail it. The copy is handed to the page in place of the file it stands for; the tree served is
  * the app as it ships.
  *
- *   node tools/test/app-sound.test.js [--port <n>] [--root <dir>] [--only layout,levels,rings,tap,away,rounds,awake,fade,silent]
+ *   node tools/test/app-sound.test.js [--port <n>] [--root <dir>] [--only layout,levels,rings,tap,twice,quiet,away,rounds,awake,asleep,back,fade,silent]
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -375,6 +383,82 @@ function tapsOk(m) {
   };
 }
 
+/* ---- TWICE: the first tap is used up, a second one 0.25 s later is not ---------------------- */
+async function twice(env, routes) {
+  var out = {};
+  var ways = [
+    ['finger', function (t, p) { return t.page.touchscreen.tap(p.x, p.y); }],
+    ['mouse', function (t, p) { return t.page.mouse.click(p.x, p.y); }]
+  ];
+  for (var i = 0; i < ways.length; i++) {
+    var r = await toEnd(env, { settings: { bowlRings: 'tap' }, routes: routes }), t = r.t;
+    try {
+      await sleep(1200);                                        // (the first bowl is ringing)
+      var p = await t.eval(function () { var b = document.getElementById('btn-play').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      var before = await snap(t);
+      await ways[i][1](t, p);
+      await sleep(250);
+      var first = await snap(t);
+      await ways[i][1](t, p);
+      await sleep(900);
+      out[ways[i][0]] = { due: !!before.rings, first: first, second: await snap(t), errors: t.errors.slice() };
+    } finally { await t.close(); }
+  }
+  return out;
+}
+function twiceOk(m) {
+  var one = function (x) {
+    return { ok: x.due && x.first.rings === null && x.first.state === 'done' && !x.first.flip && (x.second.flip || x.second.state === 'running') && !x.errors.length,
+             detail: 'the first tap on Start: rings ' + JSON.stringify(x.first.rings) + ', ' + x.first.state + (x.first.flip ? ' TURNING' : '') +
+                     '; the second, 0.25 s later: ' + (x.second.flip ? 'the glass turns' : x.second.state === 'running' ? 'the glass runs' : 'NOTHING (' + x.second.state + ')') + (x.errors.length ? '; ' + x.errors.slice(0, 2).join(' | ') : '') };
+  };
+  return { finger: one(m.finger), mouse: one(m.mouse) };
+}
+
+/* ---- QUIET: rings that cannot be heard are not rung, and take no tap ------------------------ */
+async function quiet(env, routes) {
+  var out = {};
+  var silent = [['muted', { muted: true }], ['sound0', { volume: 0 }], ['bowl0', { bowlLevel: 0 }]];
+  for (var i = 0; i < silent.length; i++) {
+    var r = await toEnd(env, { settings: Object.assign({ bowlRings: 'tap' }, silent[i][1]), routes: routes }), t = r.t;
+    try {
+      await sleep(600);
+      var end = await snap(t), g = await t.glass();
+      await t.page.touchscreen.tap(g.cx, g.cy);
+      await sleep(700);
+      out[silent[i][0]] = { done: r.done, rings: end.rings, after: await snap(t), errors: t.errors.slice() };
+    } finally { await t.close(); }
+  }
+  // turned inaudible while the rings are due (a slider still held from before the end, the Mute button): they stop
+  var ways = [
+    ['toMute', function () { document.getElementById('btn-mute').click(); }],
+    ['toSound0', function () { var v = document.getElementById('volume'); v.value = 0; v.dispatchEvent(new Event('input', { bubbles: true })); }],
+    ['toBowl0', function () { var v = document.getElementById('bowl-level'); v.value = 0; v.dispatchEvent(new Event('input', { bubbles: true })); }]
+  ];
+  for (var j = 0; j < ways.length; j++) {
+    var q = await toEnd(env, { settings: { bowlRings: 'tap' }, routes: routes }), u = q.t;
+    try {
+      await sleep(600);
+      var due = await snap(u);
+      await u.eval(ways[j][1]);
+      await sleep(300);
+      out[ways[j][0]] = { due: due.rings, after: await snap(u), errors: u.errors.slice() };
+    } finally { await u.close(); }
+  }
+  return out;
+}
+function quietOk(m) {
+  var arm = function (x, what) {
+    return { ok: x.done && x.rings === null && (x.after.flip || x.after.state === 'running') && !x.errors.length,
+             detail: what + ', Until a tap, the glass run out: rings ' + JSON.stringify(x.rings) + '; the first tap on the glass: ' + (x.after.flip ? 'it turns' : x.after.state === 'running' ? 'it runs' : 'NOTHING (' + x.after.state + ')') + (x.errors.length ? '; ' + x.errors.join(' | ') : '') };
+  };
+  var stop = function (x, what) {
+    return { ok: !!x.due && x.after.rings === null && !x.errors.length, detail: what + ' while the rings are due: rings ' + JSON.stringify(x.due) + ' -> ' + JSON.stringify(x.after.rings) + (x.errors.length ? '; ' + x.errors.join(' | ') : '') };
+  };
+  return { muted: arm(m.muted, 'muted'), sound0: arm(m.sound0, 'Sound at 0'), bowl0: arm(m.bowl0, 'Bowl at 0'),
+           toMute: stop(m.toMute, 'muted'), toSound0: stop(m.toSound0, 'Sound brought to 0'), toBowl0: stop(m.toBowl0, 'Bowl brought to 0') };
+}
+
 /* ---- AWAY: hidden, nothing rings; back, nothing late --------------------------------------- */
 async function away(env, routes) {
   var out = {};
@@ -471,6 +555,70 @@ function awakeOk(m) {
     on: { ok: !!m.on.rings && m.on.mid.held === 1 && m.on.ringsAfter === null && m.on.after.held === 0,
           detail: 'Keep screen awake on: 13 s after the end, with rings to come, the lock held ' + m.on.mid.held + '; after the last ring held ' + m.on.after.held },
     off: { ok: !!m.off.rings && m.off.mid.requests === 0 && m.off.after.requests === 0, detail: 'Keep screen awake off: ' + m.off.mid.requests + ' requests for the lock with rings to come' }
+  };
+}
+
+/* ---- BACK: the clock set back an hour after the end ------------------------------------------- */
+async function back(env, routes) {
+  var out = {};
+  var cases = [['tap', 'tap'], ['once', 'once']];
+  for (var i = 0; i < cases.length; i++) {
+    var r = await toEnd(env, { settings: { bowlRings: cases[i][1], keepAwake: true }, routes: routes }), t = r.t;
+    try {
+      await sleep(600);
+      var before = await snap(t);
+      await jump(t, -3600000);
+      await t.eval(function () { window.__hide(false); });        // (anything that asks again whether to keep the screen on)
+      await sleep(400);
+      var after = await snap(t), g = await t.glass();
+      await t.page.touchscreen.tap(g.cx, g.cy);
+      await sleep(700);
+      out[cases[i][0]] = { before: before, after: after, tapped: await snap(t), errors: t.errors.slice() };
+    } finally { await t.close(); }
+  }
+  return out;
+}
+function backOk(m) {
+  var a = m.tap, o = m.once;
+  return {
+    rings: { ok: !!a.before.rings && a.before.wake.held === 1 && a.after.rings === null && a.after.wake.held === 0 && (a.tapped.flip || a.tapped.state === 'running') && !a.errors.length,
+             detail: 'Until a tap, the clock set back an hour: rings ' + JSON.stringify(a.before.rings) + ' -> ' + JSON.stringify(a.after.rings) + ', the screen lock held ' + a.before.wake.held + ' -> ' + a.after.wake.held +
+                     '; the next tap on the glass: ' + (a.tapped.flip ? 'it turns' : a.tapped.state) },
+    once: { ok: o.before.rings === null && o.before.wake.held === 1 && o.after.wake.held === 0 && !o.errors.length,
+            detail: 'Once, the clock set back an hour within the 12 s after the end: the screen lock held ' + o.before.wake.held + ' -> ' + o.after.wake.held }
+  };
+}
+
+/* ---- ASLEEP: the glass ran out while the phone slept --------------------------------------- */
+async function asleep(env, routes) {
+  var out = {};
+  var cases = [['three', 'three', 8000], ['long', 'tap', 660000]];
+  for (var i = 0; i < cases.length; i++) {
+    var st = {}; st[KEY] = { durationMs: 10000, chime: true, bowlRings: cases[i][1] };
+    var t = await env.open({ storage: st, init: soundInit, routes: routes || [] });
+    try {
+      await sleep(700);
+      await watch(t);
+      await t.eval(function () { window.Hourglass.audio.unlock(); window.Hourglass.start(); });
+      await sleep(300);
+      var rem = await t.eval(function () { return window.Hourglass.timer.rem; });
+      await jump(t, rem + cases[i][2]);                           // asleep: the clock moves past the end in one step, no frame between
+      for (var k = 0; k < 80; k++) { await sleep(60); await jump(t, 250); }   // awake: 20 s on the app's clock, a quarter second at a time
+      await sleep(300);
+      var b = await bowl(t), sn = await snap(t);
+      out[cases[i][0]] = { state: sn.state, rings: sn.rings, bowls: b.chimes.map(function (c) { return c.t + c.delay * 1000; }), errors: t.errors.slice() };
+    } finally { await t.close(); }
+  }
+  return out;
+}
+function asleepOk(m) {
+  var th = m.three, lg = m.long, after = [];
+  for (var i = 1; i < th.bowls.length; i++) after.push(th.bowls[i] - th.bowls[0]);   // (the test's clock moves a quarter second at a time)
+  return {
+    three: { ok: th.state === 'done' && th.bowls.length === 3 && after.every(function (g, k) { return g >= (k + 1) * GAP && g <= (k + 1) * GAP + 400; }) && !th.errors.length,
+             detail: 'Three times, the end found 8 s late: ' + th.bowls.length + ' bowls, the rings ' + after.join(' and ') + ' ms after the first (' + GAP + ' and ' + 2 * GAP + ' asked)' },
+    long: { ok: lg.state === 'done' && lg.bowls.length === 1 && lg.rings === null && !lg.errors.length,
+            detail: 'Until a tap, the end found 11 minutes late: ' + lg.bowls.length + ' bowl (the end\'s, late), then rings ' + JSON.stringify(lg.rings) }
   };
 }
 
@@ -676,11 +824,45 @@ function silentOk(m) {
       s.check('TAP: ... the first key (F) only stops it, and turns nothing; the next turns the glass', tp.key.ok, tp.key.detail);
       s.check('TAP: no page or console errors', tp.errors.ok, tp.errors.detail);
       await control('TAP: a copy whose first tap is not used up (it starts the glass too)', 'glass', function () {
-        return taps(env, copyOf('app.js', /    ringEat = \{ id: e\.pointerId, up: 0 \};\n    ringEaten\(e\);\n/, '    ringEat = null;\n'));
+        return taps(env, copyOf('app.js', /    ringEat = \{ id: e\.pointerId, touch: null, up: 0 \};\n    ringEaten\(e\);\n/, '    ringEat = null;\n'));
       }, tapsOk);
       await control('TAP: a copy whose first key is not used up', 'key', function () {
         return taps(env, copyOf('app.js', /    ringEat = \{ key: e\.key, up: 0 \};\n    ringEaten\(e\);\n/, ''));
       }, tapsOk);
+    }
+    if (wanted('twice')) {
+      var tw = twiceOk(await twice(env));
+      s.check('TWICE: while the bowl is to ring again, Start tapped with a finger twice 0.25 s apart: the first only stops the bowl, the second starts the glass', tw.finger.ok, tw.finger.detail);
+      s.check('TWICE: ... and clicked twice with a mouse 0.25 s apart: the same', tw.mouse.ok, tw.mouse.detail);
+      // the copy: the next gesture's pointer down no longer ends the first, and every touch is eaten, not only the first's (as up to 1.19.0)
+      var eatsAll = [broken(env, 'app.js', function (src) {
+        src = swap(/    if \(ringEat && \(ringEat\.up \|\| ringEat\.key !== undefined \|\| e\.pointerId !== ringEat\.id\)\) ringEat = null;[^\n]*\n/, '')(src);
+        src = swap(/        else if \(!ringTouch\(e, q\)\) return;\n/, '')(src);
+        return swap(/        if \(type === 'touchend' \|\| type === 'touchcancel'\) \{ ringEaten\(e\); ringEat = null; return; \}[^\n]*\n/, '')(src);
+      })];
+      await control('TWICE: a copy that eats every touch and click until 0.6 s after the first tap lifts (as up to 1.19.0): a finger', 'finger', function () { return twice(env, eatsAll); }, twiceOk);
+      await control('TWICE: a copy whose mouse gesture is not ended by its click nor by the next press: a mouse', 'mouse', function () {
+        return twice(env, [broken(env, 'app.js', function (src) {
+          src = swap(/    if \(ringEat && \(ringEat\.up \|\| ringEat\.key !== undefined \|\| e\.pointerId !== ringEat\.id\)\) ringEat = null;[^\n]*\n/, '')(src);
+          return swap(/      if \(type === 'click'\) ringEat = null;\n/, '')(src);
+        })]);
+      }, twiceOk);
+    }
+    if (wanted('quiet')) {
+      var qu = quietOk(await quiet(env));
+      s.check('QUIET: with the app muted, the rings do not begin, and the first tap on the glass after the end turns it', qu.muted.ok, qu.muted.detail);
+      s.check('QUIET: ... the same with Sound at 0', qu.sound0.ok, qu.sound0.detail);
+      s.check('QUIET: ... and with Bowl at 0', qu.bowl0.ok, qu.bowl0.detail);
+      s.check('QUIET: muted while the rings are due, they stop', qu.toMute.ok, qu.toMute.detail);
+      s.check('QUIET: ... and so with Sound brought to 0', qu.toSound0.ok, qu.toSound0.detail);
+      s.check('QUIET: ... or Bowl', qu.toBowl0.ok, qu.toBowl0.detail);
+      var armsAll = copyOf('app.js', /    var n = ringsHeard\(\) \? ringsLast/, '    var n = settings.chime ? ringsLast');
+      await control('QUIET: a copy whose rings begin whenever the bowl is on (as up to 1.19.0): muted', 'muted', function () { return quiet(env, armsAll); }, quietOk);
+      await control('QUIET: ... Sound at 0', 'sound0', function () { return quiet(env, armsAll); }, quietOk);
+      await control('QUIET: ... Bowl at 0', 'bowl0', function () { return quiet(env, armsAll); }, quietOk);
+      await control('QUIET: a copy whose rings go on when Sound is brought to 0', 'toSound0', function () { return quiet(env, copyOf('app.js', /    showVolume\(\); save\(\);\n    ringsUnheard\(\);\n/, '    showVolume(); save();\n')); }, quietOk);
+      await control('QUIET: a copy whose rings go on when Bowl is brought to 0', 'toBowl0', function () { return quiet(env, copyOf('app.js', /      audio\.setBowlLevel\(settings\.bowlLevel\);\n      ringsUnheard\(\);\n/, '      audio.setBowlLevel(settings.bowlLevel);\n')); }, quietOk);
+      await control('QUIET: a copy whose rings go on when the app is muted', 'toMute', function () { return quiet(env, copyOf('app.js', /    audio\.setMuted\(m\);\n    ringsUnheard\(\);\n/, '    audio.setMuted(m);\n')); }, quietOk);
     }
     if (wanted('away')) {
       var aw = awayOk(await away(env));
@@ -705,6 +887,24 @@ function silentOk(m) {
       s.check('AWAKE: with Keep screen awake on, the rings keep the screen on past the end\'s 12 s, and let it go after the last', ak.on.ok, ak.on.detail);
       s.check('AWAKE: with it off, the rings never ask for the screen', ak.off.ok, ak.off.detail);
       await control('AWAKE: a copy whose rings do not keep the screen on', 'on', function () { return awake(env, copyOf('app.js', / \|\| ringsDue\(\)\)\)\);/, ')));')); }, awakeOk);
+    }
+    if (wanted('asleep')) {
+      var sl = asleepOk(await asleep(env));
+      s.check('ASLEEP: a glass that ran out while the phone slept (found 8 s late, Three times): the bowl as it comes back, then the rings 8.5 s apart from it, never crowded on it', sl.three.ok, sl.three.detail);
+      s.check('ASLEEP: ... found 11 minutes late (Until a tap): the end\'s bowl, and no rings past the 10 minutes after the end', sl.long.ok, sl.long.detail);
+      await control('ASLEEP: a copy that counts the rings from the real end (as up to 1.19.0)', 'three', function () {
+        return asleep(env, copyOf('app.js', /    ringsBegin\(endWall \+ BOWL_AT, endWall - \(over > 0 \? over : 0\) \+ BOWL_AT\);/, '    ringsBegin(endWall - (over > 0 ? over : 0) + BOWL_AT);'));
+      }, asleepOk);
+      await control('ASLEEP: a copy whose rings run 10 minutes from the late bowl', 'long', function () {
+        return asleep(env, copyOf('app.js', /    if \(settings\.bowlRings === 'tap' && end !== undefined\) n = [^\n]*\n/, ''));
+      }, asleepOk);
+    }
+    if (wanted('back')) {
+      var bk = backOk(await back(env));
+      s.check('BACK: the clock set back an hour while the bowl is to ring again: the rings end, the screen is let go, and the next tap works', bk.rings.ok, bk.rings.detail);
+      s.check('BACK: ... and set back within the 12 s an end keeps the screen on (Rings once): the screen is let go', bk.once.ok, bk.once.detail);
+      await control('BACK: a copy whose rings wait for the clock to come back', 'rings', function () { return back(env, copyOf('app.js', /    if \(now < endWall - 1000\) \{ ringsStop\(\); return; \}[^\n]*\n/, '')); }, backOk);
+      await control('BACK: a copy whose end keeps the screen on while the clock is behind it', 'once', function () { return back(env, copyOf('app.js', /return ago >= -1000 && ago < END_AWAKE;/, 'return ago < END_AWAKE;')); }, backOk);
     }
     if (wanted('fade')) {
       var fd = fadeOk(await fade(env));
