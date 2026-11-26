@@ -788,7 +788,7 @@ function layerDist(a, b) { var s = 0; for (var k = 0; k < a.length; k++) for (va
 async function fadeMid(env, routes, shots) {
   var t = await opn(env, { storage: { background: 'dark' }, viewport: { width: 390, height: 844 }, routes: routes });
   await sleep(700);
-  await t.eval(function () { window.Hourglass.setDuration(60000); });
+  await t.eval(function () { window.Hourglass.setDuration(600000); });
   await sleep(2600);
   await t.eval(function () { window.Hourglass.start(); });
   await sleep(1200);
@@ -826,7 +826,8 @@ async function fadeCase(s, env) {
   async function endOf(look, act) {
     var t = await opn(env, { storage: { background: look }, viewport: { width: 390, height: 844 } });
     await sleep(800);
-    if (act) { await act(t); await settled(t); await sleep(300); }
+    if (act) { await act(t); await settled(t); }
+    await sleep(1500);                  // (the room's own easings at the launch over, in both: the same picture at rest)
     var l = await lookOf(t), p = await picture(t), page = await pixels(t, { x: 0, y: 0, width: 390, height: 120 });
     await t.close();
     return { l: l, p: p, page: page.d };
