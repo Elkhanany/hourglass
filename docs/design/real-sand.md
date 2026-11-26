@@ -517,6 +517,44 @@ feels the turning field (5.2) and the neck stays shut while it turns; at the
 swap the ledger swaps at once and the next run turns the points (3.2); a
 skipped run is covered by CSS (6.6).
 
+**Leaned slowly: the surface push.** Left to the solver, a leaned bed stands
+over-steep until it fails as a block (the full top bed at 50 to 55 degrees of
+lean). So each substep the first gridClear finds the free-surface nodes whose
+face stands steeper to gravity than a start angle (33 degrees coarse, 32
+fine; a node a push ran on within 0.05 s keeps going down to 2 degrees
+lower), slow, in the top 3 cells, away from the glass and from the neck (4
+neck half-widths, fading over 2 more), and g2p2g sets the sand there moving
+down the surface at least at 200 cells/s per g of push (at most 120). The
+material switch is `surfPush` (solver.mjs's notes).
+
+A node starts a push only once gravity has turned 3 degrees (`surfTilt`) from
+the direction its sand settled under: the direction is kept per node, packed
+with the memory, and taken afresh when the node has no sand within reach,
+when its sand runs faster than the push's slow gate lets through (a pour, a
+fall), and at a fill or a flip. A heap poured in a glass held still is the
+solver's. Without this gate the push trimmed every poured heap: the lab's
+case 2 heap (a column let go in the lower bulb, measured 2.5 s later) lay at
+26.4 coarse and 25.6 fine, where the solver leaves 30.6 and 29.1. The probe
+showed why: the push acted on the pour itself (49 nodes at 0.3 s, the sand
+still running at 30 to 45 cells/s), then, every tenth of a second to 3 s, on
+2 to 8 nodes at the heap's foot whose local faces stand at 33 to 35 while the
+fitted flank is 27 to 30. A poured heap has as many local faces over 33 as a
+leaned bed (about a fifth of its surface nodes, read as the shader reads
+them, and still a sixth with a 9 x 9 fit of the sand alone), and its steep
+bits are quieter than a leaned bed's, so no test of slope, speed, quiet or
+the bed below tells the two apart; whether the glass has turned does.
+
+With the gate, in the lab (coarse, app speed, neck shut, 5 degrees a second):
+case 2's heaps are the solver's to the digit (30.6 and 29.1, no node pushed);
+the full top bed first moves at 30 degrees (median move of its surface layer
+over a cell; the classic sand about 31), moves in 21 of the 23 steps after,
+never as a block (lower half over top quarter at most 0.27, centre at most
+1.4 cells a step); in a half-run glass the top bed's surface moves from 25
+degrees (1 % of it over a cell) and the lower cone from 5, its lower half
+over top quarter at most 0.37 (0.89 without the push, a block slide from
+37.5); turned at 30 degrees a second the full drop comes at 85 to 100 and the
+sand is still 0.75 s after 180.
+
 ### 7.3 Pour
 
 As the CPU sand pours: new points at the far end of the top bulb, within 2.75
