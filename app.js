@@ -3959,7 +3959,7 @@
    *  browser's WebGPU canvas cannot be read back). ?debug=sand shows the
    *  engine's figures for a report.
    * ==================================================================== */
-  var REALSAND_BUILD = '7';          // the engine's stamp this script was written for (realsand/build.mjs)
+  var REALSAND_BUILD = '8';          // the engine's stamp this script was written for (realsand/build.mjs)
   var REAL_TEST = /[?&]offscreen=1(?:&|$)/.test(location.search);
   var realEng = null;                // the engine: starting, live (then real === realEng), lost or rebuilding
   var realCls = null, realAttached = false, realDue = false, realRetries = 0, realState = 'off';

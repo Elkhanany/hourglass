@@ -115,8 +115,9 @@ never stored when the page that asked is a lab page; the worker tells it by
 the request's client (a module imported by another module carries no lab
 referrer), and every other request is the app's.
 
-The build stamp lives in four places, raised together with any change to the
-engine: `realsand/build.mjs` (`BUILD`), the line "Engine build" in
+The build stamp lives in four places, raised together whenever the engine's
+code changes (a module or a shader under `realsand/`; a change in comments
+alone does not raise it): `realsand/build.mjs` (`BUILD`), the line "Engine build" in
 `shaders/common.inc.wgsl`, `REALSAND_BUILD` in `app.js` and `BUILD_EXPECTED`
 in `lab/sand/main.mjs`. A page fetches its shaders once (one shader library
 per base URL), so a rebuild after a lost device, or a retried start, compiles

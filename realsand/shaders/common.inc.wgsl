@@ -12,7 +12,7 @@
 // The line below is the engine's build stamp (realsand/build.mjs): the app
 // checks the shaders it loaded against its modules' (a mix of old and new files
 // after an update), and realsand-shell checks that the two agree.
-// Engine build: 7
+// Engine build: 8
 //-----------------------------------------------------------------------------
 
 const ParticleDispatchSize = 64;
