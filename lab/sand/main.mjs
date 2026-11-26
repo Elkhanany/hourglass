@@ -2160,18 +2160,20 @@ window.__lab = {
     return sides;
   },
   /** The surface push's field (solver.readLoad): pushed, nodes pushed now; running, nodes with a
-   *  memory; maxNeck, the largest push within the neck zone's outer radius (cells/s²); sumPush; max;
-   *  where, the first 60 nodes pushed: [x, y relative to the neck (cells), push, distance to the glass]. */
+   *  memory; maxNeck, the largest push within the neck zone (surfNeck neck half-widths of the neck's
+   *  centre, where the push is always 0; cells/s²); maxRing, the largest in its fade, out to
+   *  surfNeck + surfNeckFade; sumPush; max; where, the first 60 nodes pushed: [x, y relative to the
+   *  neck (cells), push, distance to the glass]. */
   async surfaceField() {
     const L = await solver.readLoad(), d = await solver.readParticles(), W = glass.W, H = glass.H, m = set().material;
-    const R = ((m.surfNeck ?? 4) + (m.surfNeckFade ?? 2)) * glass.rn;
+    const R0 = (m.surfNeck ?? 4) * glass.rn, R = ((m.surfNeck ?? 4) + (m.surfNeckFade ?? 2)) * glass.rn;
     // the nodes a point's stencil reaches now (a node the sand has left keeps its last value; g2p2g never reads it)
     const near = new Uint8Array(W * H);
     for (let k = 0; k < solver.count; k++) {
       const x = Math.floor(d[k * PARTICLE_WORDS]), y = Math.floor(d[k * PARTICLE_WORDS + 1]);
       for (let b = -1; b <= 1; b++) for (let a = -1; a <= 1; a++) { const i = x + a, j = y + b; if (i >= 0 && j >= 0 && i < W && j < H) near[j * W + i] = 1; }
     }
-    let pushed = 0, running = 0, maxNeck = 0, sumPush = 0, max = 0;
+    let pushed = 0, running = 0, maxNeck = 0, maxRing = 0, sumPush = 0, max = 0;
     const where = [];
     for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
       if (!near[j * W + i]) continue;
@@ -2180,9 +2182,10 @@ window.__lab = {
       if (!(a > 0)) continue;
       pushed++; sumPush += a; max = Math.max(max, a);
       if (where.length < 60) where.push([+(i + 0.5 - glass.cx).toFixed(1), +(j + 0.5 - glass.cy).toFixed(1), Math.round(a), +glass.field[o + 2].toFixed(2)]);
-      if (Math.hypot(i + 0.5 - glass.cx, j + 0.5 - glass.cy) < R) maxNeck = Math.max(maxNeck, a);
+      const r = Math.hypot(i + 0.5 - glass.cx, j + 0.5 - glass.cy);
+      if (r < R0) maxNeck = Math.max(maxNeck, a); else if (r < R) maxRing = Math.max(maxRing, a);
     }
-    return { pushed, running, maxNeck, sumPush, max, where };
+    return { pushed, running, maxNeck, maxRing, sumPush, max, where };
   },
   flip() { doFlip(); },
   flipping: () => flip.active,
