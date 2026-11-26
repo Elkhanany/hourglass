@@ -4,7 +4,7 @@
  * so that the lab's Timer, the app (app-sand.mjs) and a Node test run the same code. Moved here
  * from the lab's timer.mjs, which still exports them.
  *
- *  The modes (design section 9.1, with the owner's answers of 2026-11-21: no economy):
+ *  The modes (design section 9.1, as decided on 2026-11-21: no economy mode):
  *      asleep: no GPU work. Not running and not draining, the sand still (the newest readback
  *              has at most 3 points moving faster than 2 % of a free fall over the glass) for 0.5 s, and
  *              nothing pending (a turn, a swap waiting for its flip pass). The rule's limit: a bed

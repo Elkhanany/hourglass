@@ -8,7 +8,7 @@
  *    time. The capacity is the app's phone glass's (scale 1.08, classic grain): 28,099 grains.
  *  - The clock: app.js calibrate, topAt, remAt (a straight run to the tail, then the tail's
  *    curve), and the breathing the app adds to the target (app.js frame).
- *  - The modes (design section 9.1, with the owner's answers of 2026-11-21: no economy), in
+ *  - The modes (design section 9.1, as decided on 2026-11-21: no economy mode), in
  *    realsand/modes.mjs since the app runs them too; exported here as before:
  *      asleep: no GPU work. Not running and not draining, the sand still (the newest readback
  *              has at most 3 points moving faster than 2 % of a free fall over the glass) for 0.5 s, and
