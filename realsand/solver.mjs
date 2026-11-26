@@ -216,7 +216,13 @@ const LAYOUTS = {
  * surface at least that fast. Added as a force (0.3 or 0.6 g) the solve
  * absorbed it; shifting the points after the substep combed the surface (a
  * per-node field read bilinearly); set as a speed, read through the B-spline,
- * it does neither. The figures: docs/design/real-sand.md, 7.2.
+ * it does neither. A node starts a push only once gravity has turned surfTilt
+ * degrees from the direction its sand settled under (when it arrived at the
+ * node, or last ran faster than surfV2 times the moving speed): a heap poured
+ * in a glass held still keeps the solver's own faces, which stand over
+ * surfStart here and there as often as a leaned bed's do (with the push on
+ * and no such gate, lab case 2's heap lay 3 to 4 degrees low). The figures:
+ * docs/design/real-sand.md, 7.2.
  *
  * Syrup wets the glass (wallDrag 1: no slip) and is three times as viscous as
  * before, so it oozes; its viscosity term is at its ceiling (1), so it still
@@ -224,8 +230,8 @@ const LAYOUTS = {
  * at 0.42 a jerk threw it up the wall in a curling tongue.
  */
 export const MATERIALS = {
-  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 31, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8, surfPush: 0.3, surfStart: 33, surfStop: 31 },
-  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 30, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8, surfPush: 0.3, surfStart: 32, surfStop: 30 },
+  coarse: { label: 'Coarse sand', model: 2, frictionAngle: 31, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8, surfPush: 0.3, surfStart: 33, surfStop: 31, surfTilt: 3 },
+  fine:   { label: 'Fine sand',   model: 2, frictionAngle: 30, viscosity: 0.015, relaxation: 1.2, elasticity: 1, plasticity: 0, density: 1, stiffness: 1.5, wallFriction: 0.5, wallDrag: 0, spread: 0.3, compact: 0.5, packMax: 1.05, yieldLoop: 0, yieldScale: 0.8, surfPush: 0.3, surfStart: 32, surfStop: 30, surfTilt: 3 },
   water:  { label: 'Water',       model: 0, frictionAngle: 0,  viscosity: 0.01,  relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 0.002 },
   syrup:  { label: 'Syrup',       model: 0, frictionAngle: 0,  viscosity: 1,     relaxation: 1.5, elasticity: 0, plasticity: 0, density: 1, stiffness: 1, wallFriction: 0, wallDrag: 1 }
 };
@@ -466,11 +472,12 @@ export class Solver {
     F[o + 32] = m.frictionAngle; F[o + 33] = m.density; F[o + 34] = m.stiffness; F[o + 35] = m.model;
     F[o + 36] = neck ? neck.vcap : 0; F[o + 37] = neck ? neck.allow[Math.min(s, neck.allow.length - 1)] : 0;
     U[o + 38] = neck ? neck.flags : 0; F[o + 39] = m.floorLoose ?? 0;
-    F[o + 40] = m.spread ?? 0; F[o + 41] = m.spreadThr ?? 0.8; F[o + 42] = m.spreadCap ?? 0.05; F[o + 43] = 0;
+    const sand = m.model === 2;
+    F[o + 40] = m.spread ?? 0; F[o + 41] = m.spreadThr ?? 0.8; F[o + 42] = m.spreadCap ?? 0.05; F[o + 43] = sand ? (m.surfTilt ?? 0) : 0;
     F[o + 44] = m.compact ?? 0; F[o + 45] = m.packMax ?? 1; F[o + 46] = m.dilate ?? 1; F[o + 47] = 0;
     F[o + 48] = m.yieldLoop ?? 0; F[o + 49] = m.yieldScale ?? 1; F[o + 50] = m.yieldStep ?? 0; F[o + 51] = m.yieldStep >= 2 ? (m.loadScale ?? 2) : (m.yieldStepScale ?? 1);
     // the surface push (gridClear.wgsl, g2p2g.wgsl): sand only; surfProbe computes it without applying it
-    const sand = m.model === 2, sp = sand ? (m.surfPush ?? 0) : 0;
+    const sp = sand ? (m.surfPush ?? 0) : 0;
     F[o + 52] = sand && m.surfProbe ? 2 : sp > 0 ? 1 : 0; F[o + 53] = sp; F[o + 54] = m.surfStart ?? 33; F[o + 55] = m.surfStop ?? 31;
     F[o + 56] = m.surfRamp ?? 3; F[o + 57] = m.surfDepth ?? 3; F[o + 58] = m.surfNeck ?? 4; F[o + 59] = m.surfNeckFade ?? 2;
     F[o + 60] = m.surfV1 ?? 1.3; F[o + 61] = m.surfV2 ?? 2.6; F[o + 62] = set.g0 ?? 0; F[o + 63] = Math.max(1, Math.round((m.surfMem ?? 0.05) * set.hz));

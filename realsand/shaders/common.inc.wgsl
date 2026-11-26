@@ -82,7 +82,8 @@ struct SimConstants {
     // all; it packs down at the rate its load gets through the constraint)
     floorLoose: f32,
     // the points' spreading (spreadShift.wgsl): x: step, y: crowding threshold, z: longest step
-    // (cells); w: unused
+    // (cells); w: the surface push's tilt, degrees (gridClear.wgsl: a node starts a push only
+    // once gravity has turned that far from the direction its sand settled under; 0: no such gate)
     spread: vec4f,
     // sand's packing state (g2p2g.wgsl): x: how fast sand packed down again from a loosened
     // state gains packing (0: never); y: the densest packing it reaches (1: the fill's);
