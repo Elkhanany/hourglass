@@ -979,8 +979,9 @@
     // (taking it, turning it, setting it down); the one sound a finger makes is its tap.
     if (grade) {
       var k = v / 1800;
-      audio.thump(k * k, 0.8 * nx, sim.nTop >= sim.nBottom ? 0 : 1);
-      k = (v - 250) / 1700; audio.clack(k * k, 0.8 * nx);
+      var gxb = 0.8 * (nx * c + ny * s);           // (the same place across the glass, for the sound's stage)
+      audio.thump(k * k, 0.8 * nx, sim.nTop >= sim.nBottom ? 0 : 1, gxb);
+      k = (v - 250) / 1700; audio.clack(k * k, 0.8 * nx, gxb);
     }
     if (v > 300) buzz(grade ? 16 : 8);
     lastMotionAt = performance.now();
@@ -1655,10 +1656,10 @@
   function drainDamage(now) {
     var f = sim.frame, n = f.dmgN, keep = false, sealed = false;
     for (var e = dmgSeen; e < n; e++) {
-      var type = f.dmgType[e], k = f.dmgK[e], lv = f.dmgLevel[e], x = f.dmgX[e] * heardSide();
+      var type = f.dmgType[e], k = f.dmgK[e], lv = f.dmgLevel[e], gx = f.dmgX[e], x = gx * heardSide();
       renderer.damageEvent(type, k, lv, now);
       if (type === DMG.WARN) {
-        audio.creak(lv, x); buzz(6);
+        audio.creak(lv, x, gx); buzz(6);
         // the first creak a finger causes: say once what it means (a shaken phone is told in Tune)
         if (!settings.hintCrack && !sim.damageArmed) {
           settings.hintCrack = true; save();
@@ -1667,7 +1668,7 @@
         }
       }
       else if (type === DMG.CRACK) {
-        audio.crack(x);
+        audio.crack(x, gx);
         audio.setCracked('cracked');
         buzz([8, 40, 18]);
         if (settings.mendNotes < 3) {
@@ -1675,9 +1676,9 @@
           toast('The glass cracked · hold it still to mend', 4200, lowOnScreen(sim.cracks[k] ? sim.cracks[k].bulb : 0));
         }
         keep = true;
-      } else if (type === DMG.GROW) audio.crackGrow(x);
+      } else if (type === DMG.GROW) audio.crackGrow(x, gx);
       else if (type === DMG.BREACH || type === DMG.WIDEN) {
-        audio.chip(x);
+        audio.chip(x, gx);
         if (type === DMG.BREACH) buzz(20);
         keep = true;
       } else if (type === DMG.SEAL) {
@@ -1786,6 +1787,23 @@
    */
   var heardThump = new Float32Array(4), heardSlam = new Float32Array(2);
   function heardSide() { return Math.cos(sim.angle + sim.tilt); }
+  // For the sound's stage (headphones, spatial: audio.setSpatial), beside the places as heard: the
+  // same places in the glass's own frame, not turned to the ears (the stage turns the glass itself)
+  var glassThump = new Float32Array(4), glassSlam = new Float32Array(2), glassEv = null;
+  /**
+   * The bulb the sliding sand is in, for the stage (+1 the upper, −1 the lower, between as the glass
+   * passes level), from where the classic sand's moving grains are seen in a turn: until the glass
+   * is level, in the fuller bulb (it rides up the wall and slides); past level, in the bulb now
+   * above (the lower one, as the glass stood), which empties through the neck, unless it holds
+   * under a quarter of the other's sand. A clockwise turn of a glass whose sand is below is heard
+   * on the left, where its sand is seen (tools/test/audio-spatial.test.js measures it).
+   */
+  function slideBulb(th, nT, nB) {
+    var c = Math.cos(th), before = nT >= nB ? 1 : -1, after = nB >= 0.25 * nT ? -1 : 1;
+    var u = c >= 0.35 ? 1 : (c <= -0.35 ? 0 : (c + 0.35) / 0.7);
+    u = u * u * (3 - 2 * u);
+    return before * u + after * (1 - u);
+  }
 
   function feedAudio(dt, active, running, landed) {
     var f = sim.frame, kf = Math.min(1, dt * 7);
@@ -1832,6 +1850,10 @@
     // or shaken sounds as a running one does (the stream and the ambience are the running
     // glass's: AU.flow, AU.ambient). Real sand fills the same record from what its sand did
     // (inside real.submit, before this), and leaves it empty, its agitation 0, while it sleeps.
+    if (active && sim.nev) {                                          // (the stage's: the same, in the glass)
+      if (!glassEv || glassEv.length < sim.evX.length) glassEv = new Float32Array(sim.evX.length);
+      for (ev = 0; ev < sim.nev; ev++) glassEv[ev] = sim.evX[ev];
+    }
     if (active) for (ev = 0; ev < sim.nev; ev++) sim.evX[ev] *= kx;   // (the single landings' places, as heard)
     AU.sim = active ? sim : null;
     if (active) {
@@ -1845,6 +1867,22 @@
     AU.leak = leakRate;
     AU.leakPan = f.leakX * kx;
     AU.spillPats = dt > 0 ? landed / dt : 0;
+    // the stage's (audio.js update(), "for the stage"): the glass's own frame, its turn, the upper
+    // bulb, the sliding sand's bulb and how the phone lies; the values above are left as they are
+    if (active) {
+      glassThump[0] = f.thump[0]; glassThump[1] = f.thump[1]; glassThump[2] = f.thump[2]; glassThump[3] = f.thump[3];
+      glassSlam[0] = f.slam[0]; glassSlam[1] = f.slam[1];
+    }
+    AU.turn = sim.angle + sim.tilt;
+    AU.fillTop = sim.nTop / sim.capacity;
+    AU.slide = slideBulb(AU.turn, sim.nTop, sim.nBottom);
+    AU.evG = glassEv;
+    AU.thumpG = active ? glassThump : null;
+    AU.slamG = active ? glassSlam : null;
+    AU.leakG = f.leakX;
+    var rg = 0.6 * sim.bf[b] / sim.G;
+    AU.rushPanG = rg > 0.65 ? 0.65 : (rg < -0.65 ? -0.65 : rg);
+    AU.pose = motion.pose ? motion.pose() : 0;
     audio.update(AU);
     // a hard landing is felt too (Android only), now and then
     if (active && (f.thump[0] > 0.3 || f.thump[2] > 0.3)) {

@@ -551,6 +551,16 @@
     return n;
   };
 
+  /**
+   * How the phone lies (read only): gravity along its screen's normal, from the last
+   * orientation, −1 … 1: about 0 held up before the face, +1 on its back (the screen up),
+   * −1 on its face; 0 before any orientation has been seen. (The sound's stage lays the
+   * glass on the desk when the phone lies flat.)
+   */
+  P.pose = function () {
+    return this._dT >= 0 ? -this._dnZ : 0;
+  };
+
   /* ---------------------------------------------------------------- *
    *  Output
    * ---------------------------------------------------------------- */
