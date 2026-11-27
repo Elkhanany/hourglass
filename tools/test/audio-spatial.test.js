@@ -49,8 +49,9 @@
  *         rise and the sand's are the same with the stage on, and the switch thrown in the
  *         middle of a rise does not jump it. Controls: water round its bus; a start with no rise.
  *   COST  ten seconds of a running glass render with the stage on in at most 1.4 times the
- *         time without it, alone and with a brook (medians of five, in turn: run the suite
- *         alone). Control: the water live through four panners, the bowl's place always joined.
+ *         time without it, alone and with a brook (five rounds in turn, each against its own
+ *         round, the median: run the suite alone). Control: the water live through four
+ *         panners, the bowl's place always joined.
  *
  * Headless Chromium now and then never finishes an offline render that has HRTF panners in it:
  * when the render has to wait for the browser to load its HRTF data (about one first render in
@@ -977,19 +978,9 @@ async function main() {
         return window.__scene(Object.assign({ dur: 10, rate: 60, spatial: sp, seed: 9, ambience: amb, frame: function () { return { bottom: 2400, slides: 3000, ambient: !!amb }; } }, o)).then(function (r) { return r.ms; });
       };
       var med = function (x) { return x.slice().sort(function (a, b) { return a - b; })[x.length >> 1]; };
-      var pair = async function (amb, o) {
-        var off = [], on = [];
-        for (var i = 0; i < 5; i++) {
-          if (i % 2) { on.push(await run(true, amb, o)); off.push(await run(false, amb)); }
-          else { off.push(await run(false, amb)); on.push(await run(true, amb, o)); }
-        }
-        return { off: Math.round(med(off)), on: Math.round(med(on)), ratio: Math.round(100 * med(on) / med(off)) / 100 };
-      };
-      await run(true, 'brook');
-      var glass = await pair(null), water = await pair('brook');
       // control: the levers taken out again: the water as it was made, live through four speakers of its own (behind: later,
       // darker, turned), and the bowl's place never leaving the mix
-      var undone = await pair('brook', { tweak: function (a) {
+      var undo = function (a) {
         var ctx = a.ctx, sp = ctx.createChannelSplitter(2);
         a._ambSwap(false, ctx.currentTime, 0.01);
         a.ambEnd.disconnect(a.comp); a.ambEnd.connect(sp);
@@ -1007,11 +998,24 @@ async function main() {
           p.connect(a.comp);
         });
         a._stageBowl(1e9);
-      } });
-      return { glass: glass, water: water, undone: undone };
+      };
+      // Five rounds, each: the glass without and with the stage, the same with a brook, and the brook with the levers out,
+      // the order turned round every other round. Each time is taken against its own round's render without the stage
+      // (what else the machine does then falls on both), and the median of the five is the figure.
+      var jobs = [['off', false, null], ['on', true, null], ['offB', false, 'brook'], ['onB', true, 'brook'], ['undone', true, 'brook', { tweak: undo }]];
+      var t = { off: [], on: [], offB: [], onB: [], undone: [] }, q = { glass: [], water: [], undone: [] };
+      await run(true, 'brook');
+      for (var i = 0; i < 5; i++) {
+        var order = i % 2 ? jobs.slice().reverse() : jobs, row = {};
+        for (var k = 0; k < order.length; k++) row[order[k][0]] = await run(order[k][1], order[k][2], order[k][3]);
+        for (var key in t) t[key].push(Math.round(row[key]));
+        q.glass.push(row.on / row.off); q.water.push(row.onB / row.offB); q.undone.push(row.undone / row.offB);
+      }
+      var one = function (off, on, ratios) { return { off: med(t[off]), on: med(t[on]), ratio: Math.round(100 * med(ratios)) / 100, all: t[off].join(' ') + ' / ' + t[on].join(' ') }; };
+      return { glass: one('off', 'on', q.glass), water: one('offB', 'onB', q.water), undone: one('offB', 'undone', q.undone) };
     }, null, 600000);
-    var cl = function (c) { return c.off + ' ms without, ' + c.on + ' ms with: ' + c.ratio + ' times'; };
-    report(cost.glass.ratio <= 1.4 && cost.water.ratio <= 1.4, 'COST: 10 s of a running glass (60 grains a second) render with the stage on in at most 1.4 times the time without it, alone and with a brook (medians of five, taken in turn)',
+    var cl = function (c) { return c.off + ' ms without, ' + c.on + ' ms with: ' + c.ratio + ' times (' + c.all + ')'; };
+    report(cost.glass.ratio <= 1.4 && cost.water.ratio <= 1.4, 'COST: 10 s of a running glass (60 grains a second) render with the stage on in at most 1.4 times the time without it, alone and with a brook (five rounds taken in turn, each against its own round: the median)',
            'the glass: ' + cl(cost.glass) + '; with a brook: ' + cl(cost.water));
     report(cost.undone.ratio > cost.water.ratio + 0.04, 'CONTROL: the water played live through four speakers of its own, and the bowl\'s place never leaving the mix, costs more', cl(cost.undone));
 

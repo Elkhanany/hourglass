@@ -420,10 +420,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
     and a start with no rise for the sand).
   - COST: ten seconds of a running glass (60 grains a second) render with
     the stage on in at most 1.4 times the time without it, alone and with a
-    brook: medians of five renders each, taken in turn (the control: the
+    brook: five rounds taken in turn, each render against its own round's
+    render without the stage, and the median of the five (the control: the
     water played live through four panners of its own and the bowl's place
     never leaving the mix costs more). A timing: it holds on a machine that
-    does nothing else.
+    does nothing else, and other work on the machine moves it by a tenth
+    either way.
 
   Headless Chromium now and then never finishes an offline render that has
   HRTF panners in it. It happens when the render has to wait for the browser
