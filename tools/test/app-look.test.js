@@ -433,7 +433,12 @@ async function fadeSand(env, o) {
         R.setSandLight('sunlit');
         R.drawSand = function () { seen.push(R.mix); return ds.apply(R, arguments); };
         document.querySelector('#looks [data-look="light"]').click();
-        setTimeout(function () { R.drawSand = ds; res({ was: was, seen: seen, paper: R.paper }); }, 700);
+        var t0 = Date.now();
+        (function wait() {
+          // (to the fade's end, which a loaded machine may take a while to draw)
+          if ((seen.length >= 3 && seen[seen.length - 1] === 1) || Date.now() - t0 > 5000) { R.drawSand = ds; res({ was: was, seen: seen, paper: R.paper }); }
+          else setTimeout(wait, 50);
+        })();
       });
     });
     m.errors = t.errors.slice();

@@ -281,14 +281,6 @@ fn threadGrain(k: u32) -> vec3f {
         out.color = vec4f(mid.rgb, col.a);
         out.lo = vec4f(unpack4x8unorm(tones[ti - 768u]).rgb, select(0.0, 1.0, glints));
         out.hi = vec4f(unpack4x8unorm(tones[ti + 768u]).rgb, 1.0);
-        if (out.shade.a > 0.0) {
-            // the dark side from this light's colour of the grain
-            let cl = pow(mid.rgb, vec3f(2.2));
-            let yl = dot(cl, vec3f(0.2126, 0.7152, 0.0722));
-            let f = select(1.0, min(0.35, 0.15 / yl), yl > 1e-4);
-            let yd = yl * f;
-            out.shade = vec4f(pow(max(vec3f(yd) + (cl * f - vec3f(yd)) * 1.25, vec3f(0.0)), vec3f(1.0 / 2.2)), out.shade.a);
-        }
     }
     return out;
 }
