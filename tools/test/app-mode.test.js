@@ -783,21 +783,50 @@ function holdFade(t, f) {
   }, f);
 }
 function letGo(t) { return t.eval(function () { document.documentElement.getAnimations().forEach(function (a) { a.play(); }); }); }
-/** The picture's numbers: a patch of the room beside the glass, the bar's ground, and the glass's own drawn layers. */
-async function picture(t) {
+/**
+ * The glass's own drawn layers (c-back and c-front) as they are now, read in the page and kept
+ * there as `name` (when one is given). They stay in the page: at 390 x 844 they are 1122 x 2154
+ * each, 19 million numbers the two, and every number of an answer costs Playwright's protocol
+ * about 5 µs and 200 bytes of this process's memory while it crosses (100 s and over 3 GB a
+ * picture, ten pictures in FADE). What comes back is each layer's size, a hash of its pixels
+ * (FNV-1a over them as 32-bit words) and their sum: two pictures that agree in all three are the
+ * same to the pixel.
+ */
+function layers(t, name) {
+  return t.eval(function (name) {
+    var kept = [];
+    if (name) (window.__layers = window.__layers || {})[name] = kept;
+    return ['c-back', 'c-front'].map(function (id) {
+      var c = document.getElementById(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      var w = new Uint32Array(d.buffer), h = 2166136261 >>> 0, sum = 0, i;
+      for (i = 0; i < w.length; i++) { h ^= w[i]; h = Math.imul(h, 16777619) >>> 0; }
+      for (i = 0; i < d.length; i++) sum += d[i];
+      kept.push(d);
+      return { w: c.width, h: c.height, hash: h, sum: sum };
+    });
+  }, name || null);
+}
+/** How far two kept pictures' layers are apart: every channel's difference, summed over both layers (in the page). */
+function layerDist(t, a, b) {
+  return t.eval(function (n) {
+    var A = window.__layers[n.a], B = window.__layers[n.b], s = 0;
+    for (var k = 0; k < A.length; k++) for (var i = 0; i < A[k].length; i++) s += Math.abs(A[k][i] - B[k][i]);
+    return s;
+  }, { a: a, b: b });
+}
+/** Two lists of pictures (their sizes, hashes and sums) the same to the pixel, one for one; also pictures of two pages. */
+function samePixels(a, b) { return a.length === b.length && a.every(function (l, k) { return l.w === b[k].w && l.h === b[k].h && l.hash === b[k].hash && l.sum === b[k].sum; }); }
+/** The picture's numbers: a patch of the room beside the glass, the bar's ground, and the glass's own drawn layers (kept in the page as `name`). */
+async function picture(t, name) {
   var g = await t.glass();
   var room = await pixels(t, { x: 4, y: Math.round(g.top + g.h * 0.4), width: 24, height: 24 });
   var bar = await t.eval(function () { var r = document.querySelector('.panel').getBoundingClientRect(); return { x: Math.round(r.left + 6), y: Math.round(r.bottom - 10) }; });
   var panel = await pixels(t, { x: bar.x, y: bar.y, width: 6, height: 4 });
-  var layers = await t.eval(function () {
-    return ['c-back', 'c-front'].map(function (id) { var c = document.getElementById(id); return Array.prototype.slice.call(c.getContext('2d').getImageData(0, 0, c.width, c.height).data); });
-  });
   function mean(p) { var r = [0, 0, 0], n = p.d.length / 4; for (var i = 0; i < p.d.length; i += 4) { r[0] += p.d[i]; r[1] += p.d[i + 1]; r[2] += p.d[i + 2]; } return r.map(function (v) { return v / n; }); }
-  return { room: mean(room), bar: mean(panel), layers: layers };
+  return { room: mean(room), bar: mean(panel), layers: await layers(t, name) };
 }
 /** m lies well between a and b, in each of its three channels (a and b far apart). */
 function between(a, m, b) { return a.every(function (v, i) { var lo = Math.min(v, b[i]), hi = Math.max(v, b[i]); return hi - lo > 8 && m[i] > lo + 0.15 * (hi - lo) && m[i] < hi - 0.15 * (hi - lo); }); }
-function layerDist(a, b) { var s = 0; for (var k = 0; k < a.length; k++) for (var i = 0; i < a[k].length; i++) s += Math.abs(a[k][i] - b[k][i]); return s; }
 async function fadeMid(env, routes, shots) {
   var t = await opn(env, { storage: { background: 'dark' }, viewport: { width: 390, height: 844 }, routes: routes });
   await sleep(700);
@@ -805,23 +834,25 @@ async function fadeMid(env, routes, shots) {
   await sleep(2600);
   await t.eval(function () { window.Hourglass.start(); });
   await sleep(1200);
-  var dark = await picture(t);
+  var dark = await picture(t, 'dark');
   if (shots) await t.page.screenshot({ path: path.join(SHOTS, 'mode-fade-0.png') });
   await t.page.tap('#btn-look');
   var mid = null, held = null;
   for (var f of [0.25, 0.5, 0.75]) {
     var h = await holdFade(t, f);
-    if (f === 0.5) { held = h; mid = h ? await picture(t) : null; }
+    if (f === 0.5) { held = h; mid = h ? await picture(t, 'mid') : null; }
     if (shots && h) await t.page.screenshot({ path: path.join(SHOTS, 'mode-fade-' + Math.round(f * 4) + '.png') });
   }
   await letGo(t);
   await settled(t); await sleep(200);
-  var light = await picture(t);
+  var light = await picture(t, 'light');
   if (shots) await t.page.screenshot({ path: path.join(SHOTS, 'mode-fade-4.png') });
   var running = await t.eval(function () { return window.Hourglass.timer.state; });
+  // the three pictures' drawn layers against each other, where they were kept
+  var gd = 0, gl = 0, all = 0;
+  if (held && mid) { gd = await layerDist(t, 'dark', 'mid'); gl = await layerDist(t, 'mid', 'light'); all = await layerDist(t, 'dark', 'light'); }
   await t.close();
   if (!held || !mid) return { held: held, between: false };
-  var gd = layerDist(dark.layers, mid.layers), gl = layerDist(mid.layers, light.layers), all = layerDist(dark.layers, light.layers);
   return { held: held, running: running, room: [dark.room, mid.room, light.room].map(function (c) { return c.map(Math.round).join('.'); }), bar: [dark.bar, mid.bar, light.bar].map(function (c) { return c.map(Math.round).join('.'); }),
     glass: { fromDark: gd, toLight: gl, whole: all },
     between: between(dark.room, mid.room, light.room) && between(dark.bar, mid.bar, light.bar) && gd > 0.15 * all && gl > 0.15 * all && gd < all && gl < all,
@@ -848,10 +879,11 @@ async function fadeCase(s, env) {
   var rows = [], ok = true;
   for (var pair of [['dark', 'light'], ['light', 'dark']]) {
     var faded = await endOf(pair[0], function (t) { return t.page.tap('#btn-look'); }), plain = await endOf(pair[1]);
-    var same = lookIs(faded.l, pair[1]) && layerDist(faded.p.layers, plain.p.layers) === 0 && faded.page.every(function (v, i) { return v === plain.page[i]; }) &&
+    var glass = samePixels(faded.p.layers, plain.p.layers);
+    var same = lookIs(faded.l, pair[1]) && glass && faded.page.every(function (v, i) { return v === plain.page[i]; }) &&
       faded.p.room.every(function (v, i) { return Math.abs(v - plain.p.room[i]) < 0.01; });
     ok = ok && same;
-    rows.push(pair.join('→') + (same ? ' exact' : ' ' + said(faded.l) + ' glass ' + layerDist(faded.p.layers, plain.p.layers) + ' room ' + faded.p.room.map(Math.round) + ' vs ' + plain.p.room.map(Math.round)));
+    rows.push(pair.join('→') + (same ? ' exact' : ' ' + said(faded.l) + ' glass ' + (glass ? 'the same' : JSON.stringify(faded.p.layers) + ' vs ' + JSON.stringify(plain.p.layers)) + ' room ' + faded.p.room.map(Math.round) + ' vs ' + plain.p.room.map(Math.round)));
   }
   s.check('FADE: each end is exactly its look as the app opens in it: the page\'s top and the room, the metas, the moon button, and the glass\'s drawn layers to the pixel (' + rows.join(', ') + ')', ok, rows.join(' | '));
 }
