@@ -346,9 +346,14 @@
     }
     /** The program of the look asked for (made now if it is new), in use from here on. */
     g.use = function (paper) {
+      var p = g.look(paper);
+      g.paper = !!paper; g.prog = p.prog; g.u = p.u;
+    };
+    /** A look's program and its uniforms (made now if it is new), not put in use: a change of
+        look draws the two looks' pictures one over the other while it fades (renderer._paperMix). */
+    g.look = function (paper) {
       paper = !!paper;
-      var p = g.progs[paper] || (g.progs[paper] = program(paper));
-      g.paper = paper; g.prog = p.prog; g.u = p.u;
+      return g.progs[paper] || (g.progs[paper] = program(paper));
     };
     g.build = function () {
       g.progs = {};

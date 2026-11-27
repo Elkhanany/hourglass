@@ -49,6 +49,12 @@
   // cannot be seen on its own: the line under it is a deeper, cool ink, so a crack reads as a dark
   // line with a bright core, on the paper and on the sand alike.
   var CRACK_SHADOW_PAPER = 'rgba(34,38,46,0.62)';
+  /** The line under a crack with m of the light look drawn (renderer.mix): the dark look's at 0, the light's at 1. */
+  function crackShadow(m) {
+    if (m <= 0) return CRACK_SHADOW;
+    if (m >= 1) return CRACK_SHADOW_PAPER;
+    return 'rgba(' + Math.round(34 * m) + ',' + Math.round(38 * m) + ',' + Math.round(46 * m) + ',' + (0.30 + 0.32 * m).toFixed(3) + ')';
+  }
   var GOLD = 'rgba(214,170,92,0.95)', GOLD_CORE = 'rgba(255,232,180,0.9)';
   var GOLD_GLOW = 'rgba(255,190,90,0.5)', NO_SHADOW = 'rgba(0,0,0,0)';
   // Every colour a redraw needs is made once, here, by brightness level.
@@ -370,7 +376,7 @@
         any = true;
       }
     }
-    if (any) { ctx.strokeStyle = this.paper ? CRACK_SHADOW_PAPER : CRACK_SHADOW; ctx.lineWidth = this.paper ? 1.4 : 1.6; ctx.stroke(); }
+    if (any) { ctx.strokeStyle = crackShadow(this.mix); ctx.lineWidth = this.mix >= 1 ? 1.4 : (this.mix <= 0 ? 1.6 : 1.6 - 0.2 * this.mix); ctx.stroke(); }
 
     // the hairline: each segment glints as it faces the key light, |sin(a + rot − 0.9)|^6
     cnt.fill(0);
@@ -493,7 +499,7 @@
       ctx.clip();
       // (a soft shade round it first, so it reads on sand as well as on dark glass)
       var mg = ctx.createRadialGradient(mx, my, 0.5 * mr, mx, my, 1.5 * mr);
-      mg.addColorStop(0, 'rgba(0,0,0,' + ((this.paper ? 0.5 : 0.32) * ma).toFixed(3) + ')');
+      mg.addColorStop(0, 'rgba(0,0,0,' + ((this.mix >= 1 ? 0.5 : (this.mix <= 0 ? 0.32 : 0.32 + 0.18 * this.mix)) * ma).toFixed(3) + ')');
       mg.addColorStop(1, NO_SHADOW);
       ctx.fillStyle = mg;
       ctx.fillRect(mx - 1.5 * mr, my - 1.5 * mr, 3 * mr, 3 * mr);
@@ -511,7 +517,7 @@
         ctx.moveTo(mx, my);
         ctx.lineTo(mx + cl * Math.cos(ca), my + cl * Math.sin(ca));
       }
-      ctx.strokeStyle = this.paper ? CRACK_SHADOW_PAPER : CRACK_SHADOW; ctx.lineWidth = 1.1; ctx.stroke();
+      ctx.strokeStyle = crackShadow(this.mix); ctx.lineWidth = 1.1; ctx.stroke();
       ctx.strokeStyle = GLINT[(ma * CRACK_LV + 0.5) | 0]; ctx.lineWidth = 0.45; ctx.stroke();
       ctx.restore();
     }

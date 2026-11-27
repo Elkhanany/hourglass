@@ -355,15 +355,29 @@
     app.dataset.state = s;
     setStatus(flip.active ? STATUS.turning : statusFor(s));
     btnPlay.setAttribute('aria-label', s === 'running' ? 'Pause' : (s === 'done' ? 'Flip and start again' : 'Start'));
-    if (s === 'running') {
-      if (was !== 'running') T.lastTick = Date.now();   // (a glass that was running keeps its time)
+    if (s === 'running' && was !== 'running') {
+      T.lastTick = Date.now();                          // (a glass that was running keeps its time)
+      soundBegins(was === 'paused' && sounded);         // a start, or a resume: the sound comes in gently
     }
+    if (s !== 'paused') sounded = s === 'running';
     syncWakeLock();
     saveSession();
     breathSync();
     sim.quiet = 0;
     dirty = true;
   }
+
+  /**
+   * The glass is set running, with T.rem to run: the sand's sound comes in first, the ambience
+   * slowly after it (sound/audio.js, "Coming in": the times and the rules are there). `resumed`:
+   * after a pause, shorter. A start is any way from waiting or from finished to running, and a
+   * new glass that runs on (another duration picked while it ran); a turn of a running glass, and
+   * a sequence's own turn between two phases, are not: the sound goes on through them as it is.
+   * A resume is a glass that has run and was paused (`sounded`): one that stands paused without
+   * having run (given sand after it ran out, or found paused at a launch) starts.
+   */
+  var sounded = false;               // the glass has run since it was made new or ran out
+  function soundBegins(resumed) { audio.begin(T.rem / 1000, resumed); }
 
   var pendingStart = false;
   function start() {
@@ -555,6 +569,7 @@
         newGlass();
         resetting = false;
         setState(keepRunning || pendingStart ? 'running' : 'idle');
+        if (T.state === 'running') soundBegins(false);  // (a new glass: a start, whatever it was before)
         pendingStart = false;
         app.classList.remove('swap');
       }, 460);
@@ -613,6 +628,7 @@
     dirty = true;
     if (redo) { reset(keep || pendingStart); return; }
     if (pendingStart && T.state !== 'running') setState('running');
+    else if (T.state === 'running') soundBegins(false); // (a new glass that runs on: a start all the same)
     pendingStart = false;
     T.lastTick = Date.now();                            // the clock starts as the last of the sand lands
   }
@@ -746,11 +762,12 @@
   /**
    * The glass has been turned over: by the sequence itself, a hand, the Flip
    * button or the phone. Between two phases that begins the next one; after
-   * the end of the last, the sequence starts again from its first glass.
+   * the end of the last, the sequence starts again from its first glass (or,
+   * turned by the phone, waits there: stateAfterSwap).
    */
   function seqSwapped(next) {
     if (seq.gap) { beginPhase(seq.phase + 1); return T.state === 'paused' ? 'paused' : 'running'; }
-    if (seq.rest && seq.phase >= 2 * seq.rounds && next === 'running') beginPhase(0);
+    if (seq.rest && seq.phase >= 2 * seq.rounds && (next === 'running' || next === 'idle')) beginPhase(0);
     return next;
   }
 
@@ -829,10 +846,19 @@
     buzz(22);
     setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was);
   }
-  /** Turning a glass over starts it, unless you had paused it. */
-  function stateAfterSwap(was, auto) {
+  /**
+   * What a glass does once it has been turned over; `was`: its state as the turn began.
+   * Turned by a finger, the Flip button or a sequence, it starts, unless it had been paused.
+   * The phone's own motion never starts a glass: turned over by the phone (byPhone: tiltSwap) it
+   * runs on only if it was running, a paused glass stays paused, and one that waits or has run
+   * out waits for Start or a tap as it does after Reset, whichever bulb its sand is in (below,
+   * its time reads 00:00.0, and Start turns it over on the screen and runs it). Such a waiting
+   * glass turned back by a finger or the Flip button still waits.
+   */
+  function stateAfterSwap(was, auto, byPhone) {
+    if (byPhone && was !== 'running') return was === 'paused' ? 'paused' : 'idle';
     if (T.rem <= 0) return 'done';
-    return (auto || was === 'running' || was === 'done') ? 'running' : 'paused';
+    return (auto || was === 'running' || was === 'done') ? 'running' : (was === 'idle' ? 'idle' : 'paused');
   }
 
   /* ======================================================================
@@ -1385,7 +1411,7 @@
     T.rem = there;
     applyBody(0);
     buzz(18);
-    setState(seqSwapped(stateAfterSwap(was, false)));
+    setState(seqSwapped(stateAfterSwap(was, false, true)));   // (the phone's turn: it starts nothing)
   }
 
   var tiltOver = 0;
@@ -1967,12 +1993,79 @@
    *  Changing it builds nothing again: a running glass runs on, untouched.
    *  The moon button shows the look in use (a moon in the dark, a sun in the
    *  light) and turns to the other one, as a choice of its own, kept.
+   *
+   *  A change while the app is open is one cross-fade of the whole picture,
+   *  LOOK_FADE_MS long: the page's colours are the two looks' mixed by one
+   *  number, --lk (styles.css, html.look-fade: 0 the dark, 1 the light),
+   *  which the browser animates (an animation, so no transition of the page's
+   *  own restarts under it); each frame of it the glass is drawn as far
+   *  between its two pictures (renderer._paperMix) and the theme-color as far
+   *  between its two colours. A second change while one fades goes on from
+   *  where the first has got to. The launch is never faded (index.html has
+   *  the look on the first frame), nor is a change with Reduce Motion, nor one
+   *  made while the page is hidden: those are at once.
    * ==================================================================== */
   var DAY = [7, 19];                 // the hours of the light look, by the device's clock: from 7:00 to 19:00
   var LOOK_PAGE = { dark: ['#0b0c0e', 'dark', 'black-translucent'], light: ['#f3f0ea', 'light', 'default'] };   // theme-color, color-scheme, the status bar
   var schemeQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
   var btnLook = $('btn-look'), lookTimer = 0;
   var lookShown = document.documentElement.getAttribute('data-look') === 'light' ? 'light' : 'dark';
+  var LOOK_FADE_MS = 340;            // the whole way from one look to the other (a part of the way takes its part of this)
+  var lookFade = { anim: null, raf: 0, to: 0 };
+  var lookRoot = document.documentElement;
+  var canFadeLook = !!(lookRoot.animate && window.CSS && CSS.registerProperty && CSS.supports && CSS.supports('color', 'color-mix(in srgb, red, blue 50%)'));
+  /** How much of the light look the page shows now: 0 the dark, 1 the light, between while it fades. */
+  function lookNow() {
+    if (lookFade.anim) {
+      var v = parseFloat(getComputedStyle(lookRoot).getPropertyValue('--lk'));
+      if (isFinite(v)) return Math.max(0, Math.min(1, v));
+    }
+    return lookShown === 'light' ? 1 : 0;
+  }
+  /** The theme-color (the status bar's, a PC window's title bar's) k of the way from the dark look's to the light's. */
+  function lookTheme(k) {
+    var a = [11, 12, 14], b = [243, 240, 234], out = '#', i, v;
+    if (k <= 0) return LOOK_PAGE.dark[0];
+    if (k >= 1) return LOOK_PAGE.light[0];
+    for (i = 0; i < 3; i++) { v = Math.round(a[i] + (b[i] - a[i]) * k); out += (v < 16 ? '0' : '') + v.toString(16); }
+    return out;
+  }
+  /** The metas k of the way to the light look, or (`look`) exactly that look's; the status bar's style turns half way. */
+  function lookMetas(k, look) {
+    var m, pg = LOOK_PAGE[look || (k >= 0.5 ? 'light' : 'dark')], theme = look ? pg[0] : lookTheme(k);
+    if ((m = document.querySelector('meta[name="theme-color"]')) && m.getAttribute('content') !== theme) m.setAttribute('content', theme);
+    if ((m = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')) && m.getAttribute('content') !== pg[2]) m.setAttribute('content', pg[2]);
+  }
+  /** The fade, over: the page's own colours again, the glass and the metas exactly the look's. */
+  function lookFadeEnd() {
+    cancelAnimationFrame(lookFade.raf); lookFade.raf = 0;
+    if (lookFade.anim) { try { lookFade.anim.cancel(); } catch (e) {} lookFade.anim = null; }
+    lookRoot.classList.remove('look-fade');
+    renderer._paperMix(renderer.paper ? 1 : 0);
+    lookMetas(0, lookShown);
+  }
+  /** One frame of the fade: the glass and the metas as far as the page has got. */
+  function lookFadeStep() {
+    lookFade.raf = 0;
+    if (!lookFade.anim) return;
+    var k = lookNow(), done = lookFade.anim.playState === 'finished';
+    renderer._paperMix(done ? lookFade.to : k);
+    if (done) { lookFadeEnd(); return; }
+    lookMetas(k);
+    lookFade.raf = requestAnimationFrame(lookFadeStep);
+  }
+  /** Fade the page from `from` (how much of the light look it shows now) to the look in use. */
+  function lookFadeTo(from) {
+    var to = lookShown === 'light' ? 1 : 0;
+    if (lookFade.anim) { try { lookFade.anim.cancel(); } catch (e) {} }
+    lookFade.to = to;
+    lookRoot.classList.add('look-fade');
+    lookFade.anim = lookRoot.animate([{ '--lk': String(from) }, { '--lk': String(to) }],
+      { duration: Math.max(1, LOOK_FADE_MS * Math.abs(to - from)), easing: 'cubic-bezier(0.37, 0, 0.63, 1)', fill: 'forwards' });
+    // (the glass is drawn at `from` in the next frame, before the browser paints: setPaper's picture of the end is never seen)
+    cancelAnimationFrame(lookFade.raf);
+    lookFade.raf = requestAnimationFrame(lookFadeStep);
+  }
   /** The look a choice gives at `date`: 'light' or 'dark'. */
   function lookIn(choice, date) {
     if (choice === 'light') return 'light';
@@ -1980,19 +2073,23 @@
     if (choice === 'hours') { var h = date.getHours(); return h >= DAY[0] && h < DAY[1] ? 'light' : 'dark'; }
     return 'dark';
   }
-  /** The page in the look the choice gives now; the button and Tune's row show it. */
-  function showLook() {
+  /**
+   * The page in the look the choice gives now; the button and Tune's row show it. A change is
+   * faded (above), but at the launch (`atOnce`), with Reduce Motion and while the page is hidden.
+   */
+  function showLook(atOnce) {
     var now = new Date(), look = lookIn(settings.background, now), light = look === 'light', root = document.documentElement;
     if (light) root.setAttribute('data-look', 'light'); else root.removeAttribute('data-look');
     var pg = LOOK_PAGE[look], m;
-    if ((m = document.querySelector('meta[name="theme-color"]'))) m.setAttribute('content', pg[0]);
     if ((m = document.querySelector('meta[name="color-scheme"]'))) m.setAttribute('content', pg[1]);
-    if ((m = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]'))) m.setAttribute('content', pg[2]);
     if (look !== lookShown || renderer.paper !== light) {
+      var from = lookNow(), fade = atOnce !== true && canFadeLook && !reduceMotion && !document.hidden && from !== (light ? 1 : 0);
       lookShown = look;
       renderer.setPaper(light);
       dirty = true;
-    }
+      if (fade) lookFadeTo(from);
+      else lookFadeEnd();
+    } else if (!lookFade.anim) lookMetas(0, look);
     if (btnLook) btnLook.setAttribute('aria-pressed', light ? 'true' : 'false');
     checkOne('#looks [data-look]', 'look', settings.background);
     // Daytime: again at the next 7:00 or 19:00 (and whenever the app comes back to the front, below)
@@ -3691,7 +3788,7 @@
     }
     if (was.frame !== settings.frame) { $('opt-frame').checked = settings.frame; showFinishRow(); swapFrame(); }
     if (was.layers !== settings.layers) { $('opt-layers').checked = settings.layers; swapLayers(); }
-    if (was.background !== settings.background) showLook();       // (at once: the page is not faded for it)
+    if (was.background !== settings.background) showLook();       // (faded, as any change of look)
     // the sound (nothing is auditioned, and the bowl is not rung)
     if (was.volume !== settings.volume) { audio.setVolume(settings.volume); showVolume(); }
     if (was.character !== settings.character) { audio.setCharacter(settings.character); showCharacter(); }
@@ -4617,7 +4714,8 @@
   showQuick();
   syncPills();
   hapticMountAll();
-  showLook();                                         // the background (index.html has put it on the page already)
+  showLook(true);                                     // the background (index.html has put it on the page already): never faded
+  renderer._prepareLooks();                           // (both looks' glass made now, so that a change of look compiles nothing)
   zoom.style.transition = 'none';                     // arrive in place, not shrinking from the Zen size
   layout();
   void zoom.offsetWidth;

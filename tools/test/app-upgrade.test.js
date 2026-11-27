@@ -860,6 +860,8 @@ async function caseInterrupted(s, browser, T) {
 // the material tapped, with layered sand on, the bowl off and the rain behind the sand.
 // (each named by its own commit, never by MAIN: from 1.14.0 on a release has no material cards to tap)
 var OLD_RELEASES = [['1.13.0', 'd6482bd'], ['1.10.0', '5911e24']];
+// (the sands given an accent of their own in 1.20.1: theirs is the new release's, every other the same as before)
+var ACCENT_NEW = ['volcanic', 'lapis'];
 var MATERIALS = { sahara: 'walnut', volcanic: 'brass', moonstone: 'silver', lapis: 'gold', rosequartz: 'copper', seaglass: 'driftwood' };
 /** What the page shows of the look: the renderer's colour table and static layers (hashes), whose theme it is, the save. */
 function lookNow(page) {
@@ -876,6 +878,7 @@ function lookNow(page) {
     out.cap = JSON.stringify(R.theme.cap);
     out.data = document.documentElement.getAttribute('data-theme');
     out.accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+    out.accentOwn = P.SANDS && P.SANDS[R.theme.id] ? P.SANDS[R.theme.id].ui.accent : out.accent;   // (the page's own record of that sand's)
     out.saved = localStorage.getItem('hourglass.settings.v1');
     // the same picture drawn afresh by the renderer's own bundle of that theme (the static layers depend on the page's layout)
     R.setTheme(R.theme.id);
@@ -934,8 +937,8 @@ function oldSaveWrong(r) {
     var n = r[k], saved = JSON.parse((n && n.saved) || '{}'), why = [];
     if (r[k + 'Problems'].length) why.push(r[k + 'Problems'].join('; '));
     if (r[k + 'Release'] !== T_RELEASE) why.push('the page is ' + r[k + 'Release']);
-    if (n.id !== r.m || !n.bundle || n.cap !== old.cap || n.lut !== old.lut || n.layers !== n.bundleLayers || n.lut !== n.bundleLut || n.data !== old.data || n.accent !== old.accent)
-      why.push('the look: ' + JSON.stringify({ id: n.id, bundle: n.bundle, cap: n.cap === old.cap, lut: [old.lut, n.lut], layers: n.layers === n.bundleLayers, data: n.data, accent: [old.accent, n.accent] }));
+    if (n.id !== r.m || !n.bundle || n.cap !== old.cap || n.lut !== old.lut || n.layers !== n.bundleLayers || n.lut !== n.bundleLut || n.data !== old.data || n.accent !== n.accentOwn || (ACCENT_NEW.indexOf(r.m) < 0 && n.accent !== old.accent))
+      why.push('the look: ' + JSON.stringify({ id: n.id, bundle: n.bundle, cap: n.cap === old.cap, lut: [old.lut, n.lut], layers: n.layers === n.bundleLayers, data: n.data, accent: [old.accent, n.accent, n.accentOwn] }));
     if (saved.sand !== r.m || saved.finish !== r.MATERIAL_FINISH || saved.sandColor !== '') why.push('saved as ' + [saved.sand, saved.finish, JSON.stringify(saved.sandColor)].join(' / '));
     // (what the app keeps of its Real sand engine, not a setting: a new engine build starts it afresh)
     var lost = Object.keys(oldSaved).filter(function (key) { return !/^realSand(Build|Fails|Why|Na|NaAt)$/.test(key) && JSON.stringify(oldSaved[key]) !== JSON.stringify(saved[key]); });

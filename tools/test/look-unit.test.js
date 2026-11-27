@@ -6,6 +6,9 @@
  *   P.THEMES field for field, P.THEMES is what it was at 4d5e173, and their
  *   colour tables are the ones the renderer always built (7f71786)
  *   the page's colours for the six (ui) are the ones styles.css has
+ *   every sand's accent is its own: no two of the nine closer than 10
+ *   (CIEDE2000), each a fill with its ink and the light look's text on
+ *   the paper; the custom rule gives a black sand no gold (1.20.0's must fail)
  *   every sand, and customSand over a spread of colours, meets what the
  *   colour table needs (whole numbers where it is indexed, every light level
  *   inside it, room for plain grains among the seeds), what layered sand
@@ -27,6 +30,7 @@ var fs = require('fs');
 var path = require('path');
 var L = require('./lib/load-physics.js');
 var paths = require('./lib/paths.js');
+var colour = require('./lib/colour.js');
 var P = L.P;
 var LUT_REV = '7f71786';               // the renderer before layered sand
 var LOOK_REV = '4d5e173';              // the last version before sands and frames came apart
@@ -212,6 +216,54 @@ var CUSTOM = [
   [285, 0.45, 0.55, 'violet'], [325, 0.60, 0.52, 'magenta'], [40, 0.06, 0.50, 'mid grey'], [0, 1, 0.5, 'pure red'],
   [0, 0, 1, 'white'], [0, 0, 0, 'black'], [120, 1, 0.5, 'neon green'], [240, 1, 0.25, 'navy'], [330, 0.5, 0.9, 'pale pink']
 ];
+/* ---- every sand its own accent (1.20.1) ---- */
+var lab = colour.lab, de00 = colour.de00;   // (CIEDE2000: about 1 is the least the eye tells apart side by side)
+var ACCENT_APART = 10;                   // the least CIEDE2000 between any two sands' accents
+var PAPER = [243, 240, 234], SHEET = [250, 248, 244], DEEP = [36, 31, 25];   // the light look: --bg, a sheet, --accent-text's deep brown
+/** What is wrong with a set of sands' accents ({id: ui}): [] when each is its own and works in both looks. */
+function accentsWrong(uis) {
+  var ids = Object.keys(uis), out = [], i, j;
+  for (i = 0; i < ids.length; i++) for (j = i + 1; j < ids.length; j++) {
+    var d = de00(hexRgb(uis[ids[i]].accent), hexRgb(uis[ids[j]].accent));
+    if (d < ACCENT_APART) out.push(ids[i] + ' and ' + ids[j] + ' only ' + d.toFixed(1) + ' apart');
+  }
+  ids.forEach(function (id) {
+    var a = hexRgb(uis[id].accent), ink = hexRgb(uis[id].accentInk);
+    // the light look writes it as color-mix(in srgb, accent 36%, #241f19): it must read on the paper and on a sheet,
+    // and keep the accent's hue where the accent has one
+    var t = a.map(function (v, k) { return Math.round(v * 0.36 + DEEP[k] * 0.64); }), la = lab(a), lt = lab(t);
+    var ca = Math.hypot(la[1], la[2]), ha = Math.atan2(la[2], la[1]) * 180 / Math.PI, ht = Math.atan2(lt[2], lt[1]) * 180 / Math.PI;
+    var dh = Math.abs(((ht - ha + 540) % 360) - 180);
+    if (contrast(a, ink) < 4.5) out.push(id + ': ink on the fill ' + contrast(a, ink).toFixed(1));
+    if (contrast(t, PAPER) < 4.5 || contrast(t, SHEET) < 4.5) out.push(id + ': the light look\'s text ' + contrast(t, PAPER).toFixed(1) + ' on the paper');
+    if (ca > 15 && dh > 40) out.push(id + ': the light look\'s text turns ' + dh.toFixed(0) + '° from the accent\'s hue');
+  });
+  return out;
+}
+test('every sand its own accent: no two of the nine and the custom rule\'s alike, each a fill, a text and a line in both looks', function () {
+  var uis = {}, min = 1e9, pair = '';
+  P.SAND_ORDER.forEach(function (id) { uis[id] = P.SANDS[id].ui; });
+  var bad = accentsWrong(uis);
+  ok(!bad.length, bad.join('; '));
+  P.SAND_ORDER.forEach(function (a, i) { P.SAND_ORDER.slice(i + 1).forEach(function (b) { var d = de00(hexRgb(uis[a].accent), hexRgb(uis[b].accent)); if (d < min) { min = d; pair = a + '/' + b; } }); });
+  ok(de00(hexRgb(uis.volcanic.accent), hexRgb(uis.sahara.accent)) > 20 && de00(hexRgb(uis.lapis.accent), hexRgb(uis.sahara.accent)) > 20, 'black sand or lapis still near sahara\'s gold');
+  // the custom rule: a black, a grey, a white, a navy each wears its own (a black is not given sahara's gold)
+  var C = { black: [0, 0, 0.1], navy: [230, 0.6, 0.2], 'dark brown': [30, 0.2, 0.2], white: [0, 0, 1] }, cu = {};
+  Object.keys(C).forEach(function (k) { cu['custom ' + k] = P.customSand(C[k][0], C[k][1], C[k][2]).ui; });
+  ok(de00(hexRgb(cu['custom black'].accent), hexRgb(uis.sahara.accent)) > 20, 'a black custom sand wears ' + cu['custom black'].accent + ', near sahara\'s');
+  ok(de00(hexRgb(cu['custom navy'].accent), hexRgb(uis.sahara.accent)) > 20, 'a navy custom sand wears ' + cu['custom navy'].accent + ', near sahara\'s');
+  bad = accentsWrong(cu).filter(function (w) { return !/ apart$/.test(w); });   // (a white and a grey may be alike: they are one sand)
+  ok(!bad.length, bad.join('; '));
+  // the control: 1.20.0's accents and its custom rule must fail
+  var OLD = L.loadIsolated(paths.physicsParts().map(function (f) { return L.gitShow('dd713be', f); }).join('\n'), 'dd713be'), old = {};
+  OLD.SAND_ORDER.forEach(function (id) { old[id] = OLD.SANDS[id].ui; });
+  var ob = accentsWrong(old);
+  ok(ob.some(function (w) { return /^sahara and volcanic/.test(w); }) && ob.some(function (w) { return /^sahara and lapis/.test(w); }), 'the control (1.20.0\'s accents) passed: ' + ob.join('; '));
+  ok(de00(hexRgb(OLD.customSand(0, 0, 0.1).ui.accent), hexRgb(old.sahara.accent)) <= 20, 'the control (1.20.0\'s custom rule) gave a black sand no gold');
+  return 'the closest two ' + pair + ' ' + min.toFixed(1) + ' apart (1.20.0: ' + ob.filter(function (w) { return / apart$/.test(w); }).join(', ') + '); custom: ' +
+    Object.keys(cu).map(function (k) { return k.slice(7) + ' ' + cu[k].accent; }).join(', ');
+});
+
 test('customSand: a whole sand from one colour, a new record every call, sound for any input', function () {
   var out = [];
   CUSTOM.forEach(function (cc) {
