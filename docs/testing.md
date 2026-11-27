@@ -284,7 +284,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Sunlit differ); the tables are made once per shape, again on a change of
   look or sand and on each frame of a fade, again for the light on a turn of
   0.01 rad and not below, and never on a still frame (control: a look made
-  anew every frame is counted); and no pixel of sand, sunlit, lies outside
+  anew every frame is counted), and `prepareSun` makes the shape's and the
+  look's before the first frame, which then draws the same picture (control:
+  the first frame without it builds them); and no pixel of sand, sunlit, lies outside
   the glass's edge on any shape, upright, turned over and leaned, in both
   looks (control: a drawing without the edge mask is found out).
   `render-shape` draws every glass shape as the app would, once with the
