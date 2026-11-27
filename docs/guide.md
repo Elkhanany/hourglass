@@ -67,10 +67,12 @@ glass lit in a dark room, as it always was) to a light one on a soft paper
 white, and back. In the light look the button shows a sun. The glass is lit
 for a white room there and is clear, as glass is on white: the paper and the
 sand are seen through it without a milky film, its outline is a fine dark
-line all round, and the room's highlights lie on it; the sand keeps its
-colours (lit, under Tune's Sunlit, by a brighter, warmer light than in the
-dark), and even the palest
-(Moonstone, a pale colour of your own) stands out of the paper; the warm glow
+line all round, a faint grey near its edges shows the wall's thickness, and
+the room's windows lie on it as soft white highlights; the sand keeps its
+colours. Sand falling through the lower bulb has a darker side, away from the
+light, so that even the palest (Moonstone, a pale colour of your own) can be
+watched as it falls, and a pale sand is drawn a shade deeper where it lies
+against the paper, at the top of each heap and along the glass; the warm glow
 behind the glass, which white cannot show, is a quiet wash of the sand's
 colour, and the breathing pace deepens it as you breathe in.
 
@@ -149,13 +151,15 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   half as many grains for about a third of the work.
 - **Light** is Sunlit (as the app comes) or Soft. Sunlit lights the sand with
   one light from the upper left, the side the glass's own highlight is on: the
-  heap has a lit flank and a shaded one, the sand darkens softly where it
-  touches the glass, a thin line of light lies along the far side of each bed,
-  and here and there a grain that faces the light glints, the same grains for
-  as long as the sand lies still. The light stays where it is in the room, so
-  it stays upper left when the glass is leaned or turned over. In the light
-  look the sand is lit more brightly and warmly than in the dark one, where it
-  keeps its calm. Soft is the even light the sand had before 1.21.0, exactly.
+  heap has a lit flank, brighter and of a deeper colour, and a shaded one that
+  keeps its colour; the crest that faces the light catches a bright edge; the
+  sand darkens softly where it touches the glass; and here and there a grain
+  that faces the light sparkles, the same grains for as long as the sand lies
+  still. The light stays where it is in the room, so it stays upper left when
+  the glass is leaned or turned over. In the dark look the sand is no brighter
+  on the whole than under Soft and keeps its calm. Soft is the even light of
+  earlier versions; in the light look it also gets the falling sand's darker
+  side and a pale sand's deeper top (above), as Sunlit does.
   Both sands take the same light: with Real sand on, the heap is lit from
   the same side and as strongly as the classic sand's.
   Nothing else changes with it: not the timer, the flow or the sounds. *Put

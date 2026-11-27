@@ -82,8 +82,15 @@ the pieces fit together).
   bulb is the paper seen through glass, a sand behind it keeps its colour, the
   room's highlights lie over both, and the wall seen edge-on, which bends the
   dark cards and flags round into the eye, draws the outline as a dark line all
-  round. There is no veil over the bore. The dark look's program is the text
-  it always was.
+  round. On top of that, as light added over the page, the key's window and
+  the small lamp mirrored in each wall (the near wall's at up to 16 times its
+  Fresnel reflectance, the far wall's at less than half that): the only
+  things on white that are brighter than the page, and what makes the glass
+  read as a curved vessel. Toward the grazing side the near wall greys the
+  page by up to 5 %, inside its dark outline, for the wall's thickness. There
+  is no veil over the bore in the rendered glass (the drawn glass of a device
+  without WebGL keeps its light veil of before). The dark look's program is
+  the text it always was.
   The classic teardrop is drawn by the shader's own formula; every other
   shape is drawn by a second program that reads its inner and outer surface
   from a small table made from the shape's curve when the glass is built (a
@@ -96,7 +103,8 @@ the pieces fit together).
 
 Tune's **Light: Sunlit** (`settings.sandLight`, `renderer.setSandLight`)
 lights the classic sand with one key light; Soft is `drawSand` as it was,
-byte for byte. The key is `HourglassPhysics.KEY_LIGHT` (`sand/sands.js`), a
+byte for byte in the dark look (in the light look it draws the falling
+grains and a pale sand's tops as below, *The light look's falling grains*). The key is `HourglassPhysics.KEY_LIGHT` (`sand/sands.js`), a
 unit vector in the screen's axes (x right, y up, z toward the eye) from the
 upper left and in front, the quarter of the glass's key softbox in
 `glass/gl.js`'s room, so the glass's highlight and the sand's lit flank
@@ -117,30 +125,46 @@ the glass leans, is turned over, and in the frame it swaps its ends.
   that runs inside the wall), all times a contact shade where the sand
   meets the glass.
 - **The free surface** (heap, crater): each column's height in each bed is
-  the first resting grain the bead writer met in the frame before; the slope
-  over three spans gives the normal, and a horizon test toward the light (at
-  1, 2, 4, 8, 16 and 24 columns) a soft shadow where the bed hides the light
-  from itself. A grain's light goes from the surface's to the body's over
-  about two grains of depth, with a gentle darkening below.
+  the first resting grain the bead writer met in the frame before, smoothed
+  over five columns each side (weights exp(−o²/8); a column with no bed
+  counts for nothing), so that the lattice's stairs light no stripes. The
+  slope of the smoothed heights two columns each side gives the normal, and a
+  horizon test toward the light over them (at 1, 2, 4, 8, 16 and 24 columns)
+  a soft shadow where the bed hides the light from itself. A grain's light
+  goes from the surface's to the body's by its distance under the smoothed
+  surface (in quarter cells, e^(−d/1.5), gone by 6 cells), with a gentle
+  darkening below. Where the surface faces the key (n·L from 0.45 to 0.75)
+  its top grain is up to 6 levels brighter, half that one grain down: the
+  crest.
 - **Colour.** A 48-level table per seed, as Soft's, but a shadow gains
   chroma as it darkens (light bounced among coloured grains) and a lit grain
-  rolls toward the key's warm tint, on paper only half as far.
+  gains chroma as it gains light (`sat`); past white its hue is kept (the
+  three channels scaled together, what is over spilling toward the key's warm
+  tint), and it rolls toward the tint only above 1.15 of its light. So the
+  lit flank is more luminous and more coloured, not paler.
 - **Glints.** Each seed has a fixed facet tilt; a grain glints when its facet
   faces the key's mirror direction, so a still bed glints in the same places
-  every frame and a tumbling grain (a moving cell) flashes. Only a share of
-  the seeds can glint at all, set per sand.
+  every frame and a tumbling grain (a moving cell) flashes. A glint is the
+  whole bead: its facet's pixel the glint's colour, the rest half way to it.
+  Only a share of the seeds can glint at all, set per sand. A resting glint
+  feeds the bloom 0.12, a tumbling one 0.7, so steady glints make no haze.
 - **Grains in flight** are small beads lit by half the key, a facet now and
-  then catching it.
+  then catching it; in the light look, as below.
 
 The two looks have their own constants (`HourglassPhysics.SUNLIT.dark` and
 `.paper`: ambient, key, exposure, wrap, crescent, contact, depth, shadow
 chroma, the surface's reach, the roll toward the tint). The white room
-lights the sand from everywhere, so it has the larger ambient; it also has
-the stronger key, so the light look's lit flank is about 2.4 times the shaded
-one in relative luminance across a symmetric heap and the dark look's about
-2 (render-unit measures both). While the looks fade (`_paperMix`) every
-constant is mixed by the same share and the tables rebuilt each frame of
-the fade; at rest each look's constants are exactly its own. Each sand's
+lights the sand from everywhere, so it has the larger ambient and the larger
+key; the dark look's exposure is set so that the mean of its two flanks is
+Soft's (it is no dimmer on the whole). Across a symmetric heap the lit flank
+is about 2.6 times the shaded one in relative luminance in either look
+(render-unit holds both at 2.2 or more), and in the light look Sahara's lit
+flank has 1.27 times Soft's chroma (OKLab C; render-unit holds 1.2). While
+the looks fade (`_paperMix`) every constant is mixed by the same share, the
+look's tables made for the share in sixteenths (about 16 builds in a fade);
+at rest each look's constants are exactly its own. The app puts the renderer
+at the fade's start look before the fade's first frame (`showLook`), so the
+sand is never drawn for a frame in the end look's light. Each sand's
 `sun` record says how it takes the light: `key` (the key's gain), `paper`
 (the key's gain on paper, and its square on the roll toward white: a pale
 sand gets less, or its lit side is lost in the page), `lift` (ambient added
@@ -158,12 +182,34 @@ body's light and glint by angle and band, and each seed's facet term (3 ×
 256 entries and 16 × 256); per frame, the columns. A grain then costs a few
 lookups and multiply-adds; nothing is allocated per frame. Measured in Node
 on a filled phone-size glass (207 × 453 cells, 24,165 grains), `drawSand`
-takes about the same time under Sunlit as Soft does (about 1 ms on a
-desktop JIT for either). The timer, the physics and the sound read nothing
+takes 0.94 ms under Soft and 1.18 ms under Sunlit (median, a desktop JIT at
+a load of 2; an earlier, more loaded measure saw +1 to +12 %), and a frame
+that builds the look's tables (once per sixteenth of a fade) about 2.3 ms.
+It has not been measured on a phone. The timer, the physics and the sound read nothing
 of it: the light only reads the bed. The shape's and the look's tables (some
 8 ms in a browser) are made as the app boots (`renderer.prepareSun()`, after
 the look and the sand are set), so the first frames only draw; the dark
 opening that lifts at once ("Use this shape") is not held by them.
+
+#### The light look's falling grains
+
+On the paper a pale grain in the air is white on white, and the clear glass
+gives it no veil to stand against. So in the light look, under either light,
+`renderer._paperTones()` makes per seed a dark side (its colour at the
+falling grain's level taken to × 0.45 of its light, at most 0.20 of white, a
+quarter more chroma) and a half tone between, mixed in by the light look's
+share while the looks fade. A grain in the air is then a 2 × 2 bead whose
+pixel toward the key (the room's, turned back by the glass) is its own
+colour, the far one the dark side and the other two the half tone; its
+streak is the half tone. A pale sand (mean light at that level over 0.6 of
+white: Moonstone, Sea Glass, Rose Quartz, a pale colour of one's own) is
+drawn up to 5 levels deeper (Moonstone 4) where it lies against the page:
+its beds' top three grains and the grains against the glass. In the dark look
+none of this is made (`_paperTones` gives null), so Soft is the picture of
+before there, byte for byte; render-unit holds that, the light look's beds of
+a sand that is not pale byte for byte, and the falling grains' contrast
+against the page (at least 2.5 : 1 for the pale sands, about 4 here, where
+19c84db drew 2.0 to 2.2). Real sand does the same in its shader (below).
 
 #### Real sand under the same light
 
@@ -187,8 +233,9 @@ classic sand has a glow over its dark sands, Real sand none).
   tables (`renderer.sunTables(m)`: the constants with the sand's `sun` record
   in them, and the 48 × 256 colour table the classic sand itself draws
   with). The table goes to the graphics chip as it is, each seed's kind
-  (plain, glossy, mica) in its alpha byte; it is made again when the look,
-  the sand or layered sand's tone changes, on each frame of a fade too.
+  (plain, glossy, mica) in its alpha byte, in one array kept and filled again;
+  it is made again when the look, the sand or layered sand's tone changes, and
+  in a fade for each sixteenth of it (as the classic sand's).
 - **The key's turn.** The canvas turns with the glass, so the key is turned
   back by the glass's angle against the room, `angle + tilt`, read from the
   engine's own fields when the frame is drawn. At a swap the points and the
@@ -206,8 +253,9 @@ classic sand has a glow over its dark sands, Real sand none).
   levels down and three up as well, and the fragment stage keeps its bead:
   the side toward the key the brighter colour, the far side the darker (the
   classic bead has a lit and a dark pixel so). A grain's facet is a tilt
-  from a hash of its index (a moving grain's tumbles); it glints, a small
-  spot of the sand's glint colour, when it faces the key's mirror direction,
+  from a hash of its index (a moving grain's tumbles); it glints, a bright
+  spot of the sand's glint colour on a bead taken half way to it, when it
+  faces the key's mirror direction,
   mica from further off than a glossy grain, and only a share of the grains
   can (the sand's `glints`).
 - **The free surface** (`realsand/shaders/relief.wgsl`, two small compute
@@ -226,11 +274,21 @@ classic sand has a glow over its dark sands, Real sand none).
   After a fill or a swap nothing is kept from before. Both passes only read
   the solver's points; they write two buffers of their own (read and
   written in turn, so no thread reads what another writes).
-- **Soft is the picture of before, exactly.** Under Soft the look given to
-  the grains has no light, the shader takes the lines it always took, and no
-  relief pass is encoded. `realsand-gpu`'s LIT case holds it: the grain
-  renderer of the commit before this one draws the same points beside the
-  engine's own, and the two pictures are equal byte for byte.
+  The surface's smoothing and the crest of the classic sand are not drawn
+  here; the relief's own easing does the smoothing's work.
+- **The light look, in either light.** The look carries `paper`, the light
+  look's share (`view.still.y`): a grain in the air (little sand round it,
+  or the sweep's thread) takes, on its side away from the key, its colour
+  under half its light (× 0.45, at most 0.20 of white, a quarter more
+  chroma), as the classic sand's falling grains; under Sunlit a pale sand's
+  bed tops are drawn `deep` levels deeper (`view.still.z`).
+- **Soft in the dark look is the picture of before, exactly.** Under Soft the
+  look given to the grains has no light, `paper` is 0 in the dark look, the
+  shader takes the lines it always took, and no relief pass is encoded.
+  `realsand-gpu`'s LIT case holds it: the grain renderer of 19c84db (release
+  1.20.0, whose grain renderer is the one before the sunlit sand) draws the
+  same points beside the engine's own, and the two pictures are equal byte for
+  byte.
 - **Cost.** Counted from the shader: the vertex stage adds about 180 scalar
   operations for each corner of a grain's quad, four corners a grain (among
   them four `exp`, one `sqrt` and two integer hashes), and six loads from

@@ -273,13 +273,15 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   turned end for end, when `drawSand` is given the glass's angle of that
   frame; lit by the angle the glass was last drawn at, the control, the
   shaded side is lit for that frame): on a
-  still, symmetric heap the left flank (toward the key) has at least 1.8
-  times the right's mean relative luminance in the light look and 1.5 times
-  in the dark, and with the glass turned over the lit flank is the one on
+  still, symmetric heap the left flank (toward the key) has at least 2.2
+  times the right's mean relative luminance in either look (measured 2.6), and with the glass turned over the lit flank is the one on
   the screen's left (controls: the same heap drawn Soft, about 1 : 1, and a
   key that does not turn back with the glass); Soft draws the sand's buffer
-  and the bloom byte for byte as 9937dc8 did, three running glasses (upright,
-  turned over, leaned) in both looks, hashed against that commit's own pieces
+  and the bloom byte for byte as 19c84db (release 1.20.0) did, three running
+  glasses (upright, turned over, leaned), in the dark look; in the light look
+  the same with no grain in the air (the beds of a sand that is not pale),
+  while the grains in the air are drawn anew and Moonstone's beds are deeper
+  in the light look only; hashed against that commit's own pieces
   (`HOURGLASS_SOFT_BASE` names another; control: the same frames drawn
   Sunlit differ); the tables are made once per shape, again on a change of
   look or sand and on each frame of a fade, again for the light on a turn of
@@ -288,7 +290,21 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   look's before the first frame, which then draws the same picture (control:
   the first frame without it builds them); and no pixel of sand, sunlit, lies outside
   the glass's edge on any shape, upright, turned over and leaned, in both
-  looks (control: a drawing without the edge mask is found out).
+  looks (control: a drawing without the edge mask is found out). Five more,
+  each against the tree as it was: in the light look the most visible pixel
+  of a grain in the air down the middle of the lower bulb, against the page
+  seen through clear glass (247, 242, 234), the least of three frames, is at
+  least 2.5 : 1 for Moonstone, Sea Glass and a pale colour (45, 0.2, 0.97)
+  under both lights, and Sahara's not below 19c84db's (control: 19c84db's
+  own grains, 2.0 to 2.2); Sahara's lit flank in the light look has at least
+  1.2 times Soft's OKLab chroma and is lighter (control: the sunlit sand as
+  first built, d7a050c, 1.13, `HOURGLASS_SUN_FIRST` names another); on a heap
+  with a staircase surface and one kind of grain, the column-to-column step
+  of the shaded flank's level 4 to 10 cells down is under 4 % (control: as
+  first built, 5.2 %); in the dark look a resting bed's brightest bloom under
+  Sunlit is within 10 % of Soft's for Volcanic and Garnet (control: as first
+  built, every glint feeding 0.7, 1.22 and 1.48); and a custom colour is lit
+  by its own `sun` record (control: a theme without it gets Sahara's).
   `render-shape` draws every glass shape as the app would, once with the
   drawn glass and once with the WebGL glass, and reads the layers back: no
   pixel of sand outside the glass, mid-run and through the Reset sweep; the
@@ -316,7 +332,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   layered sand and the eye need; what `customSand.clamp` makes of a colour;
   the theme `setLook` puts together from a sand and a theme's caps; the
   sunlit sand's `sun` record of each of the nine and of 144 custom colours, in
-  range, the custom rule near every preset's (a bad record is the control); the
+  range (the paper key 0.55 to 1.4: a pale sand's dimmed, a dark one's
+  raised, a dark custom colour's over 1.2), the custom rule near every
+  preset's (a bad record is the control); the
   six finishes (each a theme's caps, named by its material, and the swatch
   Tune draws in its tones); and the page's colours and swatch of each sand
   in `styles.css`; and (release 1.20.1) every sand its own accent: no two
@@ -691,7 +709,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   of the nine and a custom sand chosen in Tune, in both looks, puts its own
   accent on the selected pill and the Start button, no two of the ten within
   10 (CIEDE2000; a style sheet with 1.20.0's gold for the black sand must
-  fail), with pictures of the bottom bar for each under `HOURGLASS_SHOTS`.
+  fail), with pictures of the bottom bar for each under `HOURGLASS_SHOTS`;
+  FADESAND: from the dark look to the light, the first frame of the fade
+  draws the sunlit sand at the dark look's share (as the page and the glass
+  are) and the last at the light (control: a copy that leaves the renderer
+  at the end look until the fade's first step draws its first frame at 1).
   Each check has a control.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-sound` covers the
@@ -922,7 +944,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   left is the brighter by at least 1.2 to 1 in relative luminance, upright
   and at rest, in both looks, and under Soft the two sides are alike (the
   control). Soft is the picture of before: the grain renderer of the commit
-  before the sunlit sand (`9937dc8`, its `grains.mjs` and `grains.wgsl`
+  before the sunlit sand (`19c84db`, release 1.20.0, its `grains.mjs` and `grains.wgsl`
   taken from git; `HOURGLASS_SOFT_BASE` names another, as for `render-unit`)
   draws the same points with the same look in the same commands on a canvas
   of its own, and the two canvases are equal byte for byte at rest, with

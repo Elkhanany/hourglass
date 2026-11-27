@@ -239,18 +239,22 @@
    * lit flank and the glass's highlight agree. KEY_LIGHT is that direction in the screen's axes
    * (x to the right, y up, z toward the eye), a unit vector; both sands read it from here.
    * SUNLIT holds how each look lights the sand (glass/renderer.js, the sunlit sand):
-   *   A ambient, K key, X exposure, wrap (how far round the terminator light still reaches),
+   *   A ambient, K key, X exposure (the dark look's set so that its flanks' mean is Soft's),
+   *   wrap (how far round the terminator light still reaches),
    *   C the crescent the glass throws past the terminator, kw the contact shade where the sand
    *   meets the glass, kd the darkening with depth, ks how much colour a shadow gains, wd how far
    *   (in grains) the free surface's light reaches into the bed, hlK how far a lit grain rolls
-   *   toward the light's tint, and tint itself.
+   *   toward the light's tint (only above 1.15 of its light), sat how much colour a lit grain
+   *   gains as it gains light, crest the light levels the top grain of a surface facing the key
+   *   gains, and tint itself.
    * The white room lights the sand from everywhere, so its ambient is twice the dark room's; on
    * the paper a lit grain rolls only half as far toward white, or it is lost on the page.
    *
    * Each sand's own `sun` record says how it takes that light:
    *   key     the key's gain in both looks
    *   paper   the key's gain in the light look, and the square of it on the roll toward white:
-   *           a pale sand gets less, as a photographer dims the key on a white subject
+   *           a pale sand gets less, as a photographer dims the key on a white subject, and a
+   *           dark one more (the paper's key is lower than the dark room's, A and K below)
    *   lift    ambient added in both looks, so that a dark sand's shaded flank is not black
    *   glints  the share of grains that can glint at all: the cap on the sparkle
    *   mica    how near the key's mirror direction a mica facet must face to glint (0.955 the
