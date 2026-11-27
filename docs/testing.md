@@ -598,9 +598,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the pixel; LAUNCH, no fade at the launch in either look (a page that put
   its look on after the first frame and faded to it must fail); REDUCE, at
   once with Reduce Motion (an app that fades all the same must fail); TWICE,
-  two and three quick changes end exactly dark and light and never move
-  further in a frame than the fade goes in that time (an app that starts each
-  change again from the look it left must fail); PACE, a running glass keeps
+  two and three quick changes, each made in a fade held 40 % of its way, end
+  exactly dark and light, and each new fade starts from the very point the
+  page shows (an app that starts each change again from the look it left must
+  fail); PACE, a running glass keeps
   the wall clock's time over three fades and the glass is redrawn in each
   frame in under 16 ms; PILLS, the six pills and Custom whole with no scroll
   at every width from 320 to 2560 px, also with six of 99, a phone's pills as
