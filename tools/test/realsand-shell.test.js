@@ -9,7 +9,9 @@
  *  - every path in sw.js's SHELL exists;
  *  - every module the engine loads (the static imports from realsand/boot.mjs, followed) is in
  *    the shell, and so is every shader in realsand/shaders/ (the solver's pipelines, its
- *    includes and the grains', each named by the code checked here too), and LICENSES.md;
+ *    includes and the grains', each named by the code checked here too), and LICENSES.md; the
+ *    sunlit sand's relief shader (relief.wgsl, which the grains load beside their own) among
+ *    them, and in the engine's licences;
  *  - the stamp app.js was written for (REALSAND_BUILD) and the one the lab page expects
  *    (BUILD_EXPECTED) equal the engine's own (realsand/build.mjs), so a release never ships a
  *    mix that the app itself would refuse, and so does the shaders' own line "Engine build" (in
@@ -93,6 +95,17 @@ wgsl.forEach(function (f) {
 var namedOut = named.filter(function (n, i) { return named.indexOf(n) === i && !inShell['realsand/shaders/' + n + '.wgsl']; });
 check(named.length >= 15 && namedOut.length === 0, 'every shader the engine names (' + named.length + ': pipelines, the grains, includes) is in SHELL', namedOut.join(', '));
 check(!!inShell['realsand/LICENSES.md'], 'the engine\'s licences (realsand/LICENSES.md) go with it');
+// the sunlit sand's relief: the grains load it beside their own shader (so a page without it has no Real sand at
+// all), the worker's shell holds it, and the engine's licences name it
+var grainsSrc = read('realsand/grains.mjs'), licences = read('realsand/LICENSES.md');
+var reliefNamed = /\.module\(this\.device,\s*'relief'\)/.test(grainsSrc), reliefIn = named.indexOf('relief') >= 0 && !!inShell['realsand/shaders/relief.wgsl'];
+check(reliefNamed && reliefIn && licences.indexOf('`shaders/relief.wgsl`') >= 0,
+  'the sunlit sand\'s relief shader: the grains load it (grains.mjs), SHELL holds it and LICENSES.md names it');
+// (the control: a shell without it is caught by the check on the shaders the engine names)
+var shellLess = {};
+Object.keys(inShell).forEach(function (f) { if (f !== 'realsand/shaders/relief.wgsl') shellLess[f] = true; });
+var lessOut = named.filter(function (n, i) { return named.indexOf(n) === i && !shellLess['realsand/shaders/' + n + '.wgsl']; });
+check(lessOut.join() === 'relief', '... and a SHELL without relief.wgsl is found out by the shaders the engine names (control)', lessOut.join(', '));
 
 // 4. one build stamp
 var BUILD = (/export const BUILD = '([^']+)'/.exec(read('realsand/build.mjs')) || [])[1];

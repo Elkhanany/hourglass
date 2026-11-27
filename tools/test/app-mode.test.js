@@ -608,9 +608,13 @@ async function webglOutline(s, root, port, outlines, fades) {
     var asGlass = function (x) { return x.paper > 200 && x.paper - x.line >= 100 && x.paper - x.bore <= 10 && x.dark >= 25; };
     s.check('OUTLINE (WebGL): on white the rendered glass shows its edge by a dark line ' + (o.paper - o.line) + ' levels under the paper, its bore clear (paper ' + o.paper + ', bore ' + o.bore + ', line ' + o.line + ')',
       asGlass(o), JSON.stringify(o));
-    var room = routed(env, 'glass/gl.js', function (src) { return src.replace('paper ? GLASS_FS_ROOM_PAPER : GLASS_FS_ROOM', 'GLASS_FS_ROOM'); });
+    // (the control: the light look drawn by the dark look's program, its room and its composition
+    // both, as on white without the light shading)
+    var room = routed(env, 'glass/gl.js', function (src) {
+      return src.replace('var GLASS_FS_PAPER = glassSource(0, true), GLASS_FS_SHAPE_PAPER = glassSource(1, true);', 'var GLASS_FS_PAPER = glassSource(0), GLASS_FS_SHAPE_PAPER = glassSource(1);');
+    });
     var c = await outlineCase(s, env, null, { routes: [room] });
-    s.check('... and the rendered glass lit by the dark room on white is not that: its bore greyed, or its line lost (control)', !asGlass(c), JSON.stringify(c));
+    s.check('... and the rendered glass shaded as in the dark look on white is not that: its bore greyed, or its line lost (control)', !asGlass(c), JSON.stringify(c));
     if (SHOTS) {
       for (var look of ['dark', 'light']) {
         var t = await opn(env, { storage: { background: look }, viewport: { width: 393, height: 852 } });

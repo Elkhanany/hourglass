@@ -143,9 +143,17 @@
  *  Some controls are app.js with one thing undone (appWithout), served in its place: the check
  *  that thing answers must fail on it.
  *
+ *  LIGHT the sand's light (Tune's Light) and the look reach Real sand, on the mock graphics chip
+ *        with the real adapter and the app's own Renderer: at the handover the engine is told
+ *        the saved light and the look shown (sunlit, the dark look's constants in the frame it
+ *        draws); a change of look fades it there through steps between the looks and ends on
+ *        exactly the light look's constants; the row's Soft takes the light out of its frames
+ *        (and the classic sand's), Sunlit puts it back; with a slow start, the look and the row
+ *        changed while the engine is not ready break nothing, and the engine takes over with
+ *        what they are by then. The control is an app that never tells the engine.
  *   node tools/test/app-realsand.test.js [--port 8905] [--only slow]
  *   (cases: off nogpu mock fail stamp again slow wake life norebuild crash residue asleep quiet
- *    sounds defaultna defaultmock migrate build hang restart waits)
+ *    sounds defaultna defaultmock migrate build hang restart light waits)
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -384,9 +392,9 @@ async function testOff(s, env) {
         material: row.parentNode.classList.contains('rows-single'),
         rows: document.querySelectorAll('#sheet-settings .row').length };
     });
-    s.check('OFF: the row "Real sand", a labelled switch, sits in the Sand tab\'s rows right after Layered sand, then Grain and its choices; Tune has 15 rows (the Sound tab\'s two, the Time tab\'s Show when it ends and the Glass tab\'s Background among them)',
+    s.check('OFF: the row "Real sand", a labelled switch, sits in the Sand tab\'s rows right after Layered sand, then Grain and its choices; Tune has 16 rows (the Sand tab\'s Light, the Sound tab\'s two, the Time tab\'s Show when it ends and the Glass tab\'s Background among them)',
             ui.tag === 'LABEL' && ui.for === 'opt-realsand' && ui.title === 'Real sand' && ui.role === 'switch' && ui.type === 'checkbox' &&
-            ui.cls === 'switch' && ui.tab === 'Sand' && ui.afterLayers && ui.beforeGrain && ui.material && ui.rows === 15, JSON.stringify(ui));
+            ui.cls === 'switch' && ui.tab === 'Sand' && ui.afterLayers && ui.beforeGrain && ui.material && ui.rows === 16, JSON.stringify(ui));
     s.check('OFF: off ("Off: the classic sand", data-state off); Grain shown with its note, and Real motion\'s crack sentence; no "Copy a report" link',
             !st.checked && !st.disabled && st.dstate === 'off' && st.note === 'Off: the classic sand' && st.grainShown && st.crackShown &&
             st.grainNote === 'Finer sand is more grains, and more work for the phone' && st.report === null,
@@ -2258,6 +2266,95 @@ async function testSounds(s, env) {
   } finally { await t.close(); }
 }
 
+/* ---- LIGHT: Tune's Light and the look reach Real sand ---------------------------------------- */
+/** What Real sand was last told and what its last frame was drawn with; the classic sand's light; the row; the saved setting. */
+function lightState(t) {
+  return t.eval(function () {
+    var Hg = window.Hourglass, rs = Hg.realSand, e = window.__mockEnv, look = e && e.grains && e.grains.look, lit = look && look.lit, P = window.HourglassPhysics;
+    var s = JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}'), row = document.querySelector('#lights [aria-checked="true"]');
+    return { live: !!rs && Hg.sim === rs, told: rs && rs._light ? { on: rs._light.on, m: rs._light.m } : null,
+      lit: lit ? { A: lit.A, K: lit.K, key: lit.key.slice(), share: lit.share } : null, draws: e && e.grains ? e.grains.draws : 0,
+      classic: Hg.renderer.sunlit, row: row && row.getAttribute('data-light'), saved: s.sandLight, look: document.documentElement.getAttribute('data-look') === 'light' ? 'light' : 'dark',
+      dark: { A: P.SUNLIT.dark.A, K: P.SUNLIT.dark.K }, paper: { A: P.SUNLIT.paper.A, K: P.SUNLIT.paper.K }, sun: P.SANDS.sahara.sun, key: Array.prototype.slice.call(P.KEY_LIGHT),
+      calls: (window.__lights || []).slice(), errors: rs ? rs.n.errors : -1 };
+  });
+}
+function tapLight(t, which) { return t.eval(function (w) { document.querySelector('#lights [data-light="' + w + '"]').click(); }, which); }
+function tapLook(t, which) { return t.eval(function (w) { document.querySelector('[data-look="' + w + '"]').click(); }, which); }
+function near(a, b) { return Math.abs(a - b) < 1e-9; }
+async function testLight(s, env) {
+  var t = await openMock(env, { seed: 21 });
+  try {
+    await waitLive(t);
+    await sleep(400);
+    var a = await lightState(t);
+    s.check('LIGHT: at the handover Real sand is told the saved light and the look shown: sunlit in the dark look, and its frames are drawn with the dark look\'s constants and the room\'s key',
+            a.live && !!a.told && a.told.on && a.told.m === 0 && !!a.lit && near(a.lit.A, a.dark.A + a.sun.lift) && near(a.lit.K, a.dark.K * a.sun.key) &&
+            near(a.lit.key[0], a.key[0]) && near(a.lit.key[1], a.key[1]) && a.classic === true && a.row === 'sunlit',
+            JSON.stringify({ told: a.told, lit: a.lit, row: a.row }));
+    // a change of look: the engine is told each frame of the fade, and at its end exactly the light look
+    await t.eval(function () {
+      var rs = window.Hourglass.realSand, set = rs.setLight;
+      window.__lights = [];
+      rs.setLight = function (light, m) { window.__lights.push([light, m]); return set.call(this, light, m); };
+    });
+    await tapLook(t, 'light');
+    await sleep(1100);
+    var b = await lightState(t), ms = b.calls.map(function (c) { return c[1]; });
+    var between = ms.filter(function (m) { return m > 0 && m < 1; }), rising = ms.every(function (m, i) { return i === 0 || m >= ms[i - 1] - 1e-9; });
+    s.check('LIGHT: a change of look reaches Real sand through the fade: told on its frames with shares between the looks, never back, and at its end exactly the light look\'s, whose constants its next frame is drawn with',
+            b.look === 'light' && between.length >= 3 && rising && ms[ms.length - 1] === 1 && b.calls.every(function (c) { return c[0] === 'sunlit'; }) &&
+            b.told.on && b.told.m === 1 && !!b.lit && near(b.lit.A, b.paper.A + b.sun.lift) && near(b.lit.K, b.paper.K * b.sun.key * b.sun.paper),
+            JSON.stringify({ steps: ms.length, between: between.length, last: ms[ms.length - 1], told: b.told, lit: b.lit }));
+    // the row: Soft takes the light out of the engine's frames and the classic sand's; Sunlit puts it back
+    await tapLight(t, 'soft');
+    await sleep(350);
+    var c = await lightState(t);
+    await tapLight(t, 'sunlit');
+    await sleep(350);
+    var d = await lightState(t);
+    s.check('LIGHT: Tune\'s row reaches Real sand: Soft, and its next frame carries no light (the classic sand soft too, the choice saved); Sunlit, and it is lit again in the look shown',
+            !c.told.on && c.lit === null && c.draws > b.draws && c.classic === false && c.saved === 'soft' && c.row === 'soft' &&
+            d.told.on && d.told.m === 1 && !!d.lit && d.draws > c.draws && d.classic === true && d.saved === 'sunlit',
+            JSON.stringify({ soft: { told: c.told, lit: c.lit, saved: c.saved }, sunlit: { told: d.told, lit: !!d.lit, saved: d.saved } }));
+    s.check('LIGHT: no error in the engine through it all', d.errors === 0 && d.live, JSON.stringify({ errors: d.errors, live: d.live }));
+    await H.invariants(s, t, 'LIGHT');
+  } finally { await t.close(); }
+  // the engine not ready (a slow start): the look and the row change meanwhile; nothing breaks, and it takes over with what they are by then
+  var t2 = await openMock(env, { seed: 22, startDelay: 2500 });
+  try {
+    await sleep(700);
+    var e0 = await lightState(t2);
+    await tapLook(t2, 'light');
+    await sleep(700);
+    await tapLight(t2, 'soft');
+    await sleep(300);
+    var e1 = await lightState(t2);
+    await waitLive(t2, 25000);
+    await sleep(500);
+    var e2 = await lightState(t2);
+    await tapLight(t2, 'sunlit');
+    await sleep(350);
+    var e3 = await lightState(t2);
+    s.check('LIGHT: while the engine is not ready (a slow start) the look and the row change with nothing to tell: the classic sand takes them, nothing breaks',
+            !e0.live && !e1.live && e1.look === 'light' && e1.classic === false && e1.saved === 'soft', JSON.stringify({ live: [e0.live, e1.live], look: e1.look, classic: e1.classic, saved: e1.saved }));
+    s.check('LIGHT: ... and the engine takes over with what they are by then (soft, the light look: no light in its frames), and Sunlit then lights it with the light look\'s constants',
+            e2.live && !!e2.told && !e2.told.on && e2.told.m === 1 && e2.lit === null && e3.told.on && !!e3.lit && near(e3.lit.A, e3.paper.A + e3.sun.lift) && e3.errors === 0,
+            JSON.stringify({ told: [e2.told, e3.told], lit: e3.lit }));
+    await H.invariants(s, t2, 'LIGHT (slow start)');
+  } finally { await t2.close(); }
+  // control: an app that never tells the engine leaves it soft at the handover
+  var less = appWithout(env, [["if (real && typeof real.setLight === 'function') { try { real.setLight(settings.sandLight, m); } catch (e) { /* (the sand draws on as it was) */ } }", '']]);
+  var t3 = await openMock(env, { seed: 21 }, {}, { routes: [less.route] });
+  try {
+    await waitLive(t3);
+    await sleep(400);
+    var f = await lightState(t3);
+    s.check('LIGHT (control): an app that never calls real.setLight leaves Real sand under the soft light at the handover, though the row says Sunlit',
+            less.found && f.live && !!f.told && !f.told.on && f.lit === null && f.row === 'sunlit', JSON.stringify({ found: less.found, told: f.told, lit: f.lit, row: f.row }));
+  } finally { await t3.close(); }
+}
+
 /* ---- WAITS: the phone's motion never starts a glass, with Real sand ------------------------- */
 /** The glass as a person meets it, and the neck by the mock chip's counts: its points above the line as the ledger holds the glass, and crossings while shut. */
 function waitsRead(t) {
@@ -2408,7 +2505,7 @@ async function main() {
     var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp, again: testAgain,
       slow: testSlow, wake: testWake, life: testLife, norebuild: testNoRebuild, crash: testCrash, residue: testResidue, asleep: testAsleep,
       quiet: testQuiet, sounds: testSounds, defaultna: testDefaultNa, defaultmock: testDefaultMock, migrate: testMigrate, build: testBuild, hang: testHang,
-      restart: testRestart, waits: testWaits };
+      restart: testRestart, light: testLight, waits: testWaits };
     for (var k in cases) {
       if (only && only !== k) continue;
       try { await cases[k](s, env); } catch (e) {

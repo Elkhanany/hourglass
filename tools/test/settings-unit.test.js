@@ -836,9 +836,9 @@ function timeProblems(store) {
   var out = [], keys = store.KEYS, dflt = {};
   store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
   var at = keys.indexOf('quick');
-  // (they were the last two until the background came after them, in 1.19.0: section 4e)
-  if (at < 0 || keys[at + 1] !== 'endsAt' || at !== keys.indexOf('silentRing') + 1 || keys.indexOf('silentRing') !== keys.indexOf('shape') + 5 || keys[at + 2] !== 'background' || at + 3 !== keys.length)
-    out.push('the two records are not quick then endsAt, right after the shape and the Sound tab\'s five (silentRing), and then only the background: ' + keys.slice(-9).join(', '));
+  // (they were the last two until the background came after them, in 1.19.0: section 4e; and the sand's light after it, section 4f)
+  if (at < 0 || keys[at + 1] !== 'endsAt' || at !== keys.indexOf('silentRing') + 1 || keys.indexOf('silentRing') !== keys.indexOf('shape') + 5 || keys[at + 2] !== 'background' || keys[at + 3] !== 'sandLight' || at + 4 !== keys.length)
+    out.push('the two records are not quick then endsAt, right after the shape and the Sound tab\'s five (silentRing), and then only the background and the sand\'s light: ' + keys.slice(-9).join(', '));
   if (dflt.quick !== QUICK_DEFAULT) out.push('quick\'s default is ' + show(dflt.quick));
   if (dflt.endsAt !== false) out.push('endsAt\'s default is ' + show(dflt.endsAt));
   // a save from before them: both defaults, every other setting as it gives it
@@ -897,8 +897,9 @@ var BG_BAD = [['Light', 'another case'], ['auto', 'another word'], ['night', 'an
 function bgProblems(store) {
   var out = [], keys = store.KEYS, dflt = {};
   store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
-  if (keys.length !== 44 || keys[keys.length - 1] !== 'background' || keys[keys.length - 2] !== 'endsAt')
-    out.push('the background is not the 44th and last record, right after endsAt: ' + keys.length + ' records, ' + keys.slice(-3).join(', '));
+  // (it was the last until the sand's light came after it: section 4f)
+  if (keys.length !== 45 || keys[43] !== 'background' || keys[42] !== 'endsAt' || keys[44] !== 'sandLight')
+    out.push('the background is not the 44th record, right after endsAt and before only the sand\'s light: ' + keys.length + ' records, ' + keys.slice(-3).join(', '));
   if (dflt.background !== 'dark') out.push('the background\'s default is ' + show(dflt.background));
   [[SAVE_1_13, 'a save of 1.13.0'], [SAVE_1_10, 'a save of 1.10.0'], [Object.assign({}, SAVE_1_13, { shape: 'delta', sand: 'garnet', finish: 'copper', quick: '25,5,50,10,90,3', endsAt: true }), 'a save of 1.18.0']].forEach(function (c) {
     var old = quickLoad(store, c[0]), withBg = quickLoad(store, Object.assign({}, c[0], { background: 'hours' }));
@@ -922,7 +923,7 @@ function bgProblems(store) {
 }
 var bgp = bgProblems(S);
 check(bgp.length === 0,
-  'the background: the 44th and last record, after endsAt, \'dark\' by default; a save of 1.13.0, 1.10.0 and 1.18.0 comes up dark, every other setting as it gives it; ' + BG_GOOD.join(', ') +
+  'the background: the 44th record, after endsAt (only the sand\'s light after it), \'dark\' by default; a save of 1.13.0, 1.10.0 and 1.18.0 comes up dark, every other setting as it gives it; ' + BG_GOOD.join(', ') +
   ' kept as they are; ' + BG_BAD.length + ' other values (another case or word, empty, a name every object has, not a string) are dark, and saved so',
   bgp.slice(0, 4).join('; ') + (bgp.length > 4 ? ' (' + bgp.length + ' in all)' : ''));
 var bgAny = bgProblems(withValid('background', undefined));
@@ -932,6 +933,45 @@ var bgLoose = bgProblems(variant(function (o) { o.records[recAt(o, 'background')
 check(bgAny.length >= 5 && bgLight.length >= 3 && bgFirst.length >= 1 && bgLoose.length >= 4,
   '... and a store that keeps any background, one that is light by default, one with the background before endsAt, and one that keeps any word are each found out (control)',
   [bgAny.length, bgLight.length, bgFirst.length, bgLoose.length].join(', ') + ' problems');
+
+/* ---- 4f. the sand's light ------------------------------------------------------------------ */
+// The last record (the 45th), after the background: `sandLight`, 'sunlit' by default (the sand lit by
+// one key light, as the app comes from 1.21.0), else 'soft' (the even light of before). A save from
+// before it comes up sunlit, every other setting as it gives it; any other value is sunlit, and saved so.
+var SL_BAD = [['Soft', 'another case'], ['sun', 'another word'], ['', 'an empty string'], ['toString', 'a name every object has'],
+  [true, 'a boolean'], [0, 'a number'], [null, 'null'], [['soft'], 'an array']];
+function slProblems(store) {
+  var out = [], keys = store.KEYS, dflt = {};
+  store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
+  if (keys[keys.length - 1] !== 'sandLight' || keys[keys.length - 2] !== 'background') out.push('the sand\'s light is not the last record, right after the background: ' + keys.slice(-3).join(', '));
+  if (dflt.sandLight !== 'sunlit') out.push('the sand\'s light\'s default is ' + show(dflt.sandLight));
+  [[SAVE_1_13, 'a save of 1.13.0'], [SAVE_1_10, 'a save of 1.10.0'], [Object.assign({}, SAVE_1_13, { shape: 'delta', sand: 'garnet', quick: '25,5,50,10,90,3', endsAt: true, background: 'light' }), 'a save of 1.20.0']].forEach(function (c) {
+    var old = quickLoad(store, c[0]), withSl = quickLoad(store, Object.assign({}, c[0], { sandLight: 'soft' }));
+    if (old.sandLight !== 'sunlit') out.push(c[1] + ' came up with the sand\'s light ' + show(old.sandLight));
+    if (withSl.sandLight !== 'soft') out.push(c[1] + ' with the light soft came up with ' + show(withSl.sandLight));
+    keys.forEach(function (k) {
+      if (k !== 'sandLight' && !Object.is(old[k], withSl[k])) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' without the sand\'s light, ' + show(withSl[k]) + ' with it');
+    });
+  });
+  SL_BAD.forEach(function (c) {
+    var st = Storage(JSON.stringify({ v: 2, sandLight: c[0], volume: 0.3 }), 'ok'), v = store.load(st.reach, '', REG_ALL);
+    store.save(v);
+    if (v.sandLight !== 'sunlit' || JSON.parse(st.data[KEY]).sandLight !== 'sunlit') out.push(c[1] + ' (' + JSON.stringify(c[0]) + ') came up as ' + show(v.sandLight));
+    if (v.volume !== 0.3) out.push(c[1] + ': the other settings of that save were not kept');
+  });
+  return out;
+}
+var slp = slProblems(S);
+check(slp.length === 0,
+  'the sand\'s light: the 45th and last record, after the background, \'sunlit\' by default; a save of 1.13.0, 1.10.0 and 1.20.0 comes up sunlit, every other setting as it gives it; soft kept as it is; ' +
+  SL_BAD.length + ' other values (another case or word, empty, a name every object has, not a string) are sunlit, and saved so',
+  slp.slice(0, 4).join('; ') + (slp.length > 4 ? ' (' + slp.length + ' in all)' : ''));
+var slAny = slProblems(withValid('sandLight', undefined));
+var slSoft = slProblems(variant(function (o) { o.records[recAt(o, 'sandLight')].default = 'soft'; }));
+var slFirst = slProblems(variant(function (o) { var r = o.records.splice(recAt(o, 'sandLight'), 1); o.records.splice.apply(o.records, [recAt(o, 'background'), 0].concat(r)); }));
+check(slAny.length >= 3 && slSoft.length >= 3 && slFirst.length >= 1,
+  '... and a store that keeps any value, one that is soft by default, and one with the sand\'s light before the background are each found out (control)',
+  [slAny.length, slSoft.length, slFirst.length].join(', ') + ' problems');
 
 /* ---- 5. save, a blocked storage, bindSwitch, loading ------------------------------------ */
 var st1 = Storage('{"v":2,"realSand":false,"theme":"lapis"}', 'ok'), v1 = S.load(st1.reach, '', REG);

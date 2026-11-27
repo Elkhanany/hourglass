@@ -534,8 +534,102 @@ function pageCode() {
       return T.state();
     });
   };
+  /**
+   * The light look's rendered glass, read back from WebGL and laid over the page in numbers (each
+   * layer premultiplied, as the browser lays it): an empty bulb (near wall over far wall over the
+   * paper #f3f0ea) and a flat patch of a sand's colour behind the near wall (`sand`: its h, s, l).
+   *   clear   inside the bore, away from its wall (|x| under 0.55 of the bore's half-width) and in
+   *           the bulbs' bodies (0.25 to 0.85 of a bulb's height): the median CIELAB distance to
+   *           the paper and the mean luminance against it, highlights (pixels brighter than the
+   *           paper by 2 %) left out and counted
+   *   sand    the patch there: its L* and its chroma against the patch's own; `edge`, the 95th
+   *           percentile of its L* against its own between there and 1.5 cells from the wall
+   *   rim     along the bore's outline, a point every cell all round (the waist, where the two
+   *           walls meet, left out), the darkest pixel out along the normal from 1.5 cells inside
+   *           to the wall's width and 3 cells past it: how much darker than the paper it is (the
+   *           worst, and the median)
+   */
+  T.paper = function (cfg) {
+    var sim = new P.Sim({ scale: 1.08, seed: 4242, shape: cfg.shape });
+    sim.reset(Math.round(sim.capacity * 0.3));
+    var ren = new P.Renderer(sim, { back: $('c-back'), sand: $('c-sand'), bloom: $('c-bloom'), front: $('c-front'), light: $('c-light'),
+                                    glBack: $('c-glass-back'), glFront: $('c-glass-front') });
+    ren.setFrame(false); ren.setTheme(cfg.theme || 'sahara'); ren.layout(374, 718, 3);
+    ren.setPaper(true);
+    if (!ren.glass) return { glass: 'drawn' };
+    ren.drawGlass(0, true);
+    var im = ren.glass.map(function (g) {
+      var gl = g.gl, w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return { w: w, h: h, d: px };                                     // bottom row first
+    });
+    var B = im[0], F = im[1], w = F.w, h = F.h, box = ren._box(), geo = sim.geo, HB = geo.HB;
+    function lin(v) { return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+    function lum(c) { return 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]); }
+    function lab(c) {
+      var r = lin(c[0]), g = lin(c[1]), b = lin(c[2]);
+      var f = function (t) { return t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116; };
+      var X = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047), Y = f(0.2126 * r + 0.7152 * g + 0.0722 * b), Z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883);
+      return [116 * Y - 16, 500 * (X - Y), 200 * (Y - Z)];
+    }
+    function hsl(hh, s, l) {
+      var a = s * Math.min(l, 1 - l), k = function (n) { var m = (n + hh / 30) % 12; return l - a * Math.max(-1, Math.min(m - 3, 9 - m, 1)); };
+      return [k(0), k(8), k(4)];
+    }
+    var page = [0xf3 / 255, 0xf0 / 255, 0xea / 255], pl = lab(page), pageLum = lum(page);
+    var sand = hsl(cfg.sand[0], cfg.sand[1], cfg.sand[2]), sl = lab(sand), sc = Math.hypot(sl[1], sl[2]);
+    function at(L, i, j) { var o = 4 * ((L.h - 1 - j) * L.w + i); return [L.d[o] / 255, L.d[o + 1] / 255, L.d[o + 2] / 255, L.d[o + 3] / 255]; }
+    function over(t, u) { return [t[0] + (1 - t[3]) * u[0], t[1] + (1 - t[3]) * u[1], t[2] + (1 - t[3]) * u[2]]; }
+    function empty(i, j) { return over(at(F, i, j), over(at(B, i, j), page)); }
+    function q(a, p) { var b = a.slice().sort(function (x, y) { return x - y; }); return b.length ? b[Math.min(b.length - 1, Math.floor(p * b.length))] : NaN; }
+    function mean(a) { return a.reduce(function (s, v) { return s + v; }, 0) / a.length; }
+    var de = [], lu = [], hi = 0, sL = [], sC = [], eL = [], i, j, k;
+    for (j = 0; j < h; j++) {
+      var y = (j + 0.5) / h * box.h - box.h / 2, u = Math.abs(y) / HB;
+      if (u < 0.25 || u > 0.85) continue;
+      var r = P.profile(u, geo);
+      for (i = 0; i < w; i++) {
+        var x = Math.abs((i + 0.5) / w * box.w - box.w / 2);
+        if (x >= r - 1.5) continue;
+        var s = lab(over(at(F, i, j), sand));
+        if (x > 0.55 * r) { eL.push(s[0] / sl[0]); continue; }
+        var c = empty(i, j), lc = lum(c), cl = lab(c);
+        if (lc > pageLum * 1.02) { hi++; continue; }
+        de.push(Math.hypot(cl[0] - pl[0], cl[1] - pl[1], cl[2] - pl[2])); lu.push(lc / pageLum);
+        sL.push(s[0] / sl[0]); sC.push(Math.hypot(s[1], s[2]) / sc);
+      }
+    }
+    // the outline, a point about every cell
+    var pts = [], prev = null, run = 0, K = 4000;
+    for (k = 0; k <= K; k++) {
+      var yy = -HB + 2 * HB * k / K, cur = [P.profile(Math.min(Math.abs(yy) / HB, 1), geo), yy];
+      if (prev) run += Math.hypot(cur[0] - prev[0], cur[1] - prev[1]);
+      if (!prev || run >= 1) { pts.push(cur); run = 0; }
+      prev = cur;
+    }
+    var dark = [], worst = { d: 9 };
+    for (var side = -1; side <= 1; side += 2) {
+      for (k = 1; k < pts.length - 1; k++) {
+        if (Math.abs(pts[k][1]) / HB < 0.06) continue;
+        var tx = pts[k + 1][0] - pts[k - 1][0], ty = pts[k + 1][1] - pts[k - 1][1], tl = Math.hypot(tx, ty), nx = ty / tl, ny = -tx / tl, lo = 9;
+        if (nx < 0) { nx = -nx; ny = -ny; }
+        for (var t = -1.5; t <= geo.wall + 3; t += 0.25) {
+          var pi = Math.round(((side * (pts[k][0] + nx * t)) / box.w + 0.5) * w - 0.5), pj = Math.round(((pts[k][1] + ny * t) / box.h + 0.5) * h - 0.5);
+          if (pi >= 0 && pj >= 0 && pi < w && pj < h) lo = Math.min(lo, lum(empty(pi, pj)));
+        }
+        var d = 1 - lo / pageLum;
+        dark.push(d);
+        if (d < worst.d) worst = { d: d, side: side, y: Math.round(pts[k][1]) };
+      }
+    }
+    var r2 = function (v) { return Math.round(v * 1000) / 1000; };
+    return { glass: 'webgl', paper: ren.paper,
+      clear: { n: de.length, de: r2(q(de, 0.5)), lum: r2(mean(lu)), highlights: hi },
+      sand: { L: r2(mean(sL)), C: r2(mean(sC)), edge: r2(q(eL, 0.95)) },
+      rim: { n: dark.length, worst: r2(worst.d), at: worst.side < 0 ? 'left' : 'right', y: worst.y, median: r2(q(dark, 0.5)) } };
+  };
   T.state = function () {
-    return { glass: T.ren.glass ? 'webgl' : 'drawn', lost: T.ren.glass ? T.ren.glass.map(function (g) { return g.lost; }) : null,
+    return { glass: T.ren.glass ? 'webgl' : 'drawn', lost:T.ren.glass ? T.ren.glass.map(function (g) { return g.lost; }) : null,
              shown: [$('c-glass-back').style.display !== 'none', $('c-glass-front').style.display !== 'none'] };
   };
 
@@ -877,6 +971,71 @@ EXTRA.push({ name: 'a device that refuses the shader gets the drawn glass of the
     return notes;
   } finally {
     await page.context().close();
+  }
+} });
+
+/*
+ * On white the rendered glass is clear (the light look's glass made clear): read back from
+ * WebGL and laid over the paper in numbers (T.paper), with Sahara's colour as the sand,
+ *   - an empty bulb is the paper seen through glass: within 2.0 (CIELAB) of #f3f0ea at the
+ *     median and 0.95 of its luminance or more, away from the wall and the highlights;
+ *   - a flat patch of the sand behind the near wall keeps its colour: 0.93 of its chroma or more,
+ *     its L* within 3 %, and toward the wall no film whitens it (the 95th percentile of its L*
+ *     there 1.04 of its own at most);
+ *   - the rim is darker than the paper all round the outline (the darkest point out along each
+ *     normal 0.40 under the paper's luminance at the palest point, 0.84 at the median);
+ *   - the room's highlights are still there (20 pixels or more brighter than the paper in the
+ *     clear bulb).
+ * The control is the same glass with the film put back as it was before (the alpha lifted to the
+ * sheen under the steep exposure, the grey veil over the bore): it must fail in this shape.
+ */
+var PAPER_SAND = [36, 0.62, 0.61];      // Sahara's colour (sand/sands.js), the sand the app comes with
+function filmBack(src) {
+  var lift = "'  a = clamp(max(a, max(col.r, max(col.g, col.b))), 0.0, 1.0);',";
+  var swaps = [
+    // (the near wall's clear block, the windows' light over the page and the shoulder with it: all of the light look's own)
+    ["{ dark: [], paper: ['    tr = absorb * (1.0 - F);', '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;', '    fill = PAGE * F * absorb;',\n      // the key's window and the lamp seen in the wall: added over the page as light (on white a mirror's\n      // highlight is the only thing brighter than the page), and a faint grey shoulder toward the grazing\n      // side, where the wall is thick, inside its dark outline\n      '    vec3 rr = rotZ(vec3(0.0, 0.0, -1.0) + 2.0 * n.z * n, uRot);',\n      '    shine = PAGE_SHINE * min(F * 16.0, 0.9) * (panel(rr, normalize(vec3(-0.66, -0.52, 0.54)), vec2(0.20, 0.46), 0.12)',\n      '      + smoothstep(0.9990, 0.99975, dot(rr, normalize(vec3(-0.40, -0.50, 0.77)))));',\n      '    fill *= 1.0 - 0.05 * smoothstep(0.55, 0.95, abs(s));'] },", ''],
+    ["{ dark: [], paper: ['  col = min(max(col, fill) + shine, vec3(1.0));'] },", ''],
+    [lift, lift + "\n{ dark: [], paper: ['  if (uPass < 0.5) { col += 0.075 * vec3(0.60, 0.58, 0.55) * (1.0 - a); a += 0.075 * (1.0 - a); }'] },"],
+    ['gl.uniform1f(u.uGain, paper ? 1.15 : 1.1);', 'gl.uniform1f(u.uGain, paper ? 2.4 : 1.1);']
+  ];
+  swaps.forEach(function (s) {
+    ok(src.split(s[0]).length === 2, 'the control cannot put the film back: "' + s[0] + '" is not in the source once');
+    src = src.replace(s[0], function () { return s[1]; });
+  });
+  return src;
+}
+function paperFails(m) {
+  var f = [];
+  if (!(m.clear.de <= 2.0)) f.push('the empty bulb is ' + m.clear.de + ' from the paper (2.0 at most)');
+  if (!(m.clear.lum >= 0.95)) f.push('the empty bulb has ' + m.clear.lum + ' of the paper\'s luminance (0.95 at least)');
+  if (!(m.sand.C >= 0.93)) f.push('the sand behind the glass keeps ' + m.sand.C + ' of its chroma (0.93 at least)');
+  if (!(Math.abs(m.sand.L - 1) <= 0.03)) f.push('the sand behind the glass has ' + m.sand.L + ' of its L* (within 3 %)');
+  if (!(m.sand.edge <= 1.04)) f.push('toward the wall the sand is whitened to ' + m.sand.edge + ' of its L* (1.04 at most)');
+  if (!(m.rim.worst >= 0.40)) f.push('the rim is only ' + m.rim.worst + ' darker than the paper at its palest (' + m.rim.at + ', y ' + m.rim.y + ' cells; 0.40 at least)');
+  if (!(m.rim.median >= 0.84)) f.push('the rim is ' + m.rim.median + ' darker than the paper at the median (0.84 at least)');
+  if (!(m.clear.highlights >= 20)) f.push('only ' + m.clear.highlights + ' highlight pixels in the clear bulb (20 at least)');
+  return f;
+}
+EXTRA.push({ name: 'on white the rendered glass is clear, its rim dark all round', shapes: IDS, run: async function (browser, shape) {
+  var page = await open(browser), ctl = await open(browser, filmBack(SRC));
+  try {
+    var m = await page.evaluate(function (c) { return window.T.paper(c); }, { shape: shape, sand: PAPER_SAND });
+    ok(m.glass === 'webgl' && m.paper === true, 'no WebGL glass in the light look (' + m.glass + '): this case could not tell');
+    ok(m.clear.n > 10000 && m.rim.n > 500, 'too little measured (' + m.clear.n + ' clear pixels, ' + m.rim.n + ' rim points): this case could not tell');
+    var f = paperFails(m);
+    ok(!f.length, f.join('; '));
+    var c = await ctl.evaluate(function (cc) { return window.T.paper(cc); }, { shape: shape, sand: PAPER_SAND });
+    ok(c.glass === 'webgl', 'the control has no WebGL glass in the light look: it could not tell');
+    var cf = paperFails(c);
+    ok(cf.length > 0, 'with the film put back the glass passes all the same (' + JSON.stringify(c) + '): this case cannot tell a milky glass');
+    ok(!page.errors.length && !ctl.errors.length, 'page errors: ' + page.errors.concat(ctl.errors).join(' | '));
+    return ['the empty bulb ' + m.clear.de + ' from the paper, ' + m.clear.lum + ' of its luminance (with the film: ' + c.clear.de + ', ' + c.clear.lum + '); the sand behind the glass keeps ' +
+      m.sand.C + ' of its chroma, ' + m.sand.L + ' of its L*, ' + m.sand.edge + ' toward the wall (with the film: ' + c.sand.C + ', ' + c.sand.L + ', ' + c.sand.edge + '); the rim ' +
+      m.rim.worst + ' darker than the paper at its palest, ' + m.rim.median + ' at the median, ' + m.rim.n + ' points (with the film: ' + c.rim.worst + ', ' + c.rim.median + '); ' +
+      m.clear.highlights + ' highlight pixels; with the film ' + cf.length + ' checks fail (' + cf[0] + ')'];
+  } finally {
+    await page.context().close(); await ctl.context().close();
   }
 } });
 

@@ -147,6 +147,8 @@
     '}'
   ];
   var GLASS_FS_LIGHT = [
+    { dark: [], paper: ['const vec3 PAGE = vec3(0.953, 0.941, 0.918);',        // the light look's paper, #f3f0ea
+      'const vec3 PAGE_SHINE = vec3(1.0, 0.985, 0.96);'] },                   // ... and the light its windows add over it
     'vec3 rotZ(vec3 v, float a) {',
     '  float c = cos(a), s = sin(a);',
     '  return vec3(v.x * c - v.y * s, v.x * s + v.y * c, v.z);',
@@ -187,6 +189,8 @@
     '  float path = hlf - sqrt(max(ri * ri - ax * ax, 0.0));',          // glass crossed in one wall
     '  vec3 absorb = exp(-uAbs * path);',
     '  vec3 col; float a;',
+    // (the light look: the page's own light, given back by a wall that mirrors the white room)
+    { dark: [], paper: ['  vec3 fill = vec3(0.0), shine = vec3(0.0);'] },
     '  if (uPass > 0.5) {',
     ['    float dro = clamp((rOut(p.y + E) - rOut(p.y - E)) / (2.0 * E), -8.0, 8.0);',
      '    float dro = clamp(so, -8.0, 8.0);'],
@@ -205,6 +209,18 @@
     '    float Fi = ri > 0.5 ? 0.04 + 0.96 * pow(1.0 - max(ni.z, 0.0), 8.0) : 1.0;',
     '    vec3 tr = absorb * (1.0 - F) * (1.0 - Fi);',
     '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;',
+    // On white (the light look) the wall in front is clear: it covers what lies behind it only by
+    // what its outer face mirrors and its glass takes (the contact shade where the sand meets the
+    // glass is the sand's own), and its outer face gives back at least the page's light it takes,
+    // so that the page is not greyed and a sand is not filmed; the room's lights lie over that
+    { dark: [], paper: ['    tr = absorb * (1.0 - F);', '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;', '    fill = PAGE * F * absorb;',
+      // the key's window and the lamp seen in the wall: added over the page as light (on white a mirror's
+      // highlight is the only thing brighter than the page), and a faint grey shoulder toward the grazing
+      // side, where the wall is thick, inside its dark outline
+      '    vec3 rr = rotZ(vec3(0.0, 0.0, -1.0) + 2.0 * n.z * n, uRot);',
+      '    shine = PAGE_SHINE * min(F * 16.0, 0.9) * (panel(rr, normalize(vec3(-0.66, -0.52, 0.54)), vec2(0.20, 0.46), 0.12)',
+      '      + smoothstep(0.9990, 0.99975, dot(rr, normalize(vec3(-0.40, -0.50, 0.77)))));',
+      '    fill *= 1.0 - 0.05 * smoothstep(0.55, 0.95, abs(s));'] },
     // edge-on, the wall is solid glass: it bends light in from the sides
     '    float rim = 1.0 - smoothstep(-0.25, 0.35, dIn);',
     '    if (rim > 0.0) {',
@@ -214,6 +230,7 @@
     '      vec3 o = normalize(vec3(-sx * sin(dv), -dro * 0.5, -cos(dv)));',
     '      col += rim * room(rotZ(o, uRot)) * (1.0 - F) * (1.0 - F) * exp(-uAbs * hlf * 0.5);',
     '      a = mix(a, 0.82, rim);',
+    { dark: [], paper: ['      fill *= 1.0 - rim;'] },          // (edge-on it draws the outline dark)
     '    }',
     '  } else {',
     '    if (dIn <= -0.3) { gl_FragColor = vec4(0.0); return; }',
@@ -224,13 +241,15 @@
     '    col = room(rotZ(vec3(0.0, 0.0, -1.0) + 2.0 * nb.z * nb, uRot)) * Fb * 0.5;',
     '    vec3 tb = absorb * (1.0 - Fb * 0.7);',
     '    a = 1.0 - (tb.r + tb.g + tb.b) / 3.0;',
+    // ... and the wall behind the sand gives back at least all the page's light it takes, so the
+    // bore is the page seen through clear glass, the room's lights over it, and greys nowhere
+    { dark: [], paper: ['    fill = PAGE * a;',
+      '    shine = PAGE_SHINE * 0.45 * min(Fb * 8.0, 0.9) * panel(rotZ(vec3(0.0, 0.0, -1.0) + 2.0 * nb.z * nb, uRot), normalize(vec3(-0.66, -0.52, 0.54)), vec2(0.20, 0.46), 0.12);'] },
     '    edge *= smoothstep(-0.3, 0.3, dIn);',
     '  }',
     '  col = vec3(1.0) - exp(-col * uGain);',                             // film-like roll-off
+    { dark: [], paper: ['  col = min(max(col, fill) + shine, vec3(1.0));'] },
     '  a = clamp(max(a, max(col.r, max(col.g, col.b))), 0.0, 1.0);',
-    // on white the bore is seen through two walls: the far wall greys it a little, so that a pale
-    // sand still stands out of the glass it lies in (the light look only)
-    { dark: [], paper: ['  if (uPass < 0.5) { col += 0.075 * vec3(0.60, 0.58, 0.55) * (1.0 - a); a += 0.075 * (1.0 - a); }'] },
     '  gl_FragColor = vec4(col, a) * edge;',
     '}'
   ];
