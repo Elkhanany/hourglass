@@ -46,7 +46,7 @@ var PORT = +(process.argv[2] || process.env.PORT || 8811);
 var BASE = 'http://127.0.0.1:' + PORT;
 var SOUND_BASE = process.env.HOURGLASS_SPATIAL_BASE || '73528e7';
 var PRINT = !!process.env.HOURGLASS_SPATIAL_PRINT;
-var WATCHDOG_MS = 90000;
+var WATCHDOG_MS = +process.env.HOURGLASS_SPATIAL_WATCHDOG_MS || 90000;     // (set small to try the retry: every render then counts as hung)
 
 var failures = 0, cases = 0, hangs = 0, renders = 0;
 function report(ok, name, detail) {
@@ -222,8 +222,16 @@ async function main() {
   var baseSrc = childProcess.execFileSync('git', ['show', SOUND_BASE + ':' + AUDIO.slice(1)], { cwd: ROOT, encoding: 'utf8' })
     .replace('root.HourglassAudio = HourglassAudio;', 'root.HourglassAudioBase = HourglassAudio;');
   var page = null;
-  async function fresh() {
-    if (page) await page.close().catch(function () {});
+  /** A fresh page; after a hang, a fresh browser too (one whose render hung may not close a page or open another). */
+  async function fresh(hard) {
+    var wait = function (p) { return Promise.race([p.catch(function () {}), new Promise(function (r) { setTimeout(r, 10000); })]); };
+    if (page) await wait(page.close());
+    if (hard) {
+      var old = browser;
+      await wait(old.close());
+      try { if (old.process && old.process()) old.process().kill('SIGKILL'); } catch (e) {}
+      browser = await chromium.launch();
+    }
     page = await browser.newPage();
     page.on('pageerror', function (e) { console.log('INFO page error  ' + e.message); });
     await page.route(BASE + '/__spatial.html', function (r) {
@@ -245,7 +253,7 @@ async function main() {
       if (!hung) return r;
       hangs++;
       console.log('INFO ' + name + ': a render hung (no end after ' + WATCHDOG_MS / 1000 + ' s); once more on a fresh page');
-      await fresh();
+      await fresh(true);
     }
     throw new Error(name + ': hung twice');
   }
@@ -476,7 +484,7 @@ async function main() {
   } catch (e) {
     report(false, 'the suite ran', String(e && e.stack || e).split('\n').slice(0, 4).join(' '));
   } finally {
-    await browser.close();
+    await Promise.race([browser.close(), new Promise(function (r) { setTimeout(r, 10000); })]);
     server.close();
   }
   console.log('\n' + (cases - failures) + '/' + cases + ' passed' + (hangs ? ', ' + hangs + ' render(s) hung and were done again' : ''));

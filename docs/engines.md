@@ -702,10 +702,17 @@ a balance of 0.5 dB evens out the data's own left/right difference, and each
 character has its own trim and six octave bands from 250 Hz to 8 kHz
 (`STAGE.tone`): how much of it is in which bar, and how alike its channels
 are, colour it differently. All six characters at 60 and 300 grains a second
-are within 1 dB of their level without the stage and every octave from 250 Hz
-to 8 kHz within 2.5 dB; L+R folded to one channel (one earbud, a speaker) is
-within 1 dB of the same fold without the stage, and nothing goes nearer the
-end of the soft clipper's curve than 3 dB.
+are within 1 dB of their level without the stage (measured: 0.3 dB at
+worst) and every octave from 250 Hz to 8 kHz within 2.5 dB (1.5 dB at worst);
+L+R folded to one channel (one earbud, a speaker) is within 1 dB of the same
+fold without the stage (0.4 dB at worst), and at full volume nothing goes
+nearer the end of the soft clipper's curve than 4 dB. The ears of the default
+character's steady glass correlate 0.32 to 0.37 (0.30 to 0.31 without the
+stage; a single speaker ahead gives 0.99, a point in the head). A lone grain
+at 0.6 of the way to the glass's right edge is heard 46 µs and 2.6 dB (2 to
+4 kHz) to the right, its mirror within 0.3 dB; leaning the glass 0.6 rad one
+way and the other moves the landings by about 120 µs and 5 dB; the slide a
+quarter turn round is heard about 245 µs and 9 dB to its side.
 
 **The room.** For the sand, the desk's small room gives way to one computed
 when the stage is built (`stageRoom()`): a furnished room 3.6 × 2.6 × 4.4 m,
