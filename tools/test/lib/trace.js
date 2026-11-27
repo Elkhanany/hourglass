@@ -51,7 +51,7 @@ function recorder() {
   var LATER = { 'renderer.setTheme': 1, 'renderer.setLook': 1, 'renderer.setFrame': 1, 'renderer.setPaper': 1, 'renderer.setLayers': 1, 'sim.setLayers': 1,
     'audio.setVolume': 1, 'audio.setMuted': 1, 'audio.setCharacter': 1, 'audio.setChimeEnabled': 1, 'audio.setAmbience': 1,
     'audio.setAmbienceLevel': 1, 'audio.chime': 1, 'motion.request': 1, 'motion.start': 1, 'motion.stop': 1,
-    'audio.setSandLevel': 1, 'audio.setBowlLevel': 1, 'audio.setSilentRing': 1 };
+    'audio.setSandLevel': 1, 'audio.setBowlLevel': 1, 'audio.setSilentRing': 1, 'audio.setSpatial': 1 };
   var NO_ARGS = { 'renderer.layout': 1 };
   var AUDIO_FIELDS = ['volume', 'muted', 'character', 'chimeEnabled', 'ambience', 'ambLevel'];
   function want(name) { return T.depth === 0 && (T.mode === 'all' || LATER[name] === 1); }
@@ -330,6 +330,8 @@ var DRIVE = [
   ['bowl level: 80', slide('#bowl-level', 80)],
   ['sound in silent mode: off', click('#opt-silent')],
   ['sound in silent mode: on', click('#opt-silent')],
+  ['headphones, spatial: on', click('#opt-spatial')],
+  ['headphones, spatial: off', click('#opt-spatial')],
   ['quick duration 1: its dial opened', click('#quick [data-quick="0"]')],
   ['quick duration 1: the dial turned to 2 minutes', dial('#wheel-min', 2)],
   ['quick duration 1: set to 2 minutes', click('#custom-set')],

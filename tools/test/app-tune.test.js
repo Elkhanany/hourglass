@@ -40,12 +40,17 @@
  *             goes with it
  *   RESET     "Put the look and sound back as they came": the first tap only asks (and gives
  *             up after 3 s, when another tab is shown, when Tune is closed; a double tap is one
- *             tap); the second puts back the fifteen settings it names and no other (the sand
- *             and its finish among them, the background, the Sand and Bowl levels, the Rings and the fade before
- *             the end; the custom sand's colour is kept, and so is Sound in silent mode), tells the
+ *             tap); the second puts back the sixteen settings it names and no other (the sand
+ *             and its finish among them, the background, the Sand and Bowl levels, the Rings, the fade before
+ *             the end and Headphones: Spatial; the custom sand's colour is kept, and so is Sound in silent mode), tells the
  *             engines what differed and nothing else, in order, rings no bowl, says so above the
  *             sheet, and loads nothing again; the first tap's question is said to a screen reader
  *             through a polite status drawn nowhere, emptied when the link gives up or answers
+ *   SPATIAL   the Sound tab's row "Headphones: Spatial", right after "Sound in silent mode" and
+ *             built like it (a named switch in a row, with its help line): off as the app comes;
+ *             a tap turns it on, saves it and tells the sound engine, whose stage then comes in
+ *             by itself; Tab reaches it from its neighbour and Space turns it off; a reload
+ *             comes up as saved (Reset puts it back: RESET)
  *   HINT      at 393 × 852: a tab with more below shows it (its rows fade into the sheet's lower
  *             edge, a small chevron under them) from the moment it is shown at its top, and not
  *             once it is scrolled to its end (since 1.15.0 every tab has more below at its top,
@@ -80,7 +85,7 @@ var TOP_AT = { '390 x 844': 454, '375 x 667': 365, '430 x 932': 502 };   // the 
 var ASK = 'Put the look and sound back as they came', SURE = 'Tap again to put them back', DONE = 'Look and sound put back';
 // what the reset puts back: a new install's values
 var BACK = { theme: 'sahara', sand: 'sahara', finish: 'walnut', frame: true, layers: false, background: 'dark', volume: 0.8, character: 'asmr', ambience: 'none', ambienceLevel: 0.5, chime: true,
-             sandLevel: 1, bowlLevel: 1, bowlRings: 'once', ambFade: 0 };
+             sandLevel: 1, bowlLevel: 1, bowlRings: 'once', ambFade: 0, spatial: false };
 
 /* ---- a copy with something broken, for a control ---------------------------------------- */
 /** A route that hands the page a file of the tree with `change` made to it (text → text). */
@@ -235,6 +240,74 @@ async function rememberBad(env) {
     try { await sleep(400); var L = await look(t); out.push({ v: v, ok: shows(L, 'sand') && t.errors.length === 0, detail: JSON.stringify(v) + ': ' + brief(L) }); } finally { await t.close(); }
   }
   return out;
+}
+
+/* ---- SPATIAL: Headphones: Spatial ---------------------------------------------------------- */
+// The Sound tab's last row, after "Sound in silent mode" and built like it. Off as the app comes
+// (and for a save without it); a tap turns it on, saves spatial and tells the sound engine, whose
+// stage comes in by itself once its room is made; Tab from its neighbour reaches it and Space
+// turns it off; switched on again and the page loaded again, it comes up on.
+async function spatialRow(env, o) {
+  o = o || {};
+  var t = await env.open({ storage: o.storage || {}, routes: o.routes || [] }), m = {};
+  function state() {
+    return t.eval(function (key) {
+      var el = document.getElementById('opt-spatial'), nb = document.getElementById('opt-silent'), a = window.Hourglass.audio;
+      var row = el && el.closest('label.row'), nrow = nb && nb.closest('label.row');
+      // what a screen reader and a keyboard meet: the element, its role, its place in the Tab order, its row, its name and its help line
+      var like = function (e) {
+        var r = e.closest('label.row');
+        return [e.tagName, e.type, e.getAttribute('role'), e.className, e.tabIndex, e.getAttribute('aria-label'), !!r && r.getAttribute('for') === e.id, !!(r && r.querySelector('span > b')), !!(r && r.querySelector('span > small'))].join('|');
+      };
+      return {
+        name: row && row.querySelector('b') ? row.querySelector('b').textContent : null, help: row && row.querySelector('small') ? row.querySelector('small').textContent : null,
+        panel: el && el.closest('[role="tabpanel"]') ? el.closest('[role="tabpanel"]').id : null, afterSilent: !!row && row.previousElementSibling === nrow, last: !!row && !row.nextElementSibling,
+        like: el ? like(el) : null, neighbour: nb ? like(nb) : null, checked: el ? el.checked : null,
+        saved: (JSON.parse(localStorage.getItem(key) || '{}')).spatial, want: a._spatialWant, on: a._spatial, running: a.isRunning(),
+        focus: document.activeElement ? document.activeElement.id : null
+      };
+    }, KEY);
+  }
+  try {
+    await sleep(600);
+    await tune.show(t, '#opt-spatial');
+    m.boot = await state();
+    await tune.tap(t, '#opt-spatial');
+    await sleep(300);
+    m.tapped = await state();
+    // (the engine crosses over by itself, once its speakers sound and its room is made: up to ten seconds for it)
+    m.came = m.tapped;
+    for (var i = 0; i < 40 && !m.came.on; i++) { await sleep(250); m.came = await state(); }
+    await t.page.focus('#opt-silent');
+    await t.page.keyboard.press('Tab');
+    m.tabbed = await state();
+    await t.page.keyboard.press('Space');
+    await sleep(300);
+    m.key = await state();
+    await t.page.keyboard.press('Space');
+    await sleep(300);
+    await t.reload();
+    await sleep(600);
+    await tune.show(t, '#opt-spatial');
+    m.reload = await state();
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+function spatialRowOk(m) {
+  var b = m.boot;
+  return {
+    row: { ok: b.name === 'Headphones: Spatial' && /^The glass in front of you, for headphones and earbuds with both in\./.test(b.help || '') && /With AirPods, set Spatial Audio to Off for this app in Control Centre\.$/.test(b.help || '') &&
+               b.panel === 'panel-sound' && b.afterSilent && b.last && !!b.like && b.like === b.neighbour && /^INPUT\|checkbox\|switch\|switch\|0\|/.test(b.like) &&
+               b.checked === false && !b.saved && b.want === false && b.on === false,
+           detail: JSON.stringify(b) },
+    saved: { ok: m.tapped.checked === true && m.tapped.saved === true && m.tapped.want === true && (m.came.on === true || !m.came.running) &&
+                 m.tabbed.focus === 'opt-spatial' && m.key.checked === false && m.key.saved === false && m.key.want === false && m.key.on === false &&
+                 m.reload.checked === true && m.reload.saved === true && m.reload.want === true && m.errors.length === 0,
+             detail: 'a tap: ' + JSON.stringify({ checked: m.tapped.checked, saved: m.tapped.saved, want: m.tapped.want }) + ', then the stage ' + (m.came.on ? 'came in' : 'did not come in (the sound ' + (m.came.running ? 'runs' : 'does not run') + ')') +
+                     '; Tab from its neighbour: the focus on ' + m.tabbed.focus + '; Space: ' + JSON.stringify({ checked: m.key.checked, saved: m.key.saved, want: m.key.want, on: m.key.on }) +
+                     '; Space again and a reload: ' + JSON.stringify({ checked: m.reload.checked, saved: m.reload.saved, want: m.reload.want }) + ' ' + m.errors.slice(0, 2).join(' | ') }
+  };
 }
 
 /* ---- PLACE and TOP: one phone size ------------------------------------------------------- */
@@ -752,7 +825,7 @@ function focusOk(m) {
 // has learned and hinted). Real motion is left off: left on, it has a life of its own at the boot.
 var CHANGED = {
   theme: 'lapis', sand: 'garnet', sandColor: '185,0.5,0.5', finish: 'copper', frame: false, layers: true, background: 'light', volume: 0.35, character: 'bamboo', ambience: 'rain', ambienceLevel: 0.7, chime: false,
-  sandLevel: 0.4, bowlLevel: 1.6, bowlRings: 'tap', ambFade: 600000, silentRing: false,
+  sandLevel: 0.4, bowlLevel: 1.6, bowlRings: 'tap', ambFade: 600000, silentRing: false, spatial: true,
   muted: true, grain: 1, zenFull: true, keepAwake: false, breath: true, breathPattern: 'box', durationMs: 600000, restMs: 120000, rounds: 3,
   motionSign: -1, mendNotes: 2, hintCrack: true, hintZen: 3, hintMotion: 3, tuneTab: 'time',
   quick: '2,25,3,45,90,99', endsAt: true                // (the Time tab's: kept, as the durations are)
@@ -775,9 +848,10 @@ function resetState(t) {
                sandLevel: [document.getElementById('sand-level').value, document.getElementById('sand-level-out').textContent],
                bowlLevel: [document.getElementById('bowl-level').value, document.getElementById('bowl-level-out').textContent], bowlSub: !document.getElementById('bowl-sub').hidden,
                rings: (document.querySelector('#rings [aria-checked="true"]') || {}).getAttribute ? document.querySelector('#rings [aria-checked="true"]').dataset.rings : null,
-               fade: document.getElementById('opt-ambfade').checked, fadeRows: !document.getElementById('ambfade-rows').hidden, silent: document.getElementById('opt-silent').checked },
+               fade: document.getElementById('opt-ambfade').checked, fadeRows: !document.getElementById('ambfade-rows').hidden, silent: document.getElementById('opt-silent').checked,
+               spatial: document.getElementById('opt-spatial').checked },
       engines: { frame: Hg.renderer.frame, layers: [Hg.sim.layers, Hg.renderer.layers], volume: a.volume, muted: a.muted, character: a.character, ambience: a.ambience,
-                 ambLevel: a.ambLevel, chime: a.chimeEnabled, sandLevel: a.sandLevel, bowlLevel: a.bowlLevel, silentRing: a.silentRing },
+                 ambLevel: a.ambLevel, chime: a.chimeEnabled, sandLevel: a.sandLevel, bowlLevel: a.bowlLevel, silentRing: a.silentRing, spatial: a._spatialWant },
       toast: q.classList.contains('show') ? q.textContent : '',
       // (the polite status only a screen reader hears: its words, its role, where it is and how big it is drawn)
       say: say ? { text: say.textContent, role: say.getAttribute('role'), live: say.getAttribute('aria-live'), inSheet: !!say.closest('#sheet-settings'),
@@ -872,7 +946,7 @@ function resetOk(m, save) {
   var quiet = function (st) { return names(st.events).filter(function (n) { return n !== 'buzz'; }).length === 0; };
   // 1. the first tap
   var ask = {
-    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 15 &&
+    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 16 &&
         m.idle.link.join('|') === 'idle|' + ASK && m.asked.link.join('|') === 'armed|' + SURE && untouched(m.asked) && JSON.stringify(m.asked.events) === '[["buzz",8]]' &&
         m.gaveUp.link.join('|') === 'idle|' + ASK && untouched(m.gaveUp) && m.gaveUp.events.length === 0 && m.waited >= 2900 && m.waited < 5500,
     detail: JSON.stringify(m.place) + '; ' + m.idle.link.join(': ') + ' → ' + m.asked.link.join(': ') + ' ' + JSON.stringify(m.asked.events) + (untouched(m.asked) ? '' : ' AND THE SAVE CHANGED') +
@@ -891,11 +965,11 @@ function resetOk(m, save) {
   var back = {
     ok: notBack.length === 0 && defaults.length === 0 && differ.every(function (k) { return !(k in save) || was[k] === save[k]; }) && Object.keys(was).join() === Object.keys(now).join(),
     detail: notBack.length ? 'not put back: ' + notBack.map(function (k) { return k + ' ' + JSON.stringify(now[k]); }).join(', ')
-                           : differ.length + ' of the fifteen differed (' + differ.join(', ') + '), all fifteen are a new install\'s'
+                           : differ.length + ' of the sixteen differed (' + differ.join(', ') + '), all sixteen are a new install\'s'
   };
   var kept = {
     ok: lost.length === 0 && Object.keys(was).length >= 32 && m.done.alive && m.later.alive && m.done.state === m.idle.state && m.done.rem === m.idle.rem && m.later.saved === m.done.saved,
-    detail: lost.length ? 'changed besides the fifteen: ' + lost.map(function (k) { return k + ' ' + JSON.stringify(was[k]) + ' → ' + JSON.stringify(now[k]); }).join(', ')
+    detail: lost.length ? 'changed besides the sixteen: ' + lost.map(function (k) { return k + ' ' + JSON.stringify(was[k]) + ' → ' + JSON.stringify(now[k]); }).join(', ')
                         : (Object.keys(was).length - keys.length) + ' other keys as they were (muted ' + now.muted + ', grain ' + now.grain + ', breath ' + now.breath + ' ' + now.breathPattern +
                           ', zenFull ' + now.zenFull + ', keepAwake ' + now.keepAwake + ', silentRing ' + now.silentRing + ', tuneTab ' + now.tuneTab + '); the page not loaded again: ' + (m.done.alive && m.later.alive) +
                           '; the glass ' + m.done.state
@@ -904,7 +978,7 @@ function resetOk(m, save) {
   // (the background is shown at once, in the tap: the dark look, by the renderer's shading)
   var told = { background: ['renderer.setPaper', false], volume: ['audio.setVolume', BACK.volume], character: ['audio.setCharacter', BACK.character], ambience: ['audio.setAmbience', BACK.ambience, false],
                ambienceLevel: ['audio.setAmbienceLevel', BACK.ambienceLevel, false], chime: ['audio.setChimeEnabled', BACK.chime],
-               sandLevel: ['audio.setSandLevel', BACK.sandLevel], bowlLevel: ['audio.setBowlLevel', BACK.bowlLevel] };
+               sandLevel: ['audio.setSandLevel', BACK.sandLevel], bowlLevel: ['audio.setBowlLevel', BACK.bowlLevel], spatial: ['audio.setSpatial', BACK.spatial] };
   // (the sand, its finish and the material are one look: one call, Sahara Quartz over walnut, the renderer's own bundle)
   var faded = { look: [['renderer.setTheme', BACK.theme]], frame: [['renderer.setFrame', BACK.frame]], layers: [['sim.setLayers', BACK.layers], ['renderer.setLayers', BACK.layers]] };
   var change = {}, wantNow, wantLater = [];
@@ -929,7 +1003,7 @@ function resetOk(m, save) {
         en.ambLevel === BACK.ambienceLevel && en.chime === BACK.chime && en.muted === !!save.muted &&
         sh.sandLevel.join() === '100,100' && sh.bowlLevel.join() === '50,50' && sh.bowlSub === BACK.chime && sh.rings === BACK.bowlRings && sh.fade === false && sh.fadeRows === false &&
         en.sandLevel === BACK.sandLevel && en.bowlLevel === BACK.bowlLevel &&
-        sh.silent === ('silentRing' in save ? save.silentRing : true) && en.silentRing === sh.silent,
+        sh.silent === ('silentRing' in save ? save.silentRing : true) && en.silentRing === sh.silent && sh.spatial === BACK.spatial && en.spatial === BACK.spatial,
     detail: JSON.stringify(sh) + ' ' + JSON.stringify(en)
   };
   var says = {
@@ -1411,6 +1485,21 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       }, keysOk);
     }
 
+    if (wanted('spatial')) {
+      var spl = spatialRowOk(await spatialRow(env));
+      s.check('SPATIAL: the Sound tab ends with the row "Headphones: Spatial", right after "Sound in silent mode" and built like it (a switch in a labelled row, with its help line for headphones and for AirPods), off as the app comes', spl.row.ok, spl.row.detail);
+      s.check('SPATIAL: a tap turns it on, saves it and tells the sound engine, and the engine\'s stage comes in; Tab reaches it from its neighbour and Space turns it off, saved; switched on again, a reload comes up with it on', spl.saved.ok, spl.saved.detail);
+      await control('SPATIAL: a copy of the page whose row holds a plain checkbox, no switch', 'row', function () {
+        return spatialRow(env, { routes: [broken(env, 'index.html', swap(/<input id="opt-spatial" class="switch" type="checkbox" role="switch">/, '<input id="opt-spatial" class="switch" type="checkbox">'))] });
+      }, spatialRowOk);
+      await control('SPATIAL: a copy whose switch shows the choice but does not save it', 'saved', function () {
+        return spatialRow(env, { routes: [broken(env, 'app.js', swap(/    settings\.spatial = e\.target\.checked; save\(\);\n/, '    settings.spatial = e.target.checked;\n'))] });
+      }, spatialRowOk);
+      await control('SPATIAL: a copy that saves the choice but does not tell the sound engine', 'saved', function () {
+        return spatialRow(env, { routes: [broken(env, 'app.js', swap(/    audio\.setSpatial\(settings\.spatial\);\n  \}\);/, '  });'))] });
+      }, spatialRowOk);
+    }
+
     if (wanted('radios')) {
       var rd = radiosOk(await radios(env));
       s.check('RADIOS: every radio group (the durations under the glass and Tune\'s) is one stop in the Tab order: its checked option', rd.stops.ok, rd.stops.detail);
@@ -1503,9 +1592,9 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       var v = resetOk(m);
       s.check('RESET: the link is a button at the end of the Time tab, no row; its first tap only asks ("' + SURE + '", one buzz, nothing set or saved) and after 3 s it has given up', v.ask.ok, v.ask.detail);
       s.check('RESET: it gives up at once when another tab is shown and when Tune is closed; a double tap is one tap and still only asks', v.gives.ok, v.gives.detail);
-      s.check('RESET: the second tap puts back the fifteen it names (the sand, the material that follows it, the finish, frame, layered sand, the background, volume, sand sound and the Sand level, ambience, its level and its fade before the end, bowl, its Rings and the Bowl level), each to a new install\'s value', v.back.ok, v.back.detail);
+      s.check('RESET: the second tap puts back the sixteen it names (the sand, the material that follows it, the finish, frame, layered sand, the background, volume, sand sound and the Sand level, ambience, its level and its fade before the end, bowl, its Rings and the Bowl level, Headphones: Spatial), each to a new install\'s value', v.back.ok, v.back.detail);
       s.check('RESET: ... and keeps every other saved setting byte for byte (the custom sand\'s colour too, for its swatch; Sound in silent mode as it was set, off here; the six quick durations and "Show when it ends" as they were set), loads nothing again and leaves the glass as it is', v.kept.ok, v.kept.detail);
-      s.check('RESET: saved once, then the sound engine told its seven in order and one buzz, inside the tap; the look (one call for sand and finish), the frame and the layers behind one cross-fade; the bowl is not rung', v.engines.ok, v.engines.detail);
+      s.check('RESET: saved once, then the sound engine told its eight in order and one buzz, inside the tap; the look (one call for sand and finish), the frame and the layers behind one cross-fade; the bowl is not rung', v.engines.ok, v.engines.detail);
       s.check('RESET: the controls and the engines show it (the mute button left as it was)', v.shown.ok, v.shown.detail);
       s.check('RESET: the link is as it was, and "' + DONE + '" is said just above the sheet', v.says.ok, v.says.detail);
       s.check('RESET: with nothing left to put back it saves once, tells no engine, and says so again', v.again.ok, v.again.detail);
