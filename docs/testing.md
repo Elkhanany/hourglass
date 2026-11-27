@@ -1051,8 +1051,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   untouched, then back). LIT is the sunlit sand (Tune's Light), measured on
   the engine's own canvas: under Sunlit the sand's side toward the screen's
   left is the brighter by at least 1.2 to 1 in relative luminance, upright
-  and at rest, in both looks, and under Soft the two sides are alike (the
-  control). Soft is the picture of before: the grain renderer of the commit
+  and at rest, in both looks; and the control, on the very same grains:
+  each frame's ratio of the two sides over that of the base's canvas (below)
+  in the same frame and the same pixels, a picture of the same grains with
+  no light of the engine's, so that the bed's own shape and layers cancel,
+  is 1 under Soft (0.9 to 1.1) and at least 1.2 under Sunlit in both looks.
+  Soft is the picture of before: the grain renderer of the commit
   before the sunlit sand (`19c84db`, release 1.20.0, its `grains.mjs` and `grains.wgsl`
   taken from git; `HOURGLASS_SOFT_BASE` names another, as for `render-unit`)
   draws the same points with the same look in the same commands on a canvas

@@ -51,8 +51,10 @@
  *          frame with the ledger's counts, the clock untouched, its canvas shown; Real sand is
  *          rebuilt and takes the sand back;
  *  LIT     the sunlit sand (Tune's Light), on the engine's own canvas. Sunlit: the sand's side toward
- *          the screen's left is the brighter by a set margin, in both looks; under Soft the two
- *          sides are alike (the control). Soft is the picture of before: the grain renderer of the
+ *          the screen's left is the brighter by a set margin, in both looks; the control, on the
+ *          same grains: the sides' ratio over the base's canvas's (the same frame, the same pixels,
+ *          no light of the engine's: the bed's shape cancels) is 1 under Soft and at least the
+ *          margin under Sunlit. Soft is the picture of before: the grain renderer of the
  *          base (LIT_BASE, its grains.mjs and grains.wgsl taken from git) draws the same points
  *          with the same look in the same commands on a canvas of its own, and the two canvases
  *          are equal byte for byte at rest, with the stream running, at every sampled frame of a
@@ -338,15 +340,20 @@ async function installLit(a) {
   function lin(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
   /**
    * The sand on the engine's canvas, left and right of its own middle as the screen shows it: the mean relative
-   * luminance of each side (a twentieth of the canvas's width clear of the middle), and their ratio.
+   * luminance of each side (a twentieth of the canvas's width clear of the middle), and their ratio. And the same
+   * pixels on the base's canvas, which drew the very same grains in the very same frame without any light of the
+   * engine's: their ratio there (base), and the engine's ratio over it (rel). How the bed happens to settle (more
+   * of a deeper layer on one side, a steeper flank) is in both canvases alike and cancels in rel: rel is the
+   * light's own share, 1 for a sand that no light of the engine's touches.
    */
   L.flanks = function () {
     var w = rs.canvas.width, h = rs.canvas.height, d = rs.canvas.getContext('2d').getImageData(0, 0, w, h).data;
+    var e = c0.getContext('2d').getImageData(0, 0, w, h).data;
     var th = L.shown(), c = Math.cos(th), sn = Math.sin(th), x, y, i, n = 0, mx = 0, xs;
     for (y = 0; y < h; y += 2) for (x = 0; x < w; x += 2) { i = (y * w + x) * 4; if (d[i + 3] < 200) continue; n++; mx += (x - w / 2) * c - (y - h / 2) * sn; }
-    if (!n) return { n: 0, ratio: NaN };
+    if (!n) return { n: 0, ratio: NaN, base: NaN, rel: NaN };
     mx /= n;
-    var S = [0, 0, 0, 0], gap = w / 20;
+    var S = [0, 0, 0, 0], B = [0, 0, 0, 0], gap = w / 20;
     for (y = 0; y < h; y += 2) for (x = 0; x < w; x += 2) {
       i = (y * w + x) * 4;
       if (d[i + 3] < 200) continue;
@@ -354,8 +361,11 @@ async function installLit(a) {
       var k = xs < -gap ? 0 : (xs > gap ? 2 : -1);
       if (k < 0) continue;
       S[k] += 0.2126 * lin(d[i]) + 0.7152 * lin(d[i + 1]) + 0.0722 * lin(d[i + 2]); S[k + 1]++;
+      if (e[i + 3] < 200) continue;                         // (the base's own sums: the pixels both canvases hold)
+      B[k] += 0.2126 * lin(e[i]) + 0.7152 * lin(e[i + 1]) + 0.0722 * lin(e[i + 2]); B[k + 1]++;
     }
-    return { n: n, left: S[0] / S[1], right: S[2] / S[3], ratio: (S[0] / S[1]) / (S[2] / S[3]), theta: th };
+    var ratio = (S[0] / S[1]) / (S[2] / S[3]), base = (B[0] / B[1]) / (B[2] / B[3]);
+    return { n: n, left: S[0] / S[1], right: S[2] / S[3], ratio: ratio, base: base, rel: ratio / base, theta: th };
   };
   /**
    * A drawn frame's key as the screen shows it (the canvas's axes turned by the shown angle): how far from the
@@ -949,7 +959,11 @@ async function installLit(a) {
     check(uD.ok && uL.ok && uD.light.on && uD.light.m === 0 && uL.light.m === 1 && uD.flanks.ratio >= SUN && uL.flanks.ratio >= SUN,
       'LIT: sunlit, the sand\'s side toward the screen\'s left is the brighter, upright and at rest, in both looks (relative luminance, at least ' + SUN + ' : 1)',
       'dark ' + f2(uD.flanks.ratio) + ' : 1, light ' + f2(uL.flanks.ratio) + ' : 1, ' + uD.flanks.n + ' pixels sampled');
-    check(sA.ok && !sA.light.on && sA.flanks.ratio < SUN && sA.flanks.ratio > 0.9 && sA.flanks.ratio < 1.1, 'LIT: ... and under Soft the two sides are alike (control)', f2(sA.flanks.ratio) + ' : 1');
+    // the control, on the very same grains: each frame's flank ratio over the base's of the same frame (the bed's own
+    // shape and layers cancel), 1 under Soft, and under Sunlit at least SUN in both looks
+    check(sA.ok && uD.ok && uL.ok && !sA.light.on && sA.flanks.rel > 0.9 && sA.flanks.rel < 1.1 && uD.flanks.rel >= SUN && uL.flanks.rel >= SUN,
+      'LIT: ... and under Soft the two sides are alike: the flank ratio over the light-free picture of the same grains in the same frame (the base\'s) is 1 under Soft (0.9 to 1.1), while Sunlit\'s is at least ' + SUN + ' in both looks (control)',
+      'soft ' + f2(sA.flanks.rel) + ', sunlit dark ' + f2(uD.flanks.rel) + ', light ' + f2(uL.flanks.rel) + ' (the bed itself: ' + f2(sA.flanks.base) + ', ' + f2(uD.flanks.base) + ', ' + f2(uL.flanks.base) + ' : 1)');
     check(sA.ok && sA.same.differ === 0 && sA.same.drawn > 5000, 'LIT: Soft is the picture of ' + LIT_BASE + ', byte for byte: at rest', JSON.stringify(sA.same));
     check(uD.same.differ > 0.2 * uD.same.drawn && uL.same.differ > 0.2 * uL.same.drawn, 'LIT: ... while Sunlit is another picture (control)',
       'dark ' + uD.same.differ + ' of ' + uD.same.drawn + ' pixels differ, light ' + uL.same.differ + ' of ' + uL.same.drawn);
