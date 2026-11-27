@@ -355,15 +355,29 @@
     app.dataset.state = s;
     setStatus(flip.active ? STATUS.turning : statusFor(s));
     btnPlay.setAttribute('aria-label', s === 'running' ? 'Pause' : (s === 'done' ? 'Flip and start again' : 'Start'));
-    if (s === 'running') {
-      if (was !== 'running') T.lastTick = Date.now();   // (a glass that was running keeps its time)
+    if (s === 'running' && was !== 'running') {
+      T.lastTick = Date.now();                          // (a glass that was running keeps its time)
+      soundBegins(was === 'paused' && sounded);         // a start, or a resume: the sound comes in gently
     }
+    if (s !== 'paused') sounded = s === 'running';
     syncWakeLock();
     saveSession();
     breathSync();
     sim.quiet = 0;
     dirty = true;
   }
+
+  /**
+   * The glass is set running, with T.rem to run: the sand's sound comes in first, the ambience
+   * slowly after it (sound/audio.js, "Coming in": the times and the rules are there). `resumed`:
+   * after a pause, shorter. A start is any way from waiting or from finished to running, and a
+   * new glass that runs on (another duration picked while it ran); a turn of a running glass, and
+   * a sequence's own turn between two phases, are not: the sound goes on through them as it is.
+   * A resume is a glass that has run and was paused (`sounded`): one that stands paused without
+   * having run (given sand after it ran out, or found paused at a launch) starts.
+   */
+  var sounded = false;               // the glass has run since it was made new or ran out
+  function soundBegins(resumed) { audio.begin(T.rem / 1000, resumed); }
 
   var pendingStart = false;
   function start() {
@@ -555,6 +569,7 @@
         newGlass();
         resetting = false;
         setState(keepRunning || pendingStart ? 'running' : 'idle');
+        if (T.state === 'running') soundBegins(false);  // (a new glass: a start, whatever it was before)
         pendingStart = false;
         app.classList.remove('swap');
       }, 460);
@@ -613,6 +628,7 @@
     dirty = true;
     if (redo) { reset(keep || pendingStart); return; }
     if (pendingStart && T.state !== 'running') setState('running');
+    else if (T.state === 'running') soundBegins(false); // (a new glass that runs on: a start all the same)
     pendingStart = false;
     T.lastTick = Date.now();                            // the clock starts as the last of the sand lands
   }
@@ -746,11 +762,12 @@
   /**
    * The glass has been turned over: by the sequence itself, a hand, the Flip
    * button or the phone. Between two phases that begins the next one; after
-   * the end of the last, the sequence starts again from its first glass.
+   * the end of the last, the sequence starts again from its first glass (or,
+   * turned by the phone, waits there: stateAfterSwap).
    */
   function seqSwapped(next) {
     if (seq.gap) { beginPhase(seq.phase + 1); return T.state === 'paused' ? 'paused' : 'running'; }
-    if (seq.rest && seq.phase >= 2 * seq.rounds && next === 'running') beginPhase(0);
+    if (seq.rest && seq.phase >= 2 * seq.rounds && (next === 'running' || next === 'idle')) beginPhase(0);
     return next;
   }
 
@@ -829,10 +846,19 @@
     buzz(22);
     setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was);
   }
-  /** Turning a glass over starts it, unless you had paused it. */
-  function stateAfterSwap(was, auto) {
+  /**
+   * What a glass does once it has been turned over; `was`: its state as the turn began.
+   * Turned by a finger, the Flip button or a sequence, it starts, unless it had been paused.
+   * The phone's own motion never starts a glass: turned over by the phone (byPhone: tiltSwap) it
+   * runs on only if it was running, a paused glass stays paused, and one that waits or has run
+   * out waits for Start or a tap as it does after Reset, whichever bulb its sand is in (below,
+   * its time reads 00:00.0, and Start turns it over on the screen and runs it). Such a waiting
+   * glass turned back by a finger or the Flip button still waits.
+   */
+  function stateAfterSwap(was, auto, byPhone) {
+    if (byPhone && was !== 'running') return was === 'paused' ? 'paused' : 'idle';
     if (T.rem <= 0) return 'done';
-    return (auto || was === 'running' || was === 'done') ? 'running' : 'paused';
+    return (auto || was === 'running' || was === 'done') ? 'running' : (was === 'idle' ? 'idle' : 'paused');
   }
 
   /* ======================================================================
@@ -1385,7 +1411,7 @@
     T.rem = there;
     applyBody(0);
     buzz(18);
-    setState(seqSwapped(stateAfterSwap(was, false)));
+    setState(seqSwapped(stateAfterSwap(was, false, true)));   // (the phone's turn: it starts nothing)
   }
 
   var tiltOver = 0;

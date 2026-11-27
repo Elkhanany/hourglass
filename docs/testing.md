@@ -330,6 +330,50 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   nothing (the glass taken, moved and let go) the context runs and the same
   feeds thump, rush and shimmer, with sound at the output; the same events
   made by a script leave the context suspended (the control).
+  How the sound comes in when a glass is set running (release 1.20.1,
+  docs/engines.md "Coming in") is measured in both. `audio-levels` renders
+  the engine with its `begin()` called as the app calls it, Ocean with the
+  compressor and the clipper made plain and against the same render with
+  its bus open all along, so that the levels read are the envelope alone,
+  tenth of a second by tenth: at a start the ambience silent at 1 s (40 dB
+  under its settled level), 30.5, 13.5 and 3.5 dB under it at 4, 6 and 8 s,
+  within 1 dB from 10 s on, never more than 1.5 dB from one tenth of a
+  second to the next once above -50 dB, and nothing heard in the first
+  50 ms; the sand's stream against the same stream with no rise (the same
+  random numbers: only its level differs): from silence over 1.5 s, its
+  first grains struck softly, the same sound as without a rise from 3 s
+  on; a short glass's shorter wait and rise, over before its fade before
+  the end; a resume (3 s and 0.6 s, no wait); a pause in the middle of the
+  start's rise, then a resume (no step, not louder than before the pause,
+  never ahead of the start's own rise); the fade before the end beginning
+  under a rise (never louder than the rise alone nor than the fade alone,
+  one turn, no step); the page hidden while it rises; and what is not changed: an audition and a glass
+  that only runs (the bowl, a thump, a clack, a tap, a shake, a turn, mute
+  and unmute, the page hidden and back) are the engine of release 1.20.0
+  to the last bits (`HOURGLASS_START_BASE` names another commit than
+  0693c1f), and a thump, a clack, a tap, a shake and the bowl under a rise
+  are what they are without one. Its controls are copies of the engine
+  with one thing changed, loaded beside it: `begin()` doing nothing (the
+  sound as it was), a rise twice as long, no rule for a short glass, a
+  resume that always takes its own short rise, a fade before the end
+  written onto the rise's own gain, an audition that waits for the rise, a bus that
+  opens more slowly, and a rise put on all of the sand's sounds; each fails
+  the check it is the control of. Every render of these cases is a call of
+  its own with a watchdog: one that has not ended after 90 s is made once
+  more on a fresh page, and the suite prints how many were.
+  `node tools/test/audio-levels.test.js --only start` runs these cases
+  alone (two minutes). `audio-api` has the same in the real app, by the
+  engine's own clock (case 15; `--only start` runs it alone, about three
+  minutes): a tap on the glass tells the engine of a start once, with the
+  glass's 300 s, and Ocean's bus is still shut a second later, 10 to 18 dB
+  under its level at 6 s and within 1 dB at 10.8 s; a pause and a tap tell
+  it of a resume; the Flip button on the running glass and a sequence's own
+  turn tell it nothing, and the bus holds at its level through them;
+  another duration picked while it runs, a finished glass flipped to start
+  again, and a finished glass given new sand (paused, but not run since)
+  are starts. Its controls are copies of `app.js` handed to a fresh page:
+  one that never tells the engine, one that tells it whenever the glass is
+  set running, one that takes every start from paused for a resume.
 - `app-*`: the app's own acceptance tests (permission, gestures, motion,
   re-timing, session, the existing flow), on the app as it ships
   (`app-motion` also has the classic sand heard before the start: nothing at
@@ -344,7 +388,27 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   its sand, the glass upright or turned half round by a finger, the phone
   upright or upside down with the glass swapped; its controls are made by
   hand, app.js's heardSide() returning 1 and the hiss not turned by the
-  phone's roll): every
+  phone's roll; and START, `--only start`: the phone's motion never starts
+  a glass. After Reset the stub's phone is turned over and back three times
+  in a row: upright again the glass is as after Reset each time (idle, the
+  clock unchanged, the status line, the Start button, nothing saved), in
+  between it waits too with its sand below at 00:00.0, nothing of an ended
+  glass happens (no bowl, no ending buzz, no wake lock asked for, no session
+  saved) and no grain passes the neck in any step, also on its side and
+  shaken; there the Flip button turns it back to wait, Start turns it over
+  and runs it, and a tap starts a waiting glass. A 10 s glass run out and a
+  work and rest sequence run out, turned over by the phone, wait as after
+  Reset (the sequence at its first glass); a tap, the Flip button and a
+  finger's turn start a finished glass; a running glass runs on with its
+  clock swapped (in TILTSWAP); a paused one stays paused, also one paused
+  with all its sand above. Its controls: the tree before the rule, made
+  with `git archive e375591` and given as `--root`, fails the waiting, the
+  finished, the sequence and the last paused checks; by hand on a copy of
+  the tree, `stateAfterSwap()` without `byPhone &&` fails the Flip button's
+  and the finger's checks and Start in between, without `&& was !==
+  'running'` the running one,
+  with a paused glass sent to wait the paused one, and `seqSwapped()`
+  without `|| next === 'idle'` the sequence's): every
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
   then served at `motion.js`'s path. Real sand is the app's default, and
@@ -437,7 +501,15 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   toast, rebuilt after 2 s), and a second time within 10 minutes (the CPU
   sand for the session, nothing counted), lost just after the engine adopted
   the sand or just after a rebuild handed it back (never handed to the lost
-  engine), and a rebuild that finds no device; points stuck above after a
+  engine), and a rebuild that finds no device; the phone's motion never
+  starting a glass (`waits`: on the mock chip with the motion stub, after
+  Reset the phone turned over and back three times: the glass waits each
+  time, the clock unchanged, every point the chip holds above the neck
+  again and all below in between, the valve shut and no point across by the
+  plant's count or the adapter's; a glass run out and turned over waits the
+  same way and a tap runs it out on time; the control is `app.js` with
+  `stateAfterSwap()` as it was, where the same turns end the glass and then
+  run it); points stuck above after a
   sequence ended while hidden (moved by the residue rule); the GPU sand
   asleep drawn again after a theme, a turn of the screen and the Frame
   switch; the handover held until a Flip is over; and a glass that does not
@@ -753,7 +825,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   missing, without the namespace, with one that lacks values, or with a CPU
   Sim without `layerState()`; the fills from the CPU Sim's lattice (exact counts, each grain's
   colour); each place where the sand sets the clock (a start after the end,
-  the Flip's swap, a tilt swap, pours, a re-time after a starved neck, a
+  the Flip's swap, a tilt swap, a glass that waits turned over by the phone
+  and back three times (it still waits, the valve shut and no point across;
+  the copy of the app with its rule as it was is the control), pours, a
+  re-time after a starved neck, a
   sequence's next phase turned unseen, also while hidden, a session restored
   at boot, the catch-up after the page was hidden, also across the end, with
   a swap while its transfer is on the way, and with a transfer that never
@@ -857,8 +932,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   (`--only shapes --shapes trumpet,florence`, about 5 minutes a shape);
   the last line names them.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
-  motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
-  permission (E12) and performance (E13).
+  motion (E2, E3, E14, E15), timer (E4, E5), gestures (E6–E8), session (E9, E10),
+  permission (E12) and performance (E13). E15 is the phone's motion never
+  starting a glass, through the real `motion.js`: after Reset the phone is
+  pitched back from upright through flat to 35° past it and brought forward
+  again, three times; the glass waits each time, and a glass that has run
+  out waits the same way until a tap (the control: the tree before the
+  rule, as for `app-motion`).
 - `replay-*`: the glass under a real hand, built from the replay harness in
   `tools/test/lib` (`replay-iphone.js`, `replay-probe.js`, `replay-streams.js`,
   `replay-offline.js`). `replay-phone` runs models of an iPhone's sensor

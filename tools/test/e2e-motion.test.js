@@ -1,5 +1,5 @@
 /*
- * Integration E2, E3 and E14: the phone's motion, end to end.
+ * Integration E2, E3, E14 and E15: the phone's motion, end to end.
  *
  * E2  Sign calibration and direction, in both conventions ('ios', 'spec'):
  *     a second still settles motion.sign; a 150 ms jerk of the phone to +x
@@ -16,7 +16,16 @@
  *     nine seconds, before and after: the count swings by twenty from one
  *     look to the next).
  *
- *   node tools/test/e2e-motion.test.js [--root <dir>] [--port <n>] [--only e2|e3]
+ * E15 The phone's motion never starts a glass, through the real motion.js: the phone held upright
+ *     (deviceorientation beta 90), pitched back through flat to 35 degrees past it and brought
+ *     forward again, three times in a row after Reset: each time the glass waits as after Reset
+ *     (idle, the clock unchanged, the Start button, nothing saved; in between, its sand below, it
+ *     waits at 00:00.0), with no bowl and no grain through the neck. A glass that has run out,
+ *     pitched back the same way: its sand above, it waits with the time it would run. A tap
+ *     starts it. Control: on the tree before this rule (git archive e375591, --root, --only e15)
+ *     the glass reads "Time" pitched back and runs when brought forward.
+ *
+ *   node tools/test/e2e-motion.test.js [--root <dir>] [--port <n>] [--only e2|e3|e15]
  *
  * Device events are synthesized by window.__drive (stubs/page-init.js, the
  * profiles of tools/test/lib/profiles.js) and go through the real motion.js;
@@ -286,12 +295,104 @@ async function e3(s, env) {
   await t.close();
 }
 
+/* ---- E15 ------------------------------------------------------------------ */
+/** The phone pitched from where it is held to `to` degrees (beta) over ms, then held. */
+function pitch(t, to, ms) {
+  return t.eval(function (a) {
+    return new Promise(function (resolve) {
+      var from = window.__beta === undefined ? 90 : window.__beta, t0 = performance.now();
+      (function step() {
+        var u = Math.min(1, (performance.now() - t0) / a.ms);
+        window.__beta = from + (a.to - from) * u;
+        window.__driveSet({ beta: window.__beta });
+        if (u < 1) setTimeout(step, 16); else resolve();
+      })();
+    });
+  }, { to: to, ms: ms });
+}
+function glassNow(t) {
+  return t.eval(function () {
+    var Hg = window.Hourglass, T = Hg.timer, sim = Hg.sim, W = window.__e15 || {};
+    return { state: T.state, rem: T.rem, top: sim.nTop, total: sim.total, base: Hg.grav.base, status: document.getElementById('status').textContent,
+      label: document.getElementById('btn-play').getAttribute('aria-label'), shown: document.getElementById('readout').textContent.replace(/\s+/g, ''),
+      saved: localStorage.getItem('hourglass.session.v1'), bowls: W.bowls, rel: W.rel, steps: W.steps, flips: __mon.flips };
+  });
+}
+function glassShow(r) {
+  return JSON.stringify({ state: r.state, rem: Math.round(r.rem), top: r.top + '/' + r.total, status: r.status, button: r.label, shown: r.shown, saved: r.saved ? JSON.parse(r.saved).state : null });
+}
+async function e15(s, env) {
+  var t = await env.open({});
+  try {
+    await realMotionOn(t);
+    await t.eval(function () {
+      window.__drive({ profile: 'calm', conv: 'ios', beta: 90 });
+      // the bowl, and steps in which a grain passed the neck
+      var A = window.Hourglass.audio, chime = A.chime;
+      window.__e15 = { bowls: 0, rel: 0, steps: 0 };
+      A.chime = function () { window.__e15.bowls++; return chime.apply(A, arguments); };
+      __rec.start(function (Hg) { window.__e15.steps++; if (Hg.sim.frame.released > 0) window.__e15.rel++; return 0; });
+    });
+    await sleep(1200);
+    await t.page.tap('#btn-reset');
+    await sleep(1800);
+    var r0 = await glassNow(t), ms = await t.eval(function () { return window.Hourglass.timer.durationMs; });
+    var seen = await t.eval(function () { var m = window.Hourglass.motion; return { on: window.Hourglass.grav.on, orient: m.seenOrient, heading: m.heading }; });
+    s.check('E15: Real motion on, the real motion.js reading the phone upright; after Reset the glass waits', seen.on && seen.orient && Math.abs(seen.heading) < 0.01 && r0.state === 'idle' && Math.abs(r0.rem - ms) < 0.5 && r0.saved === null,
+            JSON.stringify(seen) + ' ' + glassShow(r0));
+    await t.eval(function () { __mon.flips = 0; });
+    for (var k = 1; k <= 3; k++) {
+      await pitch(t, -35, 1000);                 // back through flat (beta 0) to 35 degrees past it
+      await sleep(1300);
+      var back = await glassNow(t);
+      s.check('E15: pitched back past flat (' + k + ' of 3): the glass waits in between, its sand below: idle, 00:00.0, the Start button, nothing saved',
+              back.state === 'idle' && back.rem === 0 && back.top === 0 && back.label === 'Start' && back.status === 'Tap the glass to begin' && back.shown === '00:00.0' &&
+              back.saved === null && back.flips === 2 * k - 1, glassShow(back) + ', swaps ' + back.flips);
+      await pitch(t, 90, 1000);                  // forward again, upright
+      await sleep(1300);
+      var fwd = await glassNow(t);
+      s.check('E15: ... and brought forward again (' + k + ' of 3): it waits as after Reset: idle, the clock unchanged, all its sand above, the Start button, nothing saved',
+              fwd.state === 'idle' && Math.abs(fwd.rem - ms) < 0.5 && fwd.top === fwd.total && fwd.label === 'Start' && fwd.status === 'Tap the glass to begin' && fwd.saved === null &&
+              fwd.base === 0 && fwd.flips === 2 * k, glassShow(fwd) + ', swaps ' + fwd.flips);
+    }
+    var end = await glassNow(t);
+    s.check('E15: through all of it no bowl rang and no grain passed the neck', end.bowls === 0 && end.rel === 0 && end.steps > 200, 'bowls ' + end.bowls + ', steps with a grain through the neck ' + end.rel + ' of ' + end.steps);
+    // a glass that has run out, pitched back the same way
+    await t.eval(function () { window.Hourglass.setDuration(10000); });
+    await sleep(1600);
+    await t.eval(function () { window.Hourglass.start(); });
+    await t.page.waitForFunction(function () { return window.Hourglass.timer.state === 'done' && window.Hourglass.sim.nTop === 0; }, null, { timeout: 16000, polling: 100 });
+    await sleep(1500);
+    var done = await glassNow(t);
+    await t.eval(function () { window.__e15.rel = 0; window.__e15.bowls = 0; });
+    await pitch(t, -35, 1000);
+    await sleep(1300);
+    var d1 = await glassNow(t);
+    await sleep(1200);
+    var d2 = await glassNow(t);
+    s.check('E15: a 10 s glass that has run out, pitched back past flat: its sand above, it waits with the time it would run, no session; the clock does not run, no bowl, no grain through the neck',
+            done.state === 'done' && d1.state === 'idle' && Math.abs(d1.rem - 10000) < 0.5 && d1.top === d1.total && d1.label === 'Start' && d1.saved === null &&
+            d2.state === 'idle' && d2.rem === d1.rem && d2.rel === 0 && d2.bowls === 0, 'finished ' + glassShow(done) + '; pitched back ' + glassShow(d1) + '; 1.2 s later ' + glassShow(d2));
+    var g = await t.glass();
+    await t.touch.tap(g.cx, g.cy, 60);
+    await sleep(1200);
+    var run = await glassNow(t);
+    s.check('E15: a tap starts it', run.state === 'running' && run.rem < 10000 && run.rel > 0 && run.label === 'Pause', glassShow(run) + ', steps with a grain through the neck ' + run.rel);
+    await t.eval(function () { window.Hourglass.pause(); });
+    await pitch(t, 90, 600);
+    await sleep(1200);
+    await t.eval(function () { __rec.stop(); window.__driveStop(); });
+    await H.invariants(s, t, 'E15');
+  } finally { await t.close(); }
+}
+
 (async function main() {
-  var s = new H.Suite('e2e-motion (E2, E3, E14)');
+  var s = new H.Suite('e2e-motion (E2, E3, E14, E15)');
   var env = await H.start();
   var only = env.args.only;
   try {
     if (!only || only === 'e2') await e2(s, env);
+    if (!only || only === 'e15') await e15(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {
