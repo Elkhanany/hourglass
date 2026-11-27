@@ -355,15 +355,29 @@
     app.dataset.state = s;
     setStatus(flip.active ? STATUS.turning : statusFor(s));
     btnPlay.setAttribute('aria-label', s === 'running' ? 'Pause' : (s === 'done' ? 'Flip and start again' : 'Start'));
-    if (s === 'running') {
-      if (was !== 'running') T.lastTick = Date.now();   // (a glass that was running keeps its time)
+    if (s === 'running' && was !== 'running') {
+      T.lastTick = Date.now();                          // (a glass that was running keeps its time)
+      soundBegins(was === 'paused' && sounded);         // a start, or a resume: the sound comes in gently
     }
+    if (s !== 'paused') sounded = s === 'running';
     syncWakeLock();
     saveSession();
     breathSync();
     sim.quiet = 0;
     dirty = true;
   }
+
+  /**
+   * The glass is set running, with T.rem to run: the sand's sound comes in first, the ambience
+   * slowly after it (sound/audio.js, "Coming in": the times and the rules are there). `resumed`:
+   * after a pause, shorter. A start is any way from waiting or from finished to running, and a
+   * new glass that runs on (another duration picked while it ran); a turn of a running glass, and
+   * a sequence's own turn between two phases, are not: the sound goes on through them as it is.
+   * A resume is a glass that has run and was paused (`sounded`): one that stands paused without
+   * having run (given sand after it ran out, or found paused at a launch) starts.
+   */
+  var sounded = false;               // the glass has run since it was made new or ran out
+  function soundBegins(resumed) { audio.begin(T.rem / 1000, resumed); }
 
   var pendingStart = false;
   function start() {
@@ -555,6 +569,7 @@
         newGlass();
         resetting = false;
         setState(keepRunning || pendingStart ? 'running' : 'idle');
+        if (T.state === 'running') soundBegins(false);  // (a new glass: a start, whatever it was before)
         pendingStart = false;
         app.classList.remove('swap');
       }, 460);
@@ -613,6 +628,7 @@
     dirty = true;
     if (redo) { reset(keep || pendingStart); return; }
     if (pendingStart && T.state !== 'running') setState('running');
+    else if (T.state === 'running') soundBegins(false); // (a new glass that runs on: a start all the same)
     pendingStart = false;
     T.lastTick = Date.now();                            // the clock starts as the last of the sand lands
   }

@@ -330,6 +330,50 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   nothing (the glass taken, moved and let go) the context runs and the same
   feeds thump, rush and shimmer, with sound at the output; the same events
   made by a script leave the context suspended (the control).
+  How the sound comes in when a glass is set running (release 1.20.1,
+  docs/engines.md "Coming in") is measured in both. `audio-levels` renders
+  the engine with its `begin()` called as the app calls it, Ocean with the
+  compressor and the clipper made plain and against the same render with
+  its bus open all along, so that the levels read are the envelope alone,
+  tenth of a second by tenth: at a start the ambience silent at 1 s (40 dB
+  under its settled level), 30.5, 13.5 and 3.5 dB under it at 4, 6 and 8 s,
+  within 1 dB from 10 s on, never more than 1.5 dB from one tenth of a
+  second to the next once above -50 dB, and nothing heard in the first
+  50 ms; the sand's stream against the same stream with no rise (the same
+  random numbers: only its level differs): from silence over 1.5 s, its
+  first grains struck softly, the same sound as without a rise from 3 s
+  on; a short glass's shorter wait and rise, over before its fade before
+  the end; a resume (3 s and 0.6 s, no wait); a pause in the middle of the
+  start's rise, then a resume (no step, not louder than before the pause,
+  never ahead of the start's own rise); the fade before the end beginning
+  under a rise (never louder than the rise alone nor than the fade alone,
+  one turn, no step); the page hidden while it rises; and what is not changed: an audition and a glass
+  that only runs (the bowl, a thump, a clack, a tap, a shake, a turn, mute
+  and unmute, the page hidden and back) are the engine of release 1.20.0
+  to the last bits (`HOURGLASS_START_BASE` names another commit than
+  0693c1f), and a thump, a clack, a tap, a shake and the bowl under a rise
+  are what they are without one. Its controls are copies of the engine
+  with one thing changed, loaded beside it: `begin()` doing nothing (the
+  sound as it was), a rise twice as long, no rule for a short glass, a
+  resume that always takes its own short rise, a fade before the end
+  written onto the rise's own gain, an audition that waits for the rise, a bus that
+  opens more slowly, and a rise put on all of the sand's sounds; each fails
+  the check it is the control of. Every render of these cases is a call of
+  its own with a watchdog: one that has not ended after 90 s is made once
+  more on a fresh page, and the suite prints how many were.
+  `node tools/test/audio-levels.test.js --only start` runs these cases
+  alone (two minutes). `audio-api` has the same in the real app, by the
+  engine's own clock (case 15; `--only start` runs it alone, about three
+  minutes): a tap on the glass tells the engine of a start once, with the
+  glass's 300 s, and Ocean's bus is still shut a second later, 10 to 18 dB
+  under its level at 6 s and within 1 dB at 10.8 s; a pause and a tap tell
+  it of a resume; the Flip button on the running glass and a sequence's own
+  turn tell it nothing, and the bus holds at its level through them;
+  another duration picked while it runs, a finished glass flipped to start
+  again, and a finished glass given new sand (paused, but not run since)
+  are starts. Its controls are copies of `app.js` handed to a fresh page:
+  one that never tells the engine, one that tells it whenever the glass is
+  set running, one that takes every start from paused for a resume.
 - `app-*`: the app's own acceptance tests (permission, gestures, motion,
   re-timing, session, the existing flow), on the app as it ships
   (`app-motion` also has the classic sand heard before the start: nothing at

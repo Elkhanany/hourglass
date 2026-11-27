@@ -605,6 +605,56 @@ An optional **ambience** plays behind the sand while it runs, bypassing the
 character's tone shaping. It keeps flowing through the last grain, then
 recedes under the bowl.
 
+**Coming in** (release 1.20.1). When a glass is set running the app tells
+the engine: `begin(seconds, resumed)`, from `setState` in `app.js` whenever
+the state becomes running from another (`soundBegins`: a start from waiting
+or from finished by any way, a resume after a pause), and for a new glass
+that runs on (another duration picked while it ran). A resume is a glass
+that has run and was paused; one that stands paused without having run
+(given sand after it ran out, or found paused at a launch) starts. A turn of a running
+glass and a sequence's own turn between two phases change no state and
+tell it nothing. The times are one record in `sound/audio.js`, `IN`, under
+the comment that states the rules:
+
+- at a start the sand's own stream (its hush, its crackle, its grains, the
+  slumps down its pile) rises from silence over 1.5 s, on a plain ease in
+  and out, and the ambience stays silent for 2 s and then rises over 8 s;
+- a short glass: the wait is at most a twentieth of the time the glass has
+  to run and no rise longer than a quarter of it (10 s: 0.5 s, then 2.5 s);
+- after a pause the sand comes back over 0.6 s and the ambience over 3 s,
+  with no wait.
+
+The ambience's rise is the rising half of a bell in decibels: at the share
+u of its length it is 54 (1 - u)² dB under its level (30 dB under a quarter
+of the way, 13.5 dB halfway, 3.4 dB at three quarters, within 1 dB from
+0.86), so it climbs fastest where nothing is heard yet, never more than
+1.5 dB in a tenth of a second on the 8 s rise, and ever more slowly as it
+arrives. It is scheduled on the audio clock when it begins, as a chain of
+short glides of the ambience's bus (one every tenth of a second, each aimed
+at the curve a step ahead), so it does not depend on the frames: a page
+hidden while it rises still arrives. The engine keeps the bus's course
+(`_ambCourse`), so it knows the bus's level at any moment, and a rise is
+entered where its curve has that level: from silence at its foot, part of
+the way up from a level the ambience still has (a stream still receding
+under the bowl when the glass is started again, a pause of a second). So
+nothing jumps. A pause stops a rise where it is and the resume goes on with
+it; a start's rise that was paused stays the start's slow rise, and the
+sand's is then the lower of the start's rise and the resume's, so a quick
+pause and resume is no shortcut to the full level. The fade before the end
+is a gain of its own after the bus (`ambEnd`), so the two never work
+against each other: where the fade begins under a rise the ambience climbs
+on until the fade's fall outweighs the rise, turns round once, from the
+level it has, and falls with the fade; it is never louder than the rise
+alone nor than the fade alone, and a resume in the last stretch comes back
+under the fade. An ambience the fade has closed has no level: its bus is
+shut behind it, and a glass started again after an end in quiet waits and
+rises as any start. An audition is heard at once and whole, and ends a
+rise. Only levels change: the same grains and the same beds play as without
+a rise (the same random numbers in the same order), and the thumps, the
+clacks, a tap, the slosh and its shimmer, a pour and the bowl are not part
+of it. Without a `begin()` the engine is what it was: a glass that only
+runs sounds as in release 1.20.0, to the last bits.
+
 - *Brook*: running water, built from the air it traps. Each bubble rings at a
   pitch set by its size (Minnaert) and dies within milliseconds: about 280 a
   second of tiny ones (the fizz above 2.4 kHz), 170 middling ones (the
