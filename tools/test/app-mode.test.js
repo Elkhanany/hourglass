@@ -45,11 +45,68 @@ var fs = require('fs'), path = require('path');
 var H = require('./stubs/harness.js');
 var tune = require('./lib/tune.js');
 var sleep = H.sleep;
+
+/* ---- every wait has an end, and what comes back from a page is small ---------------------- */
+// A question to a page (page.evaluate) has no time limit of its own: a frame that is never drawn,
+// a picture that is never read back, would hang the run. Here each one ends after ASK_MS with an
+// error that says which question it was, and the case fails by name (run(), in main).
+//
+// And every value of an answer costs Playwright's protocol about 5 µs and 200 bytes of this
+// process's memory while it crosses (measured with 1.63: an array of a million numbers takes
+// 5.6 s and 190 MB; the glass's two drawn canvases, 19 million numbers, 100 s and over 3 GB a
+// time, ten times in FADE). So pixels are kept and measured in the page (pixels(), below), and an
+// answer of more than ANSWER_MAX values is refused in the page, before it crosses: the case fails
+// and says which question gave it.
+var ASK_MS = 30000, ANSWER_MAX = 20000, RSS_MAX_MB = 1000;
+/** What `p` gives or, after `ms`, an error that says what did not come. */
+function within(ms, what, p) {
+  var timer, late = new Promise(function (_, fail) { timer = setTimeout(function () { fail(new Error(what + ': nothing after ' + ms / 1000 + ' s')); }, ms); });
+  return Promise.race([p, late]).finally(function () { clearTimeout(timer); });
+}
+/**
+ * In the page: fn(arg), awaited, and its answer counted there (every number, string, array and
+ * object of it; a typed array is one): over `max` values it is not sent.
+ */
+function smallAnswer(fn, arg, max) {
+  return Promise.resolve(fn(arg)).then(function (v) {
+    var n = 0, todo = [v], seen = new Set(), x, k;
+    while (todo.length && n + todo.length <= max) {
+      x = todo.pop(); n++;
+      if (!x || typeof x !== 'object' || ArrayBuffer.isView(x) || seen.has(x)) continue;
+      seen.add(x);
+      if (Array.isArray(x)) { if (n + todo.length + x.length > max) { n += x.length; break; } for (k = 0; k < x.length; k++) todo.push(x[k]); }
+      else for (k in x) todo.push(x[k]);
+    }
+    if (n + todo.length > max) throw new Error('the answer holds more than ' + max + ' values (' + (n + todo.length) + ' at the least): measure in the page and send the measure');
+    return v;
+  });
+}
+var OPEN = [];                      // the pages a case has open (closed for it if it fails)
+/** A page whose every question has an end and a small answer. */
+function bounded(t) {
+  var page = t.page, ask = page.evaluate.bind(page), close = t.close;
+  page.evaluate = function (fn, arg) {
+    var what = 'a page was asked (' + String(fn).replace(/\s+/g, ' ').slice(0, 72) + ' ...)';
+    // (a function goes as text, called in the page by smallAnswer; its argument is plain data)
+    var q = typeof fn !== 'function' ? fn :
+      '(' + String(smallAnswer) + ')((' + String(fn) + '), ' + (arg === undefined ? 'undefined' : JSON.stringify(arg)) + ', ' + ANSWER_MAX + ')';
+    return within(ASK_MS, what, ask(q)).catch(function (e) {
+      var said = String(e && e.message || e).split('\n')[0];
+      throw new Error(said.indexOf(what) === 0 ? said : what + ': ' + said);
+    });
+  };
+  t.close = function () {
+    if (OPEN.indexOf(t) >= 0) OPEN.splice(OPEN.indexOf(t), 1);
+    return within(ASK_MS, 'a page was closed', close());
+  };
+  OPEN.push(t);
+  return t;
+}
 /** env.open with `storage` the settings to save (under the app's key, over a version-2 save with Real sand off). */
 function opn(env, o) {
   o = Object.assign({}, o || {});
   if (o.storage) { var st = {}; st[KEY] = o.storage; o.storage = st; }
-  return env.open(o);
+  return within(2 * ASK_MS, 'a page of the app was opened', env.open(o)).then(bounded);
 }
 
 var KEY = 'hourglass.settings.v1';
@@ -95,7 +152,9 @@ function firstFrame() {
 /* ---- what the page shows of the look ----------------------------------------------------- */
 /** Until a change of look has faded in (1.20.1: about a third of a second); the look once it has. */
 async function settled(t) {
-  await t.page.waitForFunction(function () { return !document.documentElement.classList.contains('look-fade'); }, null, { timeout: 5000 });
+  await t.page.waitForFunction(function () { return !document.documentElement.classList.contains('look-fade'); }, null, { timeout: 5000 }).catch(function () {
+    throw new Error('settled: a change of look was still fading after 5 s (html.look-fade)');
+  });
 }
 async function lookOf(t) {
   await settled(t);
@@ -165,22 +224,55 @@ function contrasts(t, scope) {
   }, scope);
 }
 
-/* ---- pixels of the screen (a screenshot, read back in the page) ---------------------------- */
-async function pixels(t, clip) {
+/* ---- pixels of the screen (a screenshot, read back in the page and measured there) --------- */
+/**
+ * The screen's pixels within `clip`, kept in the page as window.__px[name] ({ w, h, d }). They
+ * are measured where they are, by the measures below and each case's own, and only the measure
+ * comes back (here, the picture's size): a screen's worth of numbers does not cross to Node (a
+ * whole one is 1.3 million; what each costs is said at layers()).
+ */
+async function pixels(t, clip, name) {
   var png = await t.page.screenshot({ clip: clip, scale: 'css' });
-  return t.eval(function (b64) {
-    return new Promise(function (done) {
-      var img = new Image();
+  return t.eval(function (a) {
+    return new Promise(function (done, fail) {
+      var img = new Image(), late = setTimeout(function () { fail(new Error('pixels: the screenshot "' + a.name + '" was not read back within 10 s')); }, 10000);
       img.onload = function () {
+        clearTimeout(late);
         var c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
         var g = c.getContext('2d'); g.drawImage(img, 0, 0);
-        done({ w: img.width, h: img.height, d: Array.prototype.slice.call(g.getImageData(0, 0, img.width, img.height).data) });
+        (window.__px = window.__px || {})[a.name] = { w: img.width, h: img.height, d: g.getImageData(0, 0, img.width, img.height).data };
+        done({ w: img.width, h: img.height });
       };
-      img.src = 'data:image/png;base64,' + b64;
+      img.onerror = function () { clearTimeout(late); fail(new Error('pixels: the screenshot "' + a.name + '" could not be read back')); };
+      img.src = 'data:image/png;base64,' + a.b64;
     });
-  }, png.toString('base64'));
+  }, { name: name, b64: png.toString('base64') });
 }
-function L(d, i) { return 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; }
+/** The mean colour of a kept picture: [r, g, b]. */
+function meanOf(t, name) {
+  return t.eval(function (name) {
+    var d = window.__px[name].d, r = [0, 0, 0], n = d.length / 4;
+    for (var i = 0; i < d.length; i += 4) { r[0] += d[i]; r[1] += d[i + 1]; r[2] += d[i + 2]; }
+    return r.map(function (v) { return v / n; });
+  }, name);
+}
+/** A kept picture's size, a hash of its pixels (FNV-1a over them as 32-bit words) and their sum: two that agree in all are the same to the pixel. */
+function printOf(t, name) {
+  return t.eval(function (name) {
+    var p = window.__px[name], w = new Uint32Array(p.d.buffer), h = 2166136261 >>> 0, sum = 0, i;
+    for (i = 0; i < w.length; i++) { h ^= w[i]; h = Math.imul(h, 16777619) >>> 0; }
+    for (i = 0; i < p.d.length; i++) sum += p.d[i];
+    return { w: p.w, h: p.h, hash: h, sum: sum };
+  }, name);
+}
+/** How far two kept pictures are apart: the mean difference of a colour channel, in levels (alpha left out). */
+function apart(t, a, b) {
+  return t.eval(function (n) {
+    var p = window.__px[n.a].d, q = window.__px[n.b].d, s2 = 0;
+    for (var i = 0; i < p.length; i++) if ((i & 3) !== 3) s2 += Math.abs(p[i] - q[i]);
+    return s2 / (p.length * 0.75);
+  }, { a: a, b: b });
+}
 /**
  * The glass's outline on a level line through the empty lower bulb, from the bore's middle out
  * past the glass's left edge: the darkest point near the edge, against the bore just inside it and
@@ -189,15 +281,19 @@ function L(d, i) { return 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
 async function outline(t) {
   var g = await t.glass();
   var y = Math.round(g.top + g.h * 0.70), x0 = Math.max(0, Math.round(g.left - 24)), x1 = Math.round(g.cx);
-  var px = await pixels(t, { x: x0, y: y - 1, width: x1 - x0, height: 3 });
-  var row = [], x, k;
-  for (x = 0; x < px.w; x++) { var s = 0; for (k = 0; k < 3; k++) s += L(px.d, ((k * px.w) + x) * 4); row.push(s / 3); }
-  var paper = row.slice(0, 8).reduce(function (a, b) { return a + b; }, 0) / 8;
-  // the edge: the darkest point in the outer third of the scan
-  var lo = 1e9, at = -1;
-  for (x = 8; x < Math.round(px.w * 0.6); x++) if (row[x] < lo) { lo = row[x]; at = x; }
-  var inner = row.slice(at + 6, at + 16), bore = inner.reduce(function (a, b) { return a + b; }, 0) / Math.max(1, inner.length);
-  return { dark: Math.round(Math.min(paper, bore) - lo), paper: Math.round(paper), bore: Math.round(bore), line: Math.round(lo), at: at + x0 };
+  await pixels(t, { x: x0, y: y - 1, width: x1 - x0, height: 3 }, 'line');
+  return t.eval(function (x0) {
+    var px = window.__px.line;
+    function L(d, i) { return 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; }
+    var row = [], x, k;
+    for (x = 0; x < px.w; x++) { var s = 0; for (k = 0; k < 3; k++) s += L(px.d, ((k * px.w) + x) * 4); row.push(s / 3); }
+    var paper = row.slice(0, 8).reduce(function (a, b) { return a + b; }, 0) / 8;
+    // the edge: the darkest point in the outer third of the scan
+    var lo = 1e9, at = -1;
+    for (x = 8; x < Math.round(px.w * 0.6); x++) if (row[x] < lo) { lo = row[x]; at = x; }
+    var inner = row.slice(at + 6, at + 16), bore = inner.reduce(function (a, b) { return a + b; }, 0) / Math.max(1, inner.length);
+    return { dark: Math.round(Math.min(paper, bore) - lo), paper: Math.round(paper), bore: Math.round(bore), line: Math.round(lo), at: at + x0 };
+  }, x0);
 }
 
 /* ---- the suite ------------------------------------------------------------------------- */
@@ -460,22 +556,35 @@ async function outlines(s, env) {
 
 /**
  * The rendered glass half way through a change of look: its two programs' pictures, one over the
- * other, against the glass at either end (an idle glass, the region of the assembly on screen).
+ * other, against the glass at either end (an idle glass, the region of the assembly on screen, its
+ * two canvases alone on a fixed grey, so that the page fading behind it is not counted).
  */
+/** The rendered glass's two canvases alone on a fixed grey (on) or the page as it is (off): what is read is the glass's own picture. */
+function glassAlone(t, on) {
+  return t.eval(function (on) {
+    var st = document.getElementById('glass-alone');
+    if (!on) { if (st) st.remove(); return; }
+    st = document.createElement('style'); st.id = 'glass-alone';
+    st.textContent = 'html, body, html.look-fade, html.look-fade body { background: #808080 !important; } #app * { visibility: hidden !important; } ' +
+      '#c-glass-back, #c-glass-front { visibility: visible !important; } #ambient { display: none !important; }';
+    document.head.appendChild(st);
+  }, on);
+}
+async function glassPixels(t, clip, name) { await glassAlone(t, true); await sleep(300); var p = await pixels(t, clip, name); await glassAlone(t, false); return p; }
 async function webglFade(env, routes) {
   var t = await opn(env, { storage: { background: 'dark' }, viewport: { width: 390, height: 844 }, routes: routes });
   await sleep(2500);
   var g = await t.glass(), clip = { x: Math.round(g.left + g.w * 0.2), y: Math.round(g.top + g.h * 0.55), width: Math.round(g.w * 0.6), height: Math.round(g.h * 0.3) };
-  var a = await pixels(t, clip);
+  await glassPixels(t, clip, 'a');
   await t.page.tap('#btn-look');
   var h = await holdFade(t, 0.5);
   await sleep(2500);                                   // (software WebGL: a frame takes most of a second)
-  var m = await pixels(t, clip);
+  await glassPixels(t, clip, 'm');
   await letGo(t); await settled(t); await sleep(2500);
-  var b = await pixels(t, clip);
+  await glassPixels(t, clip, 'b');
+  var am = await apart(t, 'a', 'm'), mb = await apart(t, 'm', 'b'), ab = await apart(t, 'a', 'b');
   await t.close();
-  function dist(p, q) { var s2 = 0; for (var i = 0; i < p.d.length; i++) if ((i & 3) !== 3) s2 += Math.abs(p.d[i] - q.d[i]); return s2 / (p.d.length * 0.75); }
-  var r = { held: !!h, fromDark: Math.round(dist(a, m) * 100) / 100, toLight: Math.round(dist(m, b) * 100) / 100, whole: Math.round(dist(a, b) * 100) / 100 };
+  var r = { held: !!h, fromDark: Math.round(am * 100) / 100, toLight: Math.round(mb * 100) / 100, whole: Math.round(ab * 100) / 100 };
   r.between = r.held && r.fromDark > 0.2 * r.whole && r.toLight > 0.2 * r.whole && r.fromDark < r.whole && r.toLight < r.whole;
   return r;
 }
@@ -523,12 +632,13 @@ async function paleSand(s, env) {
     await sleep(900);
     var g = await t.glass();
     // the bed in the upper bulb (idle: a full glass), and the paper to its left
-    var bed = await pixels(t, { x: Math.round(g.cx - g.w * 0.12), y: Math.round(g.top + g.h * 0.30), width: Math.round(g.w * 0.24), height: Math.round(g.h * 0.06) });
-    var paper = await pixels(t, { x: Math.max(2, Math.round(g.left - 18)), y: Math.round(g.top + g.h * 0.30), width: 10, height: Math.round(g.h * 0.06) });
+    await pixels(t, { x: Math.round(g.cx - g.w * 0.12), y: Math.round(g.top + g.h * 0.30), width: Math.round(g.w * 0.24), height: Math.round(g.h * 0.06) }, 'bed');
+    var a = await meanOf(t, 'bed');
+    await pixels(t, { x: Math.max(2, Math.round(g.left - 18)), y: Math.round(g.top + g.h * 0.30), width: 10, height: Math.round(g.h * 0.06) }, 'paper');
+    var b = await meanOf(t, 'paper');
     await t.close();
-    function mean(p) { var r = 0, gg = 0, b = 0, n = p.d.length / 4; for (var i = 0; i < p.d.length; i += 4) { r += p.d[i]; gg += p.d[i + 1]; b += p.d[i + 2]; } return [r / n, gg / n, b / n]; }
     function lumOf(c) { var f = function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); }
-    var a = mean(bed), b = mean(paper), ra = lumOf(a), rb = lumOf(b);
+    var ra = lumOf(a), rb = lumOf(b);
     return { ratio: Math.round((Math.max(ra, rb) + 0.05) / (Math.min(ra, rb) + 0.05) * 100) / 100, sand: a.map(Math.round), paper: b.map(Math.round) };
   }
   var moon = await one({ sand: 'moonstone', theme: 'moonstone' }), custom = await one({ sand: 'custom', sandColor: '45,0.2,0.97' });
@@ -701,28 +811,31 @@ function shortDvh(env, change) {
  */
 async function seams(t) {
   var size = await t.eval(function () { return { w: innerWidth, h: innerHeight }; });
-  var px = await pixels(t, { x: 0, y: 0, width: size.w, height: size.h });
-  var info = await t.eval(function () {
-    var boxes = [];
-    document.querySelectorAll('.panel, .chip, .icon-btn, #readout, #status, .sheet.open, #toast.show, #assembly, #shadow').forEach(function (e) {
-      var r = e.getBoundingClientRect(), cs = getComputedStyle(e);
-      if (r.width && r.height && cs.visibility !== 'hidden' && +cs.opacity > 0) boxes.push([r.left - 2, r.top - (e.classList.contains('sheet') ? 90 : 4), r.right + 2, r.bottom + 4]);
+  await pixels(t, { x: 0, y: 0, width: size.w, height: size.h }, 'screen');
+  // (the columns are scanned in the page, where the screen's pixels are kept; a column steps at most once in 9 pixels)
+  return t.eval(function () {
+    var px = window.__px.screen, info = (function () {
+      var boxes = [];
+      document.querySelectorAll('.panel, .chip, .icon-btn, #readout, #status, .sheet.open, #toast.show, #assembly, #shadow').forEach(function (e) {
+        var r = e.getBoundingClientRect(), cs = getComputedStyle(e);
+        if (r.width && r.height && cs.visibility !== 'hidden' && +cs.opacity > 0) boxes.push([r.left - 2, r.top - (e.classList.contains('sheet') ? 90 : 4), r.right + 2, r.bottom + 4]);
+      });
+      var a = document.getElementById('app').getBoundingClientRect();
+      return { boxes: boxes, app: [a.left, a.top, a.right, a.bottom] };
+    })();
+    var W = px.w, Hh = px.h, d = px.d, steps = [];
+    function inside(x, y) { return info.boxes.some(function (b) { return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; }); }
+    function mean(x, y0, y1) { var r = [0, 0, 0]; for (var y = y0; y < y1; y++) { var i = (y * W + x) * 4; r[0] += d[i]; r[1] += d[i + 1]; r[2] += d[i + 2]; } return r.map(function (v) { return Math.round(v / (y1 - y0)); }); }
+    [3, 6, W - 7, W - 4].forEach(function (x) {
+      for (var y = 6; y < Hh - 6; y++) {
+        if (inside(x, y - 6) || inside(x, y + 6)) continue;
+        var a = mean(x, y - 6, y - 1), b = mean(x, y + 1, y + 6);
+        if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 12) { steps.push({ x: x, y: y, above: a, below: b }); y += 8; }
+      }
     });
-    var a = document.getElementById('app').getBoundingClientRect();
-    return { boxes: boxes, app: [a.left, a.top, a.right, a.bottom] };
+    var box = Math.abs(info.app[0]) < 0.5 && Math.abs(info.app[1]) < 0.5 && Math.abs(info.app[2] - W) < 0.5 && Math.abs(info.app[3] - Hh) < 0.5;
+    return { steps: steps, box: box, app: info.app.map(Math.round) };
   });
-  var W = px.w, Hh = px.h, d = px.d, steps = [];
-  function inside(x, y) { return info.boxes.some(function (b) { return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; }); }
-  function mean(x, y0, y1) { var r = [0, 0, 0]; for (var y = y0; y < y1; y++) { var i = (y * W + x) * 4; r[0] += d[i]; r[1] += d[i + 1]; r[2] += d[i + 2]; } return r.map(function (v) { return Math.round(v / (y1 - y0)); }); }
-  [3, 6, W - 7, W - 4].forEach(function (x) {
-    for (var y = 6; y < Hh - 6; y++) {
-      if (inside(x, y - 6) || inside(x, y + 6)) continue;
-      var a = mean(x, y - 6, y - 1), b = mean(x, y + 1, y + 6);
-      if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 12) { steps.push({ x: x, y: y, above: a, below: b }); y += 8; }
-    }
-  });
-  var box = Math.abs(info.app[0]) < 0.5 && Math.abs(info.app[1]) < 0.5 && Math.abs(info.app[2] - W) < 0.5 && Math.abs(info.app[3] - Hh) < 0.5;
-  return { steps: steps, box: box, app: info.app.map(Math.round) };
 }
 async function groundCase(env, look, size, how, routes, tag) {
   var t = await opn(env, { storage: { background: look }, viewport: { width: size[0], height: size[1] }, routes: routes });
@@ -767,28 +880,62 @@ function holdFade(t, f) {
     var a = document.documentElement.getAnimations().filter(function (x) { return x.effect && x.effect.getKeyframes().some(function (k) { return '--lk' in k; }); })[0];
     if (!a) return Promise.resolve(null);
     a.pause(); a.currentTime = a.effect.getComputedTiming().duration * f;
-    return new Promise(function (done) { requestAnimationFrame(function () { requestAnimationFrame(function () { requestAnimationFrame(function () {
-      done({ lk: +getComputedStyle(document.documentElement).getPropertyValue('--lk'), mix: window.Hourglass.renderer.mix, body: getComputedStyle(document.body).backgroundColor,
-             theme: document.querySelector('meta[name="theme-color"]').content, ink: getComputedStyle(document.getElementById('t-main')).color });
-    }); }); }); });
+    return new Promise(function (done, fail) {
+      var late = setTimeout(function () { fail(new Error('holdFade: three frames were not drawn within 20 s of holding the fade at ' + f)); }, 20000);
+      requestAnimationFrame(function () { requestAnimationFrame(function () { requestAnimationFrame(function () {
+        clearTimeout(late);
+        done({ lk: +getComputedStyle(document.documentElement).getPropertyValue('--lk'), mix: window.Hourglass.renderer.mix, body: getComputedStyle(document.body).backgroundColor,
+               theme: document.querySelector('meta[name="theme-color"]').content, ink: getComputedStyle(document.getElementById('t-main')).color });
+      }); }); });
+    });
   }, f);
 }
 function letGo(t) { return t.eval(function () { document.documentElement.getAnimations().forEach(function (a) { a.play(); }); }); }
-/** The picture's numbers: a patch of the room beside the glass, the bar's ground, and the glass's own drawn layers. */
-async function picture(t) {
+/**
+ * The glass's own drawn layers (c-back and c-front) as they are now, read in the page and kept
+ * there as `name` (when one is given). They stay in the page: at 390 x 844 they are 1122 x 2154
+ * each, 19 million numbers the two, and every number of an answer costs Playwright's protocol
+ * about 5 µs and 200 bytes of this process's memory while it crosses (100 s and over 3 GB a
+ * picture, ten pictures in FADE). What comes back is each layer's size, a hash of its pixels
+ * (FNV-1a over them as 32-bit words) and their sum: two pictures that agree in all three are the
+ * same to the pixel.
+ */
+function layers(t, name) {
+  return t.eval(function (name) {
+    var kept = [];
+    if (name) (window.__layers = window.__layers || {})[name] = kept;
+    return ['c-back', 'c-front'].map(function (id) {
+      var c = document.getElementById(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      var w = new Uint32Array(d.buffer), h = 2166136261 >>> 0, sum = 0, i;
+      for (i = 0; i < w.length; i++) { h ^= w[i]; h = Math.imul(h, 16777619) >>> 0; }
+      for (i = 0; i < d.length; i++) sum += d[i];
+      kept.push(d);
+      return { w: c.width, h: c.height, hash: h, sum: sum };
+    });
+  }, name || null);
+}
+/** How far two kept pictures' layers are apart: every channel's difference, summed over both layers (in the page). */
+function layerDist(t, a, b) {
+  return t.eval(function (n) {
+    var A = window.__layers[n.a], B = window.__layers[n.b], s = 0;
+    for (var k = 0; k < A.length; k++) for (var i = 0; i < A[k].length; i++) s += Math.abs(A[k][i] - B[k][i]);
+    return s;
+  }, { a: a, b: b });
+}
+/** Two lists of pictures (their sizes, hashes and sums) the same to the pixel, one for one; also pictures of two pages. */
+function samePixels(a, b) { return a.length === b.length && a.every(function (l, k) { return l.w === b[k].w && l.h === b[k].h && l.hash === b[k].hash && l.sum === b[k].sum; }); }
+/** The picture's numbers: a patch of the room beside the glass, the bar's ground, and the glass's own drawn layers (kept in the page as `name`). */
+async function picture(t, name) {
   var g = await t.glass();
-  var room = await pixels(t, { x: 4, y: Math.round(g.top + g.h * 0.4), width: 24, height: 24 });
+  await pixels(t, { x: 4, y: Math.round(g.top + g.h * 0.4), width: 24, height: 24 }, 'room');
+  var room = await meanOf(t, 'room');
   var bar = await t.eval(function () { var r = document.querySelector('.panel').getBoundingClientRect(); return { x: Math.round(r.left + 6), y: Math.round(r.bottom - 10) }; });
-  var panel = await pixels(t, { x: bar.x, y: bar.y, width: 6, height: 4 });
-  var layers = await t.eval(function () {
-    return ['c-back', 'c-front'].map(function (id) { var c = document.getElementById(id); return Array.prototype.slice.call(c.getContext('2d').getImageData(0, 0, c.width, c.height).data); });
-  });
-  function mean(p) { var r = [0, 0, 0], n = p.d.length / 4; for (var i = 0; i < p.d.length; i += 4) { r[0] += p.d[i]; r[1] += p.d[i + 1]; r[2] += p.d[i + 2]; } return r.map(function (v) { return v / n; }); }
-  return { room: mean(room), bar: mean(panel), layers: layers };
+  await pixels(t, { x: bar.x, y: bar.y, width: 6, height: 4 }, 'bar');
+  var panel = await meanOf(t, 'bar');
+  return { room: room, bar: panel, layers: await layers(t, name) };
 }
 /** m lies well between a and b, in each of its three channels (a and b far apart). */
 function between(a, m, b) { return a.every(function (v, i) { var lo = Math.min(v, b[i]), hi = Math.max(v, b[i]); return hi - lo > 8 && m[i] > lo + 0.15 * (hi - lo) && m[i] < hi - 0.15 * (hi - lo); }); }
-function layerDist(a, b) { var s = 0; for (var k = 0; k < a.length; k++) for (var i = 0; i < a[k].length; i++) s += Math.abs(a[k][i] - b[k][i]); return s; }
 async function fadeMid(env, routes, shots) {
   var t = await opn(env, { storage: { background: 'dark' }, viewport: { width: 390, height: 844 }, routes: routes });
   await sleep(700);
@@ -796,23 +943,25 @@ async function fadeMid(env, routes, shots) {
   await sleep(2600);
   await t.eval(function () { window.Hourglass.start(); });
   await sleep(1200);
-  var dark = await picture(t);
+  var dark = await picture(t, 'dark');
   if (shots) await t.page.screenshot({ path: path.join(SHOTS, 'mode-fade-0.png') });
   await t.page.tap('#btn-look');
   var mid = null, held = null;
   for (var f of [0.25, 0.5, 0.75]) {
     var h = await holdFade(t, f);
-    if (f === 0.5) { held = h; mid = h ? await picture(t) : null; }
+    if (f === 0.5) { held = h; mid = h ? await picture(t, 'mid') : null; }
     if (shots && h) await t.page.screenshot({ path: path.join(SHOTS, 'mode-fade-' + Math.round(f * 4) + '.png') });
   }
   await letGo(t);
   await settled(t); await sleep(200);
-  var light = await picture(t);
+  var light = await picture(t, 'light');
   if (shots) await t.page.screenshot({ path: path.join(SHOTS, 'mode-fade-4.png') });
   var running = await t.eval(function () { return window.Hourglass.timer.state; });
+  // the three pictures' drawn layers against each other, where they were kept
+  var gd = 0, gl = 0, all = 0;
+  if (held && mid) { gd = await layerDist(t, 'dark', 'mid'); gl = await layerDist(t, 'mid', 'light'); all = await layerDist(t, 'dark', 'light'); }
   await t.close();
   if (!held || !mid) return { held: held, between: false };
-  var gd = layerDist(dark.layers, mid.layers), gl = layerDist(mid.layers, light.layers), all = layerDist(dark.layers, light.layers);
   return { held: held, running: running, room: [dark.room, mid.room, light.room].map(function (c) { return c.map(Math.round).join('.'); }), bar: [dark.bar, mid.bar, light.bar].map(function (c) { return c.map(Math.round).join('.'); }),
     glass: { fromDark: gd, toLight: gl, whole: all },
     between: between(dark.room, mid.room, light.room) && between(dark.bar, mid.bar, light.bar) && gd > 0.15 * all && gl > 0.15 * all && gd < all && gl < all,
@@ -832,17 +981,21 @@ async function fadeCase(s, env) {
     await sleep(800);
     if (act) { await act(t); await settled(t); }
     await sleep(1500);                  // (the room's own easings at the launch over, in both: the same picture at rest)
-    var l = await lookOf(t), p = await picture(t), page = await pixels(t, { x: 0, y: 0, width: 390, height: 120 });
+    var l = await lookOf(t), p = await picture(t);
+    await pixels(t, { x: 0, y: 0, width: 390, height: 120 }, 'top');
+    var page = await printOf(t, 'top');
     await t.close();
-    return { l: l, p: p, page: page.d };
+    return { l: l, p: p, page: page };
   }
   var rows = [], ok = true;
   for (var pair of [['dark', 'light'], ['light', 'dark']]) {
     var faded = await endOf(pair[0], function (t) { return t.page.tap('#btn-look'); }), plain = await endOf(pair[1]);
-    var same = lookIs(faded.l, pair[1]) && layerDist(faded.p.layers, plain.p.layers) === 0 && faded.page.every(function (v, i) { return v === plain.page[i]; }) &&
+    var glass = samePixels(faded.p.layers, plain.p.layers), top = samePixels([faded.page], [plain.page]);
+    var same = lookIs(faded.l, pair[1]) && glass && top &&
       faded.p.room.every(function (v, i) { return Math.abs(v - plain.p.room[i]) < 0.01; });
     ok = ok && same;
-    rows.push(pair.join('→') + (same ? ' exact' : ' ' + said(faded.l) + ' glass ' + layerDist(faded.p.layers, plain.p.layers) + ' room ' + faded.p.room.map(Math.round) + ' vs ' + plain.p.room.map(Math.round)));
+    rows.push(pair.join('→') + (same ? ' exact' : ' ' + said(faded.l) + ' glass ' + (glass ? 'the same' : JSON.stringify(faded.p.layers) + ' vs ' + JSON.stringify(plain.p.layers)) +
+      ' top ' + (top ? 'the same' : JSON.stringify(faded.page) + ' vs ' + JSON.stringify(plain.page)) + ' room ' + faded.p.room.map(Math.round) + ' vs ' + plain.p.room.map(Math.round)));
   }
   s.check('FADE: each end is exactly its look as the app opens in it: the page\'s top and the room, the metas, the moon button, and the glass\'s drawn layers to the pixel (' + rows.join(', ') + ')', ok, rows.join(' | '));
 }
@@ -890,29 +1043,48 @@ async function reduceCase(s, env) {
 }
 
 async function twiceCase(s, env) {
+  // Each change after the first is made in a fade held 40 % of its way (its animation paused there,
+  // as holdFade does), whatever the frame rate: the new fade must start from the very point the page
+  // shows (the --lk read just before the change), and the last change decides the look.
   async function one(taps, routes) {
     var t = await opn(env, { storage: { background: 'dark' }, routes: routes });
-    await sleep(700);
-    await t.eval(function () {
-      var w = window.__lks = [];
-      (function step(n) { var c = document.documentElement.classList.contains('look-fade'); w.push([n || performance.now(), c ? +getComputedStyle(document.documentElement).getPropertyValue('--lk') : (document.documentElement.getAttribute('data-look') === 'light' ? 1 : 0)]); if (w.length < 400) requestAnimationFrame(step); })();
-    });
-    for (var i = 0; i < taps; i++) { await t.page.tap('#btn-look'); await sleep(110); }
+    await sleep(900);
+    var steps = await t.eval(function (taps) {
+      var root = document.documentElement, b = document.getElementById('btn-look'), out = [];
+      function lkAnim() { return root.getAnimations().filter(function (x) { return x.effect && x.effect.getKeyframes().some(function (k) { return '--lk' in k; }); })[0] || null; }
+      function frame() { return new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); }); }
+      async function go() {
+        b.click();
+        var a = lkAnim();
+        if (a) a.pause();                      // (held until it is moved on, below: no frame can end it)
+        for (var i = 1; i < taps; i++) {
+          if (!a || !root.classList.contains('look-fade')) { out.push({ inFade: false }); b.click(); a = null; continue; }
+          a.currentTime = a.effect.getComputedTiming().duration * 0.4;
+          await frame();
+          var before = +getComputedStyle(root).getPropertyValue('--lk');
+          b.click();
+          var a2 = lkAnim(), from = a2 && a2 !== a ? parseFloat(a2.effect.getKeyframes()[0]['--lk']) : NaN;
+          out.push({ inFade: true, before: Math.round(before * 1000) / 1000, from: from });
+          a = a2 && a2 !== a ? a2 : null;
+          if (a && i < taps - 1) a.pause();
+        }
+        return out;
+      }
+      return go();
+    }, taps);
     var l = await lookOf(t);
-    // a jump: more of the way from one frame to the next than the fade goes in the time between them
-    // (it goes at most pi/2 of its way in LOOK_FADE_MS, 340 ms; a slow frame is allowed its time)
-    var w = await t.eval(function () { return window.__lks.slice(); }), jump = 0;
-    for (var k = 1; k < w.length; k++) jump = Math.max(jump, Math.abs(w[k][1] - w[k - 1][1]) - 0.0055 * (w[k][0] - w[k - 1][0]));
     var mix = await t.eval(function () { return window.Hourglass.renderer.mix; });
     await t.close();
-    return { l: l, jump: Math.round(jump * 1000) / 1000, mix: mix };
+    var jump = 0, inFade = steps.length === taps - 1;
+    steps.forEach(function (x) { if (!x.inFade || !isFinite(x.from)) { inFade = false; return; } jump = Math.max(jump, Math.abs(x.from - x.before)); });
+    return { l: l, jump: Math.round(jump * 1000) / 1000, mix: mix, inFade: inFade, steps: steps };
   }
   var two = await one(2), three = await one(3);
-  s.check('TWICE: two quick changes (dark, light, dark again within a fade) end exactly dark, three end exactly light, and the page goes on from where it is: never more from one frame to the next than the fade goes in that time (by ' + Math.max(two.jump, three.jump) + ' at most)',
-    lookIs(two.l, 'dark', 'dark') && lookIs(three.l, 'light', 'light') && two.mix === 0 && three.mix === 1 && two.jump < 0.06 && three.jump < 0.06, JSON.stringify([two, three]));
+  s.check('TWICE: two quick changes (dark, light, dark again within a fade) end exactly dark, three end exactly light, and each change goes on from the very point the page shows (off by ' + Math.max(two.jump, three.jump) + ' at most)',
+    lookIs(two.l, 'dark', 'dark') && lookIs(three.l, 'light', 'light') && two.mix === 0 && three.mix === 1 && two.inFade && three.inFade && two.jump < 0.02 && three.jump < 0.02, JSON.stringify([two, three]));
   var restart = routed(env, 'app.js', function (src) { return src.replace('var from = lookNow(), fade', "var from = lookShown === 'light' ? 1 : 0, fade"); });
   var c = await one(2, [restart]);
-  s.check('... and an app that starts each change again from the look it left jumps when changed in a fade (control)', c.jump >= 0.06, JSON.stringify(c));
+  s.check('... and an app that starts each change again from the look it left jumps when changed in a fade (control)', c.inFade && c.jump >= 0.06, JSON.stringify(c));
 }
 
 async function paceCase(s, env) {
@@ -927,7 +1099,7 @@ async function paceCase(s, env) {
     (function step(n) { w.frames.push(n - last); last = n; if (w.frames.length < 240) requestAnimationFrame(step); })(last);
   });
   await sleep(600);
-  var a = await t.eval(function () { var W = window.Hourglass, T = W.timer; return { rem: T.rem - (Date.now() - T.lastTick), at: Date.now(), sim: W.sim, n: W.sim.total }; });
+  var a = await t.eval(function () { var W = window.Hourglass, T = W.timer; return { rem: T.rem - (Date.now() - T.lastTick), at: Date.now() }; });
   for (var i = 0; i < 3; i++) { await t.page.tap('#btn-look'); await sleep(500); }
   var b = await t.eval(function () {
     var W = window.Hourglass, T = W.timer, w = window.__pace, c = w.cost.slice().sort(function (x, y) { return x - y; });
@@ -985,33 +1157,54 @@ async function pictures(env) {
 
 (async function main() {
   var s = new H.Suite('app-mode');
+  // This process's own memory has an end as well. The suite holds about 150 MB; what ran it to
+  // gigabytes was a page's answer too large for the protocol. Over RSS_MAX_MB it stops and says
+  // so (looked at once a second, between the protocol's own long steps).
+  setInterval(function () {
+    var held = Math.round(process.memoryUsage().rss / 1048576);
+    if (held <= RSS_MAX_MB) return;
+    console.log('FAIL  app-mode: this process holds ' + held + ' MB, over ' + RSS_MAX_MB + ': something large came from a page; the suite is stopped');
+    process.exit(1);
+  }, 1000).unref();
   var env = await H.start();
   var only = env.args.only ? env.args.only.split(',') : null;
   var want = function (n) { return !only || only.indexOf(n) >= 0; };
+  /**
+   * One case to its end, or failed by name with what stopped it (a wait that ended, an answer
+   * too large, anything thrown), the pages it left open closed; the next case goes on.
+   */
+  async function run(name, fn) {
+    if (!want(name)) return;
+    try { await fn(s, env); }
+    catch (e) {
+      s.check(name + ': the case ran to its end', false, e && e.stack ? e.stack.split('\n').slice(0, 3).join(' ') : String(e));
+      while (OPEN.length) await OPEN[0].close().catch(function () {});
+    }
+  }
   try {
-    if (want('CHOICES')) await choices(s, env);
-    if (want('TUNE')) await tuneRow(s, env);
-    if (want('BUTTON')) await button(s, env);
-    if (want('OLD')) await oldSave(s, env);
-    if (want('RESET')) await reset(s, env);
-    if (want('FIRST')) await first(s, env);
-    if (want('SYSTEM')) await systemCase(s, env);
-    if (want('HOURS')) await hoursCase(s, env);
-    if (want('RUNNING')) await running(s, env);
-    if (want('CONTRAST')) await contrast(s, env);
-    if (want('OUTLINE')) await outlines(s, env);
-    if (want('PALE')) await paleSand(s, env);
-    if (want('LAYOUT')) await layout(s, env);
-    if (want('ZEN')) await zenButton(s, env);
-    if (want('DBL')) await dbl(s, env);
-    if (want('KEYS')) await keys(s, env);
-    if (want('GROUND')) await ground(s, env);
-    if (want('FADE')) await fadeCase(s, env);
-    if (want('LAUNCH')) await launchCase(s, env);
-    if (want('REDUCE')) await reduceCase(s, env);
-    if (want('TWICE')) await twiceCase(s, env);
-    if (want('PACE')) await paceCase(s, env);
-    if (want('PILLS')) await pillsCase(s, env);
+    await run('CHOICES', choices);
+    await run('TUNE', tuneRow);
+    await run('BUTTON', button);
+    await run('OLD', oldSave);
+    await run('RESET', reset);
+    await run('FIRST', first);
+    await run('SYSTEM', systemCase);
+    await run('HOURS', hoursCase);
+    await run('RUNNING', running);
+    await run('CONTRAST', contrast);
+    await run('OUTLINE', outlines);
+    await run('PALE', paleSand);
+    await run('LAYOUT', layout);
+    await run('ZEN', zenButton);
+    await run('DBL', dbl);
+    await run('KEYS', keys);
+    await run('GROUND', ground);
+    await run('FADE', fadeCase);
+    await run('LAUNCH', launchCase);
+    await run('REDUCE', reduceCase);
+    await run('TWICE', twiceCase);
+    await run('PACE', paceCase);
+    await run('PILLS', pillsCase);
     await pictures(env);
   } catch (e) {
     s.check('the suite ran to its end', false, e && e.stack ? e.stack.split('\n').slice(0, 3).join(' ') : String(e));
