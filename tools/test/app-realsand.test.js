@@ -2272,7 +2272,7 @@ function waitsRead(t) {
 }
 function waitsShow(r) {
   return JSON.stringify({ state: r.state, rem: Math.round(r.rem), top: r.top + '/' + r.total, points: r.ptsTop + '/' + r.pts, shut: r.shut, status: r.status, button: r.label, shown: r.shown,
-    saved: r.saved ? JSON.parse(r.saved).state : null, crossedShut: r.plantShut + '/' + r.crossedShut, swaps: r.flips });
+    saved: r.saved ? JSON.parse(r.saved).state : null, crossedShut: r.plantShut + '/' + r.crossedShut, held: r.base ? 'over' : 'upright' });
 }
 async function phoneTo(t, heading, ms) {
   await t.eval(function (h) { window.__motion.heading = h; }, heading);
@@ -2314,10 +2314,10 @@ async function testWaits(s, env) {
       var m = q.mid, u = q.up;
       s.check('WAITS: the phone turned over (' + (k + 1) + ' of 3): in between the glass waits, every point below the neck: idle, 00:00.0, the Start button, the valve shut, nothing saved',
               m.live && m.state === 'idle' && m.rem === 0 && m.top === 0 && m.ptsTop === 0 && m.pts === r0.pts && m.shut === true && m.label === 'Start' &&
-              m.status === 'Tap the glass to begin' && m.shown === '00:00.0' && m.saved === null && m.flips === 2 * k + 1, waitsShow(m));
+              m.status === 'Tap the glass to begin' && m.shown === '00:00.0' && m.saved === null && Math.abs(m.base - Math.PI) < 1e-6, waitsShow(m));
       s.check('WAITS: ... and brought back (' + (k + 1) + ' of 3): it waits as after Reset: idle, the clock unchanged, every point above the neck again, the valve shut, the Start button, nothing saved',
               u.live && u.state === 'idle' && Math.abs(u.rem - 300000) < 0.5 && u.top === u.total && u.ptsTop === r0.pts && u.pts === r0.pts && u.shut === true && u.label === 'Start' &&
-              u.status === 'Tap the glass to begin' && u.shown === '05:00.0' && u.saved === null && u.flips === 2 * k + 2, waitsShow(u));
+              u.status === 'Tap the glass to begin' && u.shown === '05:00.0' && u.saved === null && u.base === 0, waitsShow(u));
     });
     var last = turns[2].up;
     s.check('WAITS: through the three turns and back no point crossed the neck (the plant\'s count of crossings while shut, and the adapter\'s) and no bowl rang',

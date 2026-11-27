@@ -459,11 +459,11 @@ async function resetGlass(t) {
   await sleep(500);
 }
 
-async function testStart(s, env) {
-  var seed = { 'hourglass.settings.v1': { tilt: true, durationMs: 300000 } };
+var START_SEED = { 'hourglass.settings.v1': { tilt: true, durationMs: 300000 } };
 
-  /* WAITING: after Reset, the phone turned over and back, three times in a row */
-  var t = await env.open({ motionStub: true, storage: seed });
+/* WAITING: after Reset, the phone turned over and back, three times in a row */
+async function startWaiting(s, env) {
+  var t = await env.open({ motionStub: true, storage: START_SEED });
   try {
     await sleep(800);
     await resetGlass(t);
@@ -534,9 +534,11 @@ async function testStart(s, env) {
     await sleep(1500);
     await H.invariants(s, t, 'START WAITING');
   } finally { await t.close(); }
+}
 
-  /* FINISHED: a glass that has run out, turned over by the phone, waits; a tap, the Flip button and a finger start it */
-  t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: 10000 } } });
+/* FINISHED: a glass that has run out, turned over by the phone, waits; a tap, the Flip button and a finger start it */
+async function startFinished(s, env) {
+  var t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: 10000 } } });
   try {
     await sleep(800);
     await startWatch(t);
@@ -587,9 +589,11 @@ async function testStart(s, env) {
     await sleep(1500);
     await H.invariants(s, t, 'START FINISHED');
   } finally { await t.close(); }
+}
 
-  /* SEQUENCE: a finished sequence turned over by the phone waits at its first glass */
-  t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: 10000, restMs: 10000, rounds: 1 } } });
+/* SEQUENCE: a finished sequence turned over by the phone waits at its first glass */
+async function startSequence(s, env) {
+  var t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: 10000, restMs: 10000, rounds: 1 } } });
   try {
     await sleep(800);
     var q0 = await startRead(t);
@@ -614,9 +618,11 @@ async function testStart(s, env) {
     await sleep(1500);
     await H.invariants(s, t, 'START SEQUENCE');
   } finally { await t.close(); }
+}
 
-  /* PAUSED: a paused glass stays paused, turned over by the phone and back */
-  t = await env.open({ motionStub: true, storage: seed });
+/* PAUSED: a paused glass stays paused, turned over by the phone and back */
+async function startPaused(s, env) {
+  var t = await env.open({ motionStub: true, storage: START_SEED });
   try {
     await sleep(800);
     await t.eval(function () { window.Hourglass.start(); });
@@ -654,6 +660,16 @@ async function testStart(s, env) {
             'paused ' + startShow(e0) + '; turned over ' + startShow(e1) + '; back ' + startShow(e2) + '; ' + endedShow(e3));
     await H.invariants(s, t, 'START PAUSED');
   } finally { await t.close(); }
+}
+
+/** The four parts, each on its own pages: one that throws (on a tree where the glass does something else) does not hide the others. */
+async function testStart(s, env) {
+  var parts = [['WAITING', startWaiting], ['FINISHED', startFinished], ['SEQUENCE', startSequence], ['PAUSED', startPaused]];
+  for (var i = 0; i < parts.length; i++) {
+    try { await parts[i][1](s, env); } catch (e) {
+      s.check('START ' + parts[i][0] + ': no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : String(e));
+    }
+  }
 }
 
 (async function main() {
