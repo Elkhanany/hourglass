@@ -45,11 +45,68 @@ var fs = require('fs'), path = require('path');
 var H = require('./stubs/harness.js');
 var tune = require('./lib/tune.js');
 var sleep = H.sleep;
+
+/* ---- every wait has an end, and what comes back from a page is small ---------------------- */
+// A question to a page (page.evaluate) has no time limit of its own: a frame that is never drawn,
+// a picture that is never read back, would hang the run. Here each one ends after ASK_MS with an
+// error that says which question it was, and the case fails by name (run(), in main).
+//
+// And every value of an answer costs Playwright's protocol about 5 µs and 200 bytes of this
+// process's memory while it crosses (measured with 1.63: an array of a million numbers takes
+// 5.6 s and 190 MB; the glass's two drawn canvases, 19 million numbers, 100 s and over 3 GB a
+// time, ten times in FADE). So pixels are kept and measured in the page (pixels(), below), and an
+// answer of more than ANSWER_MAX values is refused in the page, before it crosses: the case fails
+// and says which question gave it.
+var ASK_MS = 30000, ANSWER_MAX = 20000, RSS_MAX_MB = 1000;
+/** What `p` gives or, after `ms`, an error that says what did not come. */
+function within(ms, what, p) {
+  var timer, late = new Promise(function (_, fail) { timer = setTimeout(function () { fail(new Error(what + ': nothing after ' + ms / 1000 + ' s')); }, ms); });
+  return Promise.race([p, late]).finally(function () { clearTimeout(timer); });
+}
+/**
+ * In the page: fn(arg), awaited, and its answer counted there (every number, string, array and
+ * object of it; a typed array is one): over `max` values it is not sent.
+ */
+function smallAnswer(fn, arg, max) {
+  return Promise.resolve(fn(arg)).then(function (v) {
+    var n = 0, todo = [v], seen = new Set(), x, k;
+    while (todo.length && n + todo.length <= max) {
+      x = todo.pop(); n++;
+      if (!x || typeof x !== 'object' || ArrayBuffer.isView(x) || seen.has(x)) continue;
+      seen.add(x);
+      if (Array.isArray(x)) { if (n + todo.length + x.length > max) { n += x.length; break; } for (k = 0; k < x.length; k++) todo.push(x[k]); }
+      else for (k in x) todo.push(x[k]);
+    }
+    if (n + todo.length > max) throw new Error('the answer holds more than ' + max + ' values (' + (n + todo.length) + ' at the least): measure in the page and send the measure');
+    return v;
+  });
+}
+var OPEN = [];                      // the pages a case has open (closed for it if it fails)
+/** A page whose every question has an end and a small answer. */
+function bounded(t) {
+  var page = t.page, ask = page.evaluate.bind(page), close = t.close;
+  page.evaluate = function (fn, arg) {
+    var what = 'a page was asked (' + String(fn).replace(/\s+/g, ' ').slice(0, 72) + ' ...)';
+    // (a function goes as text, called in the page by smallAnswer; its argument is plain data)
+    var q = typeof fn !== 'function' ? fn :
+      '(' + String(smallAnswer) + ')((' + String(fn) + '), ' + (arg === undefined ? 'undefined' : JSON.stringify(arg)) + ', ' + ANSWER_MAX + ')';
+    return within(ASK_MS, what, ask(q)).catch(function (e) {
+      var said = String(e && e.message || e).split('\n')[0];
+      throw new Error(said.indexOf(what) === 0 ? said : what + ': ' + said);
+    });
+  };
+  t.close = function () {
+    if (OPEN.indexOf(t) >= 0) OPEN.splice(OPEN.indexOf(t), 1);
+    return within(ASK_MS, 'a page was closed', close());
+  };
+  OPEN.push(t);
+  return t;
+}
 /** env.open with `storage` the settings to save (under the app's key, over a version-2 save with Real sand off). */
 function opn(env, o) {
   o = Object.assign({}, o || {});
   if (o.storage) { var st = {}; st[KEY] = o.storage; o.storage = st; }
-  return env.open(o);
+  return within(2 * ASK_MS, 'a page of the app was opened', env.open(o)).then(bounded);
 }
 
 var KEY = 'hourglass.settings.v1';
@@ -95,7 +152,9 @@ function firstFrame() {
 /* ---- what the page shows of the look ----------------------------------------------------- */
 /** Until a change of look has faded in (1.20.1: about a third of a second); the look once it has. */
 async function settled(t) {
-  await t.page.waitForFunction(function () { return !document.documentElement.classList.contains('look-fade'); }, null, { timeout: 5000 });
+  await t.page.waitForFunction(function () { return !document.documentElement.classList.contains('look-fade'); }, null, { timeout: 5000 }).catch(function () {
+    throw new Error('settled: a change of look was still fading after 5 s (html.look-fade)');
+  });
 }
 async function lookOf(t) {
   await settled(t);
@@ -176,14 +235,15 @@ async function pixels(t, clip, name) {
   var png = await t.page.screenshot({ clip: clip, scale: 'css' });
   return t.eval(function (a) {
     return new Promise(function (done, fail) {
-      var img = new Image();
+      var img = new Image(), late = setTimeout(function () { fail(new Error('pixels: the screenshot "' + a.name + '" was not read back within 10 s')); }, 10000);
       img.onload = function () {
+        clearTimeout(late);
         var c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
         var g = c.getContext('2d'); g.drawImage(img, 0, 0);
         (window.__px = window.__px || {})[a.name] = { w: img.width, h: img.height, d: g.getImageData(0, 0, img.width, img.height).data };
         done({ w: img.width, h: img.height });
       };
-      img.onerror = function () { fail(new Error('pixels: the screenshot "' + a.name + '" could not be read back')); };
+      img.onerror = function () { clearTimeout(late); fail(new Error('pixels: the screenshot "' + a.name + '" could not be read back')); };
       img.src = 'data:image/png;base64,' + a.b64;
     });
   }, { name: name, b64: png.toString('base64') });
@@ -816,10 +876,14 @@ function holdFade(t, f) {
     var a = document.documentElement.getAnimations().filter(function (x) { return x.effect && x.effect.getKeyframes().some(function (k) { return '--lk' in k; }); })[0];
     if (!a) return Promise.resolve(null);
     a.pause(); a.currentTime = a.effect.getComputedTiming().duration * f;
-    return new Promise(function (done) { requestAnimationFrame(function () { requestAnimationFrame(function () { requestAnimationFrame(function () {
-      done({ lk: +getComputedStyle(document.documentElement).getPropertyValue('--lk'), mix: window.Hourglass.renderer.mix, body: getComputedStyle(document.body).backgroundColor,
-             theme: document.querySelector('meta[name="theme-color"]').content, ink: getComputedStyle(document.getElementById('t-main')).color });
-    }); }); }); });
+    return new Promise(function (done, fail) {
+      var late = setTimeout(function () { fail(new Error('holdFade: three frames were not drawn within 20 s of holding the fade at ' + f)); }, 20000);
+      requestAnimationFrame(function () { requestAnimationFrame(function () { requestAnimationFrame(function () {
+        clearTimeout(late);
+        done({ lk: +getComputedStyle(document.documentElement).getPropertyValue('--lk'), mix: window.Hourglass.renderer.mix, body: getComputedStyle(document.body).backgroundColor,
+               theme: document.querySelector('meta[name="theme-color"]').content, ink: getComputedStyle(document.getElementById('t-main')).color });
+      }); }); });
+    });
   }, f);
 }
 function letGo(t) { return t.eval(function () { document.documentElement.getAnimations().forEach(function (a) { a.play(); }); }); }
@@ -1080,33 +1144,54 @@ async function pictures(env) {
 
 (async function main() {
   var s = new H.Suite('app-mode');
+  // This process's own memory has an end as well. The suite holds about 150 MB; what ran it to
+  // gigabytes was a page's answer too large for the protocol. Over RSS_MAX_MB it stops and says
+  // so (looked at once a second, between the protocol's own long steps).
+  setInterval(function () {
+    var held = Math.round(process.memoryUsage().rss / 1048576);
+    if (held <= RSS_MAX_MB) return;
+    console.log('FAIL  app-mode: this process holds ' + held + ' MB, over ' + RSS_MAX_MB + ': something large came from a page; the suite is stopped');
+    process.exit(1);
+  }, 1000).unref();
   var env = await H.start();
   var only = env.args.only ? env.args.only.split(',') : null;
   var want = function (n) { return !only || only.indexOf(n) >= 0; };
+  /**
+   * One case to its end, or failed by name with what stopped it (a wait that ended, an answer
+   * too large, anything thrown), the pages it left open closed; the next case goes on.
+   */
+  async function run(name, fn) {
+    if (!want(name)) return;
+    try { await fn(s, env); }
+    catch (e) {
+      s.check(name + ': the case ran to its end', false, e && e.stack ? e.stack.split('\n').slice(0, 3).join(' ') : String(e));
+      while (OPEN.length) await OPEN[0].close().catch(function () {});
+    }
+  }
   try {
-    if (want('CHOICES')) await choices(s, env);
-    if (want('TUNE')) await tuneRow(s, env);
-    if (want('BUTTON')) await button(s, env);
-    if (want('OLD')) await oldSave(s, env);
-    if (want('RESET')) await reset(s, env);
-    if (want('FIRST')) await first(s, env);
-    if (want('SYSTEM')) await systemCase(s, env);
-    if (want('HOURS')) await hoursCase(s, env);
-    if (want('RUNNING')) await running(s, env);
-    if (want('CONTRAST')) await contrast(s, env);
-    if (want('OUTLINE')) await outlines(s, env);
-    if (want('PALE')) await paleSand(s, env);
-    if (want('LAYOUT')) await layout(s, env);
-    if (want('ZEN')) await zenButton(s, env);
-    if (want('DBL')) await dbl(s, env);
-    if (want('KEYS')) await keys(s, env);
-    if (want('GROUND')) await ground(s, env);
-    if (want('FADE')) await fadeCase(s, env);
-    if (want('LAUNCH')) await launchCase(s, env);
-    if (want('REDUCE')) await reduceCase(s, env);
-    if (want('TWICE')) await twiceCase(s, env);
-    if (want('PACE')) await paceCase(s, env);
-    if (want('PILLS')) await pillsCase(s, env);
+    await run('CHOICES', choices);
+    await run('TUNE', tuneRow);
+    await run('BUTTON', button);
+    await run('OLD', oldSave);
+    await run('RESET', reset);
+    await run('FIRST', first);
+    await run('SYSTEM', systemCase);
+    await run('HOURS', hoursCase);
+    await run('RUNNING', running);
+    await run('CONTRAST', contrast);
+    await run('OUTLINE', outlines);
+    await run('PALE', paleSand);
+    await run('LAYOUT', layout);
+    await run('ZEN', zenButton);
+    await run('DBL', dbl);
+    await run('KEYS', keys);
+    await run('GROUND', ground);
+    await run('FADE', fadeCase);
+    await run('LAUNCH', launchCase);
+    await run('REDUCE', reduceCase);
+    await run('TWICE', twiceCase);
+    await run('PACE', paceCase);
+    await run('PILLS', pillsCase);
     await pictures(env);
   } catch (e) {
     s.check('the suite ran to its end', false, e && e.stack ? e.stack.split('\n').slice(0, 3).join(' ') : String(e));
