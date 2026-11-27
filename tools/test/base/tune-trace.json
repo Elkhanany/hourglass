@@ -1,5 +1,5 @@
 {
-  "from": "b9de6da41d0d86ab76a053bf8f05dfc9805c95c8",
+  "from": "5d58140c61b00a8a35ba5b38c3dc49e5fede0ec8",
   "what": "What every control that changes a setting saves, calls on the engines and buzzes, in order: in its own tap (now) and after it (later) (tools/test/lib/trace.js)",
   "controls": [
     {
@@ -280,6 +280,7 @@
         ["audio.unlock"],
         ["save",{"background":"light"}],
         ["renderer.setPaper",true],
+        ["renderer.drawGlass",0,true],
         ["buzz",8]
       ],
       "later": []
@@ -308,6 +309,7 @@
         ["audio.unlock"],
         ["save",{"background":"dark"}],
         ["renderer.setPaper",false],
+        ["renderer.drawGlass",0,true],
         ["buzz",8]
       ],
       "later": []
@@ -318,7 +320,8 @@
         ["audio.unlock"],
         ["buzz",8],
         ["save",{"background":"light"}],
-        ["renderer.setPaper",true]
+        ["renderer.setPaper",true],
+        ["renderer.drawGlass",0,true]
       ],
       "later": []
     },
@@ -979,6 +982,7 @@
         ["new Sim",{"scale":1.08,"seed":"(a seed)","shape":"delta"}],
         ["new Renderer"],
         ["renderer.setFrame",true],
+        ["renderer.setSandLight","sunlit"],
         ["sim.setLayers",false],
         ["renderer.setLayers",false],
         ["new Audio"],
@@ -999,6 +1003,8 @@
         ["save",{}],
         ["audio.setCharacter","asmr"],
         ["renderer.setPaper",true],
+        ["renderer.setSandLight","sunlit"],
+        ["renderer.prepareSun"],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
@@ -1029,6 +1035,7 @@
         ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
         ["new Renderer"],
         ["renderer.setFrame",true],
+        ["renderer.setSandLight","sunlit"],
         ["sim.setLayers",false],
         ["renderer.setLayers",false],
         ["new Audio"],
@@ -1049,6 +1056,8 @@
         ["save",{}],
         ["audio.setCharacter","asmr"],
         ["renderer.setPaper",true],
+        ["renderer.setSandLight","sunlit"],
+        ["renderer.prepareSun"],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
@@ -1071,6 +1080,7 @@
         ["new Sim",{"scale":1.527351,"seed":"(a seed)"}],
         ["new Renderer"],
         ["renderer.setFrame",true],
+        ["renderer.setSandLight","sunlit"],
         ["sim.setLayers",false],
         ["renderer.setLayers",false],
         ["new Audio"],
@@ -1090,6 +1100,8 @@
         ["save",{}],
         ["audio.setCharacter","asmr"],
         ["renderer.setPaper",true],
+        ["renderer.setSandLight","sunlit"],
+        ["renderer.prepareSun"],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
@@ -1112,6 +1124,7 @@
         ["new Sim",{"scale":2.16,"seed":"(a seed)"}],
         ["new Renderer"],
         ["renderer.setFrame",true],
+        ["renderer.setSandLight","sunlit"],
         ["sim.setLayers",false],
         ["renderer.setLayers",false],
         ["new Audio"],
@@ -1131,6 +1144,8 @@
         ["save",{}],
         ["audio.setCharacter","asmr"],
         ["renderer.setPaper",true],
+        ["renderer.setSandLight","sunlit"],
+        ["renderer.prepareSun"],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
@@ -1152,6 +1167,7 @@
         ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
         ["new Renderer"],
         ["renderer.setFrame",true],
+        ["renderer.setSandLight","sunlit"],
         ["sim.setLayers",false],
         ["renderer.setLayers",false],
         ["new Audio"],
@@ -1171,11 +1187,33 @@
         ["save",{}],
         ["audio.setCharacter","asmr"],
         ["renderer.setPaper",true],
+        ["renderer.setSandLight","sunlit"],
+        ["renderer.prepareSun"],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setLook",{"sand":"volcanic","material":"sahara"}],
         ["remove","hourglass.session.v1"]
       ]
+    },
+    {
+      "name": "light: soft",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"sandLight":"soft"}],
+        ["renderer.setSandLight","soft"],
+        ["buzz",8]
+      ],
+      "later": []
+    },
+    {
+      "name": "light: sunlit",
+      "now": [
+        ["audio.unlock"],
+        ["save",{"sandLight":"sunlit"}],
+        ["renderer.setSandLight","sunlit"],
+        ["buzz",8]
+      ],
+      "later": []
     },
     {
       "name": "the look and sound put back: the first tap",
@@ -1191,6 +1229,7 @@
         ["audio.unlock"],
         ["save",{"theme":"sahara","volume":0.8,"ambienceLevel":0.5,"sand":"sahara","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"background":"dark"}],
         ["renderer.setPaper",false],
+        ["renderer.drawGlass",0,true],
         ["audio.setVolume",0.8],
         ["audio.setAmbienceLevel",0.5,false],
         ["audio.setSandLevel",1],
@@ -1216,6 +1255,7 @@
         ["new Sim",{"scale":1.08,"seed":"(a seed)"}],
         ["new Renderer"],
         ["renderer.setFrame",true],
+        ["renderer.setSandLight","sunlit"],
         ["sim.setLayers",false],
         ["renderer.setLayers",false],
         ["new Audio"],
@@ -1234,6 +1274,7 @@
         ["audio.setMuted",false],
         ["save",{}],
         ["audio.setCharacter","asmr"],
+        ["renderer.prepareSun"],
         ["renderer.layout"],
         ["save",{}],
         ["renderer.setTheme","sahara"],
@@ -1241,5 +1282,5 @@
       ]
     }
   ],
-  "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"8\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"330.6,0.447,0.553\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"2,5,10,15,30,60\",\"endsAt\":false,\"background\":\"dark\"}"
+  "saved": "{\"theme\":\"sahara\",\"character\":\"asmr\",\"volume\":0.8,\"muted\":false,\"chime\":true,\"tilt\":false,\"zenFull\":false,\"haptics\":true,\"keepAwake\":true,\"frame\":true,\"layers\":false,\"ambience\":\"none\",\"ambienceLevel\":0.5,\"breath\":false,\"breathPattern\":\"calm\",\"durationMs\":600000,\"restMs\":0,\"rounds\":1,\"motionSign\":0,\"mendNotes\":0,\"hintCrack\":false,\"hintZen\":0,\"grain\":0,\"hintMotion\":0,\"realSand\":true,\"realSandFails\":0,\"realSandWhy\":\"\",\"realSandNa\":\"\",\"realSandNaAt\":0,\"realSandBuild\":\"9\",\"v\":2,\"tuneTab\":\"sand\",\"sand\":\"sahara\",\"sandColor\":\"330.6,0.447,0.553\",\"finish\":\"walnut\",\"shape\":\"classic\",\"sandLevel\":1,\"bowlLevel\":1,\"bowlRings\":\"once\",\"ambFade\":0,\"silentRing\":true,\"quick\":\"2,5,10,15,30,60\",\"endsAt\":false,\"background\":\"dark\",\"sandLight\":\"sunlit\"}"
 }
