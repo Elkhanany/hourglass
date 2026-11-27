@@ -605,6 +605,17 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   frame in under 16 ms; PILLS, the six pills and Custom whole with no scroll
   at every width from 320 to 2560 px, also with six of 99, a phone's pills as
   they were (without the bar's own measure the last pill is cut at 1280 px).
+  The screen's pixels (a screenshot, read back in the page) and the glass's
+  drawn layers are kept and measured in the page, and only the measure comes
+  to Node: a mean, a scan's result, a distance, or a picture's size, hash
+  (FNV-1a) and sum where two pages' pictures must be the same to the pixel.
+  Pixels as numbers never cross: each value of an answer costs Playwright's
+  protocol about 5 µs and 200 bytes in Node (1.63, measured), and the two
+  drawn layers are 19 million of them at 390 x 844, 100 s and over 3 GB a
+  picture. In this suite every question to a page ends after 30 s, an answer
+  of more than 20,000 values is refused in the page, a case that is stopped
+  so fails by name and the next one runs, and the suite stops itself if its
+  own process passes 1 GB.
   `HOURGLASS_SHOTS=<folder>` keeps pictures of both looks. It runs alone
   (`--only CHOICES,TUNE,...` for parts).
   `app-look` covers the sand and the frame's finish chosen apart (release
