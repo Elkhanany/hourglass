@@ -1039,36 +1039,45 @@ async function reduceCase(s, env) {
 }
 
 async function twiceCase(s, env) {
-  // The changes are made in the page itself, 120 ms apart (a third of the way into each fade), so
-  // that each one after the first lands in a fade whatever the load; every frame's --lk is kept.
+  // Each change after the first is made in a fade held 40 % of its way (its animation paused there,
+  // as holdFade does), whatever the frame rate: the new fade must start from the very point the page
+  // shows (the --lk read just before the change), and the last change decides the look.
   async function one(taps, routes) {
     var t = await opn(env, { storage: { background: 'dark' }, routes: routes });
     await sleep(900);
-    var w = await t.eval(function (taps) {
-      return new Promise(function (done) {
-        var root = document.documentElement, w = { lk: [], taps: [] }, b = document.getElementById('btn-look');
-        function now() { return root.classList.contains('look-fade') ? +getComputedStyle(root).getPropertyValue('--lk') : (root.getAttribute('data-look') === 'light' ? 1 : 0); }
-        (function step(n) {
-          w.lk.push([n, now()]);
-          if (w.lk.length < 90) requestAnimationFrame(step); else done(w);
-        })(performance.now());
-        for (var i = 0; i < taps; i++) setTimeout(function () { w.taps.push([performance.now(), root.classList.contains('look-fade'), now()]); b.click(); }, 100 + 120 * i);
-      });
+    var steps = await t.eval(function (taps) {
+      var root = document.documentElement, b = document.getElementById('btn-look'), out = [];
+      function lkAnim() { return root.getAnimations().filter(function (x) { return x.effect && x.effect.getKeyframes().some(function (k) { return '--lk' in k; }); })[0] || null; }
+      function frame() { return new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); }); }
+      async function go() {
+        b.click();
+        var a = lkAnim();
+        if (a) a.pause();                      // (held until it is moved on, below: no frame can end it)
+        for (var i = 1; i < taps; i++) {
+          if (!a || !root.classList.contains('look-fade')) { out.push({ inFade: false }); b.click(); a = null; continue; }
+          a.currentTime = a.effect.getComputedTiming().duration * 0.4;
+          await frame();
+          var before = +getComputedStyle(root).getPropertyValue('--lk');
+          b.click();
+          var a2 = lkAnim(), from = a2 && a2 !== a ? parseFloat(a2.effect.getKeyframes()[0]['--lk']) : NaN;
+          out.push({ inFade: true, before: Math.round(before * 1000) / 1000, from: from });
+          a = a2 && a2 !== a ? a2 : null;
+          if (a && i < taps - 1) a.pause();
+        }
+        return out;
+      }
+      return go();
     }, taps);
     var l = await lookOf(t);
-    // a jump: more of the way from one frame to the next than the fade goes in the time between them
-    // (it goes at most pi/2 of its way in LOOK_FADE_MS, 340 ms; a slow frame is allowed its time)
-    var jump = 0, k;
-    for (k = 1; k < w.lk.length; k++) jump = Math.max(jump, Math.abs(w.lk[k][1] - w.lk[k - 1][1]) - 0.0055 * (w.lk[k][0] - w.lk[k - 1][0]));
     var mix = await t.eval(function () { return window.Hourglass.renderer.mix; });
     await t.close();
-    // (each change after the first was made while a fade was under way: else the case says nothing)
-    var inFade = w.taps.slice(1).every(function (x) { return x[1]; });
-    return { l: l, jump: Math.round(jump * 1000) / 1000, mix: mix, inFade: inFade, taps: w.taps.map(function (x) { return Math.round(x[2] * 100) / 100; }) };
+    var jump = 0, inFade = steps.length === taps - 1;
+    steps.forEach(function (x) { if (!x.inFade || !isFinite(x.from)) { inFade = false; return; } jump = Math.max(jump, Math.abs(x.from - x.before)); });
+    return { l: l, jump: Math.round(jump * 1000) / 1000, mix: mix, inFade: inFade, steps: steps };
   }
   var two = await one(2), three = await one(3);
-  s.check('TWICE: two quick changes (dark, light, dark again within a fade) end exactly dark, three end exactly light, and the page goes on from where it is: never more from one frame to the next than the fade goes in that time (by ' + Math.max(two.jump, three.jump) + ' at most)',
-    lookIs(two.l, 'dark', 'dark') && lookIs(three.l, 'light', 'light') && two.mix === 0 && three.mix === 1 && two.inFade && three.inFade && two.jump < 0.06 && three.jump < 0.06, JSON.stringify([two, three]));
+  s.check('TWICE: two quick changes (dark, light, dark again within a fade) end exactly dark, three end exactly light, and each change goes on from the very point the page shows (off by ' + Math.max(two.jump, three.jump) + ' at most)',
+    lookIs(two.l, 'dark', 'dark') && lookIs(three.l, 'light', 'light') && two.mix === 0 && three.mix === 1 && two.inFade && three.inFade && two.jump < 0.02 && three.jump < 0.02, JSON.stringify([two, three]));
   var restart = routed(env, 'app.js', function (src) { return src.replace('var from = lookNow(), fade', "var from = lookShown === 'light' ? 1 : 0, fade"); });
   var c = await one(2, [restart]);
   s.check('... and an app that starts each change again from the look it left jumps when changed in a fade (control)', c.inFade && c.jump >= 0.06, JSON.stringify(c));
