@@ -146,7 +146,9 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   half as many grains for about a third of the work.
 - **In the hand: Real motion**: the sand feels what the phone feels. Lean it
   and the piles slump, lay it on its side and the flow (and the clock) stop,
-  turn it over and the other bulb becomes the top. Walk and the falling
+  turn it over and the other bulb becomes the top. The phone's motion never
+  starts a glass: turned over, only a glass that was running runs on (see
+  *What starts a glass*, under *Playing with the glass*). Walk and the falling
   thread sways; shake it and the sand lifts and lands; twist it and the sand
   sloshes; spin it flat on a table and the sand is pushed to both ends.
   With the classic sand, shaken hard for about three seconds, in any
@@ -329,8 +331,9 @@ Pause and resume work inside a phase; paused between two phases, the turn
 waits. **Flip**, or a turn by hand, swaps the time within the phase as on any
 glass and skips nothing; **Sand** adds time to the phase. **Reset** goes back
 to the start of the sequence, not started. Flipping a finished sequence starts
-it again from its first glass. A preset, or a custom time with rest Off, ends
-the sequence.
+it again from its first glass; turned over by the phone (*Real motion*), a
+finished sequence waits at its first glass for Start or a tap. A preset, or a
+custom time with rest Off, ends the sequence.
 
 The wall clock stays the master here too. If the page was hidden or the phone
 asleep through one or more phase ends, no turn is replayed: on return the
@@ -363,6 +366,25 @@ drag barely stirs it and a hard spin pins it to both ends. Its own motion it
 keeps: carry the glass off quickly and the sand is left behind for a moment,
 the falling thread with it; stop it dead, or let it strike an edge, and the
 sand surges on, piles against the glass and runs back to its slope.
+
+What starts a glass. A tap on the glass or the round button (`Space` on a
+keyboard) starts it and pauses it. Turning it over yourself, by a finger, a
+flick or **Flip** (`F`), swaps its time: a running glass runs on, a paused
+one stays paused, and one that has run out starts again. A glass not yet
+started, turned over by hand, has all its sand below and reads *Time · flip
+to begin again*; turned once more it runs.
+
+The phone's own motion never starts a glass. With *Real motion* on, turning
+the phone over makes the other bulb the top: a glass that was running runs
+on with its time swapped, and a paused one stays paused. A glass that is
+waiting (after Reset, or as the app opens with nothing running) or that has
+run out only waits, however often the phone is turned over and back. With
+its sand above it is as it is after Reset: *Tap the glass to begin*, the
+Start button, and the time it will run. With its sand below it waits the
+same way and reads `00:00.0`; Start or a tap there turns the glass over on
+the screen and runs it, and Flip or a finger turns it back to wait with its
+sand above. While it waits no sand passes the neck, no bowl rings and the
+screen is not kept awake.
 
 What you hear. Sand that moves is heard, whether the glass is running or
 not: before it is started, while it is paused and after it has run out, as

@@ -427,7 +427,30 @@ crack is kept cell by cell, so there the glass comes back whole.
 
 The wall clock stays the master. Moving, shaking, catching and mending never
 stop the clock; only a turn (by hand, by a spin or by the Flip button) and
-laying the phone on its side do. A shaken neck falls behind, so while shaking
+laying the phone on its side do.
+
+The phone's motion never starts the clock. It turns the glass in one place,
+`tiltSwap()` in `app.js`: the glass's tilt, which follows the phone's heading,
+held past 100° for 200 ms makes the other bulb the top. What the glass does
+after any turn is decided in `stateAfterSwap()`, which is told when the turn
+was the phone's. A turn by a finger, the Flip button or a sequence starts the
+glass unless it had been paused, as it always did. After the phone's turn the glass runs only if it
+was running when the turn began; a paused glass stays paused, also with all
+its sand below; a glass that waits (never started since Reset, or since the
+app opened with nothing running) or has run out is `idle` afterwards,
+whichever bulb its sand is in. `idle` with the sand above is the glass as
+Reset leaves it. `idle` with the sand below is the state in between two
+turns of the phone: the time left is that of the sand above the neck, none,
+so the clock reads `00:00.0` under the same words and Start button; the
+neck is shut in both sands (the classic sand's gate, Real sand's valve),
+since it opens only for a running glass; nothing of an ended glass happens
+(no bowl, no rings, no ending buzz, no wake lock), and no session is saved,
+since an `idle` glass saves none. Start there turns the glass over on the
+screen and runs it, as Start on an empty upper bulb always did; the Flip
+button or a finger turns it back to wait with its sand above. A finished
+work and rest sequence turned over by the phone waits at its first glass.
+
+A shaken neck falls behind, so while shaking
 is recent a backlog drains as a slightly thicker thread instead of a clump,
 and the page's sleep catch-up never teleports sand. In a thin stream that
 thread often makes up the backlog by itself. If the sand above the neck is

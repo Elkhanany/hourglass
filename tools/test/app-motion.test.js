@@ -31,7 +31,35 @@
  *     sounds not turned (app.js heardSide() returning 1) fail the finger's cases; the hiss not turned
  *     by the phone's roll fails the cases with the phone upside down.
  *
- *   node tools/test/app-motion.test.js [--root <dir>] [--port <n>] [--only mapping|tiltswap|slosh|sides]
+ * START: the phone's motion never starts a glass (app.js stateAfterSwap). Real motion on (the motion
+ *     stub turned over and back: its heading to pi, held, and to 0 again), the classic sand.
+ *     WAITING: after Reset, the phone turned over and back three times in a row. Upright again the
+ *     glass is as after Reset each time: idle, its clock at the whole time, the status line and the
+ *     Start button, nothing saved. In between, its sand below, it waits too (idle, 00:00.0, the same
+ *     words and button), and nothing of a glass that ran out happens: no bowl, no ending buzz (the
+ *     swap's own tick only), no wake lock asked for, no session saved. No grain passes the neck in
+ *     any step of it, nor when the phone is laid on its side or shaken (1.5 g at 5 Hz) either way
+ *     up. In between, the Flip button turns the glass over and it still waits; Start there turns it
+ *     over on the screen and runs it; and a tap starts a waiting glass (grains pass: what the
+ *     counts above would have seen).
+ *     FINISHED: a 10 s glass run to its end (one bowl), the phone turned over: its sand is above
+ *     and it waits as after Reset, with the time it would run and no session; turned back and over
+ *     again, the same. A tap runs it, to its end. The Flip button starts a finished glass as it
+ *     always did, and so does a finger that turns it over.
+ *     SEQUENCE: a work and rest sequence run to its end, the phone turned over: it waits at its
+ *     first glass, the work time on the clock; a tap begins Work.
+ *     RUNNING, in TILTSWAP: turned over by the phone a running glass runs on, its clock swapped.
+ *     PAUSED: a paused glass stays paused through two turns, its time swapped and back; so does one
+ *     paused before a grain had fallen (all its sand above).
+ *     Controls. On the tree before this rule (git archive e375591, --root, --only start) the
+ *     WAITING, FINISHED and SEQUENCE checks and the last PAUSED one fail: the glass reads "Time" at
+ *     the first turn and runs at the second. By hand, on a copy of the tree: the rule applied to
+ *     every turn (stateAfterSwap without `byPhone &&`) fails the Flip button's and the finger's
+ *     checks; applied to a running glass too (without `&& was !== 'running'`) it fails RUNNING;
+ *     a paused glass sent to wait fails PAUSED; seqSwapped without its `|| next === 'idle'` fails
+ *     SEQUENCE.
+ *
+ *   node tools/test/app-motion.test.js [--root <dir>] [--port <n>] [--only mapping|tiltswap|slosh|sides|start]
  */
 'use strict';
 var H = require('./stubs/harness.js');
@@ -96,7 +124,7 @@ async function testTiltSwap(s, env) {
   var on = await realMotionOn(t);
   s.check('TILTSWAP: Real motion is on', on);
   await t.eval(function () { window.Hourglass.start(); });
-  await sleep(1500);
+  await sleep(4000);                               // (turned over, the time that has run is the time left: enough of it for the checks below)
   // a 120 ms glitch: heading π, then back
   await t.eval(function () {
     __mon.flips = 0;
@@ -107,18 +135,28 @@ async function testTiltSwap(s, env) {
   var a = await t.eval(function () { return { flips: __mon.flips, base: window.Hourglass.grav.base, state: window.Hourglass.timer.state }; });
   s.check('TILTSWAP: heading π for 120 ms, released: no swap', a.flips === 0, a.flips + ' swaps');
   // held over for 300 ms (and then kept so): one swap
-  await t.eval(function () {
+  var r0 = await t.eval(function () {
+    var Hg = window.Hourglass;
     __mon.flips = 0;
     window.__swapAt = -1;
     window.__motion.heading = Math.PI;
     window.__overAt = performance.now();
+    // the time left, and what the sand that has fallen is worth: the time left once it is above (app.js swapEnds, tiltSwap)
+    return { rem: Hg.timer.rem, below: Hg.remAt(Hg.sim.total - Hg.sim.nTop) };
   });
   await sleep(300);
   var b0 = await t.eval(function () { return __mon.flips; });
   await sleep(1200);
-  var b = await t.eval(function () { return { flips: __mon.flips, base: window.Hourglass.grav.base, state: window.Hourglass.timer.state }; });
+  var b = await t.eval(function () { var T = window.Hourglass.timer; return { flips: __mon.flips, base: window.Hourglass.grav.base, state: T.state, rem: T.rem, ms: T.durationMs }; });
   s.check('TILTSWAP: held over for 300 ms: exactly one swap', b.flips === 1, b.flips + ' swaps (' + b0 + ' by 300 ms), base ' + b.base.toFixed(3));
   s.check('TILTSWAP: ... and the clock carries on', b.state === 'running', b.state);
+  // RUNNING (see START): the time of the sand that had fallen is the time now left, less what has run since the swap
+  await sleep(400);
+  var b2 = await t.eval(function () { var T = window.Hourglass.timer; return { state: T.state, rem: T.rem }; });
+  s.check('TILTSWAP (RUNNING): turned over by the phone the running glass runs on, its clock swapped',
+          b.state === 'running' && b.rem > 0 && b.rem <= r0.below + 300 && b.rem < r0.rem - 200000 && b2.state === 'running' && b2.rem < b.rem,
+          'the time left ' + (r0.rem / 1000).toFixed(2) + ' s of ' + b.ms / 1000 + ' before the turn, the sand below worth ' + (r0.below / 1000).toFixed(2) + ' s; ' +
+          (b.rem / 1000).toFixed(2) + ' s left after it, ' + (b2.rem / 1000).toFixed(2) + ' s 0.4 s later (' + b2.state + ')');
   await t.eval(function () { window.__motion.heading = 0; });
   await H.invariants(s, t, 'TILTSWAP');
   await t.close();
@@ -324,6 +362,300 @@ async function testSides(s, env) {
   } finally { await t.close(); }
 }
 
+/* ---- START: the phone's motion never starts a glass ----------------------------------------- */
+var SKEY = 'hourglass.session.v1';
+/**
+ * From now on (window.__sw): what a glass that ran out does (the bowl, the stream's end, its buzz),
+ * every buzz, wake locks asked for, sessions saved; and, step by step, grains let through the neck
+ * (relSteps: steps with a release; partial: steps whose sand was neither all above nor all below).
+ */
+function startWatch(t) {
+  return t.eval(function (SKEY) {
+    var Hg = window.Hourglass, A = Hg.audio;
+    if (!window.__swOn) {
+      window.__swOn = true;
+      ['chime', 'end'].forEach(function (m) { var f = A[m]; A[m] = function () { window.__sw[m]++; return f.apply(A, arguments); }; });
+      var vib = navigator.vibrate ? navigator.vibrate.bind(navigator) : null;
+      navigator.vibrate = function (p) { window.__sw.buzz.push(JSON.stringify(p)); return vib ? vib(p) : true; };
+      var set = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (k, v) {
+        if (k === SKEY) { try { window.__sw.saves.push(JSON.parse(v).state); } catch (e) { window.__sw.saves.push('?'); } }
+        return set.apply(this, arguments);
+      };
+      if (navigator.wakeLock) {
+        var rq = navigator.wakeLock.request.bind(navigator.wakeLock);
+        navigator.wakeLock.request = function () { window.__sw.wake++; return rq.apply(null, arguments); };
+      }
+    }
+    window.__sw = { chime: 0, end: 0, buzz: [], wake: 0, saves: [], relSteps: 0, partial: 0, steps: 0, flips0: __mon.flips };
+    __rec.start(function (H) {
+      var W = window.__sw, sim = H.sim;
+      W.steps++;
+      if (sim.frame.released > 0) W.relSteps++;
+      if (sim.nTop !== 0 && sim.nTop !== sim.total) W.partial++;
+      return 0;
+    });
+  }, SKEY);
+}
+/** The glass as a person meets it, and what startWatch has counted. */
+function startRead(t) {
+  return t.eval(function (SKEY) {
+    var Hg = window.Hourglass, T = Hg.timer, W = window.__sw || {}, sim = Hg.sim;
+    return { state: T.state, rem: T.rem, ms: T.durationMs, top: sim.nTop, total: sim.total, base: Hg.grav.base, gate: !!sim.gateOpen,
+      status: document.getElementById('status').textContent, label: document.getElementById('btn-play').getAttribute('aria-label'),
+      shown: document.getElementById('readout').textContent.replace(/\s+/g, ''), data: document.getElementById('app').dataset.state, title: document.title,
+      saved: localStorage.getItem(SKEY), phase: Hg.seq.phase, turning: Hg.flip.active, below: Hg.remAt(sim.total - sim.nTop),
+      chime: W.chime, end: W.end, buzz: (W.buzz || []).slice(), wake: W.wake, saves: (W.saves || []).slice(), relSteps: W.relSteps, partial: W.partial, steps: W.steps,
+      flips: __mon.flips - (W.flips0 || 0) };
+  }, SKEY);
+}
+function startShow(r) {
+  return JSON.stringify({ state: r.state, rem: Math.round(r.rem), top: r.top + '/' + r.total, status: r.status, button: r.label, shown: r.shown, saved: r.saved ? JSON.parse(r.saved).state : null });
+}
+/** The phone turned to `heading` (pi: over; 0: upright again) and held. */
+async function phoneTo(t, heading, ms) {
+  await t.eval(function (h) { window.__motion.heading = h; }, heading);
+  await sleep(ms || 1400);
+}
+/** Waiting as after Reset: idle, the clock at `ms`, all the sand above, the words, the button, nothing saved. */
+function waitsFull(r, ms, shown) {
+  return r.state === 'idle' && r.data === 'idle' && Math.abs(r.rem - ms) < 0.5 && r.top === r.total && r.total > 0 && !r.gate && r.status === 'Tap the glass to begin' &&
+    r.label === 'Start' && r.shown === shown && r.title === 'Hourglass' && r.saved === null;
+}
+/** Waiting in between, its sand below: idle, 00:00.0, the same words and button, nothing saved. */
+function waitsBelow(r) {
+  return r.state === 'idle' && r.data === 'idle' && r.rem === 0 && r.top === 0 && !r.gate && r.status === 'Tap the glass to begin' &&
+    r.label === 'Start' && r.shown === '00:00.0' && r.title === 'Hourglass' && r.saved === null;
+}
+/** Nothing of a glass that ran out (the bowl, the stream's end, the ending buzz, a wake lock, a session), and no grain through the neck, since startWatch. */
+function nothingEnded(r) {
+  return r.chime === 0 && r.end === 0 && r.wake === 0 && r.saves.length === 0 && r.relSteps === 0 && r.partial === 0 && r.steps > 0 &&
+    r.buzz.indexOf('[16,110,16,110,42]') < 0;
+}
+function endedShow(r) {
+  return 'bowls ' + r.chime + ', stream ends ' + r.end + ', buzzes ' + JSON.stringify(r.buzz) + ', wake locks asked ' + r.wake + ', sessions saved ' + JSON.stringify(r.saves) +
+    '; steps with a grain through the neck ' + r.relSteps + ', with sand in both bulbs ' + r.partial + ', of ' + r.steps;
+}
+/** A finger takes the upper bulb and brings it round by `sweep` rad in ms, holds, lets go (app-gestures' arc). */
+async function fingerTurn(t, sweep, ms) {
+  var g = await t.glass(), R = 0.2 * g.h, R1 = R + 22, a0 = -Math.PI / 2;
+  await t.touch.down(g.cx + R * Math.cos(a0), g.cy + R * Math.sin(a0));
+  await sleep(30);
+  await t.touch.move(g.cx + R1 * Math.cos(a0), g.cy + R1 * Math.sin(a0));
+  await sleep(50);
+  await t.touch.path(function (u) { var a = a0 + sweep * u; return { x: g.cx + R1 * Math.cos(a), y: g.cy + R1 * Math.sin(a) }; }, ms);
+  await sleep(250);
+  await t.touch.up();
+}
+function turnOver(t) {
+  return t.page.waitForFunction(function () { var H = window.Hourglass; return !H.flip.active && H.body.mode === 'rest' && H.sim.angle === 0; }, null, { timeout: 6000, polling: 'raf' });
+}
+function ranOut(t, ms) {
+  return t.page.waitForFunction(function () { var H = window.Hourglass; return H.timer.state === 'done' && H.sim.nTop === 0; }, null, { timeout: ms, polling: 100 });
+}
+async function resetGlass(t) {
+  await t.page.tap('#btn-reset');
+  await t.page.waitForFunction(function () { return !document.getElementById('app').classList.contains('sweep') && !document.getElementById('app').classList.contains('swap'); }, null, { timeout: 5000 });
+  await sleep(500);
+}
+
+async function testStart(s, env) {
+  var seed = { 'hourglass.settings.v1': { tilt: true, durationMs: 300000 } };
+
+  /* WAITING: after Reset, the phone turned over and back, three times in a row */
+  var t = await env.open({ motionStub: true, storage: seed });
+  try {
+    await sleep(800);
+    await resetGlass(t);
+    var on = await startRead(t);
+    var cpu = await t.eval(function () { return { grav: window.Hourglass.grav.on, cpu: window.Hourglass.sim instanceof window.HourglassPhysics.Sim }; });
+    s.check('START WAITING: Real motion on (the motion stub), the classic sand, a 5-minute glass after Reset: it waits', cpu.grav && cpu.cpu && waitsFull(on, 300000, '05:00.0'), startShow(on));
+    await startWatch(t);
+    for (var k = 1; k <= 3; k++) {
+      await phoneTo(t, Math.PI);
+      var mid = await startRead(t);
+      s.check('START WAITING: the phone turned over (' + k + ' of 3): in between, its sand below, the glass waits (idle, 00:00.0, "Tap the glass to begin", the Start button), nothing saved',
+              waitsBelow(mid) && Math.abs(mid.base - Math.PI) < 1e-6 && mid.flips === 2 * k - 1, startShow(mid) + ', swaps ' + mid.flips);
+      await phoneTo(t, 0);
+      var up = await startRead(t);
+      s.check('START WAITING: ... and brought back (' + k + ' of 3): the glass waits as after Reset: idle, the clock unchanged at 05:00.0, all its sand above, the Start button, nothing saved',
+              waitsFull(up, 300000, '05:00.0') && up.base === 0 && up.flips === 2 * k, startShow(up) + ', swaps ' + up.flips);
+    }
+    var all = await startRead(t);
+    s.check('START WAITING: through the three turns and back nothing of a glass that ran out happened (no bowl, no ending buzz, no wake lock asked for, no session saved) and no grain passed the neck',
+            nothingEnded(all) && all.buzz.length === 6 && all.buzz.every(function (b) { return b === '18'; }), endedShow(all) + ' (18: the swap\'s own tick)');
+    // however the phone is moved: laid on its side, shaken upright, shaken turned over
+    await phoneTo(t, Math.PI / 2, 900);
+    await phoneTo(t, 0, 900);
+    await t.eval(function () { window.__drive({ whole: true, fn: function (tt, f) { f.x = 1.5 * Math.sin(2 * Math.PI * 5 * tt); } }); });
+    await sleep(1500);
+    await t.eval(function () { window.__motion.heading = Math.PI; });
+    await sleep(1800);
+    await t.eval(function () { window.__driveStop(); });
+    var moved = await startRead(t);
+    s.check('START WAITING: laid on its side, shaken upright and shaken turned over (1.5 g at 5 Hz): it waits, and no grain passes the neck',
+            waitsBelow(moved) && nothingEnded(moved), startShow(moved) + '; ' + endedShow(moved));
+    // in between, the Flip button turns it over: its sand above again, it still waits
+    await sleep(1200);
+    await t.page.tap('#btn-flip');
+    await sleep(300);
+    await turnOver(t);
+    await sleep(300);
+    var flipped = await startRead(t);
+    s.check('START WAITING: in between, the Flip button turns the glass over: its sand above again, it still waits, with its whole time',
+            waitsFull(flipped, 300000, '05:00.0') && nothingEnded(flipped), startShow(flipped) + '; ' + endedShow(flipped));
+    // a tap starts it: the sand runs (and the counts above see it)
+    var g = await t.glass();
+    await t.touch.tap(g.cx, g.cy, 60);
+    await sleep(1500);
+    var ran = await startRead(t);
+    s.check('START WAITING: a tap on the glass starts it: it runs, grains pass the neck, the session is saved',
+            ran.state === 'running' && ran.label === 'Pause' && ran.rem < 300000 && ran.rem > 297000 && ran.relSteps > 0 && ran.top < ran.total && ran.saves.indexOf('running') >= 0 && !!ran.saved,
+            startShow(ran) + '; ' + endedShow(ran));
+    // in between, Start turns the glass over on the screen and runs it
+    await t.eval(function () { window.Hourglass.pause(); });
+    await resetGlass(t);
+    await phoneTo(t, 0);
+    var again = await startRead(t);
+    await startWatch(t);
+    s.check('START WAITING: after Reset with the phone still turned over, and brought upright: the new glass waits', again.state === 'idle' && Math.abs(again.rem - (again.top ? 300000 : 0)) < 0.5 && again.saved === null, startShow(again));
+    if (again.top) await phoneTo(t, Math.PI);
+    var below = await startRead(t);
+    await t.page.tap('#btn-play');
+    await sleep(200);
+    var turning = await startRead(t);
+    await turnOver(t);
+    await sleep(1200);
+    var started = await startRead(t);
+    s.check('START WAITING: in between, the Start button turns the glass over on the screen and runs it',
+            waitsBelow(below) && turning.turning && started.state === 'running' && started.rem > 296000 && started.rem < 300000 && started.top < started.total && started.relSteps > 0,
+            'before ' + startShow(below) + '; turning ' + turning.turning + '; after ' + startShow(started));
+    await t.eval(function () { window.Hourglass.pause(); window.__motion.heading = 0; });
+    await sleep(1500);
+    await H.invariants(s, t, 'START WAITING');
+  } finally { await t.close(); }
+
+  /* FINISHED: a glass that has run out, turned over by the phone, waits; a tap, the Flip button and a finger start it */
+  t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: 10000 } } });
+  try {
+    await sleep(800);
+    await startWatch(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await ranOut(t, 16000);
+    await sleep(1600);
+    var done = await startRead(t);
+    s.check('START FINISHED: a 10 s glass run to its end: finished, one bowl, "Time · flip to begin again"',
+            done.state === 'done' && done.chime === 1 && done.status === 'Time · flip to begin again' && done.label === 'Flip and start again' && !!done.saved, startShow(done) + ', bowls ' + done.chime);
+    await startWatch(t);
+    await phoneTo(t, Math.PI);
+    var f1 = await startRead(t);
+    await sleep(1200);
+    var f1b = await startRead(t);
+    s.check('START FINISHED: the phone turned over: its sand is above and it waits as after Reset, with the time it would run (10 s), no session; the clock does not run and no grain passes',
+            waitsFull(f1, 10000, '00:10.0') && waitsFull(f1b, 10000, '00:10.0') && nothingEnded(f1b), startShow(f1) + '; 1.2 s later ' + startShow(f1b) + '; ' + endedShow(f1b));
+    await phoneTo(t, 0);
+    var f2 = await startRead(t);
+    await phoneTo(t, Math.PI);
+    var f3 = await startRead(t);
+    s.check('START FINISHED: turned back and over again: it waits both times (in between 00:00.0, then 10 s again), nothing of an ended glass, no grain through the neck',
+            waitsBelow(f2) && waitsFull(f3, 10000, '00:10.0') && nothingEnded(f3), startShow(f2) + '; ' + startShow(f3) + '; ' + endedShow(f3));
+    var g2 = await t.glass();
+    await t.touch.tap(g2.cx, g2.cy, 60);
+    await sleep(600);
+    var f4 = await startRead(t);
+    await ranOut(t, 16000);
+    await sleep(1600);
+    var f5 = await startRead(t);
+    s.check('START FINISHED: a tap starts it, and it runs to its end with its bowl', f4.state === 'running' && f4.rem < 10000 && f5.state === 'done' && f5.chime === 1 && f5.relSteps > 0,
+            startShow(f4) + '; then ' + startShow(f5) + ', bowls ' + f5.chime);
+    // the Flip button starts a finished glass, as it always did
+    await t.page.tap('#btn-flip');
+    await sleep(300);
+    await turnOver(t);
+    await sleep(500);
+    var f6 = await startRead(t);
+    s.check('START FINISHED: the Flip button starts a finished glass (a touch): it runs', f6.state === 'running' && f6.rem > 8000 && f6.rem < 10000 && f6.label === 'Pause', startShow(f6));
+    await ranOut(t, 16000);
+    await sleep(1200);
+    // ... and so does a finger that turns it over
+    await fingerTurn(t, 200 * Math.PI / 180, 1200);
+    await turnOver(t);
+    await sleep(500);
+    var f7 = await startRead(t);
+    s.check('START FINISHED: a finger turning a finished glass over starts it (a touch): it runs', f7.state === 'running' && f7.rem > 7500 && f7.rem < 10000 && f7.label === 'Pause', startShow(f7));
+    await t.eval(function () { window.Hourglass.pause(); window.__motion.heading = 0; });
+    await sleep(1500);
+    await H.invariants(s, t, 'START FINISHED');
+  } finally { await t.close(); }
+
+  /* SEQUENCE: a finished sequence turned over by the phone waits at its first glass */
+  t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: 10000, restMs: 10000, rounds: 1 } } });
+  try {
+    await sleep(800);
+    var q0 = await startRead(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await ranOut(t, 40000);
+    await sleep(1600);
+    var q1 = await startRead(t);
+    await startWatch(t);
+    await phoneTo(t, Math.PI);
+    var q2 = await startRead(t);
+    await sleep(1200);
+    var q3 = await startRead(t);
+    s.check('START SEQUENCE: work 10 s and rest 10 s run to the end, the phone turned over: the sequence waits at its first glass (idle, the work time on the clock, phase 0), and stays so',
+            q0.state === 'idle' && q1.state === 'done' && q1.phase === 2 && waitsFull(q2, 10000, '00:10.0') && q2.phase === 0 && waitsFull(q3, 10000, '00:10.0') && nothingEnded(q3),
+            'ended in phase ' + q1.phase + ' (' + q1.state + '); turned over ' + startShow(q2) + ', phase ' + q2.phase + '; ' + endedShow(q3));
+    var g3 = await t.glass();
+    await t.touch.tap(g3.cx, g3.cy, 60);
+    await sleep(700);
+    var q4 = await startRead(t);
+    s.check('START SEQUENCE: a tap begins Work', q4.state === 'running' && /^Work/.test(q4.status) && q4.phase === 0 && q4.rem < 10000, startShow(q4) + ', phase ' + q4.phase);
+    await t.eval(function () { window.Hourglass.pause(); window.__motion.heading = 0; });
+    await sleep(1500);
+    await H.invariants(s, t, 'START SEQUENCE');
+  } finally { await t.close(); }
+
+  /* PAUSED: a paused glass stays paused, turned over by the phone and back */
+  t = await env.open({ motionStub: true, storage: seed });
+  try {
+    await sleep(800);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(3000);
+    await t.eval(function () { window.Hourglass.pause(); });
+    await sleep(400);
+    var p0 = await startRead(t);
+    await phoneTo(t, Math.PI);
+    var p1 = await startRead(t);
+    await sleep(600);
+    var p1b = await startRead(t);
+    await phoneTo(t, 0);
+    var p2 = await startRead(t);
+    // (the time swapped is the time of the sand that had fallen: app.js remAt of it, a little over the 3 s, since a glass's last grains thin out)
+    s.check('START PAUSED: a glass paused 3 s into its run, the phone turned over and back: paused both times, its time swapped (the time of the sand that had fallen) and back, the clock still',
+            p0.state === 'paused' && p1.state === 'paused' && p1.status === 'Paused' && Math.abs(p1.rem - p0.below) < 1e-6 && p1.rem > 2000 && p1.rem < 6000 && p1b.rem === p1.rem &&
+            p1.top === p0.total - p0.top && p2.state === 'paused' && Math.abs(p2.rem - p1.below) < 1e-6 && Math.abs(p2.rem - p0.rem) < 1000 && p2.top === p0.top,
+            'paused at ' + (p0.rem / 1000).toFixed(2) + ' s, the sand below worth ' + (p0.below / 1000).toFixed(2) + ' s; turned over ' + (p1.rem / 1000).toFixed(2) + ' s (' + p1.state +
+            '); back ' + (p2.rem / 1000).toFixed(2) + ' s (' + p2.state + ')');
+    // paused before a grain had fallen: all its sand above
+    await resetGlass(t);
+    await t.eval(function () { window.Hourglass.start(); window.Hourglass.pause(); });
+    await sleep(500);
+    var e0 = await startRead(t);
+    await startWatch(t);
+    await phoneTo(t, Math.PI);
+    var e1 = await startRead(t);
+    await phoneTo(t, 0);
+    var e2 = await startRead(t);
+    await sleep(800);
+    var e3 = await startRead(t);
+    s.check('START PAUSED: paused before a grain had fallen (all its sand above), the phone turned over and back: paused both times (00:00.0 in between), never finished, never running, no grain through the neck',
+            e0.state === 'paused' && e0.top === e0.total && e1.state === 'paused' && e1.rem === 0 && e1.top === 0 && e1.status === 'Paused' &&
+            e2.state === 'paused' && Math.abs(e2.rem - 300000) < 0.5 && e2.top === e2.total && e3.state === 'paused' && e3.rem === e2.rem && e3.relSteps === 0 && e3.chime === 0 && e3.end === 0,
+            'paused ' + startShow(e0) + '; turned over ' + startShow(e1) + '; back ' + startShow(e2) + '; ' + endedShow(e3));
+    await H.invariants(s, t, 'START PAUSED');
+  } finally { await t.close(); }
+}
+
 (async function main() {
   var s = new H.Suite('app-motion');
   var env = await H.start();
@@ -333,6 +665,7 @@ async function testSides(s, env) {
     if (!only || only === 'tiltswap') await testTiltSwap(s, env);
     if (!only || only === 'slosh') await testSlosh(s, env);
     if (!only || only === 'sides') await testSides(s, env);
+    if (!only || only === 'start') await testStart(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

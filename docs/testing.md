@@ -344,7 +344,26 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   its sand, the glass upright or turned half round by a finger, the phone
   upright or upside down with the glass swapped; its controls are made by
   hand, app.js's heardSide() returning 1 and the hiss not turned by the
-  phone's roll): every
+  phone's roll; and START, `--only start`: the phone's motion never starts
+  a glass. After Reset the stub's phone is turned over and back three times
+  in a row: upright again the glass is as after Reset each time (idle, the
+  clock unchanged, the status line, the Start button, nothing saved), in
+  between it waits too with its sand below at 00:00.0, nothing of an ended
+  glass happens (no bowl, no ending buzz, no wake lock asked for, no session
+  saved) and no grain passes the neck in any step, also on its side and
+  shaken; there the Flip button turns it back to wait, Start turns it over
+  and runs it, and a tap starts a waiting glass. A 10 s glass run out and a
+  work and rest sequence run out, turned over by the phone, wait as after
+  Reset (the sequence at its first glass); a tap, the Flip button and a
+  finger's turn start a finished glass; a running glass runs on with its
+  clock swapped (in TILTSWAP); a paused one stays paused, also one paused
+  with all its sand above. Its controls: the tree before the rule, made
+  with `git archive e375591` and given as `--root`, fails the waiting, the
+  finished, the sequence and the last paused checks; by hand on a copy of
+  the tree, `stateAfterSwap()` without `byPhone &&` fails the Flip button's
+  and the finger's checks, without `&& was !== 'running'` the running one,
+  with a paused glass sent to wait the paused one, and `seqSwapped()`
+  without `|| next === 'idle'` the sequence's): every
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
   then served at `motion.js`'s path. Real sand is the app's default, and
@@ -437,7 +456,15 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   toast, rebuilt after 2 s), and a second time within 10 minutes (the CPU
   sand for the session, nothing counted), lost just after the engine adopted
   the sand or just after a rebuild handed it back (never handed to the lost
-  engine), and a rebuild that finds no device; points stuck above after a
+  engine), and a rebuild that finds no device; the phone's motion never
+  starting a glass (`waits`: on the mock chip with the motion stub, after
+  Reset the phone turned over and back three times: the glass waits each
+  time, the clock unchanged, every point the chip holds above the neck
+  again and all below in between, the valve shut and no point across by the
+  plant's count or the adapter's; a glass run out and turned over waits the
+  same way and a tap runs it out on time; the control is `app.js` with
+  `stateAfterSwap()` as it was, where the same turns end the glass and then
+  run it); points stuck above after a
   sequence ended while hidden (moved by the residue rule); the GPU sand
   asleep drawn again after a theme, a turn of the screen and the Frame
   switch; the handover held until a Flip is over; and a glass that does not
@@ -741,7 +768,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   missing, without the namespace, with one that lacks values, or with a CPU
   Sim without `layerState()`; the fills from the CPU Sim's lattice (exact counts, each grain's
   colour); each place where the sand sets the clock (a start after the end,
-  the Flip's swap, a tilt swap, pours, a re-time after a starved neck, a
+  the Flip's swap, a tilt swap, a glass that waits turned over by the phone
+  and back three times (it still waits, the valve shut and no point across;
+  the copy of the app with its rule as it was is the control), pours, a
+  re-time after a starved neck, a
   sequence's next phase turned unseen, also while hidden, a session restored
   at boot, the catch-up after the page was hidden, also across the end, with
   a swap while its transfer is on the way, and with a transfer that never
@@ -845,8 +875,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   (`--only shapes --shapes trumpet,florence`, about 5 minutes a shape);
   the last line names them.
 - `e2e-*`: the integration scenarios on the real modules: calm (E1, E11),
-  motion (E2, E3, E14), timer (E4, E5), gestures (E6–E8), session (E9, E10),
-  permission (E12) and performance (E13).
+  motion (E2, E3, E14, E15), timer (E4, E5), gestures (E6–E8), session (E9, E10),
+  permission (E12) and performance (E13). E15 is the phone's motion never
+  starting a glass, through the real `motion.js`: after Reset the phone is
+  pitched back from upright through flat to 35° past it and brought forward
+  again, three times; the glass waits each time, and a glass that has run
+  out waits the same way until a tap (the control: the tree before the
+  rule, as for `app-motion`).
 - `replay-*`: the glass under a real hand, built from the replay harness in
   `tools/test/lib` (`replay-iphone.js`, `replay-probe.js`, `replay-streams.js`,
   `replay-offline.js`). `replay-phone` runs models of an iPhone's sensor
