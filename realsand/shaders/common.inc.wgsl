@@ -87,7 +87,8 @@ struct SimConstants {
     spread: vec4f,
     // sand's packing state (g2p2g.wgsl): x: how fast sand packed down again from a loosened
     // state gains packing (0: never); y: the densest packing it reaches (1: the fill's);
-    // z: how fast plastic shear loosens it back toward the fill's packing; w: unused
+    // z: how fast plastic shear loosens it back toward the fill's packing; w: the reach of the
+    // surface push's face reading, nodes either side (gridClear.wgsl; under 2: 2)
     compaction: vec4f,
     // sand's yield inside the iterations (g2p2g.wgsl): x: 1 on (0: EA's clamp target); y: the
     // share of the friction cone it uses there (yieldScale); z: what sizes the cone: 0 the trial

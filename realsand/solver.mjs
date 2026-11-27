@@ -474,7 +474,7 @@ export class Solver {
     U[o + 38] = neck ? neck.flags : 0; F[o + 39] = m.floorLoose ?? 0;
     const sand = m.model === 2;
     F[o + 40] = m.spread ?? 0; F[o + 41] = m.spreadThr ?? 0.8; F[o + 42] = m.spreadCap ?? 0.05; F[o + 43] = sand ? (m.surfTilt ?? 0) : 0;
-    F[o + 44] = m.compact ?? 0; F[o + 45] = m.packMax ?? 1; F[o + 46] = m.dilate ?? 1; F[o + 47] = 0;
+    F[o + 44] = m.compact ?? 0; F[o + 45] = m.packMax ?? 1; F[o + 46] = m.dilate ?? 1; F[o + 47] = sand ? (m.surfFace ?? 2) : 2;
     F[o + 48] = m.yieldLoop ?? 0; F[o + 49] = m.yieldScale ?? 1; F[o + 50] = m.yieldStep ?? 0; F[o + 51] = m.yieldStep >= 2 ? (m.loadScale ?? 2) : (m.yieldStepScale ?? 1);
     // the surface push (gridClear.wgsl, g2p2g.wgsl): sand only; surfProbe computes it without applying it
     const sp = sand ? (m.surfPush ?? 0) : 0;

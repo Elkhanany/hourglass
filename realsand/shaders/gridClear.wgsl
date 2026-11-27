@@ -117,11 +117,14 @@ fn surfaceNode(id: vec2u) {
     let wD = 1.0 - smoothstep(Ds - 1.0, Ds, f32(k - 1) + 0.5);
     if (wD <= 0.0) { return; }
     // the free surface's outward normal: the fill's gradient, Gaussian-weighted over 5 x 5 nodes
+    // (compaction.w: over (2r + 1) x (2r + 1), the Gaussian's width 0.75 r)
+    let r = i32(max(g_simConstants.compaction.w, 2.0));
+    let s2 = select(4.0, 0.5625 * f32(r * r), r > 2);
     var G = vec2f(0.0);
     var S = 0.0;
-    for (var j = -2; j <= 2; j++) {
-        for (var i = -2; i <= 2; i++) {
-            let w = exp(-f32(i * i + j * j) / 4.0);
+    for (var j = -r; j <= r; j++) {
+        for (var i = -r; i <= r; i++) {
+            let w = exp(-f32(i * i + j * j) / s2);
             G += w * fillAt(c + vec2i(i, j)) * vec2f(f32(i), f32(j));
             S += w * f32(i * i);
         }
