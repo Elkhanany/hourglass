@@ -296,7 +296,7 @@ function sunProblems(sun, tag) {
   if (!sun) return [tag + ': no sun record'];
   ['key', 'paper', 'lift', 'glints', 'mica'].forEach(function (k) { if (typeof sun[k] !== 'number' || !isFinite(sun[k])) out.push(tag + '.sun.' + k + ' is ' + js(sun[k])); });
   if (!(sun.key > 0.5 && sun.key <= 1.5)) out.push(tag + ': key ' + sun.key);
-  if (!(sun.paper >= 0.55 && sun.paper <= 1)) out.push(tag + ': paper ' + sun.paper);
+  if (!(sun.paper >= 0.55 && sun.paper <= 1.4)) out.push(tag + ': paper ' + sun.paper);   // (a pale sand's key dimmed, a dark one's raised)
   if (!(sun.lift >= 0 && sun.lift <= 0.12)) out.push(tag + ': lift ' + sun.lift);
   if (!(sun.glints > 0 && sun.glints <= 0.12)) out.push(tag + ': glints ' + sun.glints + ' (the cap on the sparkle)');
   if (!(sun.mica >= 0.95 && sun.mica < 1)) out.push(tag + ': mica ' + sun.mica);
@@ -315,7 +315,7 @@ test('the sunlit sand: every sand has its light record, in range; a custom colou
   });
   ok(!near.length, 'the custom rule strays from the presets: ' + near.join('; '));
   var pale = P.customSand(40, 0.1, 0.84).sun, dark = P.customSand(236, 0.1, 0.22).sun;
-  ok(pale.paper < 0.85 && dark.paper === 1 && dark.lift > pale.lift && dark.mica > pale.mica && dark.glints < pale.glints, 'pale ' + js(pale) + ', dark ' + js(dark));
+  ok(pale.paper < 0.85 && dark.paper > 1.2 && dark.lift > pale.lift && dark.mica > pale.mica && dark.glints < pale.glints, 'pale ' + js(pale) + ', dark ' + js(dark));
   // control: a record without its cap, or a mica that glints at any angle, is found out
   ok(sunProblems({ key: 1, paper: 1, lift: 0, mica: 0.955 }, 'c').length && sunProblems({ key: 1, paper: 1, lift: 0, glints: 0.1, mica: 0.5 }, 'c').length, 'control: a bad record passed');
   return 'nine records and ' + n + ' custom colours in range; the custom rule within 0.06 of every preset; pale ' + js(pale) + ', dark ' + js(dark) + '; controls found out';

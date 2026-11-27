@@ -647,7 +647,7 @@ test('Spill: kicks, Reduce Motion and relayout', function () {
 
 /* ---- the sunlit sand (Tune's Light) ---------------------------------------------------- */
 // Soft is the sand as it was drawn at SOFT_BASE, byte for byte (HOURGLASS_SOFT_BASE names another commit).
-var SOFT_BASE = process.env.HOURGLASS_SOFT_BASE || '9937dc8';
+var SOFT_BASE = process.env.HOURGLASS_SOFT_BASE || '19c84db';   // (release 1.20.0, on main: Soft's sand is drawn as there)
 var paths = require('./lib/paths.js');
 function realRenderer(PP, sim) {
   return new PP.Renderer(sim, { back: fakeCanvas(), sand: fakeCanvas(), bloom: fakeCanvas(), front: fakeCanvas(), light: fakeCanvas() });
@@ -768,26 +768,44 @@ test('the sunlit sand in the frame of a swap: drawn with the glass\'s angle of t
     c.swap.toFixed(2) + ' (the shaded side lit for a frame)';
 });
 
-test('Soft is the sand as ' + SOFT_BASE + ' drew it, byte for byte, in both looks (a hash of the sand\'s buffer on fixed beds)', function () {
+test('Soft is the sand as ' + SOFT_BASE + ' drew it: byte for byte in the dark look; in the light look byte for byte for the beds of a sand that is not pale (only the grains in the air are drawn otherwise), a pale sand\'s beds deeper at their tops', function () {
   var parts = paths.physicsParts(), src = parts.map(function (f) { return L.gitShow(SOFT_BASE, f); }).join('\n'), B = L.loadIsolated(src, SOFT_BASE);
-  var cases = [[1234567, false, 0], [777, true, Math.PI], [4242, false, 0.5]], n = 0, sun = 0;
+  var cases = [[1234567, false, 0], [777, true, Math.PI], [4242, false, 0.5]], n = 0, sun = 0, beds = 0, air = 0;
   cases.forEach(function (c) {
     var rb = realRenderer(B, runningGlass(B, c[0], c[1])), rs = realRenderer(P, runningGlass(P, c[0], c[1]));
     ok(fnv(rb.sim.cell) === fnv(rs.sim.cell), 'the two copies simulated different sand');
     [false, true].forEach(function (paper) {
       rb.setPaper(paper); rs.setPaper(paper); rs.setSandLight('soft');
       [rb, rs].forEach(function (r) { r.drawGlass(c[2]); for (var k = 0; k < 4; k++) r.drawSand(); });
-      ok(fnv(rb.buf) === fnv(rs.buf), 'seed ' + c[0] + (paper ? ', light look' : ', dark look') + ': Soft drew ' + fnv(rs.buf) + ', ' + SOFT_BASE + ' ' + fnv(rb.buf));
-      ok(fnv(rb.bloomA) === fnv(rs.bloomA), 'seed ' + c[0] + ': the bloom differs');
-      n++;
+      if (!paper) {
+        ok(fnv(rb.buf) === fnv(rs.buf), 'seed ' + c[0] + ', dark look: Soft drew ' + fnv(rs.buf) + ', ' + SOFT_BASE + ' ' + fnv(rb.buf));
+        ok(fnv(rb.bloomA) === fnv(rs.bloomA), 'seed ' + c[0] + ': the bloom differs');
+        n++;
+      } else {
+        // the light look: the grains in the air are drawn with a dark side (and differ); the beds alone are the same
+        if (fnv(rb.buf) !== fnv(rs.buf)) air++;
+        var npb = rb.sim.np, nps = rs.sim.np;
+        rb.sim.np = 0; rs.sim.np = 0; rb.drawSand(); rs.drawSand();
+        ok(fnv(rb.buf) === fnv(rs.buf) && fnv(rb.bloomA) === fnv(rs.bloomA), 'seed ' + c[0] + ', light look, the beds alone: Soft drew ' + fnv(rs.buf) + ', ' + SOFT_BASE + ' ' + fnv(rb.buf));
+        rb.sim.np = npb; rs.sim.np = nps; beds++;
+      }
       // control: the same frame under Sunlit is another picture
       rs.setSandLight('sunlit'); rb.drawSand(); rs.drawSand();
       if (fnv(rb.buf) !== fnv(rs.buf)) sun++;
       rs.setSandLight('soft'); rb.drawSand(); rs.drawSand();
     });
   });
-  ok(sun === n, 'control: Sunlit drew ' + SOFT_BASE + '\'s picture in ' + (n - sun) + ' of ' + n);
-  return n + ' frames (3 glasses, upright, turned over and leaned, both looks) identical with the bloom; control: Sunlit differs in all ' + sun;
+  ok(sun === n + beds, 'control: Sunlit drew ' + SOFT_BASE + '\'s picture in ' + (n + beds - sun) + ' of ' + (n + beds));
+  ok(air === beds, 'the light look\'s grains in the air were drawn as before in ' + (beds - air) + ' of ' + beds);
+  // a pale sand: its beds are drawn deeper at their tops in the light look (and not in the dark)
+  var mb = realRenderer(B, runningGlass(B, 99, false)), ms = realRenderer(P, runningGlass(P, 99, false)), pale = [];
+  [false, true].forEach(function (paper) {
+    [mb, ms].forEach(function (r) { r.setLook({ sand: 'moonstone' }); r.setPaper(paper); r.sim.np = 0; r.drawGlass(0); r.drawSand(); r.drawSand(); });
+    pale.push(fnv(mb.buf) === fnv(ms.buf));
+  });
+  ok(pale[0] && !pale[1], 'Moonstone\'s beds: the same as ' + SOFT_BASE + ' in the dark look ' + pale[0] + ', in the light ' + pale[1] + ' (deeper: false)');
+  return n + ' frames in the dark look identical with the bloom; ' + beds + ' in the light look with their beds identical and the grains in the air drawn anew in ' + air +
+    '; Moonstone\'s beds deeper in the light look only; control: Sunlit differs in all ' + sun;
 });
 
 test('the sunlit sand\'s tables: the cells once per shape, the look\'s on a change of look or sand (and each frame of a fade), the light\'s on a turn of 0.01 rad; none on a still frame', function () {

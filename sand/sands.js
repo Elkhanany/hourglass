@@ -258,8 +258,8 @@
    */
   var KEY_LIGHT = (function () { var v = [-0.66, 0.52, 0.54], l = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); return Object.freeze([v[0] / l, v[1] / l, v[2] / l]); })();
   var SUNLIT = Object.freeze({
-    dark: Object.freeze({ A: 0.52, K: 0.60, X: 0.95, wrap: 0.40, C: 0.30, kw: 0.30, kd: 0.16, ks: 0.50, wd: 2.4, hlK: 0.8, tint: Object.freeze([255, 246, 230]) }),
-    paper: Object.freeze({ A: 0.58, K: 0.95, X: 1.00, wrap: 0.42, C: 0.32, kw: 0.32, kd: 0.10, ks: 0.45, wd: 2.4, hlK: 0.45, tint: Object.freeze([255, 242, 218]) })
+    dark: Object.freeze({ A: 0.52, K: 0.60, X: 1.18, wrap: 0.40, C: 0.08, kw: 0.30, kd: 0.16, ks: 0.50, wd: 1.5, hlK: 0.8, sat: 0.8, crest: 5, tint: Object.freeze([255, 246, 230]) }),
+    paper: Object.freeze({ A: 0.56, K: 0.75, X: 1.00, wrap: 0.42, C: 0.08, kw: 0.32, kd: 0.10, ks: 0.45, wd: 1.5, hlK: 0.45, sat: 1.0, crest: 5, tint: Object.freeze([255, 242, 218]) })
   });
 
   // Each sand's accent is its own and of its sand (1.20.1): the selected pill, the Start button and the
@@ -268,9 +268,9 @@
   var SANDS = {
     sahara: sandOf('sahara', { accent: '#e9b872', accentInk: '#1b1206', glow: '255, 176, 92', glowA: 0.20, orb: ['#f0c98a', '#cf9645', '#8f5b23'] }, { key: 1, paper: 0.95, lift: 0, glints: 0.10, mica: 0.955 }),
     // (the page's glow for the black sand is a shade warmer than the room's, as it has always been)
-    volcanic: sandOf('volcanic', { accent: '#9ba2ad', accentInk: '#0e1116', glow: '214, 164, 78', glowA: 0.15, orb: ['#4a4658', '#201f29', '#0c0c11'] }, { key: 1, paper: 1, lift: 0.07, glints: 0.05, mica: 0.985 }),
+    volcanic: sandOf('volcanic', { accent: '#9ba2ad', accentInk: '#0e1116', glow: '214, 164, 78', glowA: 0.15, orb: ['#4a4658', '#201f29', '#0c0c11'] }, { key: 1, paper: 1.35, lift: 0.07, glints: 0.05, mica: 0.985 }),
     moonstone: sandOf('moonstone', { accent: '#c9d6ea', accentInk: '#0d131c', glow: '168, 196, 235', glowA: 0.19, orb: ['#f6f3ec', '#cfd6e2', '#8e99ab'] }, { key: 1, paper: 0.76, lift: 0, glints: 0.10, mica: 0.955 }),
-    lapis: sandOf('lapis', { accent: '#86a6f2', accentInk: '#0a1022', glow: '104, 136, 230', glowA: 0.16, orb: ['#3c5bb8', '#1e2f72', '#0d1638'] }, { key: 1, paper: 1, lift: 0.05, glints: 0.07, mica: 0.975 }),
+    lapis: sandOf('lapis', { accent: '#86a6f2', accentInk: '#0a1022', glow: '104, 136, 230', glowA: 0.16, orb: ['#3c5bb8', '#1e2f72', '#0d1638'] }, { key: 1, paper: 1.3, lift: 0.05, glints: 0.07, mica: 0.975 }),
     rosequartz: sandOf('rosequartz', { accent: '#e9b0b2', accentInk: '#1f1012', glow: '236, 168, 178', glowA: 0.17, orb: ['#fbe3e4', '#e8b4ba', '#b97f88'] }, { key: 1, paper: 0.83, lift: 0, glints: 0.10, mica: 0.955 }),
     seaglass: sandOf('seaglass', { accent: '#a3d6c9', accentInk: '#0b1816', glow: '150, 212, 198', glowA: 0.17, orb: ['#e6f6f1', '#a9d6cb', '#5f9a8e'] }, { key: 1, paper: 0.82, lift: 0, glints: 0.10, mica: 0.955 }),
     // Almandine garnet: the wine-red heavy sand of Pfeiffer Beach and Emerald Creek.
@@ -299,7 +299,7 @@
       glass: { tint: [255, 226, 230], smoke: 0.13 },
       glow: [226, 110, 122],
       ui: { accent: '#ee8593', accentInk: '#1c0a0d', glow: '226, 110, 122', glowA: 0.16, orb: ['#c4506a', '#8a2a3f', '#3a0e1a'] },
-      sun: { key: 1, paper: 1, lift: 0.05, glints: 0.07, mica: 0.97 }
+      sun: { key: 1, paper: 1.3, lift: 0.05, glints: 0.07, mica: 0.97 }
     },
     // Olivine: the green sand of Papakolea, Hawaii. Glassy peridot crystals weathered out of basalt.
     olivine: {
@@ -327,7 +327,7 @@
       glass: { tint: [240, 248, 214], smoke: 0.09 },
       glow: [196, 210, 138],
       ui: { accent: '#c6d28a', accentInk: '#13190a', glow: '196, 210, 138', glowA: 0.17, orb: ['#c3d07c', '#8a9c45', '#46521f'] },
-      sun: { key: 1, paper: 1, lift: 0.02, glints: 0.09, mica: 0.96 }
+      sun: { key: 1, paper: 1.05, lift: 0.02, glints: 0.09, mica: 0.96 }
     },
     // Amethyst: violet quartz, banded with white as chevron amethyst is.
     amethyst: {
@@ -354,7 +354,7 @@
       glass: { tint: [238, 226, 255], smoke: 0.09 },
       glow: [188, 150, 228],
       ui: { accent: '#c9afe6', accentInk: '#140d1e', glow: '188, 150, 228', glowA: 0.17, orb: ['#cdb2ea', '#9670c4', '#4d3273'] },
-      sun: { key: 1, paper: 1, lift: 0.01, glints: 0.10, mica: 0.955 }
+      sun: { key: 1, paper: 1.05, lift: 0.01, glints: 0.10, mica: 0.955 }
     }
   };
   var SAND_ORDER = ['sahara', 'volcanic', 'moonstone', 'lapis', 'rosequartz', 'seaglass', 'garnet', 'olivine', 'amethyst'];
@@ -570,10 +570,11 @@
         backlight: r3(L('backlight'))
       };
       // the sunlit sand: as dark as it is between the two ways, and the key on paper dimmed for a pale
-      // colour by its mean brightness at mid light (moonstone 0.76, sahara 0.95, no dimming from about 0.6 down)
+      // colour by its mean brightness at mid light (moonstone 0.76, sahara 0.95, no dimming from about 0.6 down), raised
+      // for a dark one as far as it is dark (volcanic black 1.35: the paper's key is a third lower than the dark room's)
       function SL(a) { return lerp(SUN_LIGHT[a], SUN_DARK[a], k); }
       var tm = toneMean(sand), yb = (0.2126 * tm[0] + 0.7152 * tm[1] + 0.0722 * tm[2]) / 255 * (0.991 / (0.34 + 24 * 0.031));
-      var sun = { key: 1, paper: r2(clamp(0.62 / Math.max(yb, 0.01), 0.55, 1)), lift: r3(SL('lift')), glints: r3(SL('glints')), mica: r3(SL('mica')) };
+      var sun = { key: 1, paper: r2(clamp(0.62 / Math.max(yb, 0.01), 0.55, 1) * (1 + 0.35 * k)), lift: r3(SL('lift')), glints: r3(SL('glints')), mica: r3(SL('mica')) };
 
       // --- the room and the glass follow the sand ---
       var amber = smooth(60, 20, Math.abs(hueTo(h, 35))) * wC;      // warm sands glow like a candle (sahara)

@@ -374,6 +374,8 @@ var DRIVE = [
   ['grain: fine', click('#grains [data-grain="1"]'), 'reload'],
   ['grain: finest', click('#grains [data-grain="2"]'), 'reload'],
   ['grain: classic', click('#grains [data-grain="0"]'), 'reload'],
+  ['light: soft', click('#lights [data-light="soft"]')],
+  ['light: sunlit', click('#lights [data-light="sunlit"]')],
   ['the look and sound put back: the first tap', click('#tune-reset')],
   ['the look and sound put back: the second tap', click('#tune-reset'), 'slow'],
   ['Real sand: on', click('#opt-realsand'), 'reload']

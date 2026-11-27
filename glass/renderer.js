@@ -29,6 +29,14 @@
   /** a, b, or m of the way from a to b (exactly a at 0 and b at 1: a look at rest is drawn as it always was) */
   function byMix(a, b, m) { return m <= 0 ? a : (m >= 1 ? b : a + (b - a) * m); }
   var AO_BIAS = 12;
+  function linC(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  function srgbC(v) { v = v <= 0 ? 0 : (v >= 1 ? 1 : v); return 255 * (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055); }
+  /** Two colours of the table (r, g, b, 255 in bytes) mixed: t of the way from a to b. */
+  function mixRGB(a, b, t) {
+    var r = (a & 255) + ((b & 255) - (a & 255)) * t, g = ((a >>> 8) & 255) + (((b >>> 8) & 255) - ((a >>> 8) & 255)) * t,
+      bl = ((a >>> 16) & 255) + (((b >>> 16) & 255) - ((a >>> 16) & 255)) * t;
+    return ((255 << 24) | ((bl | 0) << 16) | ((g | 0) << 8) | (r | 0)) >>> 0;
+  }
   var SUB = 2;          // each grain is drawn as a lit 2×2 bead
 
   /**
@@ -84,6 +92,7 @@
     this._sun = null;     // the sunlit sand's tables, made by prepareSun or when it is first drawn (_drawSunlit)
     this._sunRev = 0;     // counts the colour table's rebuilds: the sunlit tables follow it
     this.lightRot = 0;    // the glass against the room, as drawSand or drawGlass was last told (the key light stays in the room)
+    this._pt = null;      // the light look's falling grains and pale beds (_paperTones), made when the light look is first drawn
     this.glass = null;    // [far wall, near wall] WebGL layers, or null → drawn glass
     this.glassRot = 0;
     this._initGlass();
@@ -377,7 +386,7 @@
     this.theme = {
       id: rec.id, name: rec.name, short: rec.name,
       sand: rec.sand, sand2: rec.sand2, glint: rec.glint, light: rec.light,
-      glass: rec.glass, cap: THEMES[material].cap, glow: rec.glow
+      glass: rec.glass, cap: THEMES[material].cap, glow: rec.glow, sun: rec.sun
     };
     this._buildLUT();
     if (!live) this.drawStatic();
@@ -435,6 +444,53 @@
   };
 
   /* ---------------------------------------------------------------- *
+   *  The light look's falling grains and pale beds (both lights)
+   *
+   *  On the paper a pale grain in the air is white on white. So in the
+   *  light look (and that share of it while the looks fade) a grain in
+   *  flight is a bead with a lit side toward the key and a dark side away
+   *  from it: its own colour taken down to under half its light, the
+   *  colour kept (a shadow, not grey), and its streak half way between.
+   *  A pale sand is also drawn a little deeper where it lies against the
+   *  page: the top grains of its beds and the grains against the glass.
+   *  In the dark look none of this is drawn: m = 0 makes nothing.
+   * ---------------------------------------------------------------- */
+  var PAPER_DARK = 0.45, PAPER_DARK_MAX = 0.20;   // a falling grain's dark side: its light x 0.45, at most 0.20 of white
+  /** The tables for this look (this.mix) and sand, made again when either changes; null in the dark look. */
+  Renderer.prototype._paperTones = function () {
+    var m = this.mix;
+    if (!(m > 0)) return null;
+    var T = this._pt || (this._pt = { rev: -1, mix: -1, dark: new Uint32Array(256), half: new Uint32Array(256), deep: 0, builds: 0 });
+    if (T.rev === this._sunRev && T.mix === m) return T;
+    var lut = this.lut, s, v, r, g, b, Yl, f, sum = 0;
+    for (s = 0; s < 256; s++) {
+      v = lut[(24 << 8) | s] >>> 0;
+      r = linC(v & 255); g = linC((v >>> 8) & 255); b = linC((v >>> 16) & 255);
+      Yl = 0.2126 * r + 0.7152 * g + 0.0722 * b; sum += Yl;
+      f = Yl > 1e-4 ? Math.min(PAPER_DARK, PAPER_DARK_MAX / Yl) : 1;
+      // darker by f, and a quarter more colour: the shade of a coloured grain is coloured
+      var Yd = Yl * f;
+      r = Yd + (r * f - Yd) * 1.25; g = Yd + (g * f - Yd) * 1.25; b = Yd + (b * f - Yd) * 1.25;
+      var dk = ((255 << 24) | ((srgbC(b) | 0) << 16) | ((srgbC(g) | 0) << 8) | (srgbC(r) | 0)) >>> 0;
+      T.dark[s] = mixRGB(v, dk, m);
+      T.half[s] = mixRGB(v, dk, 0.5 * m);
+    }
+    T.deep = Math.round(paleDeep(sum / 256) * m);
+    T.rev = this._sunRev; T.mix = m; T.builds++;
+    return T;
+  };
+  /**
+   * How many light levels a pale sand is drawn deeper where it lies against the page, from its mean light at
+   * the flight's level (of white, linear): none up to 0.6 (Sahara 0.53), Moonstone (0.80) 4, at most 5.
+   */
+  function paleDeep(mean) { var d = Math.round((mean - 0.58) * 20); return d < 0 ? 0 : (d > 5 ? 5 : d); }
+  /** Which pixel of a 2 x 2 bead faces the key (the room's, turned back by the glass at `rot`): bit 0 right, bit 1 lower. */
+  function keyCorner(rot) {
+    var c = Math.cos(rot), sn = Math.sin(rot), lx = c * KEY_LIGHT[0] - sn * KEY_LIGHT[1], ly = sn * KEY_LIGHT[0] + c * KEY_LIGHT[1];
+    return (lx < 0 ? 0 : 1) | (ly > 0 ? 0 : 2);
+  }
+
+  /* ---------------------------------------------------------------- *
    *  Sand: one lit bead per simulated grain
    *
    *  `rot`: how far the glass is turned against the room now (rad,
@@ -460,6 +516,8 @@
     // bloom is soft and slow: refresh it every third frame
     var glow = this.bctx && fr % 3 === 0 ? this.bloomA : null;
     var emit = this.emit, bw = this.bw, rimE = this.theme.light.emit.rim, gi;
+    // the light look only: the falling grains' dark sides and a pale sand's deeper top (null in the dark look)
+    var PT = this._paperTones(), deep = PT ? PT.deep : 0;
 
     buf.fill(0);
     depth.fill(0);
@@ -479,6 +537,7 @@
         s = seed[i];
         lv = base[i] - ao[d] + AO_BIAS;
         if (c === MOVE) lv++;
+        if (deep && (d <= 3 || edge[i] !== 15)) { lv -= deep; if (lv < 3) lv = 3; }   // (a pale sand against the page)
         if (glow) {
           gi = (y >> 1) * bw + (x >> 1);
           glow[gi] += d === 1 ? emit[s] + rimE : emit[s];
@@ -519,7 +578,7 @@
 
     // Free-falling grains: sub-cell position plus a short velocity streak.
     var np = sim.np, px = sim.px, py = sim.py, pvx = sim.pvx, pvy = sim.pvy, ps = sim.pseed;
-    var BH = this.BH, N = BW * BH;
+    var BH = this.BH, N = BW * BH, kc = PT ? keyCorner(this.lightRot) : 0, pdk, phf;
     for (var p = 0; p < np; p++) {
       var fx = px[p] * SUB, fy = py[p] * SUB;
       var ix = fx | 0, iy = fy | 0;
@@ -529,12 +588,13 @@
       h = Math.imul((p * 31 + fr) ^ s, 0x9E3779B1) >>> 0;
       if (isMica[s] && (h >>> 30) < 2) col = glint;
       else col = lut[((24 + (h >>> 30)) << 8) | s];
+      if (PT) { pdk = PT.dark[s]; phf = PT.half[s]; }
       var vx = pvx[p], vy = pvy[p];
       var sp = Math.sqrt(vx * vx + vy * vy);
       var len = sp * SUB / 60 * 0.9;         // streak ≈ one frame of travel
       if (len > 20) len = 20;
       if (len >= 1.5) {
-        var ux = -vx / sp, uy = -vy / sp, rgb = col & 0x00FFFFFF;
+        var ux = -vx / sp, uy = -vy / sp, rgb = (PT ? phf : col) & 0x00FFFFFF;
         for (var k = 1; k <= len; k++) {
           var qx = (fx + ux * (k + 0.5)) | 0, qy = (fy + uy * (k + 0.5)) | 0;
           if (qx < 0 || qy < 0 || qx >= BW - 1 || qy >= BH) continue;
@@ -551,7 +611,11 @@
       for (var dy2 = 0; dy2 < 2; dy2++) {
         for (var dx2 = 0; dx2 < 2; dx2++) {
           var gx2 = ix + dx2, gy2 = iy + dy2;
-          if ((edge[(gy2 >> 1) * W + (gx2 >> 1)] >> (((gy2 & 1) << 1) | (gx2 & 1))) & 1) buf[gy2 * BW + gx2] = col;
+          if ((edge[(gy2 >> 1) * W + (gx2 >> 1)] >> (((gy2 & 1) << 1) | (gx2 & 1))) & 1) {
+            // on the paper: lit toward the key, dark on the far side, between on the other two
+            var pq = PT ? (dx2 | (dy2 << 1)) ^ kc : 0;
+            buf[gy2 * BW + gx2] = !pq ? col : (pq === 3 ? pdk : phf);
+          }
         }
       }
       if (glow) glow[(py[p] >> 1) * bw + (px[p] >> 1)] += 0.3;
@@ -595,6 +659,10 @@
    *  glass, in 16 bits. Per frame: the columns. Per grain: a few lookups.
    * ---------------------------------------------------------------- */
   var SUN_BANDS = 16;               // the contact shade by the distance to the glass, in half cells (15: none)
+  var SUN_GAUSS = [1, 0.88, 0.61, 0.32, 0.14, 0.04];   // the surface's heights smoothed: exp(-o^2 / 8), o = 0 to 5 columns
+  var SUN_HORIZON = [1, 2, 4, 8, 16, 24];               // where the soft shadow looks toward the light, columns
+  /** How much of the light look the sunlit sand's look tables are made for: the share in sixteenths (exactly 0 or 1 at rest). */
+  function sunMix(m) { return Math.round(m * 16) / 16; }
 
   /** 'sunlit' or 'soft' (as it has always been drawn). Only the sand's own picture changes. */
   Renderer.prototype.setSandLight = function (mode) {
@@ -634,7 +702,8 @@
    * `m`: the look they are made for (0 the dark, 1 the light); left out, the look this renderer shows.
    */
   Renderer.prototype._sunLook = function (S, m) {
-    var k = S.k = this._sunConsts(m === undefined ? this.mix : m), sun = k.sun, src = this.lut, out = S.lut, s, lv, d;
+    if (m === undefined) m = sunMix(this.mix);
+    var k = S.k = this._sunConsts(m), sun = k.sun, src = this.lut, out = S.lut, s, lv, d;
     var m0 = 0.34 + 21 * 0.031, base = [0, 0, 0], tint = k.tint, ks = k.ks, hl = this.theme.light.hl * k.hlK;
     // the bed's mean colour (its grains but the mica): a mica fleck far brighter than its bed (gold on black)
     // is drawn part of the way toward it, so that it sparkles when it glints and is quiet when it does not
@@ -647,19 +716,23 @@
       base[0] = v & 255; base[1] = (v >>> 8) & 255; base[2] = (v >>> 16) & 255;
       if (this.isMica[s] && nm) {
         var q0 = ((0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2] + 1) / yMean - 1.5) / 3;
-        q0 = q0 < 0 ? 0 : (q0 > 0.55 ? 0.55 : q0);
+        q0 = q0 < 0 ? 0 : (q0 > 0.25 ? 0.25 : q0);
         for (c3 = 0; c3 < 3; c3++) base[c3] += (mean[c3] - base[c3]) * q0;
       }
       base[0] /= m0; base[1] /= m0; base[2] /= m0;
       for (lv = 0; lv < LEVELS; lv++) {
         var mm = 0.34 + lv * 0.031, r = base[0] * mm, gg = base[1] * mm, b = base[2] * mm;
-        if (mm < 1) {                                  // a shadow deepens in colour: light bounced among coloured grains
-          var Y = 0.2126 * r + 0.7152 * gg + 0.0722 * b, q = 1 + ks * (1 - mm);
-          r = Y + (r - Y) * q; gg = Y + (gg - Y) * q; b = Y + (b - Y) * q;
+        var Y = 0.2126 * r + 0.7152 * gg + 0.0722 * b, q = mm < 1 ? 1 + ks * (1 - mm) : 1 + k.sat * (mm - 1);
+        // a shadow deepens in colour (light bounced among coloured grains); a lit grain gains colour as it gains light
+        r = Y + (r - Y) * q; gg = Y + (gg - Y) * q; b = Y + (b - Y) * q;
+        r = r < 0 ? 0 : r; gg = gg < 0 ? 0 : gg; b = b < 0 ? 0 : b;
+        var mx = r > gg ? (r > b ? r : b) : (gg > b ? gg : b), w = 0;
+        if (mx > 255) {                                // past white: the hue kept, what is over spills toward the tint
+          var f = 255 / mx; w = (1 - f) * 0.7; r *= f; gg *= f; b *= f;
         }
-        r = r > 255 ? 255 : (r < 0 ? 0 : r); gg = gg > 255 ? 255 : (gg < 0 ? 0 : gg); b = b > 255 ? 255 : (b < 0 ? 0 : b);
-        if (mm > 1) {                                  // a lit grain rolls toward the light's own tint
-          var w = (mm - 1) * hl; if (w > 0.94) w = 0.94;
+        if (mm > 1.15) w += (mm - 1.15) * hl;          // a lit grain rolls toward the light's own tint only far up
+        if (w > 0) {
+          if (w > 0.94) w = 0.94;
           r += (tint[0] - r) * w; gg += (tint[1] - gg) * w; b += (tint[2] - b) * w;
         }
         out[(lv << 8) | s] = ((255 << 24) | ((b | 0) << 16) | ((gg | 0) << 8) | (r | 0)) >>> 0;
@@ -672,12 +745,17 @@
     }
     var X = k.X / 0.031;
     for (d = 0; d < 256; d++) {
-      S.wt[d] = d < 1 ? 1 : (d > 14 ? 0 : Math.exp(-(d - 1) / k.wd));
+      // the free surface's light into the bed, by the distance under its smoothed height (quarter cells), gone by 6 cells
+      S.wt[d] = d >= 24 ? 0 : Math.exp(-d / 4 / k.wd) * (d > 16 ? (24 - d) / 8 : 1);
       S.ao[d] = 1 - k.kd * (1 - Math.exp(-Math.max(d - 1, 0) / 7));
     }
+    // a pale sand drawn deeper where it lies against the page (the light look's share: as _paperTones)
+    var sumY = 0;
+    for (s = 0; s < 256; s++) { v = src[(24 << 8) | s] >>> 0; sumY += 0.2126 * linC(v & 255) + 0.7152 * linC((v >>> 8) & 255) + 0.0722 * linC((v >>> 16) & 255); }
+    S.deep = Math.round(paleDeep(sumY / 256) * m);
     // a grain in flight: a small bead, its mean light over the half the eye sees
     S.lvFlight = Math.max(3, Math.min(44, Math.round((k.X * (k.A + 0.62 * k.K) - 0.34) / 0.031)));
-    S.X = X; S.rev = this._sunRev; S.mix = this.mix; S.builds.look++;
+    S.X = X; S.rev = this._sunRev; S.mix = m; S.builds.look++;
     S.rot = NaN;                                       // (the light's tables follow)
   };
 
@@ -716,32 +794,49 @@
     S.L = L; S.H = Hh; S.rot = rot; S.builds.light++;
   };
 
-  /** Once a frame, per column of each bed: the free surface's light, its glint term and its soft shadow, from last frame's surface. */
+  /**
+   * Once a frame, per column of each bed, from last frame's surface: its height smoothed over five columns
+   * each side (a column with no bed counts for nothing), so that the stairs of the lattice light no stripes;
+   * the slope and the soft shadow (a horizon toward the light, 1 to 24 columns) from those heights; the
+   * free surface's light, its glint term, and the crest's lift where the surface faces the key.
+   */
   Renderer.prototype._sunColumns = function (S, up) {
-    var W = this.sim.W, L = S.L, Hh = S.H, k = S.k, U = up ? -1 : 1, X = S.X;
+    var W = this.sim.W, L = S.L, Hh = S.H, k = S.k, U = up ? -1 : 1, X = S.X, GW = SUN_GAUSS;
     var LU = L[1] * U, ax = L[0] < 0 ? -L[0] : L[0], tanA = LU / (ax > 1e-3 ? ax : 1e-3), sg = L[0] < 0 ? -1 : 1;
     for (var b = 0; b < 2; b++) {
-      var sf = S.surf[b], et = S.et[b], th = S.th[b], x, o, kk;
+      var sf = S.surf[b], hs = S.hs[b], et = S.et[b], th = S.th[b], cr = S.cr[b], x, o, kk, j;
       for (x = 0; x < W; x++) {
-        var r0 = sf[x];
-        if (r0 < 0) { et[x] = -1; continue; }
-        var h0 = up ? r0 : -r0, sum = 0, ws = 0;
-        for (o = 1; o <= 3; o++) {
-          var ra = x + o < W ? sf[x + o] : -1, rc = x - o >= 0 ? sf[x - o] : -1;
-          if (ra >= 0 && rc >= 0) { sum += ((up ? ra : -ra) - (up ? rc : -rc)) / (2 * o * o); ws += 1 / o; }
+        if (sf[x] < 0) { hs[x] = -1; continue; }
+        var sum = 0, ws = 0;
+        for (o = -5; o <= 5; o++) {
+          j = x + o;
+          if (j < 0 || j >= W || sf[j] < 0) continue;
+          sum += GW[o < 0 ? -o : o] * sf[j]; ws += GW[o < 0 ? -o : o];
         }
-        var mx = ws ? sum / ws : 0, nx = -mx, ny = U, nz = 0.5, l = Math.sqrt(nx * nx + 1 + 0.25);
+        hs[x] = sum / ws;
+      }
+      for (x = 0; x < W; x++) {
+        if (sf[x] < 0) { et[x] = -1; cr[x] = 0; continue; }
+        var h0 = up ? hs[x] : -hs[x];
+        var xa = x + 2 < W && sf[x + 2] >= 0 ? x + 2 : (x + 1 < W && sf[x + 1] >= 0 ? x + 1 : x);
+        var xc = x - 2 >= 0 && sf[x - 2] >= 0 ? x - 2 : (x - 1 >= 0 && sf[x - 1] >= 0 ? x - 1 : x);
+        var mx = xa === xc ? 0 : ((up ? hs[xa] : -hs[xa]) - (up ? hs[xc] : -hs[xc])) / (xa - xc);
+        var nx = -mx, ny = U, nz = 0.5, l = Math.sqrt(nx * nx + 1 + 0.25);
         nx /= l; ny /= l; nz /= l;
         var tau = -9;
-        for (kk = 1; kk <= 24; kk *= 2) {
-          var xk = x + sg * kk, rk = xk >= 0 && xk < W ? sf[xk] : -1;
-          if (rk >= 0) { var t = ((up ? rk : -rk) - h0) / kk; if (t > tau) tau = t; }
+        for (j = 0; j < SUN_HORIZON.length; j++) {
+          kk = SUN_HORIZON[j];
+          var xk = x + sg * kk;
+          if (xk >= 0 && xk < W && sf[xk] >= 0) { var t = ((up ? hs[xk] : -hs[xk]) - h0) / kk; if (t > tau) tau = t; }
         }
         var vis = 0.2;
         if (LU > 0) { var e0 = tanA - 0.25, e1 = tanA + 0.35, u = (tau - e0) / (e1 - e0); u = u < 0 ? 0 : (u > 1 ? 1 : u); vis = 1 - 0.8 * u * u * (3 - 2 * u); }
         var nl = nx * L[0] + ny * L[1] + nz * L[2], D = (nl + k.wrap) / (1 + k.wrap);
         et[x] = (k.A * (0.85 + 0.15 * ny * U) + 0.88 * k.K * vis * (D > 0 ? D : 0)) * X;
         th[x] = nx * Hh[0] + ny * Hh[1] + nz * Hh[2];
+        // the crest: the top grains of a surface that faces the key, a few levels brighter
+        var cq = (nl - 0.45) / 0.3; cq = cq < 0 ? 0 : (cq > 1 ? 1 : cq);
+        cr[x] = k.crest * cq * cq * (3 - 2 * cq) * vis;
       }
     }
   };
@@ -756,6 +851,7 @@
         eb: new Float32Array(SUN_BANDS * 256), hb: new Float32Array(256),
         surf: [new Int16Array(W).fill(-1), new Int16Array(W).fill(-1)], next: [new Int16Array(W), new Int16Array(W)],
         et: [new Float32Array(W), new Float32Array(W)], th: [new Float32Array(W), new Float32Array(W)],
+        hs: [new Float32Array(W), new Float32Array(W)], cr: [new Float32Array(W), new Float32Array(W)], deep: 0,
         rev: -1, mix: -1, rot: NaN, X: 1, lvFlight: 24, L: null, H: null, builds: { cells: 0, look: 0, light: 0 }
       };
       for (s = 0; s < 256; s++) {                      // each seed's facet: a fixed tilt in a ball of radius 0.55
@@ -775,13 +871,13 @@
     if (!this.sunlit) return;
     var S = this._sunState();
     if (S.geo !== this.sim.geo) this._sunCells(S);
-    if (S.rev !== this._sunRev || S.mix !== this.mix) this._sunLook(S);
+    if (S.rev !== this._sunRev || S.mix !== sunMix(this.mix)) this._sunLook(S);
   };
 
   Renderer.prototype._drawSunlit = function () {
     var sim = this.sim, W = sim.W, H = sim.H, BW = this.BW, S = this._sunState(), i, s, d;
     if (S.geo !== sim.geo) this._sunCells(S);
-    if (S.rev !== this._sunRev || S.mix !== this.mix) this._sunLook(S);
+    if (S.rev !== this._sunRev || S.mix !== sunMix(this.mix)) this._sunLook(S);
     var rot = this.lightRot;
     if (!(Math.abs(rot - S.rot) < 0.01)) this._sunLight(S, rot);     // (as the glass is redrawn: under 0.6 degrees is not worth it)
     var up = sim.gy < 0;
@@ -795,10 +891,10 @@
     var nx0 = S.next[0].fill(-1), nx1 = S.next[1].fill(-1);
     buf.fill(0); depth.fill(0); if (glow) glow.fill(0);
     var yS = up ? H - 1 : 0, yE = up ? -1 : H, yD = up ? -1 : 1, bed = 0;
-    var et = S.et[0], th = S.th[0], nxt = nx0;
-    var y, x, c, lv, bi, ci, e, w, eL, g, hi, mid, lo, em, x0, x1;
+    var et = S.et[0], th = S.th[0], hs = S.hs[0], cr = S.cr[0], nxt = nx0, deep = S.deep;
+    var y, x, c, lv, bi, ci, e, w, eL, g, hi, mid, lo, em, x0, x1, dq;
     for (y = yS; y !== yE; y += yD) {
-      if (y === gateY) { depth.fill(0); bed = 1; et = S.et[1]; th = S.th[1]; nxt = nx1; continue; }
+      if (y === gateY) { depth.fill(0); bed = 1; et = S.et[1]; th = S.th[1]; hs = S.hs[1]; cr = S.cr[1]; nxt = nx1; continue; }
       x0 = rowMin[y]; x1 = rowMax[y];
       if (x0 > x1) continue;
       i = y * W + x0; bi = (y * SUB) * BW + x0 * SUB;
@@ -809,14 +905,25 @@
         if (nxt[x] < 0 && c !== MOVE) nxt[x] = y;               // this frame's resting surface, for the next frame's light
         s = seed[i]; ci = c16[i];
         e = eb[ci]; eL = et[x];
-        w = eL >= 0 ? wt[d] : 0;
+        w = 0;
+        if (eL >= 0) {                                          // under the smoothed surface, in quarter cells
+          dq = ((up ? hs[x] - y : y - hs[x]) * 4) | 0;
+          w = dq <= 0 ? 1 : (dq < 24 ? wt[dq] : 0);
+        }
         if (w) e += (eL - e) * w;
-        lv = (e * ao[d] - off) | 0;
+        e = e * ao[d] - off;
+        if (d < 3 && w) e += d === 1 ? cr[x] : 0.5 * cr[x];      // the crest that faces the key
+        lv = e | 0;
         if (c === MOVE) lv++;
+        if (deep && (d <= 3 || (ci >> 8) < 3)) lv -= deep;       // (a pale sand against the page, the light look's share)
         if (lv < 3) lv = 3; else if (lv > 44) lv = 44;
         g = hb[ci & 255]; if (w) g += (th[x] - g) * w;
         mid = lut[(lv << 8) | s]; lo = lut[((lv - 3) << 8) | s];
-        if (g > t2[c === MOVE ? (s + tumble) & 255 : s]) { hi = glint; if (glow) glow[(y >> 1) * bw + (x >> 1)] += 0.7; }
+        if (g > t2[c === MOVE ? (s + tumble) & 255 : s]) {
+          // a sparkle: the facet's pixel the glint's colour, the bead round it half way there; only a tumbling grain flares the bloom
+          hi = glint; mid = mixRGB(mid, glint, 0.55);
+          if (glow) glow[(y >> 1) * bw + (x >> 1)] += c === MOVE ? 0.7 : 0.12;
+        }
         else hi = lut[((lv + 3) << 8) | s];
         if (glow) { gi = (y >> 1) * bw + (x >> 1); glow[gi] += d === 1 ? emit[s] + rimE : emit[s]; }
         buf[bi] = buf[bi + 1] = buf[bi + BW] = buf[bi + BW + 1] = mid;
@@ -835,17 +942,18 @@
 
     // grains in flight: small beads lit by half the key, a tumbling facet now and then catching it
     var np = sim.np, px = sim.px, py = sim.py, pvx = sim.pvx, pvy = sim.pvy, ps = sim.pseed, BH = this.BH, lvF = S.lvFlight;
-    var isMica = this.isMica;
+    var isMica = this.isMica, PT = this._paperTones(), kc = (S.L[0] < 0 ? 0 : 1) | (S.L[1] > 0 ? 0 : 2), pdk = 0, phf = 0;
     for (var p = 0; p < np; p++) {
       var fx = px[p] * SUB, fy = py[p] * SUB, ix = fx | 0, iy = fy | 0;
       if (ix < 1 || iy < 1 || ix >= BW - 2 || iy >= BH - 2) continue;
       s = ps[p];
       var hh = Math.imul((p * 31 + (fr >> 1)) ^ s, 0x9E3779B1) >>> 0, flash = (hh >>> 24) < (isMica[s] ? 40 : 10);
       var col = lut[(lvF << 8) | s], hc = flash ? glint : lut[((lvF + 4) << 8) | s];
+      if (PT) { pdk = PT.dark[s]; phf = PT.half[s]; }
       var vx = pvx[p], vy = pvy[p], sp = Math.sqrt(vx * vx + vy * vy), len = sp * SUB / 60 * 0.9;
       if (len > 20) len = 20;
       if (len >= 1.5) {
-        var ux = -vx / sp, uy = -vy / sp, rgb = col & 0x00FFFFFF;
+        var ux = -vx / sp, uy = -vy / sp, rgb = (PT ? phf : col) & 0x00FFFFFF;
         for (var kq = 1; kq <= len; kq++) {
           var qx = (fx + ux * (kq + 0.5)) | 0, qy = (fy + uy * (kq + 0.5)) | 0;
           if (qx < 0 || qy < 0 || qx >= BW - 1 || qy >= BH) continue;
@@ -860,7 +968,11 @@
       for (var dy2 = 0; dy2 < 2; dy2++) {
         for (var dx2 = 0; dx2 < 2; dx2++) {
           var gx2 = ix + dx2, gy2 = iy + dy2;
-          if ((edge[(gy2 >> 1) * W + (gx2 >> 1)] >> (((gy2 & 1) << 1) | (gx2 & 1))) & 1) buf[gy2 * BW + gx2] = dx2 === 0 && dy2 === 0 ? hc : col;
+          if ((edge[(gy2 >> 1) * W + (gx2 >> 1)] >> (((gy2 & 1) << 1) | (gx2 & 1))) & 1) {
+            // the pixel toward the key lit; on the paper the far one dark and the other two between
+            var pq = (dx2 | (dy2 << 1)) ^ kc;
+            buf[gy2 * BW + gx2] = !pq ? hc : (PT ? (pq === 3 ? pdk : phf) : col);
+          }
         }
       }
       if (glow) glow[(py[p] >> 1) * bw + (px[p] >> 1)] += flash ? 0.8 : 0.3;
