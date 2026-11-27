@@ -165,22 +165,54 @@ function contrasts(t, scope) {
   }, scope);
 }
 
-/* ---- pixels of the screen (a screenshot, read back in the page) ---------------------------- */
-async function pixels(t, clip) {
+/* ---- pixels of the screen (a screenshot, read back in the page and measured there) --------- */
+/**
+ * The screen's pixels within `clip`, kept in the page as window.__px[name] ({ w, h, d }). They
+ * are measured where they are, by the measures below and each case's own, and only the measure
+ * comes back (here, the picture's size): a screen's worth of numbers does not cross to Node (a
+ * whole one is 1.3 million; what each costs is said at layers()).
+ */
+async function pixels(t, clip, name) {
   var png = await t.page.screenshot({ clip: clip, scale: 'css' });
-  return t.eval(function (b64) {
-    return new Promise(function (done) {
+  return t.eval(function (a) {
+    return new Promise(function (done, fail) {
       var img = new Image();
       img.onload = function () {
         var c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
         var g = c.getContext('2d'); g.drawImage(img, 0, 0);
-        done({ w: img.width, h: img.height, d: Array.prototype.slice.call(g.getImageData(0, 0, img.width, img.height).data) });
+        (window.__px = window.__px || {})[a.name] = { w: img.width, h: img.height, d: g.getImageData(0, 0, img.width, img.height).data };
+        done({ w: img.width, h: img.height });
       };
-      img.src = 'data:image/png;base64,' + b64;
+      img.onerror = function () { fail(new Error('pixels: the screenshot "' + a.name + '" could not be read back')); };
+      img.src = 'data:image/png;base64,' + a.b64;
     });
-  }, png.toString('base64'));
+  }, { name: name, b64: png.toString('base64') });
 }
-function L(d, i) { return 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; }
+/** The mean colour of a kept picture: [r, g, b]. */
+function meanOf(t, name) {
+  return t.eval(function (name) {
+    var d = window.__px[name].d, r = [0, 0, 0], n = d.length / 4;
+    for (var i = 0; i < d.length; i += 4) { r[0] += d[i]; r[1] += d[i + 1]; r[2] += d[i + 2]; }
+    return r.map(function (v) { return v / n; });
+  }, name);
+}
+/** A kept picture's size, a hash of its pixels (FNV-1a over them as 32-bit words) and their sum: two that agree in all are the same to the pixel. */
+function printOf(t, name) {
+  return t.eval(function (name) {
+    var p = window.__px[name], w = new Uint32Array(p.d.buffer), h = 2166136261 >>> 0, sum = 0, i;
+    for (i = 0; i < w.length; i++) { h ^= w[i]; h = Math.imul(h, 16777619) >>> 0; }
+    for (i = 0; i < p.d.length; i++) sum += p.d[i];
+    return { w: p.w, h: p.h, hash: h, sum: sum };
+  }, name);
+}
+/** How far two kept pictures are apart: the mean difference of a colour channel, in levels (alpha left out). */
+function apart(t, a, b) {
+  return t.eval(function (n) {
+    var p = window.__px[n.a].d, q = window.__px[n.b].d, s2 = 0;
+    for (var i = 0; i < p.length; i++) if ((i & 3) !== 3) s2 += Math.abs(p[i] - q[i]);
+    return s2 / (p.length * 0.75);
+  }, { a: a, b: b });
+}
 /**
  * The glass's outline on a level line through the empty lower bulb, from the bore's middle out
  * past the glass's left edge: the darkest point near the edge, against the bore just inside it and
@@ -189,15 +221,19 @@ function L(d, i) { return 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
 async function outline(t) {
   var g = await t.glass();
   var y = Math.round(g.top + g.h * 0.70), x0 = Math.max(0, Math.round(g.left - 24)), x1 = Math.round(g.cx);
-  var px = await pixels(t, { x: x0, y: y - 1, width: x1 - x0, height: 3 });
-  var row = [], x, k;
-  for (x = 0; x < px.w; x++) { var s = 0; for (k = 0; k < 3; k++) s += L(px.d, ((k * px.w) + x) * 4); row.push(s / 3); }
-  var paper = row.slice(0, 8).reduce(function (a, b) { return a + b; }, 0) / 8;
-  // the edge: the darkest point in the outer third of the scan
-  var lo = 1e9, at = -1;
-  for (x = 8; x < Math.round(px.w * 0.6); x++) if (row[x] < lo) { lo = row[x]; at = x; }
-  var inner = row.slice(at + 6, at + 16), bore = inner.reduce(function (a, b) { return a + b; }, 0) / Math.max(1, inner.length);
-  return { dark: Math.round(Math.min(paper, bore) - lo), paper: Math.round(paper), bore: Math.round(bore), line: Math.round(lo), at: at + x0 };
+  await pixels(t, { x: x0, y: y - 1, width: x1 - x0, height: 3 }, 'line');
+  return t.eval(function (x0) {
+    var px = window.__px.line;
+    function L(d, i) { return 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; }
+    var row = [], x, k;
+    for (x = 0; x < px.w; x++) { var s = 0; for (k = 0; k < 3; k++) s += L(px.d, ((k * px.w) + x) * 4); row.push(s / 3); }
+    var paper = row.slice(0, 8).reduce(function (a, b) { return a + b; }, 0) / 8;
+    // the edge: the darkest point in the outer third of the scan
+    var lo = 1e9, at = -1;
+    for (x = 8; x < Math.round(px.w * 0.6); x++) if (row[x] < lo) { lo = row[x]; at = x; }
+    var inner = row.slice(at + 6, at + 16), bore = inner.reduce(function (a, b) { return a + b; }, 0) / Math.max(1, inner.length);
+    return { dark: Math.round(Math.min(paper, bore) - lo), paper: Math.round(paper), bore: Math.round(bore), line: Math.round(lo), at: at + x0 };
+  }, x0);
 }
 
 /* ---- the suite ------------------------------------------------------------------------- */
@@ -474,21 +510,21 @@ function glassAlone(t, on) {
     document.head.appendChild(st);
   }, on);
 }
-async function glassPixels(t, clip) { await glassAlone(t, true); await sleep(300); var p = await pixels(t, clip); await glassAlone(t, false); return p; }
+async function glassPixels(t, clip, name) { await glassAlone(t, true); await sleep(300); var p = await pixels(t, clip, name); await glassAlone(t, false); return p; }
 async function webglFade(env, routes) {
   var t = await opn(env, { storage: { background: 'dark' }, viewport: { width: 390, height: 844 }, routes: routes });
   await sleep(2500);
   var g = await t.glass(), clip = { x: Math.round(g.left + g.w * 0.2), y: Math.round(g.top + g.h * 0.55), width: Math.round(g.w * 0.6), height: Math.round(g.h * 0.3) };
-  var a = await glassPixels(t, clip);
+  await glassPixels(t, clip, 'a');
   await t.page.tap('#btn-look');
   var h = await holdFade(t, 0.5);
   await sleep(2500);                                   // (software WebGL: a frame takes most of a second)
-  var m = await glassPixels(t, clip);
+  await glassPixels(t, clip, 'm');
   await letGo(t); await settled(t); await sleep(2500);
-  var b = await glassPixels(t, clip);
+  await glassPixels(t, clip, 'b');
+  var am = await apart(t, 'a', 'm'), mb = await apart(t, 'm', 'b'), ab = await apart(t, 'a', 'b');
   await t.close();
-  function dist(p, q) { var s2 = 0; for (var i = 0; i < p.d.length; i++) if ((i & 3) !== 3) s2 += Math.abs(p.d[i] - q.d[i]); return s2 / (p.d.length * 0.75); }
-  var r = { held: !!h, fromDark: Math.round(dist(a, m) * 100) / 100, toLight: Math.round(dist(m, b) * 100) / 100, whole: Math.round(dist(a, b) * 100) / 100 };
+  var r = { held: !!h, fromDark: Math.round(am * 100) / 100, toLight: Math.round(mb * 100) / 100, whole: Math.round(ab * 100) / 100 };
   r.between = r.held && r.fromDark > 0.2 * r.whole && r.toLight > 0.2 * r.whole && r.fromDark < r.whole && r.toLight < r.whole;
   return r;
 }
@@ -532,12 +568,13 @@ async function paleSand(s, env) {
     await sleep(900);
     var g = await t.glass();
     // the bed in the upper bulb (idle: a full glass), and the paper to its left
-    var bed = await pixels(t, { x: Math.round(g.cx - g.w * 0.12), y: Math.round(g.top + g.h * 0.30), width: Math.round(g.w * 0.24), height: Math.round(g.h * 0.06) });
-    var paper = await pixels(t, { x: Math.max(2, Math.round(g.left - 18)), y: Math.round(g.top + g.h * 0.30), width: 10, height: Math.round(g.h * 0.06) });
+    await pixels(t, { x: Math.round(g.cx - g.w * 0.12), y: Math.round(g.top + g.h * 0.30), width: Math.round(g.w * 0.24), height: Math.round(g.h * 0.06) }, 'bed');
+    var a = await meanOf(t, 'bed');
+    await pixels(t, { x: Math.max(2, Math.round(g.left - 18)), y: Math.round(g.top + g.h * 0.30), width: 10, height: Math.round(g.h * 0.06) }, 'paper');
+    var b = await meanOf(t, 'paper');
     await t.close();
-    function mean(p) { var r = 0, gg = 0, b = 0, n = p.d.length / 4; for (var i = 0; i < p.d.length; i += 4) { r += p.d[i]; gg += p.d[i + 1]; b += p.d[i + 2]; } return [r / n, gg / n, b / n]; }
     function lumOf(c) { var f = function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); }
-    var a = mean(bed), b = mean(paper), ra = lumOf(a), rb = lumOf(b);
+    var ra = lumOf(a), rb = lumOf(b);
     return { ratio: Math.round((Math.max(ra, rb) + 0.05) / (Math.min(ra, rb) + 0.05) * 100) / 100, sand: a.map(Math.round), paper: b.map(Math.round) };
   }
   var moon = await one({ sand: 'moonstone', theme: 'moonstone' }), custom = await one({ sand: 'custom', sandColor: '45,0.2,0.97' });
@@ -710,28 +747,31 @@ function shortDvh(env, change) {
  */
 async function seams(t) {
   var size = await t.eval(function () { return { w: innerWidth, h: innerHeight }; });
-  var px = await pixels(t, { x: 0, y: 0, width: size.w, height: size.h });
-  var info = await t.eval(function () {
-    var boxes = [];
-    document.querySelectorAll('.panel, .chip, .icon-btn, #readout, #status, .sheet.open, #toast.show, #assembly, #shadow').forEach(function (e) {
-      var r = e.getBoundingClientRect(), cs = getComputedStyle(e);
-      if (r.width && r.height && cs.visibility !== 'hidden' && +cs.opacity > 0) boxes.push([r.left - 2, r.top - (e.classList.contains('sheet') ? 90 : 4), r.right + 2, r.bottom + 4]);
+  await pixels(t, { x: 0, y: 0, width: size.w, height: size.h }, 'screen');
+  // (the columns are scanned in the page, where the screen's pixels are kept; a column steps at most once in 9 pixels)
+  return t.eval(function () {
+    var px = window.__px.screen, info = (function () {
+      var boxes = [];
+      document.querySelectorAll('.panel, .chip, .icon-btn, #readout, #status, .sheet.open, #toast.show, #assembly, #shadow').forEach(function (e) {
+        var r = e.getBoundingClientRect(), cs = getComputedStyle(e);
+        if (r.width && r.height && cs.visibility !== 'hidden' && +cs.opacity > 0) boxes.push([r.left - 2, r.top - (e.classList.contains('sheet') ? 90 : 4), r.right + 2, r.bottom + 4]);
+      });
+      var a = document.getElementById('app').getBoundingClientRect();
+      return { boxes: boxes, app: [a.left, a.top, a.right, a.bottom] };
+    })();
+    var W = px.w, Hh = px.h, d = px.d, steps = [];
+    function inside(x, y) { return info.boxes.some(function (b) { return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; }); }
+    function mean(x, y0, y1) { var r = [0, 0, 0]; for (var y = y0; y < y1; y++) { var i = (y * W + x) * 4; r[0] += d[i]; r[1] += d[i + 1]; r[2] += d[i + 2]; } return r.map(function (v) { return Math.round(v / (y1 - y0)); }); }
+    [3, 6, W - 7, W - 4].forEach(function (x) {
+      for (var y = 6; y < Hh - 6; y++) {
+        if (inside(x, y - 6) || inside(x, y + 6)) continue;
+        var a = mean(x, y - 6, y - 1), b = mean(x, y + 1, y + 6);
+        if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 12) { steps.push({ x: x, y: y, above: a, below: b }); y += 8; }
+      }
     });
-    var a = document.getElementById('app').getBoundingClientRect();
-    return { boxes: boxes, app: [a.left, a.top, a.right, a.bottom] };
+    var box = Math.abs(info.app[0]) < 0.5 && Math.abs(info.app[1]) < 0.5 && Math.abs(info.app[2] - W) < 0.5 && Math.abs(info.app[3] - Hh) < 0.5;
+    return { steps: steps, box: box, app: info.app.map(Math.round) };
   });
-  var W = px.w, Hh = px.h, d = px.d, steps = [];
-  function inside(x, y) { return info.boxes.some(function (b) { return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; }); }
-  function mean(x, y0, y1) { var r = [0, 0, 0]; for (var y = y0; y < y1; y++) { var i = (y * W + x) * 4; r[0] += d[i]; r[1] += d[i + 1]; r[2] += d[i + 2]; } return r.map(function (v) { return Math.round(v / (y1 - y0)); }); }
-  [3, 6, W - 7, W - 4].forEach(function (x) {
-    for (var y = 6; y < Hh - 6; y++) {
-      if (inside(x, y - 6) || inside(x, y + 6)) continue;
-      var a = mean(x, y - 6, y - 1), b = mean(x, y + 1, y + 6);
-      if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 12) { steps.push({ x: x, y: y, above: a, below: b }); y += 8; }
-    }
-  });
-  var box = Math.abs(info.app[0]) < 0.5 && Math.abs(info.app[1]) < 0.5 && Math.abs(info.app[2] - W) < 0.5 && Math.abs(info.app[3] - Hh) < 0.5;
-  return { steps: steps, box: box, app: info.app.map(Math.round) };
 }
 async function groundCase(env, look, size, how, routes, tag) {
   var t = await opn(env, { storage: { background: look }, viewport: { width: size[0], height: size[1] }, routes: routes });
@@ -819,11 +859,12 @@ function samePixels(a, b) { return a.length === b.length && a.every(function (l,
 /** The picture's numbers: a patch of the room beside the glass, the bar's ground, and the glass's own drawn layers (kept in the page as `name`). */
 async function picture(t, name) {
   var g = await t.glass();
-  var room = await pixels(t, { x: 4, y: Math.round(g.top + g.h * 0.4), width: 24, height: 24 });
+  await pixels(t, { x: 4, y: Math.round(g.top + g.h * 0.4), width: 24, height: 24 }, 'room');
+  var room = await meanOf(t, 'room');
   var bar = await t.eval(function () { var r = document.querySelector('.panel').getBoundingClientRect(); return { x: Math.round(r.left + 6), y: Math.round(r.bottom - 10) }; });
-  var panel = await pixels(t, { x: bar.x, y: bar.y, width: 6, height: 4 });
-  function mean(p) { var r = [0, 0, 0], n = p.d.length / 4; for (var i = 0; i < p.d.length; i += 4) { r[0] += p.d[i]; r[1] += p.d[i + 1]; r[2] += p.d[i + 2]; } return r.map(function (v) { return v / n; }); }
-  return { room: mean(room), bar: mean(panel), layers: await layers(t, name) };
+  await pixels(t, { x: bar.x, y: bar.y, width: 6, height: 4 }, 'bar');
+  var panel = await meanOf(t, 'bar');
+  return { room: room, bar: panel, layers: await layers(t, name) };
 }
 /** m lies well between a and b, in each of its three channels (a and b far apart). */
 function between(a, m, b) { return a.every(function (v, i) { var lo = Math.min(v, b[i]), hi = Math.max(v, b[i]); return hi - lo > 8 && m[i] > lo + 0.15 * (hi - lo) && m[i] < hi - 0.15 * (hi - lo); }); }
@@ -872,18 +913,21 @@ async function fadeCase(s, env) {
     await sleep(800);
     if (act) { await act(t); await settled(t); }
     await sleep(1500);                  // (the room's own easings at the launch over, in both: the same picture at rest)
-    var l = await lookOf(t), p = await picture(t), page = await pixels(t, { x: 0, y: 0, width: 390, height: 120 });
+    var l = await lookOf(t), p = await picture(t);
+    await pixels(t, { x: 0, y: 0, width: 390, height: 120 }, 'top');
+    var page = await printOf(t, 'top');
     await t.close();
-    return { l: l, p: p, page: page.d };
+    return { l: l, p: p, page: page };
   }
   var rows = [], ok = true;
   for (var pair of [['dark', 'light'], ['light', 'dark']]) {
     var faded = await endOf(pair[0], function (t) { return t.page.tap('#btn-look'); }), plain = await endOf(pair[1]);
-    var glass = samePixels(faded.p.layers, plain.p.layers);
-    var same = lookIs(faded.l, pair[1]) && glass && faded.page.every(function (v, i) { return v === plain.page[i]; }) &&
+    var glass = samePixels(faded.p.layers, plain.p.layers), top = samePixels([faded.page], [plain.page]);
+    var same = lookIs(faded.l, pair[1]) && glass && top &&
       faded.p.room.every(function (v, i) { return Math.abs(v - plain.p.room[i]) < 0.01; });
     ok = ok && same;
-    rows.push(pair.join('→') + (same ? ' exact' : ' ' + said(faded.l) + ' glass ' + (glass ? 'the same' : JSON.stringify(faded.p.layers) + ' vs ' + JSON.stringify(plain.p.layers)) + ' room ' + faded.p.room.map(Math.round) + ' vs ' + plain.p.room.map(Math.round)));
+    rows.push(pair.join('→') + (same ? ' exact' : ' ' + said(faded.l) + ' glass ' + (glass ? 'the same' : JSON.stringify(faded.p.layers) + ' vs ' + JSON.stringify(plain.p.layers)) +
+      ' top ' + (top ? 'the same' : JSON.stringify(faded.page) + ' vs ' + JSON.stringify(plain.page)) + ' room ' + faded.p.room.map(Math.round) + ' vs ' + plain.p.room.map(Math.round)));
   }
   s.check('FADE: each end is exactly its look as the app opens in it: the page\'s top and the room, the metas, the moon button, and the glass\'s drawn layers to the pixel (' + rows.join(', ') + ')', ok, rows.join(' | '));
 }
