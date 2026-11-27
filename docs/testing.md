@@ -361,7 +361,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   with `git archive e375591` and given as `--root`, fails the waiting, the
   finished, the sequence and the last paused checks; by hand on a copy of
   the tree, `stateAfterSwap()` without `byPhone &&` fails the Flip button's
-  and the finger's checks, without `&& was !== 'running'` the running one,
+  and the finger's checks and Start in between, without `&& was !==
+  'running'` the running one,
   with a paused glass sent to wait the paused one, and `seqSwapped()`
   without `|| next === 'idle'` the sequence's): every
   script `index.html` loads is served as it is, except that a suite may ask

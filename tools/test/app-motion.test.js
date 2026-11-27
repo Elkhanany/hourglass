@@ -55,9 +55,9 @@
  *     WAITING, FINISHED and SEQUENCE checks and the last PAUSED one fail: the glass reads "Time" at
  *     the first turn and runs at the second. By hand, on a copy of the tree: the rule applied to
  *     every turn (stateAfterSwap without `byPhone &&`) fails the Flip button's and the finger's
- *     checks; applied to a running glass too (without `&& was !== 'running'`) it fails RUNNING;
- *     a paused glass sent to wait fails PAUSED; seqSwapped without its `|| next === 'idle'` fails
- *     SEQUENCE.
+ *     checks, and Start in between; applied to a running glass too (without `&& was !==
+ *     'running'`) it fails RUNNING; a paused glass sent to wait fails both PAUSED checks;
+ *     seqSwapped without its `|| next === 'idle'` fails SEQUENCE.
  *
  *   node tools/test/app-motion.test.js [--root <dir>] [--port <n>] [--only mapping|tiltswap|slosh|sides|start]
  */
@@ -453,6 +453,10 @@ function turnOver(t) {
 function ranOut(t, ms) {
   return t.page.waitForFunction(function () { var H = window.Hourglass; return H.timer.state === 'done' && H.sim.nTop === 0; }, null, { timeout: ms, polling: 100 });
 }
+/** A glass that the step before should have started and did not (on a tree where it fails) is started here, so that the checks after it are still made. */
+function runIt(t) {
+  return t.eval(function () { if (window.Hourglass.timer.state !== 'running') window.Hourglass.start(); });
+}
 async function resetGlass(t) {
   await t.page.tap('#btn-reset');
   await t.page.waitForFunction(function () { return !document.getElementById('app').classList.contains('sweep') && !document.getElementById('app').classList.contains('swap'); }, null, { timeout: 5000 });
@@ -565,6 +569,7 @@ async function startFinished(s, env) {
     await t.touch.tap(g2.cx, g2.cy, 60);
     await sleep(600);
     var f4 = await startRead(t);
+    await runIt(t);
     await ranOut(t, 16000);
     await sleep(1600);
     var f5 = await startRead(t);
@@ -577,6 +582,7 @@ async function startFinished(s, env) {
     await sleep(500);
     var f6 = await startRead(t);
     s.check('START FINISHED: the Flip button starts a finished glass (a touch): it runs', f6.state === 'running' && f6.rem > 8000 && f6.rem < 10000 && f6.label === 'Pause', startShow(f6));
+    await runIt(t);
     await ranOut(t, 16000);
     await sleep(1200);
     // ... and so does a finger that turns it over
