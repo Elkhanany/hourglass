@@ -222,7 +222,7 @@ second tap sooner than 0.4 s, half of a double tap, is not an answer); the
 second sets the sand (with the material that follows it), the frame's
 finish, the frame, layered sand, the volume, the sand's sound, the ambience
 and its level and its fade before the end, the completion bowl, its rings
-and its level, and the sand's level to their records' defaults (the custom
+and its level, the sand's level and Headphones: Spatial to their records' defaults (the custom
 sand's colour is kept, for its swatch; the six quick durations and Show when
 it ends are kept, as the durations are), saves once, and tells the engines only what differed, the look
 behind one cross-fade. Everything else is kept, Sound in silent mode among it
@@ -244,7 +244,11 @@ the time left (`ambFadeShare`) and handed to the sound engine with every
 frame, which glides a gain after the ambience's bus (`ambEnd`) to it. Sound in
 silent mode is the page's audio session, which `sound/audio.js` sets when the
 sound is first unlocked and at once when the switch moves; with it off the
-app sets it at the launch too.
+app sets it at the launch too. Headphones: Spatial (the setting `spatial`,
+off as the app comes) is the sound engine's stage: `app.js` only tells the
+engine (`audio.setSpatial`), at the launch when it was left on and when the
+switch moves; the engine builds the stage, waits for its room and crosses
+over by itself (docs/engines.md, "The stage").
 
 The Time tab opens with the six quick durations (the setting `quick`,
 "1,5,10,15,30,60" as the app comes), then "The clock": Show when it ends
@@ -321,7 +325,10 @@ its record's, is the default. Then come the Time tab's two: `quick`
 ("1,5,10,15,30,60") and `endsAt` (false). The last, the 44th (1.19.0), is
 `background`: 'dark' (the default, the app as it has always looked), 'light',
 'system' or 'hours'; any other value is 'dark', and a save from before it comes
-up dark. The reset link of Tune puts it back to 'dark' with the look.
+up dark. The reset link of Tune puts it back to 'dark' with the look. After
+it comes `spatial` (false): Headphones: Spatial, the sound engine's stage.
+A save from before it comes up with it off, the app never sets it by itself,
+and the reset link turns it off.
 
 `HourglassSettings.load(storage, search, reg)` gives the values: the
 defaults; over them the saved values of the right type; the version step

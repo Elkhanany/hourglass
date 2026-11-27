@@ -26,13 +26,42 @@
  *         end of a turn (the angle from half a turn back to nothing, the ends swapped) makes no
  *         jump in either ear. Controls: placing every frame schedules; a stage that does not
  *         swap its ends with the glass jumps.
+ *   WATER each ambience is played from loops rendered for the stage, within 1 dB of itself
+ *         without it, wide, with nothing more in the graph; what a loop's left channel holds
+ *         is heard in front on the left and again, later, quieter and darker, from behind; a
+ *         rendered loop closes without a click; the fade before the end, the Ambience level and
+ *         a change of ambience work as without the stage. Controls: rendered without the
+ *         directions behind; rendered from its start, not going round; water sent round its bus.
+ *   BOWL  within 1 dB of the bowl without the stage at Bowl 50 and 100 and rung again (Rings);
+ *         to the right and steady, second by second and by the quarter second; its place in
+ *         the mix only while it rings; stopped by a tap; the switch thrown while it rings
+ *         leaves it where it began. Controls: its two channels each to a speaker of its own; a
+ *         place that never leaves the mix; a bowl left to ring.
+ *   SWITCH on and off under a steady tone, and thrown about, no step louder than -40 dBFS; ten
+ *         times thrown, nothing left connected; the Sound volume, the Sand level, a change of
+ *         character and Sound in silent mode as without the stage. Controls: no crossfade; a
+ *         stage taken down without letting go of its nodes; a Sand level that moves only the
+ *         old gain; a correction that stays the first character's; a session left alone.
+ *   HIDDEN hold() and no update() for seven seconds keeps the glass sounding with the stage on,
+ *         and the switch thrown under the hold does no harm. Control: no hold().
+ *   POSE  the phone laid flat for over a second lowers the glass. Control: half way down.
+ *   START (where the engine has begin(), the sound coming in gently at a start) the water's
+ *         rise and the sand's are the same with the stage on, and the switch thrown in the
+ *         middle of a rise does not jump it. Controls: water round its bus; a start with no rise.
+ *   COST  ten seconds of a running glass render with the stage on in at most 1.4 times the
+ *         time without it, alone and with a brook (medians of five, in turn: run the suite
+ *         alone). Control: the water live through four panners, the bowl's place always joined.
  *
- * Headless Chromium now and then never finishes an offline render that has HRTF panners in it
- * and suspends every frame. Each render here has a watchdog and is done once more on a fresh
- * page if it hangs; the count is printed.
+ * Headless Chromium now and then never finishes an offline render that has HRTF panners in it:
+ * when the render has to wait for the browser to load its HRTF data (about one first render in
+ * sixteen; none of 64 that found the data loaded). Each fresh page here makes a panner and
+ * gives the load a moment before it renders; each render still has a watchdog and is done once
+ * more in a fresh browser if it hangs, and the count is printed.
  *
  *   node tools/test/audio-spatial.test.js [port]      (argv[2], else $PORT, else 8811)
- *   HOURGLASS_SPATIAL_PRINT=1 prints every measure
+ *   HOURGLASS_SPATIAL_PRINT=1 prints every measure; HOURGLASS_SPATIAL_ONLY=<regexp> runs only
+ *   those groups (off, level, place, turn, image, still, water, bowl, switch, hidden, pose, start,
+ *   cost); HOURGLASS_SPATIAL_AUDIO=<file> holds another copy of sound/audio.js to them
  */
 'use strict';
 var childProcess = require('child_process');
@@ -46,6 +75,7 @@ var PORT = +(process.argv[2] || process.env.PORT || 8811);
 var BASE = 'http://127.0.0.1:' + PORT;
 var SOUND_BASE = process.env.HOURGLASS_SPATIAL_BASE || '73528e7';
 var PRINT = !!process.env.HOURGLASS_SPATIAL_PRINT;
+var ENGINE = process.env.HOURGLASS_SPATIAL_AUDIO || '';                    // (another copy of sound/audio.js to hold to these checks: a merge being tried)
 var WATCHDOG_MS = +process.env.HOURGLASS_SPATIAL_WATCHDOG_MS || 90000;     // (set small to try the retry: every render then counts as hung)
 
 var failures = 0, cases = 0, hangs = 0, renders = 0;
@@ -301,6 +331,7 @@ async function main() {
       r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="' + AUDIO + '"></script><script src="/__base-audio.js"></script>' });
     });
     await page.route(BASE + '/__base-audio.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: baseSrc }); });
+    if (ENGINE) await page.route(BASE + AUDIO, function (r) { r.fulfill({ contentType: 'text/javascript', body: fs.readFileSync(ENGINE, 'utf8') }); });
     await page.goto(BASE + '/__spatial.html');
     await page.evaluate(harness);
     // The browser loads its HRTF data when the first HRTF panner is made, on a thread of its own. An
@@ -330,6 +361,7 @@ async function main() {
   }
   try {
     await fresh();
+    if (ENGINE) report(null, 'the engine held to these checks is ' + ENGINE + ', not the tree\'s');
     var lines = [], cal = {};
     var chars = await page.evaluate(function () { return Object.keys(window.HourglassAudio.CHARACTERS); });
 
@@ -896,6 +928,45 @@ async function main() {
            'POSE: the phone laid on its back, or on its face, for over a second, the glass lies lower: more of every bar goes to the ring\'s lower row; before the second is up nothing has moved; the level stays within 1.5 dB',
            'the lower row\'s share before, 0.7 s after and 2.5 s after: on its back ' + pose.seen['1'].join(' ') + ', on its face ' + pose.seen['-1'].join(' ') + '; the level ' + pose.level + ' dB');
     report(!lower(pose.seen['0.5']), 'CONTROL: half way down (not flat), nothing moves', pose.seen['0.5'].join(' '));
+
+    }
+    if (want('start')) {
+    /* ---- START: the sound's coming in at a start (an engine with begin()), with the stage on --- */
+    var hasBegin = await page.evaluate(function () { return typeof window.HourglassAudio.prototype.begin === 'function'; });
+    if (!hasBegin) report(null, 'START: this engine has no begin() (the sound coming in gently at a start): nothing to hold here until it has one');
+    else {
+      var stt = await job('start', async function () {
+        var L = window.__level, r = function (v) { return Math.round(v * 100) / 100; };
+        var W = [[3.2, 4], [5.5, 6.5], [8, 9], [11.5, 12.5]], S = [[0.3, 0.7], [0.8, 1.2], [1.4, 1.8], [2.5, 3.5]];
+        var at = function (o, wins) { return wins.map(function (w) { return L(o, w[0], w[1]); }); };
+        var began = function (a) { a.begin(600, false); };
+        var water = function (sp, o) {
+          return window.__scene(Object.assign({ dur: 13, rate: 0, flow: 0, spatial: sp, seed: 7, ambience: 'brook', setup: began, frame: function () { return { running: true, ambient: true }; } }, o));
+        };
+        var sand = function (sp, o) {
+          return window.__scene(Object.assign({ dur: 4, rate: 60, spatial: sp, seed: 9, setup: began, frame: function () { return { bottom: 2400, running: true, ambient: true }; } }, o));
+        };
+        var fine = function (o) { var x = []; for (var t = 4.5; t < 6.49; t += 0.25) x.push(L(o, t, t + 0.25)); return x; };
+        var w0 = await water(false), w1 = await water(true);
+        var wt = await water(false, { each: function (a, t) { if (window.__at(t, 5)) return window.__on(a); } });
+        var wc = await water(true, { tweak: function (a) { a._amb.g.disconnect(); a._amb.g.connect(a.comp); } });      // control: the placed water round its bus, and its rise
+        var s0 = await sand(false), s1 = await sand(true);
+        var st = await sand(false, { each: function (a, t) { if (window.__at(t, 0.8)) return window.__on(a); } });
+        var sc = await sand(true, { setup: function (a) { a.begin(600, false); a._sandIn = null; } });                   // control: the sand with no rise
+        var d = function (x, y) { return x.map(function (v, i) { return r(v - y[i]); }); };
+        return { water: { off: at(w0, W), on: d(at(w1, W), at(w0, W)), thrown: d(at(wt, W), at(w0, W)), fine: d(fine(wt), fine(w0)), control: d(at(wc, W), at(w0, W)) },
+                 sand: { off: at(s0, S), on: d(at(s1, S), at(s0, S)), thrown: d(at(st, S), at(s0, S)), control: d(at(sc, S), at(s0, S)) } };
+      });
+      var within = function (x, lim, from) { return x.slice(from || 0).every(function (v) { return Math.abs(v) <= lim; }); };
+      report(stt.water.off[0] < stt.water.off[3] - 20 && within(stt.water.on, 1) && within(stt.water.thrown, 1, 1) && within(stt.water.fine, 1.5),
+             'START: the water\'s rise after a start is the same with the stage on (within 1 dB at four moments of it), and the switch thrown in the middle of the rise does not jump it (within 1.5 dB by the quarter second round the crossing, within 1 dB after)',
+             'the brook without the stage ' + stt.water.off.join(', ') + ' dBFS at 3.6, 6, 8.5 and 12 s; with it ' + stt.water.on.join(', ') + ' dB; switched on at 5 s ' + stt.water.thrown.join(', ') + ' dB, by the quarter second from 4.5 s ' + stt.water.fine.join(' '));
+      report(!within(stt.water.control, 1), 'CONTROL: placed water that goes round its bus has no rise', stt.water.control.join(', ') + ' dB');
+      report(stt.sand.off[0] < stt.sand.off[3] - 3 && within(stt.sand.on, 1.5) && within(stt.sand.thrown, 1.5, 2),
+             'START: the sand\'s rise is the same with the stage on (within 1.5 dB at four moments of it), also with the switch thrown in the middle of it',
+             'the sand without the stage ' + stt.sand.off.join(', ') + ' dBFS at 0.5, 1, 1.6 and 3 s; with it ' + stt.sand.on.join(', ') + ' dB; switched on at 0.8 s ' + stt.sand.thrown.join(', ') + ' dB');
+      report(!within(stt.sand.control, 1.5), 'CONTROL: a start with no rise for the sand is found out', stt.sand.control.join(', ') + ' dB');
+    }
 
     }
     if (want('cost')) {

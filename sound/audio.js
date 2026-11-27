@@ -2962,12 +2962,13 @@
         self._stageIn(S);
         res(true);
       };
-      // (a browser whose render never ends: after 8 s the sound stays as it is, and the next try renders anew)
-      if (typeof ctx.startRendering !== 'function') setTimeout(function () { if (!settled) { delete stageRooms[ctx.sampleRate]; settle(false); } }, 8000);
       // (its speakers first: by the time they sound the browser has the HRTF's data, and the room's
       // render need not wait for it: a render that has to has been seen never to end)
       stageHears(ctx).then(function (ok) {
-        return ok && self._stage === S ? stageRoom(ctx.sampleRate) : null;
+        if (!ok || self._stage !== S) return null;
+        // (a browser whose render never ends all the same: after 8 s the sound stays as it is, and the next try renders anew)
+        if (typeof ctx.startRendering !== 'function') setTimeout(function () { if (!settled) { delete stageRooms[ctx.sampleRate]; settle(false); } }, 8000);
+        return stageRoom(ctx.sampleRate);
       }).then(function (ir) {
         if (!ir || self._stage !== S) return false;
         S.ir = ir;
@@ -3471,10 +3472,12 @@
       srcs.push(src); from.push(at);
       try { old.srcs[i].stop(t + d + 0.05); } catch (e) {}
     }
-    // (straight lines, not curves: a change of ambience during the crossing may still fade these by its own rule)
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + d);
+    // (two straight lines each, through 0.71 half way: near enough to equal power. Not curves: a
+    // change of ambience during the crossing may still fade these by its own rule)
+    var v0 = og.value;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.707, t + d / 2); g.gain.linearRampToValueAtTime(1, t + d);
     try { og.cancelScheduledValues(t); } catch (e2) {}
-    og.setValueAtTime(og.value, t); og.linearRampToValueAtTime(0, t + d);
+    og.setValueAtTime(v0, t); og.linearRampToValueAtTime(0.707 * v0, t + d / 2); og.linearRampToValueAtTime(0, t + d);
     this._amb = { id: old.id, srcs: srcs, g: g, baked: !!placed, t0: t, at: from };
     this._stageLater(t + d + 0.1, function () {
       for (var k = 0; k < old.srcs.length; k++) { try { old.srcs[k].disconnect(); } catch (e) {} }

@@ -631,29 +631,34 @@ sets, `WATER`, `SURF`, `FALLS`, `DRIPS`, the ambiences' records, `LEVEL`) as a s
 
 ## The stage: headphones, spatial (`setSpatial`)
 
-Built and tested, and off: nothing in the page switches it on yet (a Tune row
-comes with a later release). With it off, the engine is the graph described
-above, node for node and sample for sample.
+Tune's Sound tab switches it: *Headphones: Spatial*, the setting `spatial`,
+off as the app comes. With it off, the engine is the graph described above,
+node for node and sample for sample: nothing of the stage is made.
 
 **What it does.** On headphones the glass is heard as an object about an
 arm's length in front of the listener instead of a stereo picture between the
 ears. The sand's own faders (the hush, the grains and crackle, the vessel and
-the body, the foley, the slide and the air, the pour) stop at five **bars**: a
+the body, the foley, the slide and the air, the pour) feed four **bars**: a
 bar is a line across the glass whose two ends are a fader's left and right
 channels, so every pan the engine already makes (each grain's place, the
 beds' cone, the slide's side) is kept, now as a place along that line. Each
 end is placed between **ten still virtual loudspeakers**: PannerNodes with the
 browser's own head-related filters (`panningModel = 'HRTF'`), set once when
 the stage is built and never moved. Moving the glass changes only the gains
-into them.
+into them. The completion bowl has a place of its own out in the room, and
+the water ambience is rendered once for four more directions (both below).
 
 | bar | carries | along the glass |
 |---|---|---|
-| neck | the hush (`gWhisper`) | just under the neck, in the bulb below |
+| neck | the hush (`gWhisper`), and the pour of a new glass (`pEnv`) | just under the neck, in the bulb below |
 | land | the grains and the crackle (`gTicks`, `gBeds`) | the top of the pile in the bulb below |
 | glass | the vessel, the body and the foley (`gModal`, `gBody`, `gFoley`) | the neck, across the whole glass |
 | rush | the slide and the air (`rPan`, `aPan`) | the bulb the sliding sand is in |
-| pour | fresh sand poured in (`pEnv`) | the top |
+
+The foley fader also carries the pour, the slide and the air, which have
+places of their own. Nothing is taken off it for that: they are fed to the
+glass's bar once more, turned over, at the fader's own gain, and so cancel
+there.
 
 **The speakers.** A ring of eight round the neck (above at elevation +15°,
 at the sides at ±40° azimuth, the four between at ±28° azimuth and ±15° elevation) and an inner
@@ -674,7 +679,8 @@ the landings up the pile; where sand falls (the hush, the landings) is the
 bulb below in the room, so those bars cross through the neck as the glass
 passes level; the slide's bar is in the bulb the app says its sand is in
 (`slideBulb()` in `app.js`); a phone lying flat on its back or face for a
-second (`motion.pose()`) lowers the whole glass toward the desk. Placing is
+second (`motion.pose()`) lowers the whole glass toward the desk (nearly all
+of every bar then goes to the ring's lower row). Placing is
 done only when one of these has moved enough to hear (a degree, 2 % of a
 bulb): a still glass schedules nothing. At the end of a turn the angle snaps
 from half a turn back to nothing while the glass's ends swap; the stage swaps
@@ -692,7 +698,8 @@ the bulb now above, which empties through the neck (unless it holds under a
 quarter of the other's sand). So a clockwise turn of a glass whose sand is
 below is heard on the left, an anticlockwise one on the right, which is the
 other way from the engine without the stage (its slide pans by the sine of
-the angle).
+the angle). Real sand gives the same feeds through its adapter; its slide's
+bulb is worked out from how much sand each bulb holds, by the same rule.
 
 **Level and tone.** The ten speakers together colour the sound (about +7 dB
 round 200 Hz and -8 dB round 8 kHz against a plain panner), and each ear now
@@ -714,29 +721,92 @@ at 0.6 of the way to the glass's right edge is heard 46 µs and 2.6 dB (2 to
 way and the other moves the landings by about 120 µs and 5 dB; the slide a
 quarter turn round is heard about 245 µs and 9 dB to its side.
 
-**The room.** For the sand, the desk's small room gives way to one computed
-when the stage is built (`stageRoom()`): a furnished room 3.6 × 2.6 × 4.4 m,
-the head off centre so its walls differ, the glass 0.4 m ahead and a little
-below the eyes, a desk under it. Every image source up to the second bounce
-and the desk's own reflection, each delayed, scaled and darkened by its
-walls, is rendered offline through the same head-related filters from where
-it arrives; then a noise tail whose two ears agree below about 500 Hz and not
-above, darkening as it dies (0.3 s to -60 dB). Each ear is brought to unit
-energy, as the desk room's is, so a character's room level means what it
-meant. Rendering it also loads the browser's HRTF data (an offline context
-waits for it). Nothing is recorded or downloaded. The bowl and the ambience
-keep the desk's room and their stereo for now.
+**The room.** The stage's sand does not pass the bus or the desk's small
+room: it goes to the output chain by a gain of its own (the Sand level, while
+the stage is on) and from there, at the character's room level, into a room
+computed when the stage is built (`stageRoom()`): a furnished room
+3.6 × 2.6 × 4.4 m, the head off centre so its walls differ, the glass 0.4 m
+ahead and a little below the eyes, a desk under it. Every image source up to
+the second bounce and the desk's own reflection, each delayed, scaled and
+darkened by its walls, is rendered offline through the same head-related
+filters from where it arrives; then a noise tail whose two ears agree below
+about 500 Hz and not above, darkening as it dies (0.3 s to -60 dB). Each ear
+is brought to unit energy, as the desk room's is, so a character's room level
+means what it meant. Nothing is recorded or downloaded. The same offline
+render makes the bowl's room and takes down what the water's four directions
+do to an impulse at either ear, so the browser's HRTF data is asked for by
+one render only.
+
+**The bowl.** With the stage on a bowl rings from a place of its own, front
+right (two speakers at +40° and +60°, on the row below ear level), a little
+further away than the glass (0.8 m), with its own small room: the computed
+room heard from where the bowl stands, with more tail, the two ears brought
+to unit energy together so the nearer ear keeps what the room gives it. The
+bowl's partials are slowly beating pairs, panned a little apart; sent to two
+directions as they are, each pair would beat between the two. So both
+speakers and the room get one signal, the left of the pairs, whose loudness
+beats exactly as the whole bowl's does: the place is steady (measured on its
+fundamental: 424 to 433 µs and 2.7 to 2.9 dB to the right, second by second)
+and the shimmer is kept. Its level is within 0.2 dB of the bowl without the
+stage at Bowl 50 and at 100, and the Rings ring the same way. The place is
+joined to the output chain only while a bowl rings, and leaves it a second
+after the last has rung out; its speakers take no part while it is silent.
+The small bell of a mended glass rings there too.
+
+**The water.** The ambience's loops are rendered once for the stage and then
+played exactly as they always were, through the same bus, the same fade
+before the end and the same level: nothing is added to the graph for them.
+Each loop (at its own sample rate) is rendered offline through four
+directions: its left and right from ±50° in front, and again from ±130°
+behind, where it is later (13 and 19 ms), quieter (0.6), darker (a low-pass
+at 6 kHz) and turned by two all-pass sections a side. The directions are not
+panners there but what a panner does to an impulse at either ear, taken down
+with the room and brought to the loop's rate, so no further HRTF data is
+loaded. The render starts a tenth of a second before the loop's end and what
+is kept begins with everything the end leaves ringing: the loop closes on
+itself as it did. Four filters give back the tone the directions take
+(-6 dB at 170 Hz, -2 dB at 450 Hz, -1.5 dB at 4 kHz, +8 dB above 8 kHz), and
+each loop is brought to the power it had over both ears and its whole length.
+Each ambience measures within 0.5 dB of itself without the stage and each
+octave from 250 Hz to 8 kHz within 2 dB; the ears correlate less than before
+or as little (the brook 0.35 to 0.16, the ocean 0.69 to 0.53). The rendering
+happens when the stage is switched on, and again when another ambience is
+chosen while it is on, a layer at a time away from the page's thread; on the
+page's thread each layer costs two short stretches (its two powers, then the
+copy). While the stage is on the chosen ambience holds its loops twice, as
+made and as rendered (up to 8 MB each); switched off, the rendered ones are
+let go.
+
+**The switch.** `setSpatial(true)` builds the stage beside the graph, silent
+and fed by nothing. It then waits: for one of its speakers to be heard to
+sound (a live context's HRTF panners give silence until the browser has
+loaded its data), for the offline render of the rooms, and for the chosen
+ambience's loops to be rendered (three seconds at most: after that the water
+crosses over when they are made). Then it crosses over in a third of a
+second (`STAGE.xf`): the faders are joined to the bars, the stage's gain
+comes up and the Sand level's old gain goes down, both at equal power, the
+ambience's sources hand over to sources playing the rendered loops from the
+same place in each loop, and its room send moves to the computed room. Only
+when the old gain is shut do the faders let go of it. Off is the same
+backwards, and then every node of the stage is disconnected and dropped.
+Nothing that sounds is ever connected or disconnected, so nothing clicks:
+under a steady tone the switch, on and off, leaves nothing louder than
+-60 dBFS above 4 kHz (a switch without the crossfade: -18 dBFS). One step is
+taken at a time: a switch thrown during a crossing is done when the crossing
+is over. A bowl ringing when the switch is thrown rings on where it began,
+with or without the stage, and a stage's bowl place is let go once it has
+rung out. If the browser cannot do it (no offline context, speakers that
+never sound, a render that never ends: the stage gives up after 8 s), the
+sound stays as it was. What is left to do after a crossing is done by the
+next `update()` or `hold()`, and by a timer for a hidden page that calls
+neither.
 
 **Cost.** Nothing while it is off: one test of a flag where the engine
-branches for it, no node made or connected. On: ten panners, five bars of
+branches for it, no node made or connected. On: ten panners, four bars of
 twenty gains each (only those reaching a speaker are linked), eleven filters,
-a second convolver; nothing per grain and no panner ever moved. Ten seconds of
-a steady glass (60 grains a second) rendered offline in headless Chromium on
-the shared four-core test machine: 915 ms without the stage, 1254 ms with it
-(median of five each, alternating): 1.37 times, about 34 ms more audio-thread
-work per second of sound. Building it the first time renders the room,
-which also loads the HRTF data; until that resolves the sand keeps the desk's
-room.
+a second convolver; nothing per grain, no panner ever moved, nothing for the
+water, and the bowl's two speakers and its room only while it rings.
+COSTTEXT
 
 **Not known without a phone.** Whether iOS spatialises a home-screen app's
 sound a second time when the listener has Spatial Audio on for AirPods (if it

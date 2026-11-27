@@ -235,6 +235,9 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   ringer switched off, as a timer should. Off, it follows the ringer switch,
   and music playing in another app plays on under it. Where the browser does
   not let a page choose, the row says so: the phone decides by itself.
+- **Headphones: Spatial**: off as the app comes. On, the glass is heard in
+  front of you on headphones or earbuds with both in (see *Headphones:
+  Spatial* below, and its line for AirPods).
 
 **Time**
 
@@ -284,8 +287,9 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   within three seconds ("Tap again to put them back"). The sand (Sahara
   Quartz; a colour of your own is kept for its swatch), the frame and its
   finish (walnut), layered sand, the background (Dark), the volume, the sand sound and the Sand level
-  (100), the ambience, its level and its fade before the end (off), and the
-  completion bowl, its Rings (Once) and the Bowl level (50) go back to how the
+  (100), the ambience, its level and its fade before the end (off), the
+  completion bowl, its Rings (Once) and the Bowl level (50), and Headphones:
+  Spatial (off) go back to how the
   app came; everything else stays as you set it (Real sand and the grain, the
   glass's shape, the durations and the six quick durations, *Show when it
   ends*, work and rest, breathing, Zen, the screen, haptics, Real motion,
@@ -607,23 +611,41 @@ and after each.
 
 ## Headphones: Spatial
 
-The sound engine can place the glass in front of you on headphones or
-earbuds: the sand lands low in the glass, the neck hushes above it, the glass
-rings across its whole width, and when you lean the phone or turn the glass
-the sounds move with what you see. A clockwise turn of a glass whose sand is
-below is heard on the left, where its sand slides; an anticlockwise one on
-the right. It is built and tested, and **not yet switched on anywhere in the
-app**: a row in Tune's Sound tab, *Headphones: Spatial*, off as the app
-comes, arrives with a later release. The app never turns it on by itself.
+Tune's Sound tab ends with a switch, **Headphones: Spatial**. It is off as
+the app comes, the app never turns it on by itself, and *Put the look and
+sound back as they came* turns it off again.
 
+Switched on, with headphones or earbuds, the glass is heard in front of you
+instead of between your ears: the sand lands low in the glass, the neck
+hushes above it, the glass rings across its whole width, and when you lean
+the phone or turn the glass the sounds move with what you see. A clockwise
+turn of a glass whose sand is below is heard on the left, where its sand
+slides; an anticlockwise one on the right. The completion bowl rings out in
+the room, to the front right and a little further away than the glass. The
+water ambience is wide in front of you, and also behind you, where it is a
+little later and darker.
+
+- **To switch it on**: Tune, Sound, the last row. A moment after the tap
+  (the browser first loads what it needs; the first time takes about a
+  second) the sound crosses over in a third of a second. Switching it off
+  crosses back. Nothing clicks either way, and a bowl that is ringing rings on
+  where it began.
+- Everything else works as it does without it: the volume, the Sand, Bowl
+  and Ambience levels, the sand's sound, the ambience and its fade before
+  the end, the Rings, Sound in silent mode, the mute button, and the sound
+  that carries on while the app is in the background.
 - It is for headphones and earbuds, **both in**. On a speaker, or with one
-  earbud, the sound keeps its level but is coloured and narrower.
+  earbud, the sound keeps its level but is coloured and narrower: switch it
+  off there.
 - **With AirPods**: set Spatial Audio to **Off** for the app in Control
-  Centre while this is on. Otherwise iOS may place the sound a second time
-  and it turns boomy and smeared. (Whether iOS does this for a home-screen
-  app has still to be tried on an iPhone.) On Windows the same goes for
-  Windows Sonic or Dolby Atmos for Headphones.
-- The completion bowl and the water ambiences sound as they do now.
+  Centre while this is on (touch and hold the volume control there while the
+  app sounds). Otherwise iOS may place the sound a second time and it turns
+  boomy and smeared. Whether iOS does this for a home-screen app has still to
+  be tried on an iPhone. On Windows the same goes for Windows Sonic or Dolby
+  Atmos for Headphones.
+- It takes a little more of the processor for sound, about COSTX times the
+  sound's own work on a PC; on an iPhone it has not been measured yet. A
+  browser that cannot do it leaves the sound as it is.
 
 ## Browser notes
 

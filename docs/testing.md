@@ -127,7 +127,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   whole, and are saved so (a store that keeps any string, one that keeps a
   set with bad counts in it, one with the two the other way round, one
   whose switch is on by default and one with the two before the Sound tab's
-  five must fail); the names (every `settings.…` in `app.js` is a record,
+  five must fail); `spatial` (Headphones: Spatial), a record after the
+  background: off by default and for saves of 1.13.0, 1.10.0 and 1.20.0, on
+  and off kept, anything else off and saved so (a store with it on by
+  default, one with it before the background and one without it must fail);
+  the names (every `settings.…` in `app.js` is a record,
   every record but the version is named there, none is read by a computed
   name); `bindSwitch` (the loaded value shown as it binds; then set, save
   and the callback inside the event); and that the file reads nothing when
@@ -330,46 +334,115 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   nothing (the glass taken, moved and let go) the context runs and the same
   feeds thump, rush and shimmer, with sound at the output; the same events
   made by a script leave the context suspended (the control).
-- `audio-spatial`: the stage (`setSpatial`, headphones, spatial; off as the
-  app comes), offline renders as `audio-levels` makes them, fed frame by
-  frame as `app.js` feeds the engine. OFF: with the switch untouched, and
-  switched on and then off before anything plays, the sand mix at Sand level
-  100 is the base engine's (`HOURGLASS_SPATIAL_BASE`, default 73528e7) to
-  within what a render here differs from itself (two renders of the same
-  engine differ by about -92 dB; the controls, a gain of 0.99 and the stage
-  left on, fail). LEVEL, MONO, CLIP: every character of the registry at 60 and
-  300 grains a second within 1 dB of itself without the stage, every octave
-  from 250 Hz to 8 kHz within 2.5 dB, L+R folded to one channel within 1 dB of
-  the same fold, and at full volume nothing into the end of the soft
-  clipper's curve (the control: the stage without its correction EQ is out of
-  the octaves). IMAGE: the default character's ears correlate between 0.15
-  and 0.6 (the control: every bar into one speaker dead ahead, over 0.6).
-  PLACE: a lone grain at +0.6 across the glass is right, at -0.6 left, the two
-  mirrors within 1 dB; with the glass turned almost half round the same grain
-  is left, where it is seen (the control: fed its place as heard rather than
-  its place in the glass, it is turned twice and heard right); the glass
-  leaned -0.6 and +0.6 rad moves the landings by over 80 µs and 4 dB. TURN: in
-  the classic Sim (in Node), where the moving grains of a clockwise and an
-  anticlockwise turn are seen, with the sand below and above, and that
-  `app.js`'s `slideBulb()` (read from the file) puts the slide on their side
-  in each (the control: the engine's rush pan without the stage, by the sine
-  of the angle, is on the other side); and the slide a quarter turn either way
-  heard on that side (the control: the slide put in the other bulb). STILL:
-  ten seconds of a steady glass schedule no gain of the stage and set no
-  panner after it is built (the control: placing every frame), and the end of
-  a turn (half a turn back to nothing, the glass's ends swapped) moves neither
-  ear's level by a decibel (the control: a stage that does not swap its ends
-  with the glass swaps the sides). Headless Chromium now and then never
-  finishes an offline render that has HRTF panners in it: in a probe of 32
-  renders, each in its own browser, about one in ten of a page's first such
-  render hung, with or without a suspend every frame (so it is the browser
-  loading its HRTF data, not the suspends), and a page whose render hung did
-  not always close. Each render here has a 90 s watchdog and is done once
-  more in a fresh browser, and the suite prints how many hung
+- `audio-spatial`: the stage (`setSpatial`, Tune's *Headphones: Spatial*;
+  off as the app comes), offline renders as `audio-levels` makes them, fed
+  frame by frame as `app.js` feeds the engine. Every check has a control
+  that must fail. **Run it alone** (its COST group times renders).
+  - OFF: with the switch untouched, and switched on and then off before
+    anything plays, the sand mix at Sand level 100 is the base engine's
+    (`HOURGLASS_SPATIAL_BASE`, default 73528e7) to within what a render here
+    differs from itself (two renders of the same engine differ by about
+    -92 dB); and switched on while it plays, then off, the mix is the base
+    engine's again a second and a half later (the controls: a gain of 0.99,
+    and the stage left on).
+  - LEVEL, MONO, CLIP: every character of the registry at 60 and 300 grains
+    a second within 1 dB of itself without the stage, every octave from
+    250 Hz to 8 kHz within 2.5 dB, L+R folded to one channel within 1 dB of
+    the same fold, and at full volume nothing into the end of the soft
+    clipper's curve (the control: the stage without its correction EQ is out
+    of the octaves). IMAGE: the default character's ears correlate between
+    0.15 and 0.6 (the control: every bar into one speaker dead ahead).
+  - PLACE: a lone grain at +0.6 across the glass is right, at -0.6 left, the
+    two mirrors within 1 dB; with the glass turned almost half round the same
+    grain is left, where it is seen (the control: fed its place as heard
+    rather than its place in the glass, it is turned twice and heard right);
+    the glass leaned -0.6 and +0.6 rad moves the landings by over 80 µs and
+    4 dB. TURN: in the classic Sim (in Node), where the moving grains of a
+    clockwise and an anticlockwise turn are seen, with the sand below and
+    above, and that `app.js`'s `slideBulb()` (read from the file) puts the
+    slide on their side in each (the control: the engine's rush pan without
+    the stage, by the sine of the angle, is on the other side); and the slide
+    a quarter turn either way heard on that side (the control: the slide put
+    in the other bulb).
+  - STILL: ten seconds of a steady glass schedule no gain of the stage and
+    set no panner after it is built (the control: placing every frame), and
+    the end of a turn (half a turn back to nothing, the glass's ends swapped)
+    moves neither ear's level by a decibel (the control: a stage that does not
+    swap its ends with the glass). POSE: the phone laid on its back or its
+    face for over a second lowers every bar (more of its gains into the
+    ring's lower row), not before the second is up, the level within 1.5 dB
+    (the control: half way down, nothing moves).
+  - WATER: each ambience of the registry is played from loops rendered for
+    the stage, within 1 dB of itself without it, the ears correlating under
+    0.6 or no more than its own two channels do, with as many sources as
+    without the stage and no panner of its own; a click in a loop's left
+    channel arrives from the front left and again later, quieter and darker
+    (the control: rendered without the two directions behind); two tones
+    played round a rendered loop for 8 s leave nothing above 3 kHz, so the
+    loop closes without a click (the control: rendered from its start, not
+    going round); the fade before the end and the Ambience level take the
+    water down as without the stage, within 0.5 dB (the control: water sent
+    round its bus); another ambience chosen with the stage on is rendered
+    and played placed, within 1 dB, and the one before lets its rendered
+    loops go.
+  - BOWL: within 1 dB of the bowl without the stage at Bowl 50 and 100, and
+    rung again 8 s later; heard to the right and steady, its fundamental's
+    place moving by no more than 100 µs and 1 dB from second to second and
+    its ITD staying within 100 µs by the quarter second (the control: its two
+    channels each to a speaker of its own beat between the two); its place
+    joins the output chain when a bowl rings and has left it a second after
+    the last (the control: a place that never leaves); a bowl stopped falls
+    silent; and the switch thrown while a bowl rings leaves it where it began
+    (level within 0.5 dB, place within 50 µs, no click), its place let go
+    once it has rung out.
+  - SWITCH: on and off under a steady tone, and thrown about (off while it
+    crosses in, on, off, on, off), leaves no step louder than -40 dBFS above
+    4 kHz, and afterwards the tone is as it was (the control: no crossfade);
+    ten times thrown with a brook playing leaves as many connections as
+    before, the same number into the bus, the Sand level, the output chain
+    and the ambience's bus, no stage and no rendered loops (the control: a
+    stage taken down without letting go of its nodes); the Sound volume and
+    the Sand level take the sand down as without the stage, within 0.5 dB,
+    and the Sand level set with the stage on is the sand's after it is
+    switched off (the control: a Sand level that moves only the old gain);
+    another character chosen with the stage on sounds as a glass that began
+    with it (the control: a correction that stays the first character's);
+    Sound in silent mode sets the page's audio session as ever and does not
+    touch the sound (the control: an engine that leaves the session alone).
+  - HIDDEN: `hold()` and then no `update()` for seven seconds keeps the
+    glass sounding with the stage on, within 1.5 dB of the same hold without
+    it (the control: no `hold()`, silence), and the switch thrown under the
+    hold, either way, sounds as a held glass that was on, or off.
+  - START (only where the engine has `begin()`, the sound coming in gently
+    at a start): the water's rise and the sand's are the same with the stage
+    on, within 1 dB and 1.5 dB at four moments each, and the switch thrown in
+    the middle of a rise does not jump it (the controls: water round its bus,
+    and a start with no rise for the sand).
+  - COST: ten seconds of a running glass (60 grains a second) render with
+    the stage on in at most 1.4 times the time without it, alone and with a
+    brook: medians of five renders each, taken in turn (the control: the
+    water played live through four panners of its own and the bowl's place
+    never leaving the mix costs more). A timing: it holds on a machine that
+    does nothing else.
+
+  Headless Chromium now and then never finishes an offline render that has
+  HRTF panners in it. It happens when the render has to wait for the browser
+  to load its HRTF data (the data is loaded on a thread of its own when the
+  first HRTF panner is made): of 80 first renders, each in its own browser, 5
+  hung; of 64 that made their panners and gave the load a second and a half
+  before rendering, none did, nor did any later render on a page. A suspend
+  every frame makes no difference, and a page whose render hung does not
+  always close. So each fresh page here first makes one panner, keeps it and
+  waits; each render still has a 90 s watchdog and is done once more in a
+  fresh browser, and the suite prints how many hung
   (`HOURGLASS_SPATIAL_WATCHDOG_MS` set small makes every render count as
-  hung, to try that path). `HOURGLASS_SPATIAL_PRINT=1` prints every measure and the
+  hung, to try that path). The engine does the same in the app: it renders
+  its room only once its live speakers are heard to sound, and gives up
+  after 8 s. `HOURGLASS_SPATIAL_PRINT=1` prints every measure and the
   residuals `STAGE.tone` is set from; `HOURGLASS_SPATIAL_ONLY=<regexp>` runs
-  only those groups (off, level, place, turn, image, still).
+  only those groups (off, level, place, turn, image, still, water, bowl,
+  switch, hidden, pose, start, cost); `HOURGLASS_SPATIAL_AUDIO=<file>` holds
+  another copy of `sound/audio.js` to the suite (a merge being tried).
 - `app-*`: the app's own acceptance tests (permission, gestures, motion,
   re-timing, session, the existing flow), on the app as it ships
   (`app-motion` also has the classic sand heard before the start: nothing at
@@ -540,11 +613,20 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   `origin/main`, d6482bd (release 1.13.0), 5911e24 (release 1.10.0) and
   13a9772 from git (`HOURGLASS_MAIN=<ref>` names another first release;
   the old saves are always made by those two releases).
+  `app-tune` (`--only spatial`) also covers the Sound tab's last row,
+  Headphones: Spatial: it stands right after Sound in silent mode and is
+  built like it (a switch in a labelled row, with its help line), off as the
+  app comes; a tap turns it on, saves it and tells the sound engine, whose
+  stage then comes in by itself in the browser's own audio; Tab reaches it
+  from its neighbour and Space turns it off; a reload comes up as saved (the
+  controls: a row with a plain checkbox, a switch that does not save, one
+  that does not tell the engine).
   `app-tune` covers Tune's four tabs: one panel shown and remembered, the
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
   at boot, the reset link (what it puts back, the sand and its finish among it,
-  the Sand and Bowl levels, the Rings and the fade before the end, each with
+  the Sand and Bowl levels, the Rings, the fade before the end and
+  Headphones: Spatial, each with
   a control that leaves it as it was, and what it keeps, the custom sand's
   colour, Sound in silent mode, the six quick durations and Show when it ends
   among it, with a control that puts silent mode back on and one that puts
