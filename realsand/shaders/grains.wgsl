@@ -15,6 +15,17 @@
 //   inside the neck the app draws;
 // - the light: the app's canvas turns with the glass (CSS), so the light is
 //   turned back by the glass's angle on screen and stays with the room;
+// - the sunlit sand (the app's Light: Sunlit; view.key.w 1): one key light
+//   from the room's upper left and in front, as the classic sand's
+//   (glass/renderer.js, the sunlit sand: the same key, constants and colour
+//   table). The grain's light is worked out here, in the vertex stage: the
+//   body of sand against the front glass takes the bore's normal (a lit side,
+//   a shaded side, a crescent at the far wall, a contact shade at the glass),
+//   the free surface the normal and soft shadow that relief.wgsl made of the
+//   beds' heights, a grain in flight is a small bead; a grain whose facet
+//   faces the key's mirror direction glints. The fragment stage keeps its
+//   bead: the side toward the key three light levels up, the far side three
+//   down. With view.key.w 0 every grain is drawn as it always was;
 // - the Reset's sweep (glass/renderer.js Renderer._sweepOut, _sweepIn): the old sand
 //   drawn into the neck, then the new sand shown from the neck up under a
 //   rising surface, with the thread that pours it.
@@ -49,13 +60,29 @@ struct View {
     sweep: vec4f,
     // 2, the thread: x: its lower end (grid y); y: its upper end; z: the cells it spreads across each side; w: the frame (its grains change each frame)
     thread: vec4f,
+    // the sunlit sand (all 0: the grains as they always were). In the grid's axes: x right, y up, z toward the eye.
+    key: vec4f,    // xyz: the key light's direction, the room's turned back by the glass's angle; w: 1 sunlit
+    half: vec4f,   // xyz: half way between the key and the eye (a facet that faces it glints); w: light levels per unit of light
+    amb: vec4f,    // x: the ambient; y: the key; z: the wrap round the terminator; w: the crescent past it
+    bed: vec4f,    // x: the contact shade at the glass; y: the darkening with depth; z: how fast the free surface's light
+                   // fades into the bed, per app cell; w: grid cells per app cell
+    glint: vec4f,  // x: the share of grains that can glint, over pi/6 (only a facet inside the ball is one); y: how near the
+                   // mirror direction a mica facet must face; z: the key's direction on the canvas, x; w: the same, y
+    spark: vec4f,  // rgb: the glint's colour; w: the frame (a moving grain's facet tumbles)
+    still: vec4f,  // x: a grain moves when its displacement in a substep is over this (cells)
 };
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage> particles: array<Particle>;
 @group(0) @binding(2) var<storage> palette: array<vec4f, 256>;
-// per grid row (its centre), the drawn half-width over the simulated one (glass.mjs warp)
+// per grid row (its centre), the drawn half-width over the simulated one (glass.mjs warp); for the sunlit sand,
+// after those rows, the drawn half-width itself (cells), row by row
 @group(0) @binding(3) var<storage> warp: array<f32>;
+// the sunlit sand: per column, each bed's height, its free surface's light and glint term (relief.wgsl)
+@group(0) @binding(4) var<storage> relief: array<vec4f>;
+// the sunlit sand's colours, the classic sand's own table (glass/renderer.js sunTables): 48 light levels x 256 seeds,
+// rgba8; alpha: 255 a plain grain, 254 a glossy one, 253 mica
+@group(0) @binding(5) var<storage> tones: array<u32>;
 
 struct VertexOut {
     @builtin(position) position: vec4f,
@@ -64,6 +91,9 @@ struct VertexOut {
     @location(1) color: vec4f,
     // x, y: the streak's direction on screen; z: its half-length, grain radii
     @location(2) @interpolate(flat) streak: vec3f,
+    // the sunlit sand: the grain's colour three light levels down (a: 1 if it glints) and three up (a: 1 if sunlit)
+    @location(3) @interpolate(flat) lo: vec4f,
+    @location(4) @interpolate(flat) hi: vec4f,
 };
 
 fn hash(input: u32) -> u32 {
@@ -80,6 +110,16 @@ fn warpAt(y: f32) -> f32 {
     let j = u32(floor(q));
     let j1 = min(j + 1u, u32(rows) - 1u);
     return mix(warp[j], warp[j1], q - floor(q));
+}
+
+/** The drawn glass's half-width at grid height y, cells (the sunlit sand: the bore the body of sand lies against). */
+fn halfAt(y: f32) -> f32 {
+    let rows = view.neck.z;
+    let q = clamp(y - 0.5, 0.0, rows - 1.0);
+    let j = u32(floor(q));
+    let j1 = min(j + 1u, u32(rows) - 1u);
+    let o = u32(rows);
+    return mix(warp[o + j], warp[o + j1], q - floor(q));
 }
 
 /** A grain of the thread that pours the new sand in (the sweep's second half): x, y, and 1 if it is drawn. */
@@ -105,17 +145,23 @@ fn threadGrain(k: u32) -> vec3f {
     var crowd = 1.0;
     var shown = true;
     var lift = 1.0;
+    // (the sunlit sand: where the point is in the solver's glass, where it is drawn before the sweep, and how it moves)
+    var at = vec2f(0.0);
+    var lp = vec2f(0.0);
+    var moved = vec2f(0.0);
     let h = hash(index * 2654435761u + 17u);
     if (index >= count) {
         // the sweep's thread: grains falling from the top of the bulb onto the rising sand,
         // in the new bed's colours (each the seed of a grain picked from it)
         let g = threadGrain(index - count);
         pos = g.xy; shown = g.z > 0.5;
+        at = pos; lp = pos;
         seed = u32(particles[hash(index ^ (u32(view.thread.w) * 40503u)) % max(count, 1u)].color.x) & 255u;
         lift = 1.06;
     } else {
         let p = particles[index];
         pos = p.position; disp = p.displacement; crowd = p.color.y;
+        at = pos; moved = disp;
         // the grain's seed (bits 8 and up mark layered sand's fresh grains: tone.wgsl)
         seed = u32(p.color.x) & 255u;
         if (p.enabled == 0.0) { shown = false; }
@@ -123,6 +169,7 @@ fn threadGrain(k: u32) -> vec3f {
         let k = warpAt(pos.y);
         pos.x = view.neck.x + (pos.x - view.neck.x) * k;
         disp.x = disp.x * k;
+        lp = pos;
         if (view.sweep.x == 1.0) {
             // the old sand drawn into the neck, as a sheet flows into a point sink: r'^2 = r^2 - S
             let d = pos - view.neck.xy;
@@ -168,6 +215,56 @@ fn threadGrain(k: u32) -> vec3f {
     // a shade of its own: light and dark grains side by side
     let shade = (0.84 + 0.30 * f32((h >> 16u) & 255u) / 255.0) * lift;
     out.color = vec4f(col.rgb * shade, col.a);
+    out.lo = vec4f(0.0);
+    out.hi = vec4f(0.0);
+    if (view.key.w > 0.5) {
+        // The sunlit sand (glass/renderer.js, the sunlit sand: the same light, here per grain).
+        let L = view.key.xyz;
+        let Hv = view.half.xyz;
+        let cells = view.bed.w;
+        // in flight (the thread's grains too): a small bead, no bed round it
+        let air = select(flight, 1.0, index >= count);
+        // the body of sand against the front glass: the bore's normal across the row, (sn, 0, cz)
+        let hw = max(halfAt(lp.y), 0.5);
+        let dx = lp.x - view.neck.x;
+        let sn = clamp(dx / hw, -1.0, 1.0);
+        let cz = sqrt(1.0 - sn * sn);
+        let nl = sn * L.x + cz * L.z;
+        // through the glass: less toward the grazing side (Fresnel, twice), a crescent past the terminator
+        let g1 = 1.0 - max(nl, 0.0);
+        let g2 = g1 * g1;
+        let tr = 1.0 - (0.04 + 0.96 * g2 * g2 * g1);
+        let cr = (nl + 0.04) * 10.0;
+        let body = (view.amb.x + view.amb.y * tr * tr * max(0.0, (nl + view.amb.z) / (1.0 + view.amb.z)) + view.amb.w * exp(-cr * cr))
+            * (1.0 - view.bed.x * exp(-max(hw - abs(dx), 0.0) / (2.2 * cells)));
+        // the free surface: its light where the grain lies near the top of its bed, the body's below
+        let W = arrayLength(&relief) / 2u;
+        let rl = relief[select(W, 0u, at.y > view.neck.y) + min(u32(max(at.x, 0.0)), W - 1u)];
+        let dep = max(rl.x - at.y, 0.0) / cells;
+        let top = select(0.0, exp(-dep * view.bed.z), rl.x > 0.0);
+        let bedLight = mix(body, rl.y, top) * (1.0 - view.bed.y * (1.0 - exp(-dep / 7.0)));
+        let moving = dot(moved, moved) > view.still.x * view.still.x;
+        // the light level (a level every 0.031 of light from 0.34, as the classic sand's table), the grain's own shade in it
+        let lv = clamp(floor(mix(bedLight, view.amb.x + 0.62 * view.amb.y, air) * shade * view.half.w - 10.467742)
+            + select(0.0, 1.0, moving && air < 0.5), 3.0, 44.0);
+        let ti = (u32(lv) << 8u) | seed;
+        let mid = unpack4x8unorm(tones[ti]);
+        let kind = u32(round((1.0 - mid.a) * 255.0));            // 0 plain, 1 glossy, 2 mica
+        // the grain's facet, a fixed tilt in a ball of radius 0.55 (a moving grain's tumbles): it glints when it
+        // faces half way between the key and the eye, mica from further off than a glossy grain, that than the rest
+        let fh = hash((index * 2246822519u + 101u) ^ select(0u, (u32(view.spark.w) >> 2u) * 668265263u, moving));
+        let J = vec3f(f32(fh & 1023u), f32((fh >> 10u) & 1023u), f32((fh >> 20u) & 1023u)) * (1.1 / 1023.0) - 0.55;
+        let jj = dot(J, J);
+        let gs = select(select(0.993, 0.982, kind == 1u), view.glint.y, kind == 2u);
+        let hb = sn * Hv.x + cz * Hv.z;
+        let gl = hb + (rl.z - hb) * top + dot(J, Hv);
+        var glints = jj <= 0.3025 && f32(h >> 24u) < view.glint.x * 256.0 && gl > 0.0 && gl * gl > gs * gs * (1.0 + jj);
+        // in flight the bead tumbles and flashes now and then
+        if (air > 0.5) { glints = (hash(index ^ ((u32(view.spark.w) >> 1u) * 2654435761u)) & 255u) < select(10u, 40u, kind == 2u); }
+        out.color = vec4f(mid.rgb, col.a);
+        out.lo = vec4f(unpack4x8unorm(tones[ti - 768u]).rgb, select(0.0, 1.0, glints));
+        out.hi = vec4f(unpack4x8unorm(tones[ti + 768u]).rgb, 1.0);
+    }
     return out;
 }
 
@@ -197,6 +294,16 @@ fn turned(v: vec2f) -> vec2f {
     var rgb = v.color.rgb * lit;
     let gp = d - turned(vec2f(-0.3, 0.3));
     if (v.color.a > 1.5) { rgb += vec3f(0.35) * max(0.0, 1.0 - 4.0 * dot(gp, gp)); }
+    if (v.hi.a > 0.5) {
+        // the sunlit sand: the bead's side toward the key is its colour three light levels up, the far side three
+        // down (the classic sand's bead has a lit and a dark pixel so); a facet that catches the key is a small
+        // spot of the glint's colour on the lit side
+        let key2 = view.glint.zw;
+        let t = dot(d, key2) * (1.0 - 0.3 * r2);
+        rgb = min(mix(v.color.rgb, select(v.lo.rgb, v.hi.rgb, t > 0.0), min(abs(t), 1.0)) * (0.94 + 0.12 * (1.0 - r2)), vec3f(1.0));
+        let gq = d - 0.35 * key2;
+        rgb = mix(rgb, view.spark.rgb, v.lo.a * clamp((0.22 - dot(gq, gq)) * 10.0, 0.0, 1.0));
+    }
     if (view.look.x > 0.5) {
         // liquid: soft round drops that run together
         let a = view.look.y * (1.0 - r2 * r2) * spread;

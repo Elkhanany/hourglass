@@ -77,6 +77,7 @@ var SHELL = [
   './realsand/shaders/tally.wgsl',
   './realsand/shaders/flip.wgsl',
   './realsand/shaders/grains.wgsl',
+  './realsand/shaders/relief.wgsl',
   './realsand/shaders/tone.wgsl'
 ];
 

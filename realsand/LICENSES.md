@@ -14,6 +14,7 @@ follow. Both licences are compatible with the GPL-3.0.
 | `shaders/domain.inc.wgsl`, `rescale.wgsl` | Smoosh: `domain.inc.wgsl`, `rescaleParticles.wgsl` | MIT (Smoosh) |
 | `shaders/grains.wgsl` | the idea of Smoosh's `density.wgsl`; EA's particle layout | MIT (Smoosh), BSD-3-Clause (EA) |
 | `shaders/prepare.wgsl`, `gridClear.wgsl`, `tally.wgsl`, `load.wgsl`, `spreadSplat.wgsl`, `spreadShift.wgsl`, `flip.wgsl` | new, using the shared include above | GPL-3.0 (with the notices of the include) |
+| `shaders/relief.wgsl` | new: the beds' relief for the sunlit sand, after the app's own column pass (`glass/renderer.js` `_sunColumns`) | GPL-3.0 |
 | `shaders/tone.wgsl` | new: layered sand's tone pass; EA's particle layout; its patterns port the app's `Sim._phase` (`sand/sim.js`; physics.js before the split) | GPL-3.0, with EA's layout (BSD-3-Clause) |
 | `glass.mjs`, `palette.mjs` | the Hourglass app (`glass/shapes.js`, `glass/renderer.js`, `sand/sands.js`; physics.js before the split) | GPL-3.0 |
 | `pace.mjs`, `build.mjs`, `valve.mjs`, `fill.mjs`, `rate.mjs`, `felt.mjs` | new (the last three taken out of the lab page's `main.mjs`) | GPL-3.0 |

@@ -514,7 +514,7 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     audioSim: ['nev', 'evX', 'evV', 'evK'],                        // audio.js: its sim, taken from st.sim
     tests: ['census', 'tones'],                                    // page-init.js's census, app-layers' tones
     // (b) RealSand's own
-    real: ['feel', 'points', 'setSweep', 'submit'],
+    real: ['feel', 'points', 'setLight', 'setSweep', 'submit'],          // (setLight: Tune's Light and the look, under its guard)
     realEng: ['ready', 'takeOver', 'destroy', 'destroyed', 'stats', 'layout', 'setHidden', 'setPalette', 'syncCpu'],   // (syncCpu: the watchdog)
     eng: ['start', 'adopt'],
     realCls: ['create']
@@ -573,7 +573,7 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   // namespace's Sim (statics), and the CPU Sim's members beyond the Sim's (a). Each must exist; a
   // private (underscore) member read from the CPU Sim breaks the contract.
   var READS = {
-    ns: ['DT', 'STEP_HZ', 'Sim', 'profile'],
+    ns: ['DT', 'KEY_LIGHT', 'STEP_HZ', 'Sim', 'profile'],           // (KEY_LIGHT: the sunlit sand's key, the classic sand's own)
     simStatics: ['EV_CAP', 'IMPACT_V', 'LAYERS', 'MOTION', 'pace'],
     realCpu: ['glassFlip', 'layerState', 'layers', 'rng']
   };

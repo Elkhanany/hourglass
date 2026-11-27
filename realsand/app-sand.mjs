@@ -54,6 +54,11 @@
  *                           it is played plain.
  *  real.layout()            after renderer.layout(); real.setPalette() after a theme or layers
  *                           change; real.setSweep(kind, p) beside renderer.setSweep.
+ *  real.setLight(light, m)  the sand's light (Tune's Light): 'sunlit', one key light from the room's
+ *                           upper left and in front, as the classic sand's; 'soft', each grain drawn
+ *                           as it always was (a RealSand is soft until told). m: how much of the light
+ *                           look the page shows, 0 the dark to 1 the light, between on each frame of
+ *                           a fade between the looks.
  *  onLost({ reason, lifecycle, final, message }): the GPU sand is gone (a lost device, readbacks
  *    that stopped, an error). RealSand has already brought the CPU Sim to the ledger's counts
  *    (syncCpu: the clock is not touched); the app makes the CPU Sim its sim again in this frame
@@ -73,12 +78,17 @@
  *  rising surface with its thread). With layered sand the tone pass (layers.mjs) lays falling
  *  sand in strata where it comes to rest, a fresh pattern after each turn, and the poured sand
  *  in layers; the layers switch re-tones every point by its depth from the CPU Sim's strata.
+ *  Under the sunlit light (setLight) the sand is lit as the classic sand is, by the same key from
+ *  the room's upper left and in front and with the same colour table (the Renderer's sunTables):
+ *  a sunny flank and a shady one, a contact shade at the glass, the free surface lit by its own
+ *  slope (the beds' relief, two read-only passes over the solver's points), glints on the
+ *  grains that face the key. Under the soft light every grain is drawn as it always was.
  */
 import { buildGlass, sampleField } from './glass.mjs';
 import { Solver, ShaderLibrary, createDevice, MATERIALS, PARTICLE_WORDS } from './solver.mjs';
 import { newPace, paceReset, paceSkip, paceBudget, paceFrame, paceSubmit, paceDone, paceValve, QUEUE_DEFAULT } from './pace.mjs';
 import { PPC, lattice, packParticles, fromLattice, rand32 } from './fill.mjs';
-import { GrainRenderer, FLIGHT, exposure } from './grains.mjs';
+import { GrainRenderer, FLIGHT, exposure, tonesFromLUT } from './grains.mjs';
 import * as Rate from './rate.mjs';
 import { GlassFelt, JOLT_MODES, kneeOf } from './felt.mjs';
 import { Toner, LayerPlan, markSides, retone as retoneAll, toneWords, TONE_FRESH, TONE_TRACK, TONE_LAY, LAY_S } from './layers.mjs';
@@ -325,6 +335,11 @@ export class RealSand {
       debt: 0 };
     // the Reset's sweep: how far the farthest grain lies from the neck (grid cells^2), the new bed's points
     this._sweepFar = 0; this._sweepFill = null; this._sweepFrame = 0;
+    // the sand's light (setLight): soft until told; the sunlit sand's tables (the Renderer's own, sunTables) and
+    // what they were made for, the frames drawn sunlit, and the fill and the way up its relief was last made for
+    this._light = { on: false, m: 0 };
+    this._lit = null; this._litKey = null; this._litTheme = null; this._litFrame = 0; this._reliefKey = null;
+    this.n.litTables = 0;
   }
 
   /* ---------------------------------------------------------------------------------------- *
@@ -410,7 +425,9 @@ export class RealSand {
     const maxP = Math.ceil(this.valve.Pts(this.cpu.maxTotal) * 1.05) + 1024;
     this.solver.configure(this.glass, maxP, Rate.capAlloc(SET));
     this.grains.bind(this.solver.buffers.particles);
-    if (this.grains.setWarp) this.grains.setWarp(this.glass.warp, this.glass.cx, this.glass.cy);
+    // (for the sunlit sand: the drawn half-width per row, the bore its body lies against, and the grid's width)
+    if (this.grains.setWarp) this.grains.setWarp(this.glass.warp, this.glass.cx, this.glass.cy, this._halfRows(), this.glass.W);
+    this._litKey = null; this._reliefKey = null;          // (a new grain renderer has no tables and no relief yet)
     if (this.toner) {
       this.toner.bind(this.solver.buffers.count, this.solver.buffers.particles);
       // (after each run's tally: its 8 words come back with the tally)
@@ -961,6 +978,62 @@ export class RealSand {
     this._palKey = this._paletteKey();
     this._redraw = true;
   }
+  /**
+   * The sand's light (Tune's Light) and how much of the light look the page shows (0 the dark, 1 the light,
+   * between on each frame of a fade): 'sunlit', one key light from the room's upper left and in front, as the
+   * classic sand is lit (glass/renderer.js, the sunlit sand: its key, the looks' constants and each sand's own
+   * are sand/sands.js's, read from there); anything else, each grain as it always was. Drawn at the next frame,
+   * asleep or not.
+   */
+  setLight(light, m) {
+    const on = light === 'sunlit';
+    m = fin(m); m = m <= 0 ? 0 : (m >= 1 ? 1 : m);
+    const was = this._light;
+    if (was.on === on && was.m === m) return;
+    if (on && !was.on) this._reliefKey = null;            // (the relief of before the soft light is not this bed's)
+    this._light = { on, m };
+    this._redraw = true;
+  }
+
+  /** Per grid row (its centre), the drawn glass's half-width, cells: the bore the sunlit sand's body lies against. */
+  _halfRows() {
+    const g = this.glass;
+    if (!g || typeof g.halfDrawn !== 'function' || !g.warp) return null;
+    const out = new Float32Array(g.warp.length);
+    for (let j = 0; j < out.length; j++) out[j] = g.halfDrawn(Math.abs(j + 0.5 - g.cy));
+    return out;
+  }
+
+  /**
+   * The sunlit sand for grains.mjs encode (look.lit), null under the soft light or where the Renderer cannot
+   * give its tables. The key is the classic sand's (P.KEY_LIGHT, the screen's axes), turned back by the glass's
+   * angle against the room, angle + tilt (the grid turns with the glass, and at a swap both change in the same
+   * call, so the lit side never jumps); the constants and the colour table are the Renderer's own for this look
+   * and sand (sunTables), made again when the look, the sand or its layers change.
+   */
+  _litLook(hz) {
+    const Lt = this._light, R = this.view, K0 = this.P && this.P.KEY_LIGHT;
+    if (!Lt.on || !R || typeof R.sunTables !== 'function' || !K0 || !R.lut) return null;
+    // (made again for another look, another sand or layered sand's other tone: the palette's key says so)
+    const key = Lt.m + ':' + this._palKey;
+    if (key !== this._litKey || R.theme !== this._litTheme) {
+      this._lit = R.sunTables(Lt.m, this._lit);
+      this._litKey = key; this._litTheme = R.theme; this.n.litTables++;
+      if (this.grains.setTones) this.grains.setTones(tonesFromLUT(this._lit.lut, R.isMica, R.hiBoost));
+    }
+    const k = this._lit.k, th = this.angle + this.tilt, c = Math.cos(th), sn = Math.sin(th);
+    const L = [c * K0[0] - sn * K0[1], sn * K0[0] + c * K0[1], K0[2]];
+    const hl = Math.hypot(L[0], L[1], L[2] + 1), H = [L[0] / hl, L[1] / hl, (L[2] + 1) / hl];
+    const bed = this._gen * 2 + this.valve.parity, fresh = bed !== this._reliefKey;
+    this._reliefKey = bed;
+    const g = (R.theme && R.theme.glint) || [255, 255, 255];
+    return { key: L, half: H, A: k.A, K: k.K, X: k.X, wrap: k.wrap, C: k.C, kw: k.kw, kd: k.kd, wd: k.wd, cells: this.s,
+      share: k.sun.glints, mica: k.sun.mica, glint: [g[0] / 255, g[1] / 255, g[2] / 255],
+      // (a grain moves when it is faster than 2 cells/s, as the tally's point at rest is slower; a crowded point
+      // lies in a bed up to 2 % of a free fall over the glass, as the tally's bed is what does not move)
+      still: 2 / hz, slow: 0.02 * Math.sqrt(2 * Math.max(this.Gg, 1) * this.glass.H) / hz, frame: this._litFrame++, fresh };
+  }
+
   /** A few of the table's colours at the palette's light level: when they change, so has the sand's colour. */
   _paletteKey() {
     const lut = this.view && this.view.lut;
@@ -1064,7 +1137,9 @@ export class RealSand {
       m: [kx, 0, 0, ky], o: [-g.cx * kx, -g.cy * ky], r: [2 * rpx / Math.max(1, css.w), 2 * rpx / Math.max(1, css.h)],
       liquid: false, exposure: exposure(BLUR, this._displayMs(), hz), flight: FLIGHT,
       // the room's light turned back by the glass's angle on screen; the Reset's sweep (design 6.2, 6.5)
-      light: this._rotorAngle(), sweep: this._sweepLook()
+      light: this._rotorAngle(), sweep: this._sweepLook(),
+      // the sunlit sand (setLight), null under the soft light
+      lit: this._litLook(hz)
     };
   }
 

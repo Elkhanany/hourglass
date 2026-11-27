@@ -620,9 +620,12 @@
     S.geo = g; S.builds.cells++;
   };
 
-  /** The look's tables: its constants, the colour table, the depth ramps and each seed's facet and threshold. */
-  Renderer.prototype._sunLook = function (S) {
-    var k = S.k = this._sunConsts(this.mix), sun = k.sun, src = this.lut, out = S.lut, s, lv, d;
+  /**
+   * The look's tables: its constants, the colour table, the depth ramps and each seed's facet and threshold.
+   * `m`: the look they are made for (0 the dark, 1 the light); left out, the look this renderer shows.
+   */
+  Renderer.prototype._sunLook = function (S, m) {
+    var k = S.k = this._sunConsts(m === undefined ? this.mix : m), sun = k.sun, src = this.lut, out = S.lut, s, lv, d;
     var m0 = 0.34 + 21 * 0.031, base = [0, 0, 0], tint = k.tint, ks = k.ks, hl = this.theme.light.hl * k.hlK;
     // the bed's mean colour (its grains but the mica): a mica fleck far brighter than its bed (gold on black)
     // is drawn part of the way toward it, so that it sparkles when it glints and is quiet when it does not
@@ -667,6 +670,20 @@
     S.lvFlight = Math.max(3, Math.min(44, Math.round((k.X * (k.A + 0.62 * k.K) - 0.34) / 0.031)));
     S.X = X; S.rev = this._sunRev; S.mix = this.mix; S.builds.look++;
     S.rot = NaN;                                       // (the light's tables follow)
+  };
+
+  /**
+   * The sunlit sand's tables for the look `m` (0 the dark, 1 the light, between while the looks fade), for
+   * whoever else draws this sand under the same light (Real sand, realsand/app-sand.mjs): k, the look's
+   * constants with this sand's own `sun` record in them; lut, the colour table (48 levels x 256 seeds, a
+   * level every 0.031 of light from 0.34, as this renderer's own); lvFlight, the level of a grain in
+   * flight. `into`, a result of before, is filled again and returned. Nothing of this renderer changes.
+   */
+  Renderer.prototype.sunTables = function (m, into) {
+    var S = into || { lut: new Uint32Array(LEVELS * 256), J: new Float32Array(768), gs: new Float32Array(256),
+      wt: new Float32Array(256), ao: new Float32Array(256), builds: { cells: 0, look: 0, light: 0 } };
+    this._sunLook(S, m <= 0 ? 0 : (m >= 1 ? 1 : +m || 0));
+    return S;
   };
 
   /** The light's tables, for the glass at `rot` against the room: the body's light and glint by the cell's angle, each seed's facet. */
