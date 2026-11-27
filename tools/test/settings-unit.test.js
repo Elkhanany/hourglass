@@ -836,9 +836,9 @@ function timeProblems(store) {
   var out = [], keys = store.KEYS, dflt = {};
   store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
   var at = keys.indexOf('quick');
-  // (they were the last two until the background came after them, in 1.19.0: section 4e)
-  if (at < 0 || keys[at + 1] !== 'endsAt' || at !== keys.indexOf('silentRing') + 1 || keys.indexOf('silentRing') !== keys.indexOf('shape') + 5 || keys[at + 2] !== 'background' || at + 3 !== keys.length)
-    out.push('the two records are not quick then endsAt, right after the shape and the Sound tab\'s five (silentRing), and then only the background: ' + keys.slice(-9).join(', '));
+  // (they were the last two until the background came after them, in 1.19.0: section 4e; and Headphones: Spatial after it, section 4g)
+  if (at < 0 || keys[at + 1] !== 'endsAt' || at !== keys.indexOf('silentRing') + 1 || keys.indexOf('silentRing') !== keys.indexOf('shape') + 5 || keys[at + 2] !== 'background' || keys[at + 3] !== 'spatial' || at + 4 !== keys.length)
+    out.push('the two records are not quick then endsAt, right after the shape and the Sound tab\'s five (silentRing), and then only the background and Headphones: Spatial: ' + keys.slice(-9).join(', '));
   if (dflt.quick !== QUICK_DEFAULT) out.push('quick\'s default is ' + show(dflt.quick));
   if (dflt.endsAt !== false) out.push('endsAt\'s default is ' + show(dflt.endsAt));
   // a save from before them: both defaults, every other setting as it gives it
@@ -885,6 +885,45 @@ check(tpAny.length >= QUICK_BAD.length - 8 && tpPart.length >= 3 && tpOrder.leng
   '... and a store that keeps any quick string, one that keeps a set of six with some bad counts in it, one with endsAt before quick, one whose endsAt is on by default, and one with the two before the Sound tab\'s five are each found out (control)',
   [tpAny.length, tpPart.length, tpOrder.length, tpOff.length, tpBefore.length].join(', ') + ' problems');
 
+/* ---- 4g. Headphones: Spatial --------------------------------------------------------------- */
+// A record after the background: `spatial`, false by default (the sound as it always was; the app
+// never turns it on). A save from before it comes up false, every other setting as it gives it;
+// true and false are kept; anything else (a word, a number, null) is false, and saved so.
+var SPL_BAD = [['true', 'a word'], ['on', 'another word'], [1, 'a number'], [0, 'a nought'], [null, 'null'], [[true], 'an array'], [{ on: true }, 'an object']];
+function spatialProblems(store) {
+  var out = [], keys = store.KEYS, dflt = {};
+  store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
+  if (keys.indexOf('spatial') < 0 || keys.indexOf('spatial') < keys.indexOf('background')) out.push('spatial is not a record after the background: ' + keys.slice(-4).join(', '));
+  if (dflt.spatial !== false) out.push('its default is ' + show(dflt.spatial));
+  [[SAVE_1_13, 'a save of 1.13.0'], [SAVE_1_10, 'a save of 1.10.0'], [Object.assign({}, SAVE_1_13, { shape: 'delta', sand: 'garnet', quick: '25,5,50,10,90,3', endsAt: true, background: 'light', silentRing: false }), 'a save of 1.20.0']].forEach(function (c) {
+    var old = quickLoad(store, c[0]), withIt = quickLoad(store, Object.assign({}, c[0], { spatial: true })), without = quickLoad(store, Object.assign({}, c[0], { spatial: false }));
+    if (old.spatial !== false) out.push(c[1] + ' came up with spatial ' + show(old.spatial));
+    if (withIt.spatial !== true) out.push(c[1] + ' with it on came up with ' + show(withIt.spatial));
+    if (without.spatial !== false) out.push(c[1] + ' with it off came up with ' + show(without.spatial));
+    keys.forEach(function (k) {
+      if (k !== 'spatial' && !Object.is(old[k], withIt[k])) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' without it, ' + show(withIt[k]) + ' with it');
+    });
+  });
+  SPL_BAD.forEach(function (c) {
+    var st = Storage(JSON.stringify({ v: 2, spatial: c[0], volume: 0.3 }), 'ok'), v = store.load(st.reach, '', REG_ALL);
+    store.save(v);
+    if (v.spatial !== false || JSON.parse(st.data[KEY]).spatial !== false) out.push(c[1] + ' (' + JSON.stringify(c[0]) + ') came up as ' + show(v.spatial));
+    if (v.volume !== 0.3) out.push(c[1] + ': the other settings of that save were not kept');
+  });
+  return out;
+}
+var splp = spatialProblems(S);
+check(splp.length === 0,
+  'Headphones: Spatial: a record after the background, off by default; a save of 1.13.0, 1.10.0 and 1.20.0 comes up with it off, every other setting as it gives it; on and off are kept; ' +
+  SPL_BAD.length + ' other values (a word, a number, null, an array, an object) are off, and saved so',
+  splp.slice(0, 4).join('; ') + (splp.length > 4 ? ' (' + splp.length + ' in all)' : ''));
+var splOn = spatialProblems(variant(function (o) { o.records[recAt(o, 'spatial')].default = true; }));
+var splFirst = spatialProblems(variant(function (o) { var r = o.records.splice(recAt(o, 'spatial'), 1); o.records.splice.apply(o.records, [recAt(o, 'background'), 0].concat(r)); }));
+var splNone = spatialProblems(variant(function (o) { o.records.splice(recAt(o, 'spatial'), 1); }));
+check(splOn.length >= 3 && splFirst.length >= 1 && splNone.length >= 3,
+  '... and a store with it on by default, one with it before the background, and one without the record are each found out (control)',
+  [splOn.length, splFirst.length, splNone.length].join(', ') + ' problems');
+
 /* ---- 4e. the background ------------------------------------------------------------------ */
 // One record after the Time tab's two, the last (the 44th): `background`, 'dark' by default (every
 // install looks as it always has), else 'light', 'system' (the device's own light or dark setting)
@@ -897,8 +936,9 @@ var BG_BAD = [['Light', 'another case'], ['auto', 'another word'], ['night', 'an
 function bgProblems(store) {
   var out = [], keys = store.KEYS, dflt = {};
   store.RECORDS.forEach(function (r) { dflt[r.id] = r.default; });
-  if (keys.length !== 44 || keys[keys.length - 1] !== 'background' || keys[keys.length - 2] !== 'endsAt')
-    out.push('the background is not the 44th and last record, right after endsAt: ' + keys.length + ' records, ' + keys.slice(-3).join(', '));
+  // (it was the last until Headphones: Spatial came after it: section 4g)
+  if (keys.length !== 45 || keys[43] !== 'background' || keys[42] !== 'endsAt' || keys[44] !== 'spatial')
+    out.push('the background is not the 44th record, right after endsAt and before only Headphones: Spatial: ' + keys.length + ' records, ' + keys.slice(-3).join(', '));
   if (dflt.background !== 'dark') out.push('the background\'s default is ' + show(dflt.background));
   [[SAVE_1_13, 'a save of 1.13.0'], [SAVE_1_10, 'a save of 1.10.0'], [Object.assign({}, SAVE_1_13, { shape: 'delta', sand: 'garnet', finish: 'copper', quick: '25,5,50,10,90,3', endsAt: true }), 'a save of 1.18.0']].forEach(function (c) {
     var old = quickLoad(store, c[0]), withBg = quickLoad(store, Object.assign({}, c[0], { background: 'hours' }));
@@ -922,7 +962,7 @@ function bgProblems(store) {
 }
 var bgp = bgProblems(S);
 check(bgp.length === 0,
-  'the background: the 44th and last record, after endsAt, \'dark\' by default; a save of 1.13.0, 1.10.0 and 1.18.0 comes up dark, every other setting as it gives it; ' + BG_GOOD.join(', ') +
+  'the background: the 44th record, after endsAt (only Headphones: Spatial after it), \'dark\' by default; a save of 1.13.0, 1.10.0 and 1.18.0 comes up dark, every other setting as it gives it; ' + BG_GOOD.join(', ') +
   ' kept as they are; ' + BG_BAD.length + ' other values (another case or word, empty, a name every object has, not a string) are dark, and saved so',
   bgp.slice(0, 4).join('; ') + (bgp.length > 4 ? ' (' + bgp.length + ' in all)' : ''));
 var bgAny = bgProblems(withValid('background', undefined));

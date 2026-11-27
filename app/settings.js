@@ -144,7 +144,10 @@
     // 'light' on paper white, 'system' as the device's own light or dark setting, 'hours' light
     // from 7:00 to 19:00 by the device's clock and dark at night. A save from before it is dark.
     { id: 'background', default: 'dark',
-      valid: function (v) { return v === 'light' || v === 'system' || v === 'hours'; } }
+      valid: function (v) { return v === 'light' || v === 'system' || v === 'hours'; } },
+    // Headphones: Spatial (Tune's Sound tab): the sound engine's stage, the glass heard in front of the
+    // listener on headphones. Off as the app comes and for a save from before it; the app never turns it on.
+    { id: 'spatial', default: false }
   ];
 
   /**

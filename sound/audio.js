@@ -2544,12 +2544,13 @@
     // The bowl, out in the room, front right: its two speakers, how far it stands (m), its level
     // against the bowl without the stage, and its own room: its share, how long it rings (s) and
     // how much of it is tail. One steady signal into both speakers: its place never beats.
-    bowl: { at: [[40, -15], [60, -15]], far: 0.8, trim: 0.5, wet: 0.8, rt: 0.36, tail: 1.8 },
+    bowl: { at: [[40, -15], [60, -15]], far: 0.8, trim: 0.5, wet: 0.45, rt: 0.36, tail: 1.8 },
     // The water: wide in front, and behind, where it is later (s, left and right), quieter, darker
     // (a low-pass, Hz) and turned by two all-pass sections a side (Hz), so that no two of the four
     // directions say the same. And its tone, against the water without the stage: [type, Hz, Q, dB].
-    water: { front: [[-50, 0], [50, 0]], rear: [[-130, 0], [130, 0]], back: 0.6, late: [0.013, 0.019], dark: 8000,
-             turn: [[500, 2100], [700, 2900]], lead: 0.1, eq: [] }
+    water: { front: [[-50, 0], [50, 0]], rear: [[-130, 0], [130, 0]], back: 0.6, late: [0.013, 0.019], dark: 6000,
+             turn: [[500, 2100], [700, 2900]], lead: 0.1,
+             eq: [['peaking', 170, 0.7, -6], ['peaking', 450, 1, -2], ['peaking', 4000, 1.2, -1.5], ['highshelf', 8000, 0.7, 8]] }
   };
   var STAGE_D = Math.PI / 180;
 
@@ -2679,8 +2680,12 @@
       var r = off.startRendering();
       if (r && r.then) r.then(res, function () { res(null); });
     });
-    /** The images from frame `from` on, and their tail: `share` of their energy, ringing `rt` s. */
-    var tailed = function (buf, from, seed, rt, share) {
+    /**
+     * The images from frame `from` on, and their tail: `share` of their energy, ringing `rt` s. Each
+     * ear brought to unit energy; or, `side`, the two together (a source off to one side keeps the
+     * louder ear its room gives it).
+     */
+    var tailed = function (buf, from, seed, rt, share, side) {
       var r = mulberry32(seed), onset = 0.018, kc = 1 - Math.exp(-TAU * 500 / sr);
       var lc = 0, hl = [0, 0], tl = [0, 0], early = 0, et = 0, i, ch, out = [], tail = [new Float32Array(len), new Float32Array(len)];
       for (ch = 0; ch < 2; ch++) {
@@ -2700,12 +2705,14 @@
           et += tail[ch][i] * tail[ch][i];
         }
       }
-      var tg = Math.sqrt(share * early / et);
+      var tg = Math.sqrt(share * early / et), en = [0, 0];
       for (ch = 0; ch < 2; ch++) {
-        var dd = out[ch], en = 0;
-        for (i = 0; i < len; i++) { dd[i] += tail[ch][i] * tg; en += dd[i] * dd[i]; }
-        en = 1 / Math.sqrt(en);
-        for (i = 0; i < len; i++) dd[i] *= en;
+        for (i = 0; i < len; i++) { out[ch][i] += tail[ch][i] * tg; en[ch] += out[ch][i] * out[ch][i]; }
+      }
+      if (side) en[0] = en[1] = (en[0] + en[1]) / 2;
+      for (ch = 0; ch < 2; ch++) {
+        var dd = out[ch], k1 = 1 / Math.sqrt(en[ch]);
+        for (i = 0; i < len; i++) dd[i] *= k1;
         for (i = len - 256; i < len; i++) dd[i] *= (len - i) / 256;
       }
       return out;
@@ -2714,7 +2721,7 @@
       if (!buf) return null;
       return {
         room: tailed(buf, 0, 0x51ab1e, 0.3, 1.4),
-        bowl: tailed(buf, gap, 0xb0771e, Bo.rt, Bo.tail),
+        bowl: tailed(buf, gap, 0xb0771e, Bo.rt, Bo.tail, true),
         ears: ears.map(function (a, i) {
           var at = 2 * gap + i * each;
           return [new Float32Array(buf.getChannelData(0).subarray(at, at + tap)), new Float32Array(buf.getChannelData(1).subarray(at, at + tap))];
@@ -2869,7 +2876,9 @@
     var S = this._stage = { x: 0, xEnd: 0, s: 1, p: 0, th: NaN, flat: 0, flatAt: 0, at: null, conv: null, ir: null, baking: null,
                             nodes: [], src: [], tmp: new Float32Array(n) };
     var keep = function (nd) { S.nodes.push(nd); return nd; };
-    // the still speakers into one sum; its correction, its level and its balance; the crossfade; then the Sand level
+    // the still speakers into one sum; its correction, its level and its balance; the crossfade; the Sand level;
+    // then the output chain, and from there its own send to its room (the bus, and the desk's room after it,
+    // keep what they had: the Sand level's old gain, shut, and a bowl that was ringing when the switch was thrown)
     var sum = keep(G(1)), last = sum;
     S.spk = [];
     for (i = 0; i < n; i++) {
@@ -2890,9 +2899,9 @@
     });
     var trim = keep(G(STAGE.trim)), sp = keep(ctx.createChannelSplitter(2)), mg = keep(ctx.createChannelMerger(2));
     var gl = keep(G(Math.pow(10, STAGE.bal / 40))), gr = keep(G(Math.pow(10, -STAGE.bal / 40)));
-    S.xf = keep(G(0)); S.lvl = keep(G(this._sandGain()));
+    S.xf = keep(G(0)); S.lvl = keep(G(this._sandGain())); S.wet = keep(G(0));
     last.connect(trim); trim.connect(sp); sp.connect(gl, 0); sp.connect(gr, 1);
-    gl.connect(mg, 0, 0); gr.connect(mg, 0, 1); mg.connect(S.xf); S.xf.connect(S.lvl); S.lvl.connect(this.bus);
+    gl.connect(mg, 0, 0); gr.connect(mg, 0, 1); mg.connect(S.xf); S.xf.connect(S.lvl); S.lvl.connect(this.rumble); S.lvl.connect(S.wet);
     S.trim = trim;
     this._stageTone(0);
     // one end of a bar: a mono signal with a gain into each speaker, linked only while it reaches it
@@ -2926,7 +2935,8 @@
     feed(this.pEnv, neg); feed(this.rPan, neg); feed(this.aPan, neg); neg.connect(B.glass.inp);
     feed(this.rPan, rush); feed(this.aPan, rush); rush.connect(B.rush.inp);
     // the bowl's place: the left of its beating pairs (each ear of the bowl beats as the whole does),
-    // one signal into both its speakers and into its own room; joined to the mix only while a bowl rings
+    // one signal into both its speakers and into its own room; joined to the output chain (past the
+    // bus: the desk's room has no part in it) only while a bowl rings
     var Bo = STAGE.bowl, bw = S.bowl = { inp: G(1), out: G(1), conv: null, on: false, end: 0, gone: false, nodes: [] };
     var bsp = ctx.createChannelSplitter(2), one = G(Bo.trim);
     bw.send = G(Bo.wet);
@@ -2961,7 +2971,7 @@
       }).then(function (ir) {
         if (!ir || self._stage !== S) return false;
         S.ir = ir;
-        S.conv = keep(room(ir.room)); S.conv.connect(self.rumble);
+        S.conv = keep(room(ir.room)); S.wet.connect(S.conv); S.conv.connect(self.rumble);
         bw.conv = room(ir.bowl); bw.send.connect(bw.conv); bw.nodes.push(bw.conv);
         var id = self.ambience;
         if (id === 'none' || !(self._ambBuf[id] || self._ambRaw[id])) return true;
@@ -2971,11 +2981,12 @@
     return S;
   };
 
-  /** The character's own correction (STAGE.tone), gliding over tau s (0: at once). */
+  /** The character's own correction (STAGE.tone) and its room level, gliding over tau s (0: at once). */
   HourglassAudio.prototype._stageTone = function (tau) {
     var S = this._stage, c = STAGE.tone[this.character] || [0, 0, 0, 0, 0, 0, 0], t = this.ctx.currentTime;
-    var v = STAGE.trim * Math.pow(10, c[0] / 20);
+    var v = STAGE.trim * Math.pow(10, c[0] / 20), room = (CHARACTERS[this.character] || CHARACTERS.asmr).room;
     if (tau) S.trim.gain.setTargetAtTime(v, t, tau); else S.trim.gain.value = v;
+    if (tau) S.wet.gain.setTargetAtTime(room, t, tau); else S.wet.gain.value = room;
     for (var i = 0; i < S.tone.length; i++) {
       if (tau) S.tone[i].gain.setTargetAtTime(c[i + 1], t, tau); else S.tone[i].gain.value = c[i + 1];
     }
@@ -2996,8 +3007,7 @@
     try { g.cancelScheduledValues(t); } catch (e) {}
     xfade(g, t, d, v, true);
     xfade(S.xf.gain, t, d, 1, false);
-    // the sand's and the water's sends go to the computed room (the desk's rings out by itself)
-    this.wet.disconnect(this.conv); this.wet.connect(S.conv);
+    // the water's send goes to the computed room (the desk's rings out by itself)
     this._ambWet.disconnect(this.conv); this._ambWet.connect(S.conv);
     this._ambSwap(true, t, d);
     S.x = 1; S.xEnd = t + d;
@@ -3012,7 +3022,6 @@
     this._spatial = false;
     xfade(this.gSand.gain, t, d, this._sandGain(), false);
     xfade(S.xf.gain, t, d, 1, true);
-    this.wet.disconnect(S.conv); this.wet.connect(this.conv);
     this._ambWet.disconnect(S.conv); this._ambWet.connect(this.conv);
     this._ambSwap(false, t, d);
     S.x = 3; S.xEnd = t + d;
@@ -3075,7 +3084,7 @@
   /** A bowl rings until `end`: the stage's place for it joins the mix (if it has not), and leaves it a second after the last one has rung out. Returns where the bowl goes in. */
   HourglassAudio.prototype._stageBowl = function (end) {
     var self = this, B = this._stage.bowl;
-    if (!B.on) { B.out.connect(this.bus); B.conv.connect(this.rumble); B.on = true; }
+    if (!B.on) { B.out.connect(this.rumble); B.conv.connect(this.rumble); B.on = true; }
     if (end > B.end) B.end = end;
     this._stageLater(end + 1, function () {
       if (!B.on || self.ctx.currentTime < B.end + 1) return;       // (rung again since: that one's turn)

@@ -144,6 +144,7 @@
   audio.bowlLevel = settings.bowlLevel;
   audio.silentRing = settings.silentRing;
   if (!settings.silentRing) audio.setSilentRing(false);   // the audio session follows the ringer switch from the launch on
+  if (settings.spatial) audio.setSpatial(true);           // Headphones: Spatial, as it was left (the stage is built with the sound, at the first tap)
   // The phone's own motion: what it feels, how it turns, where down is.
   // Its sign convention differs between engines; once learned it is kept.
   var motion = new window.HourglassMotion({ sign: settings.motionSign });
@@ -3536,6 +3537,14 @@
     settings.silentRing = e.target.checked; save();
     audio.setSilentRing(settings.silentRing);
   });
+  // Headphones: Spatial: the sound engine's stage (the glass heard in front of the listener). The
+  // engine crosses over by itself, once its room is made; off as the app comes, and only this turns it on.
+  var optSpatial = $('opt-spatial');
+  function showSpatial() { if (optSpatial) optSpatial.checked = settings.spatial; }
+  if (optSpatial) optSpatial.addEventListener('change', function (e) {
+    settings.spatial = e.target.checked; save();
+    audio.setSpatial(settings.spatial);
+  });
   $('opt-ends').addEventListener('change', function (e) {
     settings.endsAt = e.target.checked; save();
     showEnds();
@@ -3754,7 +3763,7 @@
   // second one within three seconds; the second puts the look and the sound back as a new
   // install has them: the sand, the frame and its finish, layered sand, the background (dark), the volume, the sand's sound
   // and its level, the ambience, its level and its fade before the end, the bowl, its rings and its
-  // level. Everything else is kept: Real sand and the grain, the durations and a sequence,
+  // level, and Headphones: Spatial (off). Everything else is kept: Real sand and the grain, the durations and a sequence,
   // breathing, Zen, the screen kept awake, haptics, Real motion, sound in silent mode (how the
   // phone treats the app: put back on, it could ring in a quiet room), the mute button, what the
   // app has learned and hinted. Nothing is loaded again, and the running
@@ -3781,7 +3790,7 @@
     var was = {
       theme: settings.theme, sand: settings.sand, finish: settings.finish, frame: settings.frame, layers: settings.layers, background: settings.background, volume: settings.volume,
       character: settings.character, ambience: settings.ambience, ambienceLevel: settings.ambienceLevel, chime: settings.chime,
-      sandLevel: settings.sandLevel, bowlLevel: settings.bowlLevel, bowlRings: settings.bowlRings, ambFade: settings.ambFade
+      sandLevel: settings.sandLevel, bowlLevel: settings.bowlLevel, bowlRings: settings.bowlRings, ambFade: settings.ambFade, spatial: settings.spatial
     };
     // (each by its name: the settings store's check follows every settings.<name> in this file)
     settings.theme = settingDefault('theme'); settings.sand = settingDefault('sand'); settings.finish = settingDefault('finish');
@@ -3792,6 +3801,7 @@
     settings.chime = settingDefault('chime');
     settings.sandLevel = settingDefault('sandLevel'); settings.bowlLevel = settingDefault('bowlLevel');
     settings.bowlRings = settingDefault('bowlRings'); settings.ambFade = settingDefault('ambFade');
+    settings.spatial = settingDefault('spatial');
     // (Sound in silent mode is kept: it is how the phone treats the app, and putting it back on could ring in a quiet room)
     save();
     // the look, behind one cross-fade
@@ -3812,6 +3822,7 @@
     if (was.bowlRings !== settings.bowlRings) ringsStop();
     showBowl();
     if (was.ambFade !== settings.ambFade) showAmbFade();
+    if (was.spatial !== settings.spatial) { audio.setSpatial(settings.spatial); showSpatial(); }
   }
   if (tuneReset && resetText) {
     tuneReset.addEventListener('click', function () {
@@ -4718,6 +4729,7 @@
   showSandLevel();
   showBowl();
   showSilent();
+  showSpatial();
   showBreath();
   showTab(settings.tuneTab);                           // Tune will open on the tab last used
   breathLayer(settings.breath);

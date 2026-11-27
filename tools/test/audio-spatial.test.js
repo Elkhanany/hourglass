@@ -80,7 +80,7 @@ function harness() {
     Object.defineProperty(off, 'state', { get: function () { return 'running'; } });
     var a = new E(), panners = 0, mk = off.createPanner;
     off.createPanner = function () { panners++; return mk.apply(off, arguments); };
-    edges.clear(); tracking = !!o.track;
+    edges.clear(); tracking = o.track ? off : null;
     a.ctx = off;
     a.volume = o.volume != null ? o.volume : 0.8;
     if (o.character) a.character = o.character;
@@ -132,24 +132,24 @@ function harness() {
     }).then(function (buf) {
       ms = performance.now() - ms;
       Math.random = realRandom;
-      tracking = false;
+      tracking = null;
       return { L: buf.getChannelData(0), R: buf.getChannelData(1), a: a, ms: ms, panners: panners };
     });
   };
   /** Near the frame at t0 (called once per frame: true for exactly one of them). */
   window.__at = function (t, t0) { return Math.abs(t - t0) < 0.5 / 60 - 1e-9; };
 
-  /* ---- what is connected to what, while a scene asks for it (track) ---- */
-  var ids = new WeakMap(), nextId = 1, edges = new Set(), tracking = false;
+  /* ---- what is connected to what in a scene's own context, while it asks for it (track) ---- */
+  var ids = new WeakMap(), nextId = 1, edges = new Set(), tracking = null;
   function idOf(n) { var i = ids.get(n); if (!i) { i = nextId++; ids.set(n, i); } return i; }
   var conn = AudioNode.prototype.connect, disc = AudioNode.prototype.disconnect;
   AudioNode.prototype.connect = function (dest, out, inp) {
-    if (tracking && dest instanceof AudioNode) edges.add(idOf(this) + '>' + idOf(dest) + ':' + (out || 0) + ':' + (inp || 0));
+    if (tracking === this.context && dest instanceof AudioNode) edges.add(idOf(this) + '>' + idOf(dest) + ':' + (out || 0) + ':' + (inp || 0));
     return conn.apply(this, arguments);
   };
   AudioNode.prototype.disconnect = function (dest, out, inp) {
     var r = disc.apply(this, arguments);                      // (it throws before anything is forgotten)
-    if (!tracking) return r;
+    if (tracking !== this.context) return r;
     var me = idOf(this) + '>', to = dest instanceof AudioNode ? me + idOf(dest) + ':' : me;
     edges.forEach(function (e) {
       if (e.indexOf(to) !== 0) return;
@@ -176,9 +176,9 @@ function harness() {
   function pw(x, a, b) { var s = 0; for (var i = a; i < b; i++) s += x[i] * x[i]; return s / Math.max(1, b - a); }
   function db(p) { return 10 * Math.log10(p + 1e-30); }
   function r2(v) { return Math.round(v * 100) / 100; }
-  /** ITD (µs, + the right ear leads) from the cross-correlation of 300-1500 Hz, and its peak. */
-  function itd(L, R, a, b) {
-    var l = band(L, 300, 1500), r = band(R, 300, 1500), M = 48, best = -1e30, bd = 0, c = [];
+  /** ITD (µs, + the right ear leads) from the cross-correlation of 300-1500 Hz (or of lo-hi Hz), and its peak. */
+  function itd(L, R, a, b, lo, hi) {
+    var l = band(L, lo || 300, hi || 1500), r = band(R, lo || 300, hi || 1500), M = 48, best = -1e30, bd = 0, c = [];
     for (var d = -M; d <= M; d++) { var s = 0; for (var i = a + M; i < b - M; i++) s += l[i] * r[i + d]; c.push(s); if (s > best) { best = s; bd = d; } }
     var k = bd + M, frac = 0;
     if (k > 0 && k < c.length - 1) { var y0 = c[k - 1], y1 = c[k], y2 = c[k + 1], den = y0 - 2 * y1 + y2; if (den < 0) frac = 0.5 * (y0 - y2) / den; }
@@ -225,10 +225,13 @@ function harness() {
     });
     return r2(20 * Math.log10(pk + 1e-12));
   };
-  /** ITD (µs) and ILD (dB) of each window of w s over [t0, t1). */
-  window.__windows = function (o, t0, t1, w) {
-    var out = { itd: [], ild: [] };
-    for (var t = t0; t + w <= t1 + 1e-9; t += w) { var m = window.__measure(o, t, t + w); out.itd.push(m.itd); out.ild.push(m.ild); }
+  /** ITD (µs) and ILD (dB) of each window of w s over [t0, t1), in the band lo-hi Hz. */
+  window.__windows = function (o, t0, t1, w, lo, hi) {
+    var out = { itd: [], ild: [] }, l = band(o.L, lo, hi), r = band(o.R, lo, hi);
+    for (var t = t0; t + w <= t1 + 1e-9; t += w) {
+      var a = Math.floor(t * SR), b = Math.floor((t + w) * SR);
+      out.itd.push(itd(o.L, o.R, a, b, lo, hi)); out.ild.push(r2(db(pw(r, a, b)) - db(pw(l, a, b))));
+    }
     return out;
   };
   /** The level (dB, both ears) over [t0, t1). */
@@ -312,15 +315,15 @@ async function main() {
   /** One job in the page, with a watchdog: a render that hangs is done once more on a fresh page. */
   var ONLY = process.env.HOURGLASS_SPATIAL_ONLY ? new RegExp(process.env.HOURGLASS_SPATIAL_ONLY) : null;
   function want(group) { return !ONLY || ONLY.test(group); }       // (HOURGLASS_SPATIAL_ONLY: a regular expression of the groups to run)
-  async function job(name, fn, arg) {
+  async function job(name, fn, arg, ms) {
     for (var k = 0; k < 2; k++) {
       var timer, hung = false;
-      var r = await Promise.race([page.evaluate(fn, arg), new Promise(function (res) { timer = setTimeout(function () { hung = true; res(null); }, WATCHDOG_MS); })]);
+      var r = await Promise.race([page.evaluate(fn, arg), new Promise(function (res) { timer = setTimeout(function () { hung = true; res(null); }, ms || WATCHDOG_MS); })]);
       clearTimeout(timer);
       renders++;
       if (!hung) return r;
       hangs++;
-      console.log('INFO ' + name + ': a render hung (no end after ' + WATCHDOG_MS / 1000 + ' s); once more on a fresh page');
+      console.log('INFO ' + name + ': a render hung (no end after ' + (ms || WATCHDOG_MS) / 1000 + ' s); once more on a fresh page');
       await fresh(true);
     }
     throw new Error(name + ': hung twice');
@@ -333,19 +336,22 @@ async function main() {
     if (want('off')) {
     /* ---- OFF: the switch off is today, to the last bit ---------------------------------- */
     var off = await job('off', async function () {
-      var mix = function (E, sp, flat) {
+      var mix = function (E, sp, flat, cross) {
         return window.__scene({ E: E, dur: 5, rate: 190, flow: 290, spatial: sp, seed: 5, flat: flat, frame: function (t) {
           return { bottom: 6000, slides: 30000, agit: 1, fill: 0.5 };
         }, each: function (a, t) {
           if (Math.abs(t - 1.0) < 0.009) { a.thump(1, 0.3, 1); a.clack(1, -0.2); a.tap(); }
           if (Math.abs(t - 2.0) < 0.009) { a.flipEnd(); a.creak(3, 0.4); }
+          if (cross && window.__at(t, 0.3)) return window.__on(a);
+          if (cross && window.__at(t, 2.4)) a.setSpatial(false);
         } });
       };
       var base = await mix('HourglassAudioBase', false), base2 = await mix('HourglassAudioBase', false), now = await mix('HourglassAudio', false);
-      var onoff = await mix('HourglassAudio', 'onoff'), on = await mix('HourglassAudio', true);
+      var onoff = await mix('HourglassAudio', 'onoff'), on = await mix('HourglassAudio', true), cross = await mix('HourglassAudio', false, false, true);
       var fa = await mix('HourglassAudioBase', false, true), fb = await mix('HourglassAudioBase', false, true);
       var k99 = { L: base2.L.map(function (v) { return v * 0.99; }), R: base2.R.map(function (v) { return v * 0.99; }) };
-      return { flatSelf: window.__apart(fa, fb), self: window.__apart(base, base2), k99: window.__apart(base, k99), now: window.__apart(base, now), onoff: window.__apart(base, onoff), on: window.__apart(base, on), rms: window.__measure(base, 1, 5).rms };
+      return { flatSelf: window.__apart(fa, fb), self: window.__apart(base, base2), k99: window.__apart(base, k99), now: window.__apart(base, now), onoff: window.__apart(base, onoff), on: window.__apart(base, on), rms: window.__measure(base, 1, 5).rms,
+               cross: window.__apart(base, cross, 4, 5), selfEnd: window.__apart(base, base2, 4, 5), k99End: window.__apart(base, k99, 4, 5), crossMid: window.__apart(base, cross, 1, 2) };
     });
     // (a render here is not the same to the last bit as itself: the same engine twice differs by about -92 dB.
     // Today's engine and this one with the switch off differ by no more than that, and the control, a gain
@@ -354,7 +360,9 @@ async function main() {
     report(off.now <= tol && off.now <= -80, 'OFF: with the switch untouched the sand mix (Sand level 100, thumps, a clack, a tap, a creak) is ' + SOUND_BASE + '\'s, to within what a render differs from itself',
            'difference ' + off.now + ' dB under the sound (' + off.rms + ' dBFS); two renders of the base engine differ by ' + off.self + ' dB' + (off.flatSelf != null ? ' (' + off.flatSelf + ' with the compressor made plain)' : ''));
     report(off.onoff <= tol && off.onoff <= -80, 'OFF: switched on and then off before it plays, the same mix is ' + SOUND_BASE + '\'s, to within the same', 'difference ' + off.onoff + ' dB');
-    report(off.k99 > tol && off.k99 > -80, 'CONTROL: the base engine at a gain of 0.99 is not', 'difference ' + off.k99 + ' dB');
+    report(off.cross <= Math.max(off.selfEnd, -200) + 6 && off.cross <= -80 && off.crossMid > -60, 'OFF: switched on while it plays (the thumps, the clack and the tap heard through the stage), then off: a second and a half later the mix is ' + SOUND_BASE + '\'s again, to within the same',
+           'difference ' + off.cross + ' dB over the last second (two renders of the base engine: ' + off.selfEnd + ' dB there); while the stage was on ' + off.crossMid + ' dB');
+    report(off.k99 > tol && off.k99 > -80 && off.k99End > -80, 'CONTROL: the base engine at a gain of 0.99 is not', 'difference ' + off.k99 + ' dB (' + off.k99End + ' dB over the last second)');
     report(off.on > -60, 'CONTROL: with the stage left on, the mix is not ' + SOUND_BASE + '\'s', 'difference ' + off.on + ' dB');
 
     }
@@ -544,6 +552,397 @@ async function main() {
            'left/right ' + snap.before.join('/') + ' -> ' + snap.after.join('/') + ' dB; the largest step ' + snap.j.worst + ' dB per ms');
     report(dc > 3, 'CONTROL: a stage that does not swap its ends with the glass swaps the sides at the end of a turn',
            'left/right ' + snap.cBefore.join('/') + ' -> ' + snap.cAfter.join('/') + ' dB');
+
+    }
+    if (want('water')) {
+    /* ---- WATER: the ambiences placed, at their level, their loops closed, their ways kept -- */
+    var ambs = await page.evaluate(function () { return Object.keys(window.HourglassAudio.AMBIENCES).filter(function (k) { return k !== 'none' && k !== 'tone'; }); });
+    for (var ai = 0; ai < ambs.length; ai++) {
+      var wt = await job('water ' + ambs[ai], async function (id) {
+        var sc = function (sp) { return window.__scene({ dur: 16, rate: 0, flow: 0, spatial: sp, seed: 7, ambience: id, frame: function () { return { running: true, ambient: true }; } }); };
+        var o0 = await sc(false), o1 = await sc(true);
+        return { off: window.__measure(o0, 3, 16), on: window.__measure(o1, 3, 16), placed: !!(o1.a._amb && o1.a._amb.baked), panners: o1.panners,
+                 srcs: [o0.a._amb.srcs.length, o1.a._amb.srcs.length], speakers: window.HourglassAudio._stage.STAGE.ring.length + 2 + window.HourglassAudio._stage.STAGE.bowl.at.length };
+      }, ambs[ai]);
+      var dw = wt.on.rms - wt.off.rms, bw2 = wt.on.bands.map(function (b, i) { return Math.round((b - wt.off.bands[i]) * 10) / 10; });
+      var wline = ambs[ai] + ': level ' + (dw >= 0 ? '+' : '') + dw.toFixed(2) + ' dB, octaves 250-8k ' + bw2.join(' ') + ', the ears correlate ' + wt.off.corr + ' -> ' + wt.on.corr;
+      lines.push('water ' + wline);
+      report(wt.placed && Math.abs(dw) <= 1, 'WATER ' + ambs[ai] + ': played from loops rendered for the stage, within 1 dB of the same water without it', wline);
+      report(wt.on.corr > -0.3 && wt.on.corr <= Math.max(0.6, wt.off.corr + 0.05) && wt.panners === wt.speakers && wt.srcs[0] === wt.srcs[1],
+             'WATER ' + ambs[ai] + ': wide (the ears correlate under 0.6, or no more than its own two channels do), and nothing more in the graph for it: as many sources as without the stage, no speaker of its own',
+             'corr ' + wt.on.corr + '; ' + wt.srcs.join(' and ') + ' sources; ' + wt.panners + ' panners made, the stage\'s ' + wt.speakers);
+    }
+    var behind = await job('water behind', async function () {
+      // one loop rendered for the stage by itself: a second of silence with a click in its left channel
+      var A = window.HourglassAudio, st = A._stage, SR = 48000, W = st.STAGE.water;
+      var ir = await st.room(SR), ctx = new OfflineAudioContext(2, 128, SR), buf = ctx.createBuffer(2, SR, SR);
+      buf.getChannelData(0)[SR / 2] = 1;
+      var run = function () { return new Promise(function (res) { st.water(ir.ears, buf, ctx, res); }); };
+      var parts = function (b) {
+        // by time after the click's first arrival: the 11 ms the front takes, then what comes later; both ears; and the share above 6 kHz
+        var o = { L: b.getChannelData(0), R: b.getChannelData(1) }, a = SR / 2, first = a;
+        while (first < SR - 1 && Math.abs(o.L[first]) < 1e-4 && Math.abs(o.R[first]) < 1e-4) first++;
+        var e = function (x, i0, i1) { var s = 0; for (var i = i0; i < i1; i++) s += x[i] * x[i]; return s; };
+        var hp = function (x) { var y = new Float32Array(x.length), p = 0, q = 0, k = Math.exp(-2 * Math.PI * 6000 / SR); for (var i = 0; i < x.length; i++) { q = k * (q + x[i] - p); p = x[i]; y[i] = q; } return y; };
+        var cut = first + Math.round(0.011 * SR), end = first + Math.round(0.06 * SR), hl = hp(o.L), hr = hp(o.R);
+        var early = e(o.L, first, cut) + e(o.R, first, cut), late = e(o.L, cut, end) + e(o.R, cut, end);
+        return { late: 10 * Math.log10(late / early + 1e-12), earlyHi: (e(hl, first, cut) + e(hr, first, cut)) / early, lateHi: (e(hl, cut, end) + e(hr, cut, end)) / (late + 1e-30),
+                 ildEarly: 10 * Math.log10(e(o.R, first, cut) / e(o.L, first, cut)), ildLate: 10 * Math.log10((e(o.R, cut, end) + 1e-30) / (e(o.L, cut, end) + 1e-30)), ms: (first - a) / SR * 1000 };
+      };
+      var both = parts(await run()), keep = W.back;
+      W.back = 0;
+      var front = parts(await run());
+      W.back = keep;
+      return { both: both, front: front };
+    });
+    var r1 = function (v) { return Math.round(v * 10) / 10; };
+    report(behind.both.late > -12 && behind.both.late < -2 && behind.both.lateHi < 0.7 * behind.both.earlyHi && behind.both.ildEarly < -3 && behind.both.ildLate < -3,
+           'WATER: a click in a loop\'s left channel is heard from the front left, and again from behind on the left: later, quieter and darker',
+           'what arrives after the first 11 ms is ' + r1(behind.both.late) + ' dB under what arrives in them; its share above 6 kHz ' + behind.both.lateHi.toFixed(2) + ' against ' + behind.both.earlyHi.toFixed(2) +
+           '; right against left ' + r1(behind.both.ildEarly) + ' dB, then ' + r1(behind.both.ildLate) + ' dB');
+    report(behind.front.late < -25, 'CONTROL: rendered without the two directions behind, nothing arrives later', r1(behind.front.late) + ' dB');
+    var join = await job('water join', async function () {
+      var A = window.HourglassAudio, W = A._stage.STAGE.water;
+      if (!A.AMBIENCES.tone) A.defineAmbience({ id: 'tone', name: 'Tone', icon: '<path d="M1 1"/>', layers: [{ seconds: 2, sr: 48000, make: function (sr, seconds, ch) {
+        var n = Math.floor(sr * seconds), a = new Float32Array(n), f = ch ? 165 : 110;       // (whole cycles in the loop: it closes as it is made)
+        for (var i = 0; i < n; i++) a[i] = 0.4 * Math.sin(2 * Math.PI * f * i / sr);
+        return a;
+      } }] });
+      var sc = function (sp) { return window.__scene({ dur: 8, rate: 0, flow: 0, spatial: sp, seed: 7, ambience: 'tone', frame: function () { return { running: true, ambient: true }; } }); };
+      var o0 = await sc(false), o1 = await sc(true), lead = W.lead;
+      W.lead = 0;
+      var cold = await sc(true);
+      W.lead = lead;
+      return { off: window.__click(o0, 3000, 2.5, 8), on: window.__click(o1, 3000, 2.5, 8), cold: window.__click(cold, 3000, 2.5, 8), level: window.__level(o1, 2.5, 8), placed: !!o1.a._amb.baked };
+    });
+    report(join.placed && join.on < -60, 'WATER: a loop rendered for the stage closes on itself: two tones played round it for 8 s leave nothing above 3 kHz (no click at the join)',
+           'peak above 3 kHz ' + join.on + ' dBFS (the tones ' + join.level + ' dBFS; without the stage ' + join.off + ' dBFS)');
+    report(join.cold > -50, 'CONTROL: rendered from its start, not going round, the loop clicks at its join', 'peak above 3 kHz ' + join.cold + ' dBFS');
+    var ways = await job('water ways', async function () {
+      var run = { running: true, ambient: true }, L = window.__level, out = {};
+      var sc = function (sp, o) { return window.__scene(Object.assign({ dur: 9, rate: 0, flow: 0, spatial: sp, seed: 7, ambience: 'brook', frame: function () { return run; } }, o)); };
+      var fading = function (t) { return t < 3 ? run : { running: true, ambient: true, ambFade: 0.25 }; };
+      var quieter = function (a, t) { if (window.__at(t, 3)) a.setAmbienceLevel(0.25); };
+      var toRain = function (a, t) {
+        if (!window.__at(t, 3)) return;
+        a._makeAmbience('rain', 1); a.setAmbience('rain');
+        return new Promise(function (res) { (function look() { if (a._amb && a._amb.id === 'rain') res(); else setTimeout(look, 20); })(); });
+      };
+      for (var sp of [false, true]) {
+        var plain = await sc(sp), fade = await sc(sp, { frame: fading }), lvl = await sc(sp, { each: quieter }), chg = await sc(sp, { each: toRain });
+        out[sp ? 'on' : 'off'] = { plain: L(plain, 6, 9), fade: L(fade, 6, 9), lvl: L(lvl, 6, 9), chg: L(chg, 6, 9), placed: !!(chg.a._amb && chg.a._amb.baked), kept: Object.keys(chg.a._ambBake).join(',') };
+      }
+      // control: the placed water sent round its bus and its fade, straight to the output chain
+      var round = function (a) { a._amb.g.disconnect(); a._amb.g.connect(a.comp); };
+      var cp = await sc(true, { tweak: round }), cf = await sc(true, { tweak: round, frame: fading }), cl = await sc(true, { tweak: round, each: quieter });
+      out.control = { plain: L(cp, 6, 9), fade: L(cf, 6, 9), lvl: L(cl, 6, 9) };
+      return out;
+    });
+    var wd = function (w, k) { return Math.round((w[k] - w.plain) * 100) / 100; };
+    var waysOk = function (on) { return Math.abs(wd(on, 'fade') - wd(ways.off, 'fade')) <= 0.5 && Math.abs(wd(on, 'lvl') - wd(ways.off, 'lvl')) <= 0.5; };
+    report(waysOk(ways.on) && wd(ways.off, 'fade') < -8 && wd(ways.off, 'lvl') < -6,
+           'WATER: with the stage on, the fade before the end (a quarter left) and the Ambience level (50 to 25) take the water down as they do without it, within 0.5 dB',
+           'the fade ' + wd(ways.on, 'fade') + ' dB (without the stage ' + wd(ways.off, 'fade') + '), the level ' + wd(ways.on, 'lvl') + ' dB (' + wd(ways.off, 'lvl') + ')');
+    report(!waysOk(ways.control), 'CONTROL: placed water that goes round its bus and its fade is taken down by neither', 'the fade ' + wd(ways.control, 'fade') + ' dB, the level ' + wd(ways.control, 'lvl') + ' dB');
+    report(ways.on.placed && ways.on.kept === 'rain' && Math.abs(ways.on.chg - ways.off.chg) <= 1,
+           'WATER: another ambience chosen with the stage on is rendered for it and played placed, within 1 dB of the same change without the stage; the one before lets its rendered loops go',
+           'the rain ' + ways.on.chg + ' dBFS (without the stage ' + ways.off.chg + '); loops rendered for the stage kept: ' + ways.on.kept);
+
+    }
+    if (want('bowl')) {
+    /* ---- BOWL: out in the room, front right, steady, at its level, there only while it rings -- */
+    var bowl = await job('bowl', async function () {
+      var L = window.__level, out = { lv: {} };
+      var ring = function (sp, lvl, o) {
+        return window.__scene(Object.assign({ dur: 11, rate: 0, flow: 0, spatial: sp, seed: 5, bowlLevel: lvl, each: function (a, t) { if (window.__at(t, 0.5)) a.chime(0); } }, o));
+      };
+      for (var lvl of [1, 2]) {
+        var o0 = await ring(false, lvl), o1 = await ring(true, lvl);
+        out.lv[lvl] = { off: L(o0, 0.6, 9.5), on: L(o1, 0.6, 9.5), peakOff: window.__measure(o0, 0.6, 9.5).peak, peakOn: window.__measure(o1, 0.6, 9.5).peak };
+        if (lvl === 1) { out.win = window.__windows(o1, 1, 7, 1, 300, 420); out.winOff = window.__windows(o0, 1, 7, 1, 300, 420); out.m = window.__measure(o1, 1, 7); out.fine = window.__windows(o1, 1, 5, 0.25, 300, 420); }
+      }
+      // control: the bowl's two channels each to its own speaker: the beating pairs then beat between two places
+      var two = await ring(true, 1, { tweak: function (a) {
+        var n = a._stage.bowl.nodes, bsp = n[2], one = n[3], p2 = n[6], g = a.ctx.createGain();
+        g.gain.value = one.gain.value; g.channelCount = 1; g.channelCountMode = 'explicit';
+        one.disconnect(p2); bsp.connect(g, 1); g.connect(p2);
+      } });
+      out.two = window.__windows(two, 1, 7, 1, 300, 420); out.twoFine = window.__windows(two, 1, 5, 0.25, 300, 420);
+      return out;
+    });
+    var span = function (x) { return Math.max.apply(null, x) - Math.min.apply(null, x); };
+    [1, 2].forEach(function (lvl) {
+      var b = bowl.lv[lvl], d = Math.round((b.on - b.off) * 100) / 100;
+      lines.push('bowl level ' + lvl * 50 + ': ' + d + ' dB (peak ' + b.peakOff + ' -> ' + b.peakOn + ' dBFS)');
+      report(Math.abs(d) <= 1, 'BOWL at Bowl level ' + lvl * 50 + ': within 1 dB of the bowl without the stage', b.on + ' against ' + b.off + ' dBFS; peak ' + b.peakOff + ' -> ' + b.peakOn + ' dBFS');
+    });
+    // (its place is measured on its fundamental, 300-420 Hz: the partials above it die sooner, and each has its own ITD)
+    report(bowl.m.itd > 100 && bowl.m.ild > 1 && span(bowl.win.itd) <= 100 && span(bowl.win.ild) <= 1,
+           'BOWL: heard to the right, and steady: from one second to the next its place moves by no more than 100 us and 1 dB',
+           'ITD ' + bowl.m.itd + ' us, ILD ' + bowl.m.ild + ' dB; by the second: ITD ' + bowl.win.itd.join(' ') + ' us, ILD ' + bowl.win.ild.join(' ') + ' dB (without the stage: ITD ' + bowl.winOff.itd.join(' ') + ', ILD ' + bowl.winOff.ild.join(' ') + ')');
+    report(span(bowl.fine.itd) <= 100, 'BOWL: nor does it beat between two places: by the quarter second its ITD stays within 100 us',
+           'ITD ' + bowl.fine.itd.join(' ') + ' us (ILD ' + bowl.fine.ild.join(' ') + ' dB)');
+    report(span(bowl.twoFine.itd) > 100, 'CONTROL: its two channels each to a speaker of its own, the beating pairs beat between the two: its ITD swings by over 100 us',
+           'ITD ' + bowl.twoFine.itd.join(' ') + ' us; by the second ' + bowl.two.itd.join(' ') + ' us');
+    var rings = await job('bowl rings', async function () {
+      var A = window.HourglassAudio, L = window.__level, seen = [];
+      var sc = function (sp, o) {
+        return window.__scene(Object.assign({ dur: 20, rate: 0, flow: 0, spatial: sp, seed: 5, track: true, each: function (a, t) {
+          if (window.__at(t, 0.5) || window.__at(t, 8.5)) a.chime(0);
+          [0.3, 5, 12, 19].forEach(function (x) { if (window.__at(t, x)) { var e = window.__edges(a); seen.push([x, e.bus, e.rumble, !!(a._stage && a._stage.bowl.on)]); } });
+        } }, o));
+      };
+      var take = function () { var s = seen; seen = []; return s; };
+      var o0 = await sc(false), s0 = take(), o1 = await sc(true), s1 = take();
+      // control: a place for the bowl that never leaves the mix
+      var orig = A.prototype._stageBowl;
+      A.prototype._stageBowl = function () { return orig.call(this, 1e9); };
+      await sc(true);
+      A.prototype._stageBowl = orig;
+      var s2 = take();
+      // stopped by a tap
+      var stop = async function (sp, tap) {
+        var o = await window.__scene({ dur: 5, rate: 0, flow: 0, spatial: sp, seed: 5, each: function (a, t) { if (window.__at(t, 0.5)) a.chime(0); if (tap && window.__at(t, 3)) a.stopChime(); } });
+        return Math.round((L(o, 3.7, 4.2) - L(o, 2.4, 2.9)) * 10) / 10;
+      };
+      return { off: [L(o0, 0.6, 8.4), L(o0, 8.6, 17.5)], on: [L(o1, 0.6, 8.4), L(o1, 8.6, 17.5)], s0: s0, s1: s1, s2: s2, stop: [await stop(false, true), await stop(true, true), await stop(true, false)] };
+    });
+    var rd = [0, 1].map(function (i) { return Math.round((rings.on[i] - rings.off[i]) * 100) / 100; });
+    report(Math.abs(rd[0]) <= 1 && Math.abs(rd[1]) <= 1, 'BOWL with Rings: rung again 8 s later, each ring is within 1 dB of the same ring without the stage', rd.join(' and ') + ' dB');
+    var joined = function (s) { return s.map(function (r) { return r[0] + ' s: ' + r[1] + ' into the bus, ' + r[2] + ' into the output chain' + (r[3] ? ', joined' : ''); }).join('; '); };
+    var partOk = function (s) { return s[0][1] === s[3][1] && s[0][2] === s[3][2] && s[1][1] === s[0][1] && s[1][2] === s[0][2] + 2 && s[2][2] === s[1][2] && !s[0][3] && s[1][3] && s[2][3] && !s[3][3]; };
+    report(partOk(rings.s1), 'BOWL: its place joins the mix when a bowl rings, stays through the second ring, and has left it a second after the last has rung out', joined(rings.s1));
+    report(!partOk(rings.s2), 'CONTROL: a place for the bowl that never leaves the mix is found out', joined(rings.s2));
+    report(rings.stop[0] < -30 && rings.stop[1] < -30, 'BOWL: a bowl stopped (a tap) falls silent with the stage on as without it', 'half a second on: ' + rings.stop[1] + ' dB (without the stage ' + rings.stop[0] + ' dB)');
+    report(rings.stop[2] > -10, 'CONTROL: left to ring, it does not', rings.stop[2] + ' dB');
+    var btg = await job('bowl toggle', async function () {
+      var L = window.__level, seen = [];
+      var sc = function (sp, way) {
+        return window.__scene({ dur: 12, rate: 0, flow: 0, spatial: sp, seed: 5, track: true, each: function (a, t) {
+          if (window.__at(t, 0.5)) a.chime(0);
+          if (window.__at(t, 11.5)) seen.push(window.__edges(a).all);
+          if (window.__at(t, 2)) { if (way === 'on') return window.__on(a); if (way === 'off') a.setSpatial(false); }
+        } });
+      };
+      var ref0 = await sc(false), tOn = await sc(false, 'on'), ref1 = await sc(true), tOff = await sc(true, 'off');
+      var one = function (o, ref) { return { d: Math.round((L(o, 2.5, 8) - L(ref, 2.5, 8)) * 100) / 100, click: window.__click(o, 6000, 1.9, 3), ref: window.__click(ref, 6000, 1.9, 3), itd: window.__measure(o, 3, 7).itd, itdRef: window.__measure(ref, 3, 7).itd }; };
+      return { on: one(tOn, ref0), off: one(tOff, ref1), edges: seen, state: [tOn.a._spatial, tOff.a._stage === null] };
+    });
+    var tgOk = function (v) { return Math.abs(v.d) <= 0.5 && v.click <= Math.max(-40, v.ref + 3) && Math.abs(v.itd - v.itdRef) <= 50; };
+    report(tgOk(btg.on) && tgOk(btg.off) && btg.state[0] && btg.state[1] && btg.edges[3] === btg.edges[0],
+           'BOWL: the switch thrown while a bowl rings does it no harm: it rings on where it began (level within 0.5 dB, place within 50 us, no click), and its place is let go once it has rung out',
+           'switched on at 2 s: ' + JSON.stringify(btg.on) + '; switched off: ' + JSON.stringify(btg.off) + '; connections at the end ' + btg.edges.join(', '));
+
+    }
+    if (want('switch')) {
+    /* ---- SWITCH: no click, nothing left behind, and everything else as it was -------------- */
+    var sw = await job('switch click', async function () {
+      var A = window.HourglassAudio, S = A._stage.STAGE, L = window.__level;
+      var sc = function (how) {
+        return window.__scene({ dur: 4, rate: 0, flow: 0, seed: 3, setup: function (a) {
+          // a steady low tone in both channels of the grains' fader: a step in it is a click, and nothing else in it is above 4 kHz
+          var ctx = a.ctx, o = ctx.createOscillator(), g = ctx.createGain(), m = ctx.createChannelMerger(2);
+          o.frequency.value = 220; g.gain.value = 0.5;
+          o.connect(g); g.connect(m, 0, 0); g.connect(m, 0, 1); m.connect(a.gTicks); o.start(0);
+        }, each: function (a, t) {
+          if (how === 'once') { if (window.__at(t, 1)) return window.__on(a); if (window.__at(t, 2.5)) a.setSpatial(false); }
+          if (how === 'about') {
+            // thrown about: on, off while it crosses in, on, off, and at last off
+            if (window.__at(t, 1)) return window.__on(a);
+            if (window.__at(t, 1.1)) a.setSpatial(false);
+            if (window.__at(t, 1.15)) a.setSpatial(true);
+            if (window.__at(t, 1.2)) a.setSpatial(false);
+            if (window.__at(t, 2.2)) { a.setSpatial(true); a.setSpatial(false); return window.__on(a); }
+            if (window.__at(t, 2.3)) a.setSpatial(false);
+          }
+        } });
+      };
+      var ref = await sc(), once = await sc('once'), about = await sc('about'), xf = S.xf;
+      S.xf = 0;
+      var hard = await sc('once');
+      S.xf = xf;
+      var c = function (o) { return window.__click(o, 4000, 0.8, 3.6); };
+      return { tone: L(ref, 1, 3), ref: c(ref), once: c(once), about: c(about), hard: c(hard), on: Math.round((L(once, 1.6, 2.4) - L(ref, 1.6, 2.4)) * 100) / 100,
+               back: Math.round((L(once, 3.2, 3.9) - L(ref, 3.2, 3.9)) * 100) / 100, backAbout: Math.round((L(about, 3.2, 3.9) - L(ref, 3.2, 3.9)) * 100) / 100,
+               ears: [window.__measure(ref, 1.6, 2.4).corr, window.__measure(once, 1.6, 2.4).corr], state: [once.a._stage === null, about.a._stage === null, about.a._spatial] };
+    });
+    report(sw.once <= -40 && sw.about <= -40 && Math.abs(sw.back) <= 0.1 && Math.abs(sw.backAbout) <= 0.1 && sw.state[0] && sw.state[1] && !sw.state[2],
+           'SWITCH: on and off again under a steady tone leaves no step louder than -40 dBFS, nor does the switch thrown about (off while it crosses in, on, off, on, off); afterwards the tone is as it was',
+           'peak above 4 kHz ' + sw.once + ' dBFS, thrown about ' + sw.about + ' dBFS (the tone ' + sw.tone + ' dBFS, untouched ' + sw.ref + ' dBFS above 4 kHz); with the stage on the tone is ' + sw.on + ' dB; afterwards ' + sw.back + ' and ' + sw.backAbout + ' dB');
+    report(sw.hard > -40, 'CONTROL: switched without a crossfade, it clicks', 'peak above 4 kHz ' + sw.hard + ' dBFS');
+    var ten = await job('switch ten', async function () {
+      var A = window.HourglassAudio, snap;
+      var sc = function () {
+        snap = {};
+        return window.__scene({ dur: 8.3, rate: 0, flow: 0, seed: 3, ambience: 'brook', track: true, frame: function () { return { running: true, ambient: true }; }, each: function (a, t) {
+          if (window.__at(t, 0.4)) snap.before = window.__edges(a);
+          if (window.__at(t, 1.0)) { snap.on = window.__edges(a); snap.onState = [a._stage.x, a._amb.baked, a._spatial]; }
+          if (window.__at(t, 8)) { snap.after = window.__edges(a); snap.state = { stage: a._stage === null, jobs: a._stageJobs.length, sand: Math.round(a.gSand.gain.value * 1000) / 1000, spatial: a._spatial, rendered: Object.keys(a._ambBake).length, placed: a._amb.baked }; }
+          for (var k = 0; k < 10; k++) if (window.__at(t, 0.5 + 0.7 * k)) { if (k % 2) a.setSpatial(false); else return window.__on(a); }
+        } }).then(function () { return snap; });
+      };
+      var s1 = await sc(), orig = A.prototype._stageDown;
+      // control: a stage taken down without letting go of its nodes
+      A.prototype._stageDown = function (S) { var n = S.nodes; S.nodes = []; var r = orig.call(this, S); S.nodes = n; return r; };
+      var s2 = await sc();
+      A.prototype._stageDown = orig;
+      return { ok: s1, bad: s2 };
+    });
+    var same = function (s) { return JSON.stringify(s.before) === JSON.stringify(s.after); };
+    var st = ten.ok.state;
+    report(same(ten.ok) && st.stage && st.jobs === 0 && st.sand === 1 && !st.spatial && st.rendered === 0 && !st.placed && ten.ok.on.sand === 0 && ten.ok.on.bus === ten.ok.before.bus && ten.ok.on.rumble === ten.ok.before.rumble + 2 && ten.ok.onState[0] === 2 && ten.ok.onState[1],
+           'SWITCH: ten times thrown, with a brook playing, and nothing is left: as many connections as before, the same number into the bus, the Sand level, the output chain and the ambience\'s bus; no stage, no loops kept for it',
+           'before ' + JSON.stringify(ten.ok.before) + ', on ' + JSON.stringify(ten.ok.on) + ', after ' + JSON.stringify(ten.ok.after) + '; ' + JSON.stringify(st));
+    report(!same(ten.bad), 'CONTROL: a stage taken down without letting go of its nodes is found out', 'before ' + JSON.stringify(ten.bad.before) + ', after ' + JSON.stringify(ten.bad.after));
+    var lev = await job('switch levels', async function () {
+      var A = window.HourglassAudio, L = window.__level, out = {}, r = function (v) { return Math.round(v * 100) / 100; };
+      var sc = function (sp, o) { return window.__scene(Object.assign({ dur: 7, rate: 60, spatial: sp, seed: 9, frame: function () { return { bottom: 2400, slides: 3000 }; } }, o)); };
+      var vol = function (a, t) { if (window.__at(t, 2)) a.setVolume(0.4); }, sand = function (a, t) { if (window.__at(t, 2)) a.setSandLevel(0.5); };
+      for (var sp of [false, true]) {
+        var plain = await sc(sp), v = await sc(sp, { each: vol }), s = await sc(sp, { each: sand });
+        out[sp ? 'on' : 'off'] = { vol: r(L(v, 3, 7) - L(plain, 3, 7)), sand: r(L(s, 3, 7) - L(plain, 3, 7)), plain: L(plain, 3, 7) };
+      }
+      // the Sand level set with the stage on, then the switch off: the sand keeps it
+      var so = await sc(true, { each: function (a, t) { sand(a, t); if (window.__at(t, 3)) a.setSpatial(false); } });
+      out.kept = r(L(so, 4.5, 7) - out.off.plain);
+      // control: a Sand level that moves only the gain the sand used to pass
+      var old = A.prototype.setSandLevel;
+      A.prototype.setSandLevel = function (x) { this.sandLevel = Math.max(0, Math.min(1, +x || 0)); this.gSand.gain.setTargetAtTime(this._sandGain(), this.ctx.currentTime, 0.05); };
+      var c = await sc(true, { each: sand });
+      A.prototype.setSandLevel = old;
+      out.control = r(L(c, 3, 7) - out.on.plain);
+      // another character chosen with the stage on, against a glass that began with it
+      var m = function (o) { return window.__measure(o, 3.5, 7); };
+      var toWarm = function (a, t) { if (window.__at(t, 1.5)) a.setCharacter('warm'); };
+      var chg = m(await sc(true, { each: toWarm })), warm = m(await sc(true, { character: 'warm' })), tone = A.prototype._stageTone;
+      A.prototype._stageTone = function (tau) { if (!tau) tone.call(this, tau); };      // control: the stage's correction stays the first character's
+      var stale = m(await sc(true, { each: toWarm }));
+      A.prototype._stageTone = tone;
+      var far = function (x) { return { level: r(x.rms - warm.rms), octaves: x.bands.map(function (b, i) { return r(b - warm.bands[i]); }) }; };
+      out.chr = far(chg); out.stale = far(stale);
+      // Sound in silent mode: the page's audio session, stubbed
+      var types = [];
+      Object.defineProperty(navigator, 'audioSession', { configurable: true, value: { set type(x) { types.push(x); }, get type() { return types[types.length - 1]; } } });
+      var ring = function (a, t) { if (window.__at(t, 2)) a.setSilentRing(false); if (window.__at(t, 3)) a.setSilentRing(true); };
+      var q = await sc(true, { each: ring });
+      out.silent = { types: types.slice(), level: r(L(q, 3, 7) - out.on.plain) };
+      types.length = 0;
+      var sess = A.prototype._session;
+      A.prototype._session = function () {};
+      await sc(true, { each: ring });
+      A.prototype._session = sess;
+      out.silentControl = types.slice();
+      delete navigator.audioSession;
+      return out;
+    });
+    report(Math.abs(lev.on.vol - lev.off.vol) <= 0.5 && Math.abs(lev.on.sand - lev.off.sand) <= 0.5 && lev.off.vol < -8 && lev.off.sand < -7 && Math.abs(lev.kept - lev.off.sand) <= 1,
+           'SWITCH: with the stage on, the Sound volume (80 to 40) and the Sand level (100 to 50) take the sand down as they do without it, within 0.5 dB; and the Sand level set with the stage on is the sand\'s when it is switched off',
+           'the volume ' + lev.on.vol + ' dB (without the stage ' + lev.off.vol + '), the Sand level ' + lev.on.sand + ' dB (' + lev.off.sand + '); after the switch off ' + lev.kept + ' dB');
+    report(Math.abs(lev.control - lev.off.sand) > 0.5, 'CONTROL: a Sand level that moves only the gain the sand used to pass does nothing with the stage on', lev.control + ' dB');
+    var chrOk = function (c) { return Math.abs(c.level) <= 1 && c.octaves.every(function (v) { return Math.abs(v) <= 1.5; }); };
+    report(chrOk(lev.chr), 'SWITCH: another character chosen with the stage on sounds as a glass that began with it: within 1 dB, each octave 250 Hz-8 kHz within 1.5 dB',
+           'level ' + lev.chr.level + ' dB, octaves ' + lev.chr.octaves.join(' '));
+    report(!chrOk(lev.stale), 'CONTROL: a stage whose correction stays the first character\'s does not', 'level ' + lev.stale.level + ' dB, octaves ' + lev.stale.octaves.join(' '));
+    report(lev.silent.types.join(',') === 'ambient,playback' && Math.abs(lev.silent.level) <= 0.1,
+           'SWITCH: Sound in silent mode with the stage on: the page\'s audio session is \'ambient\' when it is switched off and \'playback\' when on, and the sound is not touched',
+           'the session: ' + lev.silent.types.join(', ') + '; the level ' + lev.silent.level + ' dB');
+    report(lev.silentControl.length === 0, 'CONTROL: an engine that leaves the session alone is found out', 'the session: ' + (lev.silentControl.join(', ') || 'never set'));
+
+    }
+    if (want('hidden')) {
+    /* ---- HIDDEN: the hold of a hidden page, and the switch thrown under it ------------------ */
+    var hid = await job('hidden', async function () {
+      var L = window.__level, r = function (v) { return Math.round(v * 100) / 100; };
+      var held = function (a, t) { if (window.__at(t, 2)) a.hold(60, 1); };
+      var sc = function (sp, each) {
+        return window.__scene({ dur: 9, rate: 60, spatial: sp, seed: 9, frame: function () { return { bottom: 2400 }; }, skip: function (t) { return t >= 2; }, each: each });
+      };
+      var off = await sc(false, held), on = await sc(true, held), none = await sc(true, function () {});
+      var tOn = await sc(false, function (a, t) { held(a, t); if (window.__at(t, 3)) return window.__on(a); });
+      var tOff = await sc(true, function (a, t) { held(a, t); if (window.__at(t, 3)) a.setSpatial(false); });
+      return { off: L(off, 5, 8.8), on: r(L(on, 5, 8.8) - L(off, 5, 8.8)), none: r(L(none, 5, 8.8) - L(off, 5, 8.8)), before: r(L(on, 1, 2) - L(off, 1, 2)),
+               tOn: r(L(tOn, 5, 8.8) - L(on, 5, 8.8)), tOff: r(L(tOff, 5, 8.8) - L(off, 5, 8.8)), state: [tOn.a._spatial, tOff.a._spatial],
+               corr: [window.__measure(off, 5, 8.8).corr, window.__measure(on, 5, 8.8).corr, window.__measure(tOn, 5, 8.8).corr, window.__measure(tOff, 5, 8.8).corr] };
+    });
+    report(Math.abs(hid.on) <= 1.5 && hid.off > -60, 'HIDDEN: held (hold(), then no update() for 7 s) the glass keeps sounding with the stage on, within 1.5 dB of the same hold without it',
+           hid.on + ' dB against ' + hid.off + ' dBFS without the stage (before the hold ' + hid.before + ' dB)');
+    report(hid.none < -10, 'CONTROL: hidden with no hold(), it falls silent', hid.none + ' dB');
+    report(Math.abs(hid.tOn) <= 1.5 && Math.abs(hid.tOff) <= 1.5 && hid.state[0] && !hid.state[1],
+           'HIDDEN: the switch thrown under the hold does no harm: switched on, the held glass sounds as one that was on (within 1.5 dB), switched off as one that was off',
+           'on: ' + hid.tOn + ' dB, off: ' + hid.tOff + ' dB; the ears correlate ' + hid.corr.join(', ') + ' (off, on, switched on, switched off)');
+
+    }
+    if (want('pose')) {
+    /* ---- POSE: the phone laid flat ------------------------------------------------------- */
+    var pose = await job('pose', async function () {
+      var L = window.__level, seen = {};
+      // the share of the bars' gains that goes to the ring's lower row
+      var low = function (a) {
+        var S = a._stage, R = window.HourglassAudio._stage.STAGE.ring, lo = 0, all = 0;
+        for (var k in S.bars) [S.bars[k].L, S.bars[k].R].forEach(function (e) { e.g.forEach(function (n, j) { var v = n.gain.value; all += v * v; if (j < R.length && R[j][1] < 0) lo += v * v; }); });
+        return Math.round(1000 * lo / all) / 1000;
+      };
+      var sc = function (p) {
+        seen[p] = [];
+        return window.__scene({ dur: 5, rate: 60, spatial: true, seed: 9, frame: function (t) { return { bottom: 2400, pose: t >= 1 ? p : 0 }; },
+                                each: function (a, t) { [0.9, 1.7, 3.5].forEach(function (x) { if (window.__at(t, x)) seen[p].push(low(a)); }); } });
+      };
+      var flat = await sc(1);
+      await sc(-1); await sc(0.5);
+      return { seen: seen, level: Math.round((L(flat, 3, 5) - L(flat, 0.4, 1)) * 100) / 100 };
+    });
+    var lower = function (s) { return Math.abs(s[1] - s[0]) < 0.01 && s[2] > s[0] + 0.15; };
+    report(lower(pose.seen['1']) && lower(pose.seen['-1']) && Math.abs(pose.level) <= 1.5,
+           'POSE: the phone laid on its back, or on its face, for over a second, the glass lies lower: more of every bar goes to the ring\'s lower row; before the second is up nothing has moved; the level stays within 1.5 dB',
+           'the lower row\'s share before, 0.7 s after and 2.5 s after: on its back ' + pose.seen['1'].join(' ') + ', on its face ' + pose.seen['-1'].join(' ') + '; the level ' + pose.level + ' dB');
+    report(!lower(pose.seen['0.5']), 'CONTROL: half way down (not flat), nothing moves', pose.seen['0.5'].join(' '));
+
+    }
+    if (want('cost')) {
+    /* ---- COST: a running glass with the stage on, against the same render without it -------- */
+    var cost = await job('cost', async function () {
+      var A = window.HourglassAudio, W = A._stage.STAGE.water;
+      var run = function (sp, amb, o) {
+        return window.__scene(Object.assign({ dur: 10, rate: 60, spatial: sp, seed: 9, ambience: amb, frame: function () { return { bottom: 2400, slides: 3000, ambient: !!amb }; } }, o)).then(function (r) { return r.ms; });
+      };
+      var med = function (x) { return x.slice().sort(function (a, b) { return a - b; })[x.length >> 1]; };
+      var pair = async function (amb, o) {
+        var off = [], on = [];
+        for (var i = 0; i < 5; i++) {
+          if (i % 2) { on.push(await run(true, amb, o)); off.push(await run(false, amb)); }
+          else { off.push(await run(false, amb)); on.push(await run(true, amb, o)); }
+        }
+        return { off: Math.round(med(off)), on: Math.round(med(on)), ratio: Math.round(100 * med(on) / med(off)) / 100 };
+      };
+      await run(true, 'brook');
+      var glass = await pair(null), water = await pair('brook');
+      // control: the levers taken out again: the water as it was made, live through four speakers of its own (behind: later,
+      // darker, turned), and the bowl's place never leaving the mix
+      var undone = await pair('brook', { tweak: function (a) {
+        var ctx = a.ctx, sp = ctx.createChannelSplitter(2);
+        a._ambSwap(false, ctx.currentTime, 0.01);
+        a.ambEnd.disconnect(a.comp); a.ambEnd.connect(sp);
+        [[W.front[0], 0, 0], [W.front[1], 1, 0], [W.rear[0], 0, 1], [W.rear[1], 1, 1]].forEach(function (d) {
+          var p = ctx.createPanner(), r = d[0][0] * Math.PI / 180, at = sp;
+          p.panningModel = 'HRTF'; p.rolloffFactor = 0; p.channelCount = 1; p.channelCountMode = 'explicit';
+          p.positionX.value = Math.sin(r); p.positionZ.value = -Math.cos(r);
+          if (d[2]) {
+            var dl = ctx.createDelay(0.1), g = ctx.createGain();
+            dl.delayTime.value = W.late[d[1]]; g.gain.value = W.back;
+            sp.connect(dl, d[1]); at = dl;
+            [['lowpass', W.dark]].concat(W.turn[d[1]].map(function (f) { return ['allpass', f]; })).forEach(function (f) { var b = ctx.createBiquadFilter(); b.type = f[0]; b.frequency.value = f[1]; b.Q.value = 0.7; at.connect(b); at = b; });
+            at.connect(g); g.connect(p);
+          } else sp.connect(p, d[1]);
+          p.connect(a.comp);
+        });
+        a._stageBowl(1e9);
+      } });
+      return { glass: glass, water: water, undone: undone };
+    }, null, 600000);
+    var cl = function (c) { return c.off + ' ms without, ' + c.on + ' ms with: ' + c.ratio + ' times'; };
+    report(cost.glass.ratio <= 1.4 && cost.water.ratio <= 1.4, 'COST: 10 s of a running glass (60 grains a second) render with the stage on in at most 1.4 times the time without it, alone and with a brook (medians of five, taken in turn)',
+           'the glass: ' + cl(cost.glass) + '; with a brook: ' + cl(cost.water));
+    report(cost.undone.ratio > cost.water.ratio + 0.04, 'CONTROL: the water played live through four speakers of its own, and the bowl\'s place never leaving the mix, costs more', cl(cost.undone));
 
     }
     if (PRINT) lines.forEach(function (l) { console.log('INFO ' + l); });
