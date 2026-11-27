@@ -1998,10 +1998,12 @@
     this.sandLevel = 1;
     this.bowlLevel = 1;
     this.silentRing = true;
-    // the stage (headphones, spatial): asked for, and on (built); off as the app comes
+    // the stage (headphones, spatial): asked for; carrying the sound; what it is made of; and what it
+    // has still to do, each at its time. Off as the app comes.
     this._spatialWant = false;
     this._spatial = false;
     this._stage = null;
+    this._stageJobs = [];
     this._bowls = [];         // the completion bowls still ringing: { out, end } (stopChime fades them)
     this._last = {};          // last scheduled value per parameter
     this._cushion = 0;
@@ -2012,6 +2014,7 @@
     // Only the chosen ambience holds any sound (and the one before it, while it fades):
     this._ambRaw = {};        // synthesised, by id: [L, R] per layer…
     this._ambBuf = {};        // …wrapped into AudioBuffers once there is a context
+    this._ambBake = {};       // …and, while the stage is on, rendered placed for it (as many again)
     this._ambJobs = {};       // being synthesised, by id
     this._amb = null;         // the one playing
     this._ambPreview = 0;     // audition until this context time
@@ -2477,7 +2480,7 @@
     if (this.ambience !== 'none') this._loadAmbience(this.ambience);
     this._applyCharacter(0.01);
     this._applyMaster();
-    if (this._spatialWant) this._stageOn();
+    if (this._spatialWant) this._stageBuild();
   };
 
   /* ----------------------------------------------------------------------
@@ -2485,14 +2488,17 @@
    *
    *  Off (as the app comes), nothing of this is made and the graph is the
    *  one above, sample for sample. On (setSpatial(true)), the sand's stereo
-   *  faders become five bars, each a line across the glass whose two ends
+   *  faders become four bars, each a line across the glass whose two ends
    *  are its left and right channels, and every end is placed between ten
    *  still virtual loudspeakers round the glass: PannerNodes with the
    *  browser's own head-related filters (HRTF), never moved. A lean, a turn
    *  or the phone laid flat changes only the gains into them. A correction
    *  EQ and a trim keep the level and the tone as they were, and a room
    *  computed here (image sources and a noise tail, each image through the
-   *  same filters) replaces the desk's small room for the sand.
+   *  same filters) replaces the desk's small room for the sand. The bowl
+   *  rings out in that room, front right, with a small room of its own, and
+   *  the water is wide in front and behind: its loops are rendered once
+   *  through four more directions and played as they always were.
    *
    *  Frames. The glass's own: x across it (−1 … 1, + its right), y along it
    *  (−1 the far end of the lower bulb, 0 the neck, +1 the top). Seen: the
@@ -2501,14 +2507,24 @@
    *  elevation + up; every elevation on one of the database's 15° rows (it
    *  rounds anything else down to one), and no speaker dead ahead (both
    *  ears the same: inside the head), so the neck is a phantom between two.
+   *
+   *  The switch never clicks. Nothing that sounds is ever connected or
+   *  taken away: the stage is built beside the graph, silent; when its room
+   *  is made (which also loads the HRTF's data) and its speakers sound, the
+   *  sand crosses over in STAGE.xf seconds (the Sand level's gain falls to
+   *  nothing as the stage's rises, both at equal power), and only then,
+   *  silent, the faders let go of the old way. Off, the same backwards, and
+   *  every node of the stage is let go. One step at a time: a switch thrown
+   *  during a crossing is done when the crossing is over.
    * ---------------------------------------------------------------------- */
   var STAGE = {
     //       round the ring from the top, clockwise as seen: [azimuth, elevation]
     ring: [[0, 15], [28, 15], [40, 0], [28, -15], [0, -15], [-28, -15], [-40, 0], [-28, 15]],
     inner: [[-10, 0], [10, 0]],
     gw: 0.8,                      // the glass's half-width, seen, against its half-height
-    // the bars: [y along the glass, half-width]; the land's and the rush's y follow the sand
-    bars: { neck: [-0.25, 0.34], pour: [0.9, 0.4], land: [-0.7, 1.0], glass: [0, 0.7], rush: [-0.55, 0.8] },
+    // the bars: [y along the glass, half-width]; the land's and the rush's y follow the sand. (The
+    // pour of a new glass has no bar of its own: it is heard in the neck's.)
+    bars: { neck: [-0.25, 0.34], land: [-0.7, 1.0], glass: [0, 0.7], rush: [-0.55, 0.8] },
     // the filters' own colour averaged over the ten speakers, and the low end that two speakers'
     // crosstalk adds to a stereo bus heard by both ears: [type, Hz, Q, dB]
     eq: [['lowshelf', 1800, 0.7, -8], ['peaking', 170, 0.7, -6], ['peaking', 1250, 1.2, 1.5],
@@ -2523,7 +2539,17 @@
     toneHz: [250, 500, 1000, 2000, 4000, 8000],
     wide: 1.3,                    // the scene, seen, widened across: the generic head hears little of a small angle
     bal: 0.5,                     // dB, + the left ear louder: the filters' own left/right difference
-    tau: 0.03                     // s: how fast a gain glides to a new place
+    tau: 0.03,                    // s: how fast a gain glides to a new place
+    xf: 0.33,                     // s: the switch's crossfade, either way
+    // The bowl, out in the room, front right: its two speakers, how far it stands (m), its level
+    // against the bowl without the stage, and its own room: its share, how long it rings (s) and
+    // how much of it is tail. One steady signal into both speakers: its place never beats.
+    bowl: { at: [[40, -15], [60, -15]], far: 0.8, trim: 0.5, wet: 0.8, rt: 0.36, tail: 1.8 },
+    // The water: wide in front, and behind, where it is later (s, left and right), quieter, darker
+    // (a low-pass, Hz) and turned by two all-pass sections a side (Hz), so that no two of the four
+    // directions say the same. And its tone, against the water without the stage: [type, Hz, Q, dB].
+    water: { front: [[-50, 0], [50, 0]], rear: [[-130, 0], [130, 0]], back: 0.6, late: [0.013, 0.019], dark: 8000,
+             turn: [[500, 2100], [700, 2900]], lead: 0.1, eq: [] }
   };
   var STAGE_D = Math.PI / 180;
 
@@ -2542,88 +2568,126 @@
     return p;
   }
   /**
-   * The gains of the ten speakers for a point (sx, sy) seen (|(sx, sy)| ≤ 1, beyond it on the
-   * ring): constant power between the two ring speakers either side of its angle, between the
-   * inner pair by its side, and between the inner pair and the ring by its distance from the neck.
-   * Their squares add up to 1; at most four are not 0.
+   * The gains of the speakers (the ring's, then the inner pair's) for a point (sx, sy) seen
+   * (|(sx, sy)| ≤ 1, beyond it on the ring): constant power between the two ring speakers either
+   * side of its angle, between the inner pair by its side, and between the inner pair and the ring
+   * by its distance from the neck. Their squares add up to 1; at most four are not 0.
    */
   function stageGains(sx, sy, out) {
-    var r = Math.sqrt(sx * sx + sy * sy);
+    var n = STAGE.ring.length, step = 360 / n, r = Math.sqrt(sx * sx + sy * sy);
     if (r > 1) { sx /= r; sy /= r; r = 1; }
     var phi = Math.atan2(sx, sy) / STAGE_D;
     if (phi < 0) phi += 360;
-    var k = Math.floor(phi / 45) % 8, t = (phi - 45 * k) / 45;
+    var k = Math.floor(phi / step) % n, t = (phi - step * k) / step;
     var ring = Math.sin(r * Math.PI / 2), inner = Math.cos(r * Math.PI / 2);
     var q = sx / 0.5;
     q = q < -1 ? -1 : (q > 1 ? 1 : q);
-    for (var i = 0; i < 10; i++) out[i] = 0;
+    for (var i = 0; i < n + 2; i++) out[i] = 0;
     out[k] = ring * Math.cos(t * Math.PI / 2);
-    out[(k + 1) % 8] = ring * Math.sin(t * Math.PI / 2);
-    out[8] = inner * Math.cos((q + 1) * Math.PI / 4);
-    out[9] = inner * Math.sin((q + 1) * Math.PI / 4);
+    out[(k + 1) % n] = ring * Math.sin(t * Math.PI / 2);
+    out[n] = inner * Math.cos((q + 1) * Math.PI / 4);
+    out[n + 1] = inner * Math.sin((q + 1) * Math.PI / 4);
+    return out;
+  }
+  /**
+   * A filter's taps at the rate `from`, as the same filter at the rate `to`: a windowed sinc, with
+   * nothing above half the lower of the two rates. (A loop of water is rendered at its own rate.)
+   */
+  function stageResample(h, from, to) {
+    if (from === to) return h;
+    var fc = to < from ? to / from : 1, n = Math.ceil(h.length * to / from), out = new Float32Array(n), half = 16 / fc;
+    for (var i = 0; i < n; i++) {
+      var x = i * from / to, k0 = Math.ceil(x - half), k1 = Math.floor(x + half), s = 0;
+      if (k0 < 0) k0 = 0;
+      if (k1 > h.length - 1) k1 = h.length - 1;
+      for (var k = k0; k <= k1; k++) {
+        var u = x - k, a = Math.PI * fc * u;
+        s += h[k] * (u ? Math.sin(a) / a : 1) * (0.5 + 0.5 * Math.cos(Math.PI * u / half));
+      }
+      out[i] = s * fc * from / to;
+    }
     return out;
   }
 
   /**
-   * The room, computed for one sample rate: a furnished shoebox (3.6 × 2.6 × 4.4 m, the head off
-   * centre so the walls differ), the glass 0.4 m ahead and a little under the eyes, a desk under
-   * it. Every image source up to the second bounce and the desk's, each delayed, scaled and
-   * darkened by its walls and rendered through the HRTF from where it arrives; then a noise tail
-   * whose two ears agree below ~500 Hz and not above, darkening as it dies. Each ear is then
-   * brought to unit energy and its end faded, as makeRoomIR's, so a character's room level means
-   * what it meant. Rendering it offline also loads the HRTF's data (an offline context waits for
-   * it), so when it resolves the live speakers have their filters. Resolves to [L, R]
-   * (Float32Arrays) or null where there is no offline context; kept per rate.
+   * What the stage needs of the HRTF, computed once for a sample rate, in one offline render:
+   *
+   *   room   the sand's: a furnished shoebox (3.6 × 2.6 × 4.4 m, the head off centre so the walls
+   *          differ), the glass 0.4 m ahead and a little under the eyes, a desk under it. Every
+   *          image source up to the second bounce and the desk's, each delayed, scaled and
+   *          darkened by its walls and rendered through the HRTF from where it arrives; then a
+   *          noise tail whose two ears agree below ~500 Hz and not above, darkening as it dies.
+   *          Each ear is then brought to unit energy and its end faded, as makeRoomIR's, so a
+   *          character's room level means what it meant.
+   *   bowl   the same room heard from where the bowl stands (STAGE.bowl), with more tail.
+   *   ears   what each of the water's four directions does to an impulse, at either ear.
+   *
+   * Rendering it also loads the HRTF's data (an offline context waits for it). Resolves to
+   * { room: [L, R], bowl: [L, R], ears: [[L, R] × 4] } (Float32Arrays), or to null where there is
+   * no offline context; kept per rate.
    */
   var stageRooms = {};
   function stageRoom(sr) {
     if (stageRooms[sr]) return stageRooms[sr];
     var OAC = root.OfflineAudioContext || root.webkitOfflineAudioContext;
     if (!OAC) return Promise.resolve(null);
-    var len = Math.floor(sr * 0.42), off;
-    try { off = new OAC(2, len, sr); } catch (e) { return Promise.resolve(null); }
-    var L = [3.6, 2.6, 4.4], lis = [1.45, 1.2, 1.7], src = [lis[0], lis[1] - 0.05, lis[2] - 0.4];
-    var desk = 0.74, c = 343, B = [[0.78, 0.78], [0.55, 0.8], [0.72, 0.72]];
-    var d0 = Math.sqrt(0.05 * 0.05 + 0.4 * 0.4), imgs = [];
-    var add = function (p, g, bounces) {
-      var dx = p[0] - lis[0], dy = p[1] - lis[1], dz = p[2] - lis[2], d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      imgs.push({ t: (d - d0) / c, g: g * d0 / d, b: bounces,
-                  az: Math.atan2(dx, -dz) / STAGE_D, el: Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)) / STAGE_D });
-    };
-    for (var nx = -1; nx <= 1; nx++) for (var mx = 0; mx <= 1; mx++)
-    for (var ny = -1; ny <= 1; ny++) for (var my = 0; my <= 1; my++)
-    for (var nz = -1; nz <= 1; nz++) for (var mz = 0; mz <= 1; mz++) {
-      var n = [nx, ny, nz], m = [mx, my, mz], p = [], g = 1, bounces = 0;
-      for (var ax = 0; ax < 3; ax++) {
-        p.push((1 - 2 * m[ax]) * src[ax] + 2 * n[ax] * L[ax]);
-        var lo = Math.abs(n[ax] - m[ax]), hi = Math.abs(n[ax]);      // bounces off the wall at 0 and the one at L
-        g *= Math.pow(B[ax][0], lo) * Math.pow(B[ax][1], hi);
-        bounces += lo + hi;
-      }
-      if (bounces > 0 && bounces <= 2) add(p, g, bounces);
-    }
-    add([src[0], 2 * desk - src[1], src[2]], 0.85, 1);                   // the desk under the glass
+    var W = STAGE.water, Bo = STAGE.bowl, ears = W.front.concat(W.rear);
+    var len = Math.floor(sr * 0.42), gap = Math.floor(sr * 0.5), each = Math.ceil(sr * 0.02), tap = Math.ceil(sr * 0.016), off;
+    try { off = new OAC(2, 2 * gap + ears.length * each, sr); } catch (e) { return Promise.resolve(null); }
+    var L = [3.6, 2.6, 4.4], lis = [1.45, 1.2, 1.7], desk = 0.74, c = 343, B = [[0.78, 0.78], [0.55, 0.8], [0.72, 0.72]];
     var imp = off.createBuffer(1, 1, sr);
     imp.getChannelData(0)[0] = 1;
-    imgs.forEach(function (im) {
-      var s = off.createBufferSource(), f = off.createBiquadFilter(), gg = off.createGain();
+    /** An impulse at `at` s from (az, el), scaled by g, through a low-pass at `lp` Hz (0: none). */
+    var fire = function (at, az, el, g, lp) {
+      var s = off.createBufferSource(), gg = off.createGain(), pn = stagePanner(off, az, el < -45 ? -45 : el);
       s.buffer = imp;
-      f.type = 'lowpass'; f.frequency.value = im.b > 1 ? 4500 : 7500; f.Q.value = 0.5;
-      gg.gain.value = im.g;
-      var pn = stagePanner(off, im.az, im.el < -45 ? -45 : im.el);
-      s.connect(f); f.connect(gg); gg.connect(pn); pn.connect(off.destination);
-      s.start(im.t);
-    });
+      gg.gain.value = g;
+      if (lp) {
+        var f = off.createBiquadFilter();
+        f.type = 'lowpass'; f.frequency.value = lp; f.Q.value = 0.5;
+        s.connect(f); f.connect(gg);
+      } else s.connect(gg);
+      gg.connect(pn); pn.connect(off.destination);
+      s.start(at);
+    };
+    /** Every image of a source at `src`, d0 m from the head, up to the second bounce, and the desk's; from t0 s on. */
+    var images = function (src, d0, t0) {
+      var add = function (p, g, bounces) {
+        var dx = p[0] - lis[0], dy = p[1] - lis[1], dz = p[2] - lis[2], d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        fire(t0 + (d - d0) / c, Math.atan2(dx, -dz) / STAGE_D, Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)) / STAGE_D, g * d0 / d, bounces > 1 ? 4500 : 7500);
+      };
+      for (var nx = -1; nx <= 1; nx++) for (var mx = 0; mx <= 1; mx++)
+      for (var ny = -1; ny <= 1; ny++) for (var my = 0; my <= 1; my++)
+      for (var nz = -1; nz <= 1; nz++) for (var mz = 0; mz <= 1; mz++) {
+        var n = [nx, ny, nz], m = [mx, my, mz], p = [], g = 1, bounces = 0;
+        for (var ax = 0; ax < 3; ax++) {
+          p.push((1 - 2 * m[ax]) * src[ax] + 2 * n[ax] * L[ax]);
+          var lo = Math.abs(n[ax] - m[ax]), hi = Math.abs(n[ax]);      // bounces off the wall at 0 and the one at L
+          g *= Math.pow(B[ax][0], lo) * Math.pow(B[ax][1], hi);
+          bounces += lo + hi;
+        }
+        if (bounces > 0 && bounces <= 2) add(p, g, bounces);
+      }
+      add([src[0], 2 * desk - src[1], src[2]], 0.85, 1);                 // the desk under it
+    };
+    images([lis[0], lis[1] - 0.05, lis[2] - 0.4], Math.sqrt(0.05 * 0.05 + 0.4 * 0.4), 0);
+    var bd = stageDir((Bo.at[0][0] + Bo.at[1][0]) / 2, Bo.at[0][1]);
+    images([lis[0] + Bo.far * bd[0], lis[1] + Bo.far * bd[1], lis[2] + Bo.far * bd[2]], Bo.far, gap / sr);
+    ears.forEach(function (a, i) { fire((2 * gap + i * each) / sr, a[0], a[1], 1, 0); });
     var done = new Promise(function (res) {
       off.oncomplete = function (e) { res(e.renderedBuffer); };    // (an older WebKit's offline context has no promise)
       var r = off.startRendering();
       if (r && r.then) r.then(res, function () { res(null); });
     });
-    stageRooms[sr] = done.then(function (buf) {
-      if (!buf) return null;
-      var r = mulberry32(0x51ab1e), onset = 0.018, rt = 0.3, kc = 1 - Math.exp(-TAU * 500 / sr);
+    /** The images from frame `from` on, and their tail: `share` of their energy, ringing `rt` s. */
+    var tailed = function (buf, from, seed, rt, share) {
+      var r = mulberry32(seed), onset = 0.018, kc = 1 - Math.exp(-TAU * 500 / sr);
       var lc = 0, hl = [0, 0], tl = [0, 0], early = 0, et = 0, i, ch, out = [], tail = [new Float32Array(len), new Float32Array(len)];
-      for (ch = 0; ch < 2; ch++) { var e0 = buf.getChannelData(ch); out.push(new Float32Array(e0)); for (i = 0; i < len; i++) early += e0[i] * e0[i]; }
+      for (ch = 0; ch < 2; ch++) {
+        var e0 = buf.getChannelData(ch).subarray(from, from + len);
+        out.push(new Float32Array(e0));
+        for (i = 0; i < len; i++) early += e0[i] * e0[i];
+      }
       for (i = 0; i < len; i++) {
         var t = i / sr, env = t < onset ? 0 : Math.exp(-6.9 * (t - onset) / rt) * Math.min(1, (t - onset) / 0.015);
         var k = 1 - Math.exp(-TAU * (1800 + 7000 * Math.exp(-t / 0.08)) / sr);
@@ -2636,7 +2700,7 @@
           et += tail[ch][i] * tail[ch][i];
         }
       }
-      var tg = Math.sqrt(1.4 * early / et);
+      var tg = Math.sqrt(share * early / et);
       for (ch = 0; ch < 2; ch++) {
         var dd = out[ch], en = 0;
         for (i = 0; i < len; i++) { dd[i] += tail[ch][i] * tg; en += dd[i] * dd[i]; }
@@ -2645,39 +2709,171 @@
         for (i = len - 256; i < len; i++) dd[i] *= (len - i) / 256;
       }
       return out;
+    };
+    stageRooms[sr] = done.then(function (buf) {
+      if (!buf) return null;
+      return {
+        room: tailed(buf, 0, 0x51ab1e, 0.3, 1.4),
+        bowl: tailed(buf, gap, 0xb0771e, Bo.rt, Bo.tail),
+        ears: ears.map(function (a, i) {
+          var at = 2 * gap + i * each;
+          return [new Float32Array(buf.getChannelData(0).subarray(at, at + tap)), new Float32Array(buf.getChannelData(1).subarray(at, at + tap))];
+        })
+      };
     });
     return stageRooms[sr];
   }
 
-  // (for the tests: the stage's numbers, its gains and its room)
-  HourglassAudio._stage = { STAGE: STAGE, gains: stageGains, room: stageRoom };
+  /**
+   * A live context's HRTF speakers are silent until the browser has loaded its filters. Resolves
+   * true once one is heard to sound (at once for a context rendered offline, which waits for
+   * them by itself), false if none has within 5 s of the context running, or the context has
+   * stood still for a minute.
+   */
+  function stageHears(ctx) {
+    if (typeof ctx.startRendering === 'function' || !ctx.createAnalyser || !ctx.createOscillator) return Promise.resolve(true);
+    return new Promise(function (res) {
+      var o = ctx.createOscillator(), p = stagePanner(ctx, 30, 0), an = ctx.createAnalyser(), z = ctx.createGain(), n = 0, idle = 0, buf;
+      an.fftSize = 256;
+      buf = an.getFloatTimeDomainData ? new Float32Array(256) : new Uint8Array(256);
+      z.gain.value = 0;
+      o.frequency.value = 1000;
+      o.connect(p); p.connect(an); an.connect(z); z.connect(ctx.destination);   // (through a shut gain: nothing of it is heard)
+      o.start();
+      (function look() {
+        var heard = false, i;
+        if (ctx.state === 'running') {
+          n++;
+          if (an.getFloatTimeDomainData) { an.getFloatTimeDomainData(buf); for (i = 0; i < 256; i++) if (buf[i] !== 0) heard = true; }
+          else { an.getByteTimeDomainData(buf); for (i = 0; i < 256; i++) if (buf[i] !== 128) heard = true; }
+        }
+        else idle++;
+        if (!heard && n < 100 && idle < 240 && ctx.state !== 'closed') { setTimeout(look, ctx.state === 'running' ? 50 : 250); return; }
+        try { o.stop(); } catch (e) {}
+        try { o.disconnect(); p.disconnect(); an.disconnect(); z.disconnect(); } catch (e2) {}
+        res(heard);
+      })();
+    });
+  }
+
+  /**
+   * One loop of water (an AudioBuffer, at its own rate), placed: its left and right from the two
+   * directions in front, and again from the two behind, later, quieter, darker and turned
+   * (STAGE.water), each through what that direction does at either ear (`ears`, taken at the
+   * context's rate and brought to the loop's). Rendered offline, away from the page's thread,
+   * going round: the render starts W.lead s before the loop's end, so what is kept
+   * begins with everything the end leaves ringing, and the loop closes on itself as it did. Then
+   * it is brought to the level it had (its power over both ears and the whole loop). `cb` gets the
+   * new AudioBuffer, as long as the old one, or null where it cannot be made.
+   */
+  function stageWater(ears, buf, ctx, cb) {
+    var OAC = root.OfflineAudioContext || root.webkitOfflineAudioContext, W = STAGE.water;
+    var R = buf.sampleRate, N = buf.length, pre = Math.ceil(R * W.lead), oc, i, once = false;
+    try {
+      oc = new OAC(2, N + pre, R);
+      var src = oc.createBufferSource(), sp = oc.createChannelSplitter(2), mix = oc.createGain(), last = mix;
+      src.buffer = buf; src.loop = true;
+      src.connect(sp);
+      W.eq.forEach(function (e) {
+        if (e[1] > 0.45 * R) return;                         // (nothing of the loop is up there)
+        var b = oc.createBiquadFilter();
+        b.type = e[0]; b.frequency.value = e[1]; b.Q.value = e[2]; b.gain.value = e[3];
+        last.connect(b); last = b;
+      });
+      last.connect(oc.destination);
+      var ear = function (k) {
+        var cv = oc.createConvolver(), l = stageResample(ears[k][0], ctx.sampleRate, R), r = stageResample(ears[k][1], ctx.sampleRate, R);
+        var b = oc.createBuffer(2, l.length, R);
+        b.getChannelData(0).set(l); b.getChannelData(1).set(r);
+        cv.normalize = false; cv.channelCount = 1; cv.channelCountMode = 'explicit';
+        cv.buffer = b;
+        cv.connect(mix);
+        return cv;
+      };
+      for (i = 0; i < 2; i++) {
+        sp.connect(ear(i), i);
+        var at = oc.createDelay(0.1), g = oc.createGain();
+        at.delayTime.value = W.late[i];
+        g.gain.value = W.back;
+        sp.connect(at, i);
+        [['lowpass', W.dark]].concat(W.turn[i].map(function (f) { return ['allpass', f]; })).forEach(function (f) {
+          if (f[1] > 0.45 * R) return;
+          var b = oc.createBiquadFilter();
+          b.type = f[0]; b.frequency.value = f[1]; b.Q.value = 0.7;
+          at.connect(b); at = b;
+        });
+        at.connect(g); g.connect(ear(2 + i));
+      }
+      src.start(0, (N - pre) % N / R);
+    } catch (e) { cb(null); return; }
+    var got = function (rb) {
+      if (once) return;
+      once = true;
+      if (!rb) { cb(null); return; }
+      // (the page's thread again: a stretch for the two powers, a stretch for the copy)
+      setTimeout(function () {
+        var pr = 0, pb = 0, c, n, out, a, b;
+        try { out = ctx.createBuffer(2, N, R); } catch (e) { cb(null); return; }
+        for (c = 0; c < 2; c++) {
+          a = buf.getChannelData(c < buf.numberOfChannels ? c : 0); b = rb.getChannelData(c);
+          for (n = 0; n < N; n++) { pr += a[n] * a[n]; pb += b[pre + n] * b[pre + n]; }
+        }
+        var k = pb > 0 ? Math.sqrt(pr / pb) : 1;
+        setTimeout(function () {
+          for (c = 0; c < 2; c++) {
+            a = out.getChannelData(c); b = rb.getChannelData(c);
+            for (n = 0; n < N; n++) a[n] = k * b[pre + n];
+          }
+          cb(out);
+        }, 0);
+      }, 0);
+    };
+    oc.oncomplete = function (e) { got(e.renderedBuffer); };
+    try {
+      var p = oc.startRendering();
+      if (p && p.then) p.then(got, function () { got(null); });
+    } catch (e2) { got(null); }
+  }
+
+  // (for the tests: the stage's numbers, its gains, its room, and the water's rendering)
+  HourglassAudio._stage = { STAGE: STAGE, gains: stageGains, room: stageRoom, water: stageWater, resample: stageResample, hears: stageHears };
 
   /**
    * Headphones, spatial (the stage, above): on, the sand is heard as an object in front of the
-   * listener; off, the graph is the one it always was. May be called before there is a context
-   * (the stage is then built with the graph). Resolves once the stage's room is in (its first
-   * build also loads the HRTF's data): true; false when off, or with nothing to build yet.
+   * listener, the bowl out in the room and the water all round; off, the graph is the one it
+   * always was. May be called before there is a context (the stage is then built with the
+   * graph), and at any time: a crossing under way is finished first. Resolves once the stage has
+   * begun to carry the sound (true: its room is made, its speakers sound, the crossfade is set),
+   * or false: switched off, nothing to build yet, or a browser that cannot do it (the sound then
+   * stays as it was).
    */
   HourglassAudio.prototype.setSpatial = function (on) {
     on = !!on;
     this._spatialWant = on;
-    if (this.ready && on !== this._spatial) {
-      if (on) this._stageOn(); else this._stageOff();
-    }
-    return this._stage ? this._stage.room : Promise.resolve(false);
+    var S = this._stage;
+    if (!this.ready) return Promise.resolve(false);
+    if (on) return (S || this._stageBuild()).ready;       // (one that is leaving comes back once it has left)
+    if (S && S.x === 0) this._stageDown(S);
+    else if (S && S.x === 2) this._stageOut(S);
+    return Promise.resolve(false);
   };
 
-  /** Build the stage and send the sand's faders into it (setSpatial). */
-  HourglassAudio.prototype._stageOn = function () {
-    var ctx = this.ctx, self = this, i;
+  /**
+   * Build the stage beside the graph, silent and fed by nothing (x: 0); when its room is made,
+   * the chosen water rendered and its speakers heard, cross over to it (_stageIn).
+   */
+  HourglassAudio.prototype._stageBuild = function () {
+    var ctx = this.ctx, self = this, i, n = STAGE.ring.length + 2;
     var G = function (v) { var g = ctx.createGain(); g.gain.value = v; return g; };
-    var S = this._stage = { s: 1, p: 0, th: NaN, flat: 0, flatAt: 0, at: null, conv: null, nodes: [], tmp: new Float32Array(10) };
-    var keep = function (n) { S.nodes.push(n); return n; };
-    // ten still speakers into one sum; its correction, its level and its balance; then the Sand level
+    // x: 0 built, 1 crossing in, 2 on, 3 crossing out, 4 gone
+    var S = this._stage = { x: 0, xEnd: 0, s: 1, p: 0, th: NaN, flat: 0, flatAt: 0, at: null, conv: null, ir: null, baking: null,
+                            nodes: [], src: [], tmp: new Float32Array(n) };
+    var keep = function (nd) { S.nodes.push(nd); return nd; };
+    // the still speakers into one sum; its correction, its level and its balance; the crossfade; then the Sand level
     var sum = keep(G(1)), last = sum;
     S.spk = [];
-    for (i = 0; i < 10; i++) {
-      var a = i < 8 ? STAGE.ring[i] : STAGE.inner[i - 8], p = keep(stagePanner(ctx, a[0], a[1]));
+    for (i = 0; i < n; i++) {
+      var a = i < n - 2 ? STAGE.ring[i] : STAGE.inner[i - n + 2], p = keep(stagePanner(ctx, a[0], a[1]));
       p.connect(sum);
       S.spk.push(p);
     }
@@ -2694,48 +2890,85 @@
     });
     var trim = keep(G(STAGE.trim)), sp = keep(ctx.createChannelSplitter(2)), mg = keep(ctx.createChannelMerger(2));
     var gl = keep(G(Math.pow(10, STAGE.bal / 40))), gr = keep(G(Math.pow(10, -STAGE.bal / 40)));
+    S.xf = keep(G(0)); S.lvl = keep(G(this._sandGain()));
     last.connect(trim); trim.connect(sp); sp.connect(gl, 0); sp.connect(gr, 1);
-    gl.connect(mg, 0, 0); gr.connect(mg, 0, 1); mg.connect(this.gSand);
+    gl.connect(mg, 0, 0); gr.connect(mg, 0, 1); mg.connect(S.xf); S.xf.connect(S.lvl); S.lvl.connect(this.bus);
     S.trim = trim;
     this._stageTone(0);
     // one end of a bar: a mono signal with a gain into each speaker, linked only while it reaches it
-    var end = function (src, ch) {
+    var end = function (split, ch) {
       var e = { inp: keep(G(1)), g: [], on: [], zero: [] };
       e.inp.channelCount = 1; e.inp.channelCountMode = 'explicit';
-      src.connect(e.inp, ch);
-      for (var j = 0; j < 10; j++) { var gj = keep(G(0)); gj.connect(S.spk[j]); e.g.push(gj); e.on.push(false); e.zero.push(0); }
+      split.connect(e.inp, ch);
+      for (var j = 0; j < n; j++) { var gj = keep(G(0)); gj.connect(S.spk[j]); e.g.push(gj); e.on.push(false); e.zero.push(0); }
       return e;
     };
-    var bar = function (src, def) {
-      var s2 = keep(ctx.createChannelSplitter(2));
-      src.connect(s2);
-      return { y: def[0], w: def[1], L: end(s2, 0), R: end(s2, 1) };
+    var bar = function (def) {
+      var inp = keep(G(1)), s2 = keep(ctx.createChannelSplitter(2));
+      inp.channelCount = 2; inp.channelCountMode = 'explicit';
+      inp.connect(s2);
+      return { y: def[0], w: def[1], inp: inp, L: end(s2, 0), R: end(s2, 1) };
     };
-    // the faders, each taken from where it went (and only from there)
-    this.gWhisper.disconnect(this.gSand);
-    this.gTicks.disconnect(this.gSand); this.gBeds.disconnect(this.gSand);
-    this.gModal.disconnect(this.gSand); this.gBody.disconnect(this.gSand); this.gFoley.disconnect(this.gSand);
-    this.pEnv.disconnect(this.gFoley); this.rPan.disconnect(this.gFoley); this.aPan.disconnect(this.gFoley);
-    var land = keep(G(1)), glass = keep(G(1)), rush = keep(G(this.gFoley.gain.value)), pour = keep(G(this.gFoley.gain.value));
-    this.gTicks.connect(land); this.gBeds.connect(land);
-    this.gModal.connect(glass); this.gBody.connect(glass); this.gFoley.connect(glass);
-    this.rPan.connect(rush); this.aPan.connect(rush); this.pEnv.connect(pour);
-    S.bars = { neck: bar(this.gWhisper, STAGE.bars.neck), pour: bar(pour, STAGE.bars.pour), land: bar(land, STAGE.bars.land),
-               glass: bar(glass, STAGE.bars.glass), rush: bar(rush, STAGE.bars.rush) };
-    S.order = ['neck', 'pour', 'land', 'glass', 'rush'];
-    this._spatial = true;
-    this._stageAt(0, this._fill, 0, -1, 0, 0);
-    // the room: the desk's stays for the bowl and the ambience; the sand's is this one, once made
-    S.room = stageRoom(ctx.sampleRate).then(function (ir) {
-      if (self._stage !== S || !ir) return !!ir && self._stage === S;
-      var buf = ctx.createBuffer(2, ir[0].length, ctx.sampleRate);
-      buf.getChannelData(0).set(ir[0]); buf.getChannelData(1).set(ir[1]);
-      var cv = S.conv = keep(ctx.createConvolver());
+    var B = S.bars = {};
+    S.order = [];
+    for (var key in STAGE.bars) { B[key] = bar(STAGE.bars[key]); S.order.push(key); }
+    // What feeds them, joined on only as the stage comes in (_stageIn), and nothing taken from where
+    // it goes: the hush to the neck, the grains and the crackle to the landings, the glass's ring,
+    // its body and the foley to the glass. The foley fader also carries the pour, the slide and the
+    // air, which have places of their own (the neck, the rush's bar): they are taken out of the
+    // glass's bar again by adding them once more, turned over, at the foley's own gain.
+    var fol = this.gFoley.gain.value, neg = keep(G(-fol)), rush = keep(G(fol)), pour = keep(G(fol));
+    var feed = function (from, to) { S.src.push([from, to]); };
+    feed(this.gWhisper, B.neck.inp);
+    feed(this.pEnv, pour); pour.connect((B.pour || B.neck).inp);
+    feed(this.gTicks, B.land.inp); feed(this.gBeds, B.land.inp);
+    feed(this.gModal, B.glass.inp); feed(this.gBody, B.glass.inp); feed(this.gFoley, B.glass.inp);
+    feed(this.pEnv, neg); feed(this.rPan, neg); feed(this.aPan, neg); neg.connect(B.glass.inp);
+    feed(this.rPan, rush); feed(this.aPan, rush); rush.connect(B.rush.inp);
+    // the bowl's place: the left of its beating pairs (each ear of the bowl beats as the whole does),
+    // one signal into both its speakers and into its own room; joined to the mix only while a bowl rings
+    var Bo = STAGE.bowl, bw = S.bowl = { inp: G(1), out: G(1), conv: null, on: false, end: 0, gone: false, nodes: [] };
+    var bsp = ctx.createChannelSplitter(2), one = G(Bo.trim);
+    bw.send = G(Bo.wet);
+    bw.inp.channelCount = 2; bw.inp.channelCountMode = 'explicit';
+    one.channelCount = 1; one.channelCountMode = 'explicit';
+    bw.inp.connect(bsp); bsp.connect(one, 0); one.connect(bw.send);
+    bw.nodes.push(bw.inp, bw.out, bsp, one, bw.send);
+    Bo.at.forEach(function (d) { var bp = stagePanner(ctx, d[0], d[1]); one.connect(bp); bp.connect(bw.out); bw.nodes.push(bp); });
+    var room = function (pair) {
+      var buf = ctx.createBuffer(2, pair[0].length, ctx.sampleRate), cv = ctx.createConvolver();
+      buf.getChannelData(0).set(pair[0]); buf.getChannelData(1).set(pair[1]);
       cv.normalize = false; cv.channelCount = 1; cv.channelCountMode = 'explicit';
       cv.buffer = buf;
-      self.wet.disconnect(self.conv); self.wet.connect(cv); cv.connect(self.rumble);
-      return true;
+      return cv;
+    };
+    S.ready = new Promise(function (res) {
+      var settled = false;
+      var settle = function (ok) {
+        if (settled) return;
+        settled = true;
+        if (self._stage !== S || S.x !== 0) { res(false); return; }
+        if (!ok || !self._spatialWant) { self._stageDown(S); res(false); return; }
+        self._stageIn(S);
+        res(true);
+      };
+      // (a browser whose render never ends: after 8 s the sound stays as it is, and the next try renders anew)
+      if (typeof ctx.startRendering !== 'function') setTimeout(function () { if (!settled) { delete stageRooms[ctx.sampleRate]; settle(false); } }, 8000);
+      // (its speakers first: by the time they sound the browser has the HRTF's data, and the room's
+      // render need not wait for it: a render that has to has been seen never to end)
+      stageHears(ctx).then(function (ok) {
+        return ok && self._stage === S ? stageRoom(ctx.sampleRate) : null;
+      }).then(function (ir) {
+        if (!ir || self._stage !== S) return false;
+        S.ir = ir;
+        S.conv = keep(room(ir.room)); S.conv.connect(self.rumble);
+        bw.conv = room(ir.bowl); bw.send.connect(bw.conv); bw.nodes.push(bw.conv);
+        var id = self.ambience;
+        if (id === 'none' || !(self._ambBuf[id] || self._ambRaw[id])) return true;
+        return new Promise(function (r2) { self._stageBake(id, function () { r2(true); }); });
+      }).then(settle, function () { settle(false); });
     });
+    return S;
   };
 
   /** The character's own correction (STAGE.tone), gliding over tau s (0: at once). */
@@ -2748,28 +2981,153 @@
     }
   };
 
-  /** Take the stage down: every connection back as _build made it, in its order, and the stage's nodes let go. */
-  HourglassAudio.prototype._stageOff = function () {
-    var S = this._stage, i;
-    if (!S) return;
-    this._stage = null;
+  /** The six faders that go to the Sand level, in the order _build joined them. */
+  HourglassAudio.prototype._stageFaders = function () {
+    return [this.gWhisper, this.gTicks, this.gBeds, this.gModal, this.gBody, this.gFoley];
+  };
+
+  /** Cross over to the stage (x: 1): its feeds joined on, the Sand level's gain down as the stage's comes up, the rooms' sends and the water with them. */
+  HourglassAudio.prototype._stageIn = function (S) {
+    var self = this, ctx = this.ctx, t = ctx.currentTime + 0.01, d = STAGE.xf, g = this.gSand.gain, v = g.value, i;
+    for (i = 0; i < S.src.length; i++) S.src[i][0].connect(S.src[i][1]);
+    this._spatial = true;
+    this._stageAt(0, this._fill, 0, -1, 0, 0);
+    S.lvl.gain.value = this._sandGain();
+    try { g.cancelScheduledValues(t); } catch (e) {}
+    xfade(g, t, d, v, true);
+    xfade(S.xf.gain, t, d, 1, false);
+    // the sand's and the water's sends go to the computed room (the desk's rings out by itself)
+    this.wet.disconnect(this.conv); this.wet.connect(S.conv);
+    this._ambWet.disconnect(this.conv); this._ambWet.connect(S.conv);
+    this._ambSwap(true, t, d);
+    S.x = 1; S.xEnd = t + d;
+    this._stageLater(S.xEnd + 0.02, function () { self._stageCrossed(S); });
+    this._stageWater();
+  };
+
+  /** Cross back (x: 3): the faders join the Sand level's gain again while it is shut, and it comes up as the stage's goes down. */
+  HourglassAudio.prototype._stageOut = function (S) {
+    var self = this, ctx = this.ctx, t = ctx.currentTime + 0.01, d = STAGE.xf, f = this._stageFaders(), i;
+    for (i = 0; i < f.length; i++) f[i].connect(this.gSand);
     this._spatial = false;
-    S.nodes.forEach(function (n) { try { n.disconnect(); } catch (e) {} });
-    var faders = [this.gWhisper, this.gTicks, this.gBeds, this.gModal, this.gBody, this.gFoley];
-    for (i = 0; i < faders.length; i++) { faders[i].disconnect(); faders[i].connect(this.gSand); }
-    this.spillBus.disconnect();
-    this.pEnv.disconnect(); this.pEnv.connect(this.gFoley); this.pEnv.connect(this.sP);
-    this.rPan.disconnect(); this.rPan.connect(this.gFoley);
-    this.aPan.disconnect(); this.aPan.connect(this.gFoley);
-    this.spillBus.connect(this.gFoley);
-    if (S.conv) {
-      this.wet.disconnect(); this.chimeWet.disconnect(this.conv); this._ambWet.disconnect();
-      this.wet.connect(this.conv); this.chimeWet.connect(this.conv); this._ambWet.connect(this.conv);
+    xfade(this.gSand.gain, t, d, this._sandGain(), false);
+    xfade(S.xf.gain, t, d, 1, true);
+    this.wet.disconnect(S.conv); this.wet.connect(this.conv);
+    this._ambWet.disconnect(S.conv); this._ambWet.connect(this.conv);
+    this._ambSwap(false, t, d);
+    S.x = 3; S.xEnd = t + d;
+    this._stageLater(S.xEnd + 0.02, function () { self._stageCrossed(S); });
+  };
+
+  /** A crossing is over: in, the faders let go of the Sand level's gain (shut by now); out, the stage is taken down. Then whatever was asked for meanwhile. */
+  HourglassAudio.prototype._stageCrossed = function (S) {
+    if (this._stage !== S) return;
+    if (S.x === 1) {
+      var f = this._stageFaders();
+      for (var i = 0; i < f.length; i++) f[i].disconnect(this.gSand);
+      S.x = 2;
+      if (!this._spatialWant) this._stageOut(S);
+    } else if (S.x === 3) {
+      this._stageDown(S);
+      if (this._spatialWant) this._stageBuild();
     }
   };
 
+  /** Take the stage down: silent by now (never built up, or crossed out of), every node of it let go; a bowl still ringing in it rings out first. */
+  HourglassAudio.prototype._stageDown = function (S) {
+    var t = this.ctx.currentTime, was = S.x, B = S.bowl, i;
+    if (was === 4) return;
+    S.x = 4;
+    if (was) for (i = 0; i < S.src.length; i++) { try { S.src[i][0].disconnect(S.src[i][1]); } catch (e) {} }
+    S.nodes.forEach(function (n) { try { n.disconnect(); } catch (e) {} });
+    B.gone = true;
+    if (!B.on) B.nodes.forEach(function (n) { try { n.disconnect(); } catch (e) {} });
+    if (this._stage === S) { this._stage = null; this._spatial = false; }
+    this._ambBake = {};
+    // (the Sand level may have been set while the stage had the sand)
+    if (was) this.gSand.gain.setTargetAtTime(this._sandGain(), t, 0.05);
+  };
+
   /**
-   * Place the five bars for a glass turned by `th` (rad, its angle with gravity, clockwise as
+   * Do `fn` once the context's time has passed T. Every update() and hold() looks (_stageStep);
+   * so does a timer of its own, for a hidden page that runs neither (not for a context rendered
+   * offline, whose time is not the clock's).
+   */
+  HourglassAudio.prototype._stageLater = function (T, fn) {
+    var self = this, ctx = this.ctx, job = [T, fn];
+    this._stageJobs.push(job);
+    if (typeof ctx.startRendering === 'function') return;
+    setTimeout(function again() {
+      self._stageStep();
+      // (not yet: the context stood still meanwhile. Once more while it runs; else the next update() sees to it)
+      if (self._stageJobs.indexOf(job) >= 0 && ctx.state === 'running') setTimeout(again, Math.max(50, (T - ctx.currentTime) * 1000 + 30));
+    }, Math.max(0, (T - ctx.currentTime) * 1000) + 30);
+  };
+  HourglassAudio.prototype._stageStep = function (t) {
+    var jobs = this._stageJobs, i = 0;
+    if (t === undefined) t = this.ctx.currentTime;
+    while (i < jobs.length) {
+      if (jobs[i][0] <= t) jobs.splice(i, 1)[0][1]();
+      else i++;
+    }
+  };
+
+  /** A bowl rings until `end`: the stage's place for it joins the mix (if it has not), and leaves it a second after the last one has rung out. Returns where the bowl goes in. */
+  HourglassAudio.prototype._stageBowl = function (end) {
+    var self = this, B = this._stage.bowl;
+    if (!B.on) { B.out.connect(this.bus); B.conv.connect(this.rumble); B.on = true; }
+    if (end > B.end) B.end = end;
+    this._stageLater(end + 1, function () {
+      if (!B.on || self.ctx.currentTime < B.end + 1) return;       // (rung again since: that one's turn)
+      B.on = false;
+      try { B.out.disconnect(); B.conv.disconnect(); } catch (e) {}
+      if (B.gone) B.nodes.forEach(function (n) { try { n.disconnect(); } catch (e) {} });
+    });
+    return B.inp;
+  };
+
+  /**
+   * Render the loops of the ambience `id` placed (stageWater, a layer at a time), then `done`:
+   * once, when they are made, when they cannot be, or after 3 s (the water then plays on as it
+   * is, and crosses over when they are made after all).
+   */
+  HourglassAudio.prototype._stageBake = function (id, done) {
+    var self = this, S = this._stage, bufs = S && S.ir && !this._ambBake[id] ? this._ambWrap(id) : null;
+    if (!bufs) { if (done) done(); return; }
+    var job = S.baking;
+    if (job && job.id === id) { job.wait.push(done); return; }
+    job = S.baking = { id: id, wait: [done], late: false };
+    var out = [], i = 0;
+    var tell = function () { var w = job.wait; job.wait = []; for (var k = 0; k < w.length; k++) if (w[k]) w[k](); };
+    var finish = function (ok) {
+      if (S.baking === job) S.baking = null;
+      if (ok) { out.seed = bufs.seed; self._ambBake[id] = out; }
+      tell();
+      if (ok && job.late) self._stageWater();
+    };
+    if (typeof this.ctx.startRendering !== 'function') setTimeout(function () { job.late = true; tell(); }, 3000);
+    (function next() {
+      if (self._stage !== S || S.x === 4 || self.ambience !== id) { finish(false); return; }
+      if (i === bufs.length) { finish(true); return; }
+      stageWater(S.ir.ears, bufs[i], self.ctx, function (b) {
+        if (!b) { finish(false); return; }
+        out.push(b); i++;
+        setTimeout(next, 0);
+      });
+    })();
+  };
+
+  /** The water that plays, placed (the stage is in): rendered if it is not yet, then crossed over to. */
+  HourglassAudio.prototype._stageWater = function () {
+    var self = this, a = this._amb;
+    if (!this._spatial || !a || a.baked) return;
+    this._stageBake(a.id, function () {
+      if (self._spatial) self._ambSwap(true, self.ctx.currentTime + 0.01, STAGE.xf);
+    });
+  };
+
+  /**
+   * Place the bars for a glass turned by `th` (rad, its angle with gravity, clockwise as
    * drawn), its lower bulb `fill` full and its upper `fillTop`, its sliding sand in the bulb
    * `slide` (+1 the upper, −1 the lower, between while it crosses), `flat` 0 or 1 (the phone
    * laid on its back), gliding over `tau` s (0: at once). The bars stay in the glass: across it
@@ -2777,11 +3135,12 @@
    * the bulb below in the room, so those bars cross through the neck as the glass passes level.
    */
   HourglassAudio.prototype._stageAt = function (th, fill, fillTop, slide, flat, tau) {
-    var S = this._stage, B = S.bars, c = Math.cos(th), sn = Math.sin(th), GW = STAGE.gw;
+    var S = this._stage, B = S.bars, c = Math.cos(th), sn = Math.sin(th), GW = STAGE.gw, n = S.spk.length;
     var lv = 2 * c;
     lv = lv < -1 ? -1 : (lv > 1 ? 1 : lv);                    // +1: the lower bulb below; −1: above; between: crossing
-    var y = { neck: B.neck.y * lv, pour: B.pour.y * lv, glass: B.glass.y, rush: -B.rush.y * slide,
+    var y = { neck: B.neck.y * lv, glass: B.glass.y, rush: -B.rush.y * slide,
               land: -lv * (0.95 - 0.6 * (lv >= 0 ? fill : fillTop)) };
+    if (B.pour) y.pour = B.pour.y * lv;
     var now = this.ctx.currentTime, g = S.tmp, s = S.s;
     for (var b = 0; b < S.order.length; b++) {
       var key = S.order[b], br = B[key];
@@ -2792,7 +3151,7 @@
         if (flat) sy = (1 - flat) * sy + flat * (-0.6 + 0.3 * sy);   // laid on the desk: lower, flatter
         stageGains(sx, sy, g);
         var e = side ? br.R : br.L;
-        for (var j = 0; j < 10; j++) {
+        for (var j = 0; j < n; j++) {
           if (g[j] > 0 && !e.on[j]) { e.g[j].gain.value = 0; e.inp.connect(e.g[j]); e.on[j] = true; }
           if (!e.on[j]) continue;
           if (tau) e.g[j].gain.setTargetAtTime(g[j], now, tau);
@@ -2903,7 +3262,7 @@
     this._grain = c.grain || 1;
     this._shake = c.shake && c.beds ? c.shake / c.beds : 1;
     this._bedRate = c.bed || 1;
-    if (this._spatial) this._stageTone(tau);
+    if (this._stage) this._stageTone(tau);
   };
 
   /**
@@ -2946,7 +3305,10 @@
   HourglassAudio.prototype._sandGain = function () { return Math.pow(this.sandLevel, 1.5); };
   HourglassAudio.prototype.setSandLevel = function (v) {
     this.sandLevel = Math.max(0, Math.min(1, +v || 0));
-    if (this.ready) this.gSand.gain.setTargetAtTime(this._sandGain(), this.ctx.currentTime, 0.05);
+    if (!this.ready) return;
+    // (while the stage has the sand, its own gain is the Sand level: the other is shut, and gets its level back with the sand)
+    var S = this._stage;
+    (S && S.x ? S.lvl : this.gSand).gain.setTargetAtTime(this._sandGain(), this.ctx.currentTime, 0.05);
   };
   /** The completion bowl's level, 0..2 (Tune's Bowl 0..100 over 50): 1 is the bowl as it always was, 2 is 6 dB more. */
   HourglassAudio.prototype.setBowlLevel = function (v) {
@@ -3006,10 +3368,30 @@
     }
     setTimeout(next, 30);                                // never inside the tap that asked for it
   };
-  /** Synthesise if need be, then play — if it is still the one wanted. `audition`: it was chosen to be heard. */
+  /**
+   * Synthesise if need be, then play — if it is still the one wanted. `audition`: it was chosen
+   * to be heard. (While the stage has the sound, its loops are first rendered placed for it.)
+   */
   HourglassAudio.prototype._loadAmbience = function (id, audition) {
     var self = this;
-    this._synthAmbience(id, function () { if (self.ambience === id) self._startAmbience(id, audition); });
+    var play = function () { if (self.ambience === id) self._startAmbience(id, audition); };
+    this._synthAmbience(id, function () {
+      if (self.ambience !== id) return;
+      if (self._spatial && !self._ambBake[id]) self._stageBake(id, play);
+      else play();
+    });
+  };
+  /** The loops of an ambience that is made, as AudioBuffers: wrapped once, letting the arrays go layer by layer. */
+  HourglassAudio.prototype._ambWrap = function (id) {
+    var bufs = this._ambBuf[id], raw = this._ambRaw[id], d = AMBIENCES[id], i;
+    if (!bufs) {
+      if (!raw) return null;
+      bufs = this._ambBuf[id] = [];
+      bufs.seed = raw.seed;
+      for (i = 0; i < raw.length; i++) { bufs.push(toBuffer(this.ctx, raw[i], d.layers[i].sr)); raw[i] = null; }
+      delete this._ambRaw[id];
+    }
+    return bufs;
   };
   HourglassAudio.prototype._startAmbience = function (id, audition) {
     if (!this.ready) return;
@@ -3022,29 +3404,27 @@
       }
     }
     this._stopAmbience();                                // cross-fade out of the previous one
-    var bufs = this._ambBuf[id], raw = this._ambRaw[id];
-    if (!bufs) {
-      if (!raw) return;
-      bufs = this._ambBuf[id] = [];                      // wrap once, letting the arrays go layer by layer
-      bufs.seed = raw.seed;
-      for (i = 0; i < raw.length; i++) { bufs.push(toBuffer(ctx, raw[i], d.layers[i].sr)); raw[i] = null; }
-      delete this._ambRaw[id];
-    }
+    var bufs = this._ambWrap(id);
+    if (!bufs) return;
+    // (the stage: the same loops, rendered placed for it, where they are made)
+    var placed = this._spatial ? this._ambBake[id] : null, from = [];
     var g = ctx.createGain(), srcs = [];
     g.gain.value = 0;
     g.connect(this.ambBus);
     for (i = 0; i < bufs.length; i++) {                  // the layers loop independently
       var src = ctx.createBufferSource(), L = d.layers[i];
-      src.buffer = bufs[i];
+      src.buffer = (placed || bufs)[i];
       src.loop = true;
       src.connect(g);
       // from a whole sample of the layer's own rate: the same sound whatever rate its buffer got
       var at = audition && L.cue ? L.cue(L.seconds, bufs.seed) : rnd() * bufs[i].duration;
-      src.start(0, Math.round(at * L.sr) % Math.floor(L.sr * L.seconds) / L.sr);
-      srcs.push(src);
+      at = Math.round(at * L.sr) % Math.floor(L.sr * L.seconds) / L.sr;
+      src.start(0, at);
+      srcs.push(src); from.push(at);
     }
     g.gain.setTargetAtTime(1, t, 0.4);
-    this._amb = { id: id, srcs: srcs, g: g };
+    // (t0, at: when each loop began and where in it, for a change of buffers in mid-flow: _ambSwap)
+    this._amb = { id: id, srcs: srcs, g: g, baked: !!placed, t0: t, at: from };
     if (audition) this._ambPreview = t + (d.audition || 5);   // counted from now: making it took a while
   };
   /** Fade out the ambience that is playing, then let it go. */
@@ -3061,13 +3441,48 @@
     }, 1800);
   };
   /**
+   * The ambience that plays goes on from other buffers of the same loops, with no break: the ones
+   * rendered for the stage (`placed`), or the loops as they were made. New sources start at t
+   * where the playing ones will be, and the two cross over d s; then the old ones are let go.
+   */
+  HourglassAudio.prototype._ambSwap = function (placed, t, d) {
+    var old = this._amb, ctx = this.ctx, bufs, i;
+    if (!old || old.baked === !!placed) return;
+    bufs = placed ? this._ambBake[old.id] : this._ambBuf[old.id];
+    if (!bufs) return;
+    var g = ctx.createGain(), srcs = [], from = [], og = old.g.gain;
+    g.gain.value = 0;
+    g.connect(this.ambBus);
+    for (i = 0; i < bufs.length; i++) {
+      var src = ctx.createBufferSource(), at = (old.at[i] + (t - old.t0)) % bufs[i].duration;
+      src.buffer = bufs[i];
+      src.loop = true;
+      src.connect(g);
+      src.start(t, at);
+      srcs.push(src); from.push(at);
+      try { old.srcs[i].stop(t + d + 0.05); } catch (e) {}
+    }
+    // (straight lines, not curves: a change of ambience during the crossing may still fade these by its own rule)
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + d);
+    try { og.cancelScheduledValues(t); } catch (e2) {}
+    og.setValueAtTime(og.value, t); og.linearRampToValueAtTime(0, t + d);
+    this._amb = { id: old.id, srcs: srcs, g: g, baked: !!placed, t0: t, at: from };
+    this._stageLater(t + d + 0.1, function () {
+      for (var k = 0; k < old.srcs.length; k++) { try { old.srcs[k].disconnect(); } catch (e) {} }
+      try { old.g.disconnect(); } catch (e3) {}
+      old.srcs = [];
+    });
+  };
+  /**
    * Let go of every ambience's sound but the chosen one's: its buffers (those
    * of the one still playing stay until it has faded), its arrays, and the
-   * work on it if it was still being made. Up to 8 MB each.
+   * work on it if it was still being made. Up to 8 MB each (and as much again
+   * for the loops rendered for the stage, while it is on).
    */
   HourglassAudio.prototype._ambRelease = function () {
     var keep = this.ambience, live = this._amb ? this._amb.id : keep, k;
     for (k in this._ambBuf) if (k !== keep && k !== live) delete this._ambBuf[k];
+    for (k in this._ambBake) if (k !== keep && k !== live) delete this._ambBake[k];
     for (k in this._ambRaw) if (k !== keep) delete this._ambRaw[k];
     for (k in this._ambJobs) if (k !== keep) delete this._ambJobs[k];
   };
@@ -3345,6 +3760,7 @@
       if (this.rPan.pan) this._set('rpan', this.rPan.pan, panTo, 0.12);
     }
     if (sg) this._stagePlace(st, t);
+    if (this._stageJobs.length) this._stageStep(t);
   };
 
   var BED_KEYS = ['S', 'G'], POUR_KEYS = ['P'], RUSH_KEYS = ['R'];
@@ -3420,6 +3836,7 @@
     this._pump(t, 0, POUR_KEYS);
     this._pump(t, 0, RUSH_KEYS);
     this._quietHand();                 // the textures above already left out the agitation
+    if (this._stageJobs.length) this._stageStep(t);
   };
 
   /** Glide every sand layer, and the ambience, to silence (pause, reset…). */
@@ -3838,7 +4255,7 @@
                  [8.05, 0.045, 0.30, 0.03]];
     var out = ctx.createGain(), end = t0 + 8.5 * decay;
     out.gain.value = level;
-    out.connect(this.gChime);
+    out.connect(this._spatial ? this._stageBowl(end) : this.gChime);   // (the stage: out in the room, front right)
     for (var i = 0; i < parts.length; i++) {
       var p = parts[i];
       for (var side = -1; side <= 1; side += 2) {

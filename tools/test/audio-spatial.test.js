@@ -67,17 +67,26 @@ function harness() {
    * One render. o: { E (engine), dur, character, rate (single landings a second), flow (the
    * stream, grains a second; rate if left out), spatial (true: on before it plays; 'onoff': on,
    * then off), frame(t) -> fields over the base ones, evFix (every landing at this x), evShift,
-   * volume, seed, flat (compressor and clipper made plain), setup(a), tweak(a) (after the stage) }
+   * volume, seed, flat (compressor and clipper made plain), setup(a), tweak(a) (after the stage),
+   * ambience (an id: made at once, seed 1, and chosen), bowlLevel, sandLevel, each(a, t, f) after
+   * every frame's update (it may return a promise: the render waits for it), skip(t) (true: no
+   * update this frame, as on a hidden page), track (what is connected to what is kept: __edges) }
+   * Resolves to { L, R, a (the engine), ms (the render alone), panners (made on its context) }.
    */
   window.__scene = function (o) {
     var E = o.E ? window[o.E] : A;
     Math.random = seeded(o.seed || 4242);
     var off = new OfflineAudioContext(2, Math.round(SR * o.dur), SR);
     Object.defineProperty(off, 'state', { get: function () { return 'running'; } });
-    var a = new E();
+    var a = new E(), panners = 0, mk = off.createPanner;
+    off.createPanner = function () { panners++; return mk.apply(off, arguments); };
+    edges.clear(); tracking = !!o.track;
     a.ctx = off;
     a.volume = o.volume != null ? o.volume : 0.8;
     if (o.character) a.character = o.character;
+    if (o.bowlLevel != null) a.bowlLevel = o.bowlLevel;
+    if (o.sandLevel != null) a.sandLevel = o.sandLevel;
+    if (o.ambience) { a._makeAmbience(o.ambience, 1); a.ambience = o.ambience; }
     if (a._finishPrep) a._finishPrep();
     a._build();
     if (o.flat) { a.comp.threshold.value = 0; a.comp.knee.value = 0; a.comp.ratio.value = 1; a.clip.curve = null; }
@@ -91,7 +100,7 @@ function harness() {
     if (o.setup) o.setup(a);
     var S = { nev: 0, evX: new Float32Array(64), evV: new Float32Array(64), evK: new Uint8Array(64) };
     var evG = new Float32Array(64), acc = 0, rate = o.rate || 0, flow = o.flow != null ? o.flow : rate;
-    var NF = Math.floor((o.dur - 0.1) * 60), places = 0;
+    var NF = Math.floor((o.dur - 0.1) * 60), ms = 0;
     return room.then(function () {
       if (o.tweak) o.tweak(a);
       for (var k = 0; k < NF; k++) (function (k) {
@@ -114,16 +123,45 @@ function harness() {
             S.evV[e] = 0.5 + 0.5 * Math.random(); S.evK[e] = 1;
           }
           f.sim = S; f.evG = o.noEvG ? null : evG;
-          a.update(f);
-          if (o.each) o.each(a, t, f);
-          off.resume();
+          if (!o.skip || !o.skip(t)) a.update(f);
+          Promise.resolve(o.each ? o.each(a, t, f) : 0).then(function () { off.resume(); });
         });
       })(k);
+      ms = performance.now();
       return off.startRendering();
     }).then(function (buf) {
+      ms = performance.now() - ms;
       Math.random = realRandom;
-      return { L: buf.getChannelData(0), R: buf.getChannelData(1), a: a };
+      tracking = false;
+      return { L: buf.getChannelData(0), R: buf.getChannelData(1), a: a, ms: ms, panners: panners };
     });
+  };
+  /** Near the frame at t0 (called once per frame: true for exactly one of them). */
+  window.__at = function (t, t0) { return Math.abs(t - t0) < 0.5 / 60 - 1e-9; };
+
+  /* ---- what is connected to what, while a scene asks for it (track) ---- */
+  var ids = new WeakMap(), nextId = 1, edges = new Set(), tracking = false;
+  function idOf(n) { var i = ids.get(n); if (!i) { i = nextId++; ids.set(n, i); } return i; }
+  var conn = AudioNode.prototype.connect, disc = AudioNode.prototype.disconnect;
+  AudioNode.prototype.connect = function (dest, out, inp) {
+    if (tracking && dest instanceof AudioNode) edges.add(idOf(this) + '>' + idOf(dest) + ':' + (out || 0) + ':' + (inp || 0));
+    return conn.apply(this, arguments);
+  };
+  AudioNode.prototype.disconnect = function (dest, out, inp) {
+    var r = disc.apply(this, arguments);                      // (it throws before anything is forgotten)
+    if (!tracking) return r;
+    var me = idOf(this) + '>', to = dest instanceof AudioNode ? me + idOf(dest) + ':' : me;
+    edges.forEach(function (e) {
+      if (e.indexOf(to) !== 0) return;
+      var q = e.split(':');
+      if (typeof dest === 'number' ? q[1] === String(dest) : ((out === undefined || q[1] === String(out)) && (inp === undefined || q[2] === String(inp)))) edges.delete(e);
+    });
+    return r;
+  };
+  /** How many connections there are now, and how many go into the engine's bus, its rumble filter, its Sand level, the ambience's bus. */
+  window.__edges = function (a) {
+    var into = function (n) { var k = '>' + idOf(n) + ':', c = 0; edges.forEach(function (e) { if (e.indexOf(k) > 0) c++; }); return c; };
+    return { all: edges.size, bus: into(a.bus), rumble: into(a.rumble), sand: into(a.gSand), amb: into(a.ambBus), conv: into(a.conv) };
   };
 
   /* ---- measures ---- */
@@ -172,12 +210,34 @@ function harness() {
     });
     return { worst: r2(worst), at: r2(at) };
   };
-  /** How far apart two renders are: the difference, in dB under the first (-200: the same samples). */
-  window.__apart = function (x, y) {
-    var e = 0, d = 0;
-    for (var i = 0; i < x.L.length; i++) { var u = x.L[i] - y.L[i], v = x.R[i] - y.R[i]; d += u * u + v * v; e += x.L[i] * x.L[i] + x.R[i] * x.R[i]; }
+  /** How far apart two renders are (over [t0, t1) if given): the difference, in dB under the first (-200: the same samples). */
+  window.__apart = function (x, y, t0, t1) {
+    var e = 0, d = 0, a = t0 ? Math.floor(t0 * SR) : 0, b = t1 ? Math.min(x.L.length, Math.floor(t1 * SR)) : x.L.length;
+    for (var i = a; i < b; i++) { var u = x.L[i] - y.L[i], v = x.R[i] - y.R[i]; d += u * u + v * v; e += x.L[i] * x.L[i] + x.R[i] * x.R[i]; }
     return d === 0 ? -200 : r2(10 * Math.log10(d / e));
   };
+  /** The peak (dBFS, either ear) of what is left above fc Hz over [t0, t1): a click is all of it, a tone under fc none. */
+  window.__click = function (o, fc, t0, t1) {
+    var a = Math.floor(t0 * SR), b = Math.min(o.L.length, Math.floor(t1 * SR)), pk = 0;
+    [o.L, o.R].forEach(function (x) {
+      var y = biquad(biquad(x, 'hp', fc, 0.54), 'hp', fc, 1.31);
+      for (var i = a; i < b; i++) if (Math.abs(y[i]) > pk) pk = Math.abs(y[i]);
+    });
+    return r2(20 * Math.log10(pk + 1e-12));
+  };
+  /** ITD (µs) and ILD (dB) of each window of w s over [t0, t1). */
+  window.__windows = function (o, t0, t1, w) {
+    var out = { itd: [], ild: [] };
+    for (var t = t0; t + w <= t1 + 1e-9; t += w) { var m = window.__measure(o, t, t + w); out.itd.push(m.itd); out.ild.push(m.ild); }
+    return out;
+  };
+  /** The level (dB, both ears) over [t0, t1). */
+  window.__level = function (o, t0, t1) {
+    var a = Math.floor(t0 * SR), b = Math.min(o.L.length, Math.floor(t1 * SR));
+    return r2(db(0.5 * (pw(o.L, a, b) + pw(o.R, a, b))));
+  };
+  /** Switch the stage on from inside a scene's each(): a promise the render waits for. */
+  window.__on = function (a) { return a.setSpatial(true); };
 }
 
 /* ---- the turn, in Node: where the classic sand's moving grains are seen ------------------- */
@@ -240,6 +300,14 @@ async function main() {
     await page.route(BASE + '/__base-audio.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: baseSrc }); });
     await page.goto(BASE + '/__spatial.html');
     await page.evaluate(harness);
+    // The browser loads its HRTF data when the first HRTF panner is made, on a thread of its own. An
+    // offline render that has to wait for that load now and then never ends; one that finds the data
+    // loaded has never been seen to hang. So: a panner, kept, and a moment for the load.
+    await page.evaluate(function () {
+      var c = window.__warm = new OfflineAudioContext(1, 128, 48000), p = window.__warmPanner = c.createPanner();
+      p.panningModel = 'HRTF';
+      return new Promise(function (r) { setTimeout(r, +(window.__warmMs || 1500)); });
+    });
   }
   /** One job in the page, with a watchdog: a render that hangs is done once more on a fresh page. */
   var ONLY = process.env.HOURGLASS_SPATIAL_ONLY ? new RegExp(process.env.HOURGLASS_SPATIAL_ONLY) : null;
