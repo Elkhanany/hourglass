@@ -2876,48 +2876,45 @@
     var S = this._stage = { x: 0, xEnd: 0, s: 1, p: 0, th: NaN, flat: 0, flatAt: 0, at: null, conv: null, ir: null, baking: null,
                             nodes: [], src: [], tmp: new Float32Array(n) };
     var keep = function (nd) { S.nodes.push(nd); return nd; };
-    // the still speakers into one sum; its correction, its level and its balance; the crossfade; the Sand level;
-    // then the output chain, and from there its own send to its room (the bus, and the desk's room after it,
-    // keep what they had: the Sand level's old gain, shut, and a bowl that was ringing when the switch was thrown)
-    var sum = keep(G(1)), last = sum;
-    S.spk = [];
-    for (i = 0; i < n; i++) {
-      var a = i < n - 2 ? STAGE.ring[i] : STAGE.inner[i - n + 2], p = keep(stagePanner(ctx, a[0], a[1]));
-      p.connect(sum);
-      S.spk.push(p);
-    }
+    // The still speakers into their correction (the first of its filters sums them); each ear's own
+    // gain (the level, the character's trim and the balance); then one gain that is the crossfade and,
+    // while the stage is on, the Sand level; then the output chain, and from there its own send to its
+    // room. (The bus, and the desk's room after it, keep what they had: the Sand level's old gain, shut,
+    // and a bowl that was ringing when the switch was thrown.) As few nodes as will do: each costs.
+    var chain = [], last = null;
     STAGE.eq.forEach(function (e) {
       var b = keep(ctx.createBiquadFilter());
       b.type = e[0]; b.frequency.value = e[1]; b.Q.value = e[2]; b.gain.value = e[3];
-      last.connect(b); last = b;
+      chain.push(b);
     });
     S.tone = STAGE.toneHz.map(function (f) {
       var b = keep(ctx.createBiquadFilter());
       b.type = 'peaking'; b.frequency.value = f; b.Q.value = 1.41; b.gain.value = 0;
-      last.connect(b); last = b;
+      chain.push(b);
       return b;
     });
-    var trim = keep(G(STAGE.trim)), sp = keep(ctx.createChannelSplitter(2)), mg = keep(ctx.createChannelMerger(2));
-    var gl = keep(G(Math.pow(10, STAGE.bal / 40))), gr = keep(G(Math.pow(10, -STAGE.bal / 40)));
-    S.xf = keep(G(0)); S.lvl = keep(G(this._sandGain())); S.wet = keep(G(0));
-    last.connect(trim); trim.connect(sp); sp.connect(gl, 0); sp.connect(gr, 1);
-    gl.connect(mg, 0, 0); gr.connect(mg, 0, 1); mg.connect(S.xf); S.xf.connect(S.lvl); S.lvl.connect(this.rumble); S.lvl.connect(S.wet);
-    S.trim = trim;
+    for (i = 1; i < chain.length; i++) chain[i - 1].connect(chain[i]);
+    last = chain[chain.length - 1];
+    S.spk = [];
+    for (i = 0; i < n; i++) {
+      var a = i < n - 2 ? STAGE.ring[i] : STAGE.inner[i - n + 2], p = keep(stagePanner(ctx, a[0], a[1]));
+      p.connect(chain[0]);
+      S.spk.push(p);
+    }
+    var sp = keep(ctx.createChannelSplitter(2)), mg = keep(ctx.createChannelMerger(2));
+    S.ear = [keep(G(1)), keep(G(1))];
+    S.lvl = keep(G(0)); S.wet = keep(G(0));
+    last.connect(sp); sp.connect(S.ear[0], 0); sp.connect(S.ear[1], 1);
+    S.ear[0].connect(mg, 0, 0); S.ear[1].connect(mg, 0, 1); mg.connect(S.lvl); S.lvl.connect(this.rumble); S.lvl.connect(S.wet);
     this._stageTone(0);
-    // one end of a bar: a mono signal with a gain into each speaker, linked only while it reaches it
-    var end = function (split, ch) {
-      var e = { inp: keep(G(1)), g: [], on: [], zero: [] };
-      e.inp.channelCount = 1; e.inp.channelCountMode = 'explicit';
-      split.connect(e.inp, ch);
+    // one end of a bar: one channel of its splitter, with a gain into each speaker, linked only while it reaches it
+    var end = function () {
+      var e = { g: [], on: [], zero: [] };
       for (var j = 0; j < n; j++) { var gj = keep(G(0)); gj.connect(S.spk[j]); e.g.push(gj); e.on.push(false); e.zero.push(0); }
       return e;
     };
-    var bar = function (def) {
-      var inp = keep(G(1)), s2 = keep(ctx.createChannelSplitter(2));
-      inp.channelCount = 2; inp.channelCountMode = 'explicit';
-      inp.connect(s2);
-      return { y: def[0], w: def[1], inp: inp, L: end(s2, 0), R: end(s2, 1) };
-    };
+    // (a bar takes its faders as they are, left and right: every one of them is a stereo bus)
+    var bar = function (def) { return { y: def[0], w: def[1], inp: keep(ctx.createChannelSplitter(2)), L: end(), R: end() }; };
     var B = S.bars = {};
     S.order = [];
     for (var key in STAGE.bars) { B[key] = bar(STAGE.bars[key]); S.order.push(key); }
@@ -2927,6 +2924,7 @@
     // air, which have places of their own (the neck, the rush's bar): they are taken out of the
     // glass's bar again by adding them once more, turned over, at the foley's own gain.
     var fol = this.gFoley.gain.value, neg = keep(G(-fol)), rush = keep(G(fol)), pour = keep(G(fol));
+    [neg, rush, pour].forEach(function (x) { x.channelCount = 2; x.channelCountMode = 'explicit'; });
     var feed = function (from, to) { S.src.push([from, to]); };
     feed(this.gWhisper, B.neck.inp);
     feed(this.pEnv, pour); pour.connect((B.pour || B.neck).inp);
@@ -2986,7 +2984,10 @@
   HourglassAudio.prototype._stageTone = function (tau) {
     var S = this._stage, c = STAGE.tone[this.character] || [0, 0, 0, 0, 0, 0, 0], t = this.ctx.currentTime;
     var v = STAGE.trim * Math.pow(10, c[0] / 20), room = (CHARACTERS[this.character] || CHARACTERS.asmr).room;
-    if (tau) S.trim.gain.setTargetAtTime(v, t, tau); else S.trim.gain.value = v;
+    for (var ch = 0; ch < 2; ch++) {
+      var ve = v * Math.pow(10, (ch ? -STAGE.bal : STAGE.bal) / 40);
+      if (tau) S.ear[ch].gain.setTargetAtTime(ve, t, tau); else S.ear[ch].gain.value = ve;
+    }
     if (tau) S.wet.gain.setTargetAtTime(room, t, tau); else S.wet.gain.value = room;
     for (var i = 0; i < S.tone.length; i++) {
       if (tau) S.tone[i].gain.setTargetAtTime(c[i + 1], t, tau); else S.tone[i].gain.value = c[i + 1];
@@ -3004,10 +3005,9 @@
     for (i = 0; i < S.src.length; i++) S.src[i][0].connect(S.src[i][1]);
     this._spatial = true;
     this._stageAt(0, this._fill, 0, -1, 0, 0);
-    S.lvl.gain.value = this._sandGain();
     try { g.cancelScheduledValues(t); } catch (e) {}
     xfade(g, t, d, v, true);
-    xfade(S.xf.gain, t, d, 1, false);
+    xfade(S.lvl.gain, t, d, this._sandGain(), false);
     // the water's send goes to the computed room (the desk's rings out by itself)
     this._ambWet.disconnect(this.conv); this._ambWet.connect(S.conv);
     this._ambSwap(true, t, d);
@@ -3021,8 +3021,10 @@
     var self = this, ctx = this.ctx, t = ctx.currentTime + 0.01, d = STAGE.xf, f = this._stageFaders(), i;
     for (i = 0; i < f.length; i++) f[i].connect(this.gSand);
     this._spatial = false;
+    var lv = S.lvl.gain;
     xfade(this.gSand.gain, t, d, this._sandGain(), false);
-    xfade(S.xf.gain, t, d, 1, true);
+    try { lv.cancelScheduledValues(t); } catch (e) {}
+    xfade(lv, t, d, lv.value, true);
     this._ambWet.disconnect(S.conv); this._ambWet.connect(this.conv);
     this._ambSwap(false, t, d);
     S.x = 3; S.xEnd = t + d;
@@ -3036,6 +3038,7 @@
       var f = this._stageFaders();
       for (var i = 0; i < f.length; i++) f[i].disconnect(this.gSand);
       S.x = 2;
+      S.lvl.gain.setTargetAtTime(this._sandGain(), this.ctx.currentTime, 0.05);    // (the Sand level, if it was set while it crossed)
       if (!this._spatialWant) this._stageOut(S);
     } else if (S.x === 3) {
       this._stageDown(S);
@@ -3162,13 +3165,14 @@
         stageGains(sx, sy, g);
         var e = side ? br.R : br.L;
         for (var j = 0; j < n; j++) {
-          if (g[j] > 0 && !e.on[j]) { e.g[j].gain.value = 0; e.inp.connect(e.g[j]); e.on[j] = true; }
+          var gj = g[j] > 1e-3 ? g[j] : 0;                      // (60 dB down is none: no link kept for it)
+          if (gj > 0 && !e.on[j]) { e.g[j].gain.value = 0; br.inp.connect(e.g[j], side); e.on[j] = true; }
           if (!e.on[j]) continue;
-          if (tau) e.g[j].gain.setTargetAtTime(g[j], now, tau);
-          else { e.g[j].gain.cancelScheduledValues(now); e.g[j].gain.value = g[j]; }
-          if (g[j] > 0) e.zero[j] = 0;
+          if (tau) e.g[j].gain.setTargetAtTime(gj, now, tau);
+          else { e.g[j].gain.cancelScheduledValues(now); e.g[j].gain.value = gj; }
+          if (gj > 0) e.zero[j] = 0;
           else if (!e.zero[j]) e.zero[j] = now + 10 * (tau || 0.01);
-          else if (now > e.zero[j]) { e.inp.disconnect(e.g[j]); e.on[j] = false; e.zero[j] = 0; }
+          else if (now > e.zero[j]) { br.inp.disconnect(e.g[j], side); e.on[j] = false; e.zero[j] = 0; }
         }
       }
     }
@@ -3316,9 +3320,11 @@
   HourglassAudio.prototype.setSandLevel = function (v) {
     this.sandLevel = Math.max(0, Math.min(1, +v || 0));
     if (!this.ready) return;
-    // (while the stage has the sand, its own gain is the Sand level: the other is shut, and gets its level back with the sand)
+    // (while the stage has the sand, its own gain is the Sand level: the other is shut, and gets its level
+    // back with the sand. During a crossing both gains are on their curves: the level is given when it is over.)
     var S = this._stage;
-    (S && S.x ? S.lvl : this.gSand).gain.setTargetAtTime(this._sandGain(), this.ctx.currentTime, 0.05);
+    if (!S || !S.x) this.gSand.gain.setTargetAtTime(this._sandGain(), this.ctx.currentTime, 0.05);
+    else if (S.x === 2) S.lvl.gain.setTargetAtTime(this._sandGain(), this.ctx.currentTime, 0.05);
   };
   /** The completion bowl's level, 0..2 (Tune's Bowl 0..100 over 50): 1 is the bowl as it always was, 2 is 6 dB more. */
   HourglassAudio.prototype.setBowlLevel = function (v) {

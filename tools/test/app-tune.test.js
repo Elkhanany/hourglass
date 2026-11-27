@@ -264,6 +264,7 @@ async function spatialRow(env, o) {
         panel: el && el.closest('[role="tabpanel"]') ? el.closest('[role="tabpanel"]').id : null, afterSilent: !!row && row.previousElementSibling === nrow, last: !!row && !row.nextElementSibling,
         like: el ? like(el) : null, neighbour: nb ? like(nb) : null, checked: el ? el.checked : null,
         saved: (JSON.parse(localStorage.getItem(key) || '{}')).spatial, want: a._spatialWant, on: a._spatial, running: a.isRunning(),
+        stage: a._stage ? a._stage.x : -1,                // (the engine's stage: 0 built, 1 crossing in, 2 on, 3 crossing out; -1 none)
         focus: document.activeElement ? document.activeElement.id : null
       };
     }, KEY);
@@ -277,13 +278,15 @@ async function spatialRow(env, o) {
     m.tapped = await state();
     // (the engine crosses over by itself, once its speakers sound and its room is made: up to ten seconds for it)
     m.came = m.tapped;
-    for (var i = 0; i < 40 && !m.came.on; i++) { await sleep(250); m.came = await state(); }
+    for (var i = 0; i < 48 && !(m.came.on && m.came.stage === 2); i++) { await sleep(250); m.came = await state(); }
     await t.page.focus('#opt-silent');
     await t.page.keyboard.press('Tab');
     m.tabbed = await state();
     await t.page.keyboard.press('Space');
     await sleep(300);
     m.key = await state();
+    m.left = m.key;                                      // (crossed back, the stage is taken down: a second for it)
+    for (i = 0; i < 12 && m.left.stage !== -1; i++) { await sleep(250); m.left = await state(); }
     await t.page.keyboard.press('Space');
     await sleep(300);
     await t.reload();
@@ -301,11 +304,11 @@ function spatialRowOk(m) {
                b.panel === 'panel-sound' && b.afterSilent && b.last && !!b.like && b.like === b.neighbour && /^INPUT\|checkbox\|switch\|switch\|0\|/.test(b.like) &&
                b.checked === false && !b.saved && b.want === false && b.on === false,
            detail: JSON.stringify(b) },
-    saved: { ok: m.tapped.checked === true && m.tapped.saved === true && m.tapped.want === true && (m.came.on === true || !m.came.running) &&
-                 m.tabbed.focus === 'opt-spatial' && m.key.checked === false && m.key.saved === false && m.key.want === false && m.key.on === false &&
+    saved: { ok: m.tapped.checked === true && m.tapped.saved === true && m.tapped.want === true && ((m.came.on === true && m.came.stage === 2) || !m.came.running) &&
+                 m.tabbed.focus === 'opt-spatial' && m.key.checked === false && m.key.saved === false && m.key.want === false && m.key.on === false && m.left.stage === -1 &&
                  m.reload.checked === true && m.reload.saved === true && m.reload.want === true && m.errors.length === 0,
-             detail: 'a tap: ' + JSON.stringify({ checked: m.tapped.checked, saved: m.tapped.saved, want: m.tapped.want }) + ', then the stage ' + (m.came.on ? 'came in' : 'did not come in (the sound ' + (m.came.running ? 'runs' : 'does not run') + ')') +
-                     '; Tab from its neighbour: the focus on ' + m.tabbed.focus + '; Space: ' + JSON.stringify({ checked: m.key.checked, saved: m.key.saved, want: m.key.want, on: m.key.on }) +
+             detail: 'a tap: ' + JSON.stringify({ checked: m.tapped.checked, saved: m.tapped.saved, want: m.tapped.want }) + ', then the stage ' + (m.came.on && m.came.stage === 2 ? 'came in' : 'did not come in (the sound ' + (m.came.running ? 'runs' : 'does not run') + ', stage ' + m.came.stage + ')') +
+                     '; Tab from its neighbour: the focus on ' + m.tabbed.focus + '; Space: ' + JSON.stringify({ checked: m.key.checked, saved: m.key.saved, want: m.key.want, on: m.key.on }) + (m.left.stage === -1 ? ', and the stage is taken down' : ', AND THE STAGE IS STILL THERE (' + m.left.stage + ')') +
                      '; Space again and a reload: ' + JSON.stringify({ checked: m.reload.checked, saved: m.reload.saved, want: m.reload.want }) + ' ' + m.errors.slice(0, 2).join(' | ') }
   };
 }
@@ -1488,7 +1491,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
     if (wanted('spatial')) {
       var spl = spatialRowOk(await spatialRow(env));
       s.check('SPATIAL: the Sound tab ends with the row "Headphones: Spatial", right after "Sound in silent mode" and built like it (a switch in a labelled row, with its help line for headphones and for AirPods), off as the app comes', spl.row.ok, spl.row.detail);
-      s.check('SPATIAL: a tap turns it on, saves it and tells the sound engine, and the engine\'s stage comes in; Tab reaches it from its neighbour and Space turns it off, saved; switched on again, a reload comes up with it on', spl.saved.ok, spl.saved.detail);
+      s.check('SPATIAL: a tap turns it on, saves it and tells the sound engine, and the engine\'s stage comes in; Tab reaches it from its neighbour and Space turns it off, saved, and the stage is taken down; switched on again, a reload comes up with it on', spl.saved.ok, spl.saved.detail);
       await control('SPATIAL: a copy of the page whose row holds a plain checkbox, no switch', 'row', function () {
         return spatialRow(env, { routes: [broken(env, 'index.html', swap(/<input id="opt-spatial" class="switch" type="checkbox" role="switch">/, '<input id="opt-spatial" class="switch" type="checkbox">'))] });
       }, spatialRowOk);
