@@ -398,8 +398,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   shaken; there the Flip button turns it back to wait, Start turns it over
   and runs it, and a tap starts a waiting glass. A 10 s glass run out and a
   work and rest sequence run out, turned over by the phone, wait as after
-  Reset (the sequence at its first glass); a tap, the Flip button and a
-  finger's turn start a finished glass; a running glass runs on with its
+  Reset (the sequence at its first glass); the Flip button and a finger's
+  turn leave a finished glass waiting too (from 1.20.2), and Start runs it; a running glass runs on with its
   clock swapped (in TILTSWAP); a paused one stays paused, also one paused
   with all its sand above. Its controls: the tree before the rule, made
   with `git archive e375591` and given as `--root`, fails the waiting, the
@@ -408,7 +408,17 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   and the finger's checks and Start in between, without `&& was !==
   'running'` the running one,
   with a paused glass sent to wait the paused one, and `seqSwapped()`
-  without `|| next === 'idle'` the sequence's): every
+  without `|| next === 'idle'` the sequence's). TURNS, `--only turns`
+  (1.20.2): no turn by hand starts a glass either. A finger's drag-turn, a
+  flick, the Flip button and `F`, each on a glass that waits, one that has
+  run out, one that is paused and one that runs, over and back: a waiting
+  glass waits with its sand below (00:00.0) and then above, a finished one
+  with its sand above (its full time) and then below, a paused one stays
+  paused with its time swapped and back, a running one runs on; after one
+  more turn Start (for the Flip button and `F`) or a tap on the glass (for
+  the finger's turns) starts each of the first three. Its control is the
+  tree at f7e10b9 (`git archive`, given as `--root`), where a turned
+  finished glass runs. Every script `index.html` loads
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
   then served at `motion.js`'s path. Real sand is the app's default, and
@@ -678,6 +688,23 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   frame in under 16 ms; PILLS, the six pills and Custom whole with no scroll
   at every width from 320 to 2560 px, also with six of 99, a phone's pills as
   they were (without the bar's own measure the last pill is cut at 1280 px).
+  Release 1.20.2 added to GROUND a layout viewport shorter than the window,
+  as an iPhone's home-screen app in the light look can lay the page out: the
+  body and the app's box end 59 px short at the bottom, or begin 59 px down,
+  and the canvas (the root's colour) shows there. At 393 x 852 and 375 x 667,
+  plain, in Zen and with Tune open, in both looks, and half way through a
+  fade either way, the four columns find no step where the room meets the
+  canvas; on the ground as it was (`oldGround()`: no flat edge to the room,
+  the canvas the page's own colour, the scrim to the edges) they must find
+  one in the light look at both ends and sizes, with Tune open at the top in
+  both looks and half way through a fade. FIRST reads the canvas as the
+  room's edge (`#ece9e2` light, `#090a0c` dark) and the body as the page's
+  colour. STANDALONE: the home-screen app's rule (`@media (display-mode:
+  standalone)`, which a test browser cannot emulate, so read with its query
+  made true, and as a tab) leaves the app's box the window's and Tune at its
+  foot at 393 x 852, 1280 x 800 and 412 x 915 in both looks. MEASURES: a tap
+  on Tune's version line shows one small line of the page's measures under
+  it, exactly what the page reads, for 8 s, and stores nothing.
   The screen's pixels (a screenshot, read back in the page) and the glass's
   drawn layers are kept and measured in the page, and only the measure comes
   to Node: a mean, a scan's result, a distance, or a picture's size, hash

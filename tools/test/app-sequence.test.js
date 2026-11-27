@@ -370,7 +370,7 @@ async function testRun(s, env) {
   var grain = len.map(function (d, i) { return w.empty[i] === undefined ? NaN : w.empty[i] - w.chimes[i].t; });
   s.check('RUN: the last grain of every phase leaves within 30 ms of its 00:00.0', grain.every(function (d) { return Math.abs(d) <= 30; }),
           grain.map(function (d) { return Math.round(d) + ' ms'; }).join(', '));
-  var want = ['Work · 1 of 2', 'Turning', 'Rest · 1 of 2', 'Turning', 'Work · 2 of 2', 'Turning', 'Rest · 2 of 2', 'Time · flip to begin again'];
+  var want = ['Work · 1 of 2', 'Turning', 'Rest · 1 of 2', 'Turning', 'Work · 2 of 2', 'Turning', 'Rest · 2 of 2', 'Time · tap to begin again'];
   var said = w.status.slice(w.status.indexOf('Work · 1 of 2'));
   s.check('RUN: the status line names each phase, quietly', said.join('|') === want.join('|'), said.join(' | '));
   var live = await t.eval(function () { return document.getElementById('status').getAttribute('aria-live'); });
