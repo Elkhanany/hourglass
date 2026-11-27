@@ -28,6 +28,7 @@
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
   --sar: env(safe-area-inset-right, 0px);
+  --edge: #090a0c;                              /* the room's top and bottom edge, and the canvas (Page, below) */
 
   --ease: cubic-bezier(0.22, 0.8, 0.24, 1);
   --sine: cubic-bezier(0.37, 0, 0.63, 1);      /* even, unhurried: settling in and out */
@@ -106,6 +107,7 @@ html[data-look="light"] {
   --raise: rgba(60, 48, 30, 0.05);
   --raise-2: rgba(60, 48, 30, 0.09);
   --accent-text: color-mix(in srgb, var(--accent) 36%, #241f19);
+  --edge: #ece9e2;
   color-scheme: light;
 }
 
@@ -130,6 +132,12 @@ html, body {
   user-select: none;
 }
 body { position: fixed; inset: 0; }
+/* The canvas, which the browser paints over the whole window from the root's colour, also where the
+   page's own box does not reach: on an iPhone's home-screen app that box can come out shorter than
+   the screen (it did by about the status bar's height in the light look, whose status bar is not
+   translucent), and what is shown under it is this colour. It is the room's own edge (#ambient::after
+   makes the room's top and bottom edges flat in it), so wherever the box ends there is no seam. */
+html { background: var(--edge); }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; touch-action: manipulation; }
 button:focus-visible, input:focus-visible, .wheel:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 3px;
@@ -146,6 +154,13 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   overflow: hidden;
   isolation: isolate;
 }
+/* As a home-screen app on an iPhone, a fixed box with top and bottom at 0 can end short of the
+   screen's bottom, while 100vh and 100lvh measure the whole screen (WebKit bugs 237961, 254868,
+   316008): there the box is as tall as the larger. Everywhere else (a tab, Android, a PC window)
+   the largest viewport is the window itself, so this changes nothing. */
+@media (display-mode: standalone) {
+  #app { bottom: auto; height: 100%; height: max(100%, 100vh); height: max(100%, 100vh, 100lvh); }
+}
 
 /* light pooling softly behind the bulbs, tinted by the sand */
 #ambient {
@@ -156,10 +171,11 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
     radial-gradient(120% 90% at 50% 50%, #15161a 0%, #0b0c0e 58%, #060709 100%);
   transition: background 0.9s var(--ease);
 }
-#ambient::after {            /* vignette */
+#ambient::after {            /* vignette; the room's top and bottom edges flat in --edge, the canvas's colour */
   content: ""; position: absolute; inset: 0;
-  background: radial-gradient(110% 80% at 50% 46%, transparent 48%, rgba(0, 0, 0, 0.55) 100%);
+  background: var(--rim), radial-gradient(110% 80% at 50% 46%, transparent 48%, rgba(0, 0, 0, 0.55) 100%);
 }
+#ambient { --rim: linear-gradient(var(--edge), transparent 96px, transparent calc(100% - 96px), var(--edge)); }
 /* Breathing pace: more of the same light, on a layer of its own. Only its
    opacity and scale ever change, one slow transition for each part of a
    breath (app.js, Breathing pace), so the compositor does the breathing:
@@ -494,6 +510,9 @@ html[data-look="light"] #btn-look .ic-moon { display: none; }
 #scrim {
   position: absolute; inset: 0; z-index: 8;
   background: rgba(4, 5, 6, 0.5);
+  /* (clear at the very top and bottom, where the room meets the canvas: html, above) */
+  -webkit-mask-image: linear-gradient(transparent, #000 96px, #000 calc(100% - 96px), transparent);
+  mask-image: linear-gradient(transparent, #000 96px, #000 calc(100% - 96px), transparent);
   opacity: 0; transition: opacity 0.5s var(--ease);
 }
 #scrim.open { opacity: 1; }
@@ -846,6 +865,8 @@ input[type="range"]::-moz-range-thumb {
 .colophon { margin: 16px 6px 2px; font-size: 12.5px; font-style: italic; line-height: 1.45; color: var(--ink-3); text-align: center; }
 /* the version line (app.js makes it): the release, and that of the offline copy when it differs */
 .colophon.version { margin-top: 4px; font-size: 11.5px; font-style: normal; font-variant-numeric: tabular-nums; }
+/* a tap on it: how the page is laid out, for 8 s, smaller still (app.js, measures) */
+.colophon.measures { margin-top: 2px; font-size: 10.5px; font-style: normal; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 /* the way back, at the very end of the Time tab: a quiet link that asks for a second tap (app.js, resetLook) */
 .quiet-link {
   display: block; margin: 6px auto 0; padding: 12px 12px 10px;
@@ -1001,7 +1022,7 @@ html[data-look="light"] #ambient {
     radial-gradient(62% 36% at 50% 64%, rgba(var(--glow), calc(var(--glow-a) * 0.65)), transparent 74%),
     radial-gradient(120% 90% at 50% 50%, #fbf9f5 0%, #f3f0ea 58%, #e9e4db 100%);
 }
-html[data-look="light"] #ambient::after { background: radial-gradient(110% 80% at 50% 46%, transparent 52%, rgba(70, 56, 36, 0.10) 100%); }
+html[data-look="light"] #ambient::after { background: var(--rim), radial-gradient(110% 80% at 50% 46%, transparent 52%, rgba(70, 56, 36, 0.10) 100%); }
 /* the breathing pace on paper: the same swell, as a deepening of that wash with a soft shade round
    it (a light cannot be seen on white; a colour and a shadow can) */
 html[data-look="light"] #breath {
@@ -1066,6 +1087,7 @@ html[data-look="light"] #toast { background: rgba(252, 250, 246, 0.94); box-shad
 html.look-fade {
   --lp: calc(var(--lk) * 100%);
   --bg: color-mix(in srgb, #0b0c0e, #f3f0ea var(--lp));
+  --edge: color-mix(in srgb, #090a0c, #ece9e2 var(--lp));
   --ink: color-mix(in srgb, #ece7df, #1f1d1a var(--lp));
   --ink-2: color-mix(in srgb, rgba(236, 231, 223, 0.62), rgba(31, 29, 26, 0.80) var(--lp));
   --ink-3: color-mix(in srgb, rgba(236, 231, 223, 0.38), rgba(31, 29, 26, 0.68) var(--lp));
@@ -1079,14 +1101,15 @@ html.look-fade {
   --deep: color-mix(in srgb, var(--accent) 36%, #241f19);                     /* the light look's --accent-text */
   --accent-text: color-mix(in srgb, var(--accent), var(--deep) var(--lp));  /* where the dark look has the accent itself */
 }
-html.look-fade, html.look-fade body { background: var(--bg); }
+html.look-fade { background: var(--edge); }
+html.look-fade body { background: var(--bg); }
 html.look-fade #ambient {
   background:
     radial-gradient(60% 34% at 50% 34%, rgba(var(--glow), calc(var(--glow-a) * (0.85 - 0.30 * var(--lk)))), transparent 72%),
     radial-gradient(62% 36% at 50% 64%, rgba(var(--glow), calc(var(--glow-a) * (1 - 0.35 * var(--lk)))), transparent 74%),
     radial-gradient(120% 90% at 50% 50%, color-mix(in srgb, #15161a, #fbf9f5 var(--lp)) 0%, color-mix(in srgb, #0b0c0e, #f3f0ea var(--lp)) 58%, color-mix(in srgb, #060709, #e9e4db var(--lp)) 100%);
 }
-html.look-fade #ambient::after { background: radial-gradient(110% 80% at 50% 46%, transparent calc(48% + 4% * var(--lk)), color-mix(in srgb, rgba(0, 0, 0, 0.55), rgba(70, 56, 36, 0.10) var(--lp)) 100%); }
+html.look-fade #ambient::after { background: var(--rim), radial-gradient(110% 80% at 50% 46%, transparent calc(48% + 4% * var(--lk)), color-mix(in srgb, rgba(0, 0, 0, 0.55), rgba(70, 56, 36, 0.10) var(--lp)) 100%); }
 html.look-fade #breath {
   background:
     radial-gradient(var(--b1, 60%) 34% at 50% 34%, rgba(var(--glow), calc(var(--glow-a) * (0.6 + 0.3 * var(--lk)))), transparent 72%),
