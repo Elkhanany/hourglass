@@ -155,7 +155,7 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   behind a short fade; the running time is kept, a crack is not. Finer sand
   is more work for the phone: if the glass ever stutters on Finest, Fine has
   half as many grains for about a third of the work.
-- **Light** is Sunlit (as the app comes) or Soft. Sunlit lights the sand with
+- **Light** (from 1.21.0) is Sunlit (as the app comes) or Soft. Sunlit lights the sand with
   one light from the upper left, the side the glass's own highlight is on: the
   heap has a lit flank, brighter and of a deeper colour, and a shaded one that
   keeps its colour; the crest that faces the light catches a bright edge; the
@@ -183,7 +183,7 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.20.2" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.21.0" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;
