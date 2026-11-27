@@ -278,9 +278,12 @@ classic sand has a glow over its dark sands, Real sand none).
   here; the relief's own easing does the smoothing's work.
 - **The light look, in either light.** The look carries `paper`, the light
   look's share (`view.still.y`): a grain in the air (little sand round it,
-  or the sweep's thread) takes, on its side away from the key, its colour
-  under half its light (× 0.45, at most 0.20 of white, a quarter more
-  chroma), as the classic sand's falling grains; under Sunlit a pale sand's
+  or the sweep's thread) is taken most of the way (0.7) to its colour under
+  a third of its light (× 0.35, at most 0.15 of white, a quarter more
+  chroma), and its side away from the key all the way: a little deeper than
+  the classic sand's falling grains, since a blurred streak lets the page
+  through (in pictures of the running app, Moonstone's most visible falling
+  pixel against the page goes from 2.5 to about 3); under Sunlit a pale sand's
   bed tops are drawn `deep` levels deeper (`view.still.z`).
 - **Soft in the dark look is the picture of before, exactly.** Under Soft the
   look given to the grains has no light, `paper` is 0 in the dark look, the

@@ -223,12 +223,13 @@ fn threadGrain(k: u32) -> vec3f {
     out.hi = vec4f(0.0);
     out.shade = vec4f(0.0);
     // the light look (either light): a grain in the air is its colour on the key's side and under half its light on
-    // the far side, the colour kept (glass/renderer.js _paperTones: x 0.45, at most 0.20 of white, a quarter more colour)
+    // the far side, the colour kept (as glass/renderer.js _paperTones, a little deeper, x 0.35, at most 0.15 of white, since
+    // a streak lets the page through; a quarter more colour)
     let inAir = select(flight, 1.0, index >= count);
     if (view.still.y > 0.0 && inAir > 0.5) {
         let cl = pow(max(col.rgb * shade, vec3f(0.0)), vec3f(2.2));
         let yl = dot(cl, vec3f(0.2126, 0.7152, 0.0722));
-        let f = select(1.0, min(0.45, 0.20 / yl), yl > 1e-4);
+        let f = select(1.0, min(0.35, 0.15 / yl), yl > 1e-4);
         let yd = yl * f;
         let dk = max(vec3f(yd) + (cl * f - vec3f(yd)) * 1.25, vec3f(0.0));
         out.shade = vec4f(pow(dk, vec3f(1.0 / 2.2)), view.still.y);
@@ -284,7 +285,7 @@ fn threadGrain(k: u32) -> vec3f {
             // the dark side from this light's colour of the grain
             let cl = pow(mid.rgb, vec3f(2.2));
             let yl = dot(cl, vec3f(0.2126, 0.7152, 0.0722));
-            let f = select(1.0, min(0.45, 0.20 / yl), yl > 1e-4);
+            let f = select(1.0, min(0.35, 0.15 / yl), yl > 1e-4);
             let yd = yl * f;
             out.shade = vec4f(pow(max(vec3f(yd) + (cl * f - vec3f(yd)) * 1.25, vec3f(0.0)), vec3f(1.0 / 2.2)), out.shade.a);
         }
@@ -332,8 +333,10 @@ fn turned(v: vec2f) -> vec2f {
     if (v.shade.a > 0.0) {
         // the light look, a grain in the air: its far side from the key (the room's, as the bead above) dark
         let kd = select(light, view.glint.zw, v.hi.a > 0.5);
+        // (a streak is thin and drawn faint, its blur lets the page through: the whole grain is taken most of the way
+        // down, its far side the rest)
         let far = clamp(0.25 - 1.4 * dot(d, kd), 0.0, 1.0);
-        rgb = mix(rgb, v.shade.rgb, v.shade.a * far);
+        rgb = mix(rgb, v.shade.rgb, v.shade.a * (0.7 + 0.3 * far));
     }
     if (view.look.x > 0.5) {
         // liquid: soft round drops that run together
