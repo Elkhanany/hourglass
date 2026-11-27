@@ -360,9 +360,14 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   a turn (half a turn back to nothing, the glass's ends swapped) moves neither
   ear's level by a decibel (the control: a stage that does not swap its ends
   with the glass swaps the sides). Headless Chromium now and then never
-  finishes an offline render that has HRTF panners in it; each render has a
-  90 s watchdog and is done once more on a fresh page, and the suite prints
-  how many hung. `HOURGLASS_SPATIAL_PRINT=1` prints every measure and the
+  finishes an offline render that has HRTF panners in it: in a probe of 32
+  renders, each in its own browser, about one in ten of a page's first such
+  render hung, with or without a suspend every frame (so it is the browser
+  loading its HRTF data, not the suspends), and a page whose render hung did
+  not always close. Each render here has a 90 s watchdog and is done once
+  more in a fresh browser, and the suite prints how many hung
+  (`HOURGLASS_SPATIAL_WATCHDOG_MS` set small makes every render count as
+  hung, to try that path). `HOURGLASS_SPATIAL_PRINT=1` prints every measure and the
   residuals `STAGE.tone` is set from; `HOURGLASS_SPATIAL_ONLY=<regexp>` runs
   only those groups (off, level, place, turn, image, still).
 - `app-*`: the app's own acceptance tests (permission, gestures, motion,
