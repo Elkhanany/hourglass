@@ -700,7 +700,7 @@ function outside(r) {
 }
 
 test('the sunlit sand: on a symmetric heap the left flank (toward the key) is the brighter by a set margin, in both looks, and stays on the screen\'s left with the glass turned over', function () {
-  var MARGIN = { light: 1.8, dark: 1.5 }, out = [], soft = [];
+  var MARGIN = { light: 2.2, dark: 2.2 }, out = [], soft = [];
   [false, true].forEach(function (paper) {
     var r = realRenderer(P, heapGlass()), name = paper ? 'light' : 'dark';
     r.setPaper(paper); r.setSandLight('sunlit');
@@ -870,6 +870,131 @@ test('the sunlit sand draws no grain outside the glass\'s edge, in both looks, u
   var oc = outside(rc);
   ok(oc > 0, 'control: an unclipped drawing was not found out');
   return n + ' frames, ' + px + ' pixels of sand, none outside; control: unclipped, ' + oc + ' outside';
+});
+
+/* the light look's falling grains, the sunlit sand's colour, its smoothed surface, its bloom, a custom sand's record */
+var FIRST_BUILT = process.env.HOURGLASS_SUN_FIRST || 'd7a050c';   // the sunlit sand as first built: the controls below
+function piecesAt(rev) { return L.loadIsolated(paths.physicsParts().map(function (f) { return L.gitShow(rev, f); }).join('\n'), rev); }
+function Yof(v) { return 0.2126 * lin(v & 255) + 0.7152 * lin((v >>> 8) & 255) + 0.0722 * lin((v >>> 16) & 255); }
+/**
+ * The audit's measure on a running glass: the most visible pixel of a grain in the air against the page behind
+ * it (#f3f0ea seen through the clear glass, 247 242 234), down the middle of the lower bulb; the least of 3 frames.
+ */
+function fallContrast(PP, sand, light) {
+  var sim = runningGlass(PP, 4242, false), r = realRenderer(PP, sim), bg = [247, 242, 234], bgY = Yof(bg[0] | (bg[1] << 8) | (bg[2] << 16)), worst = 99;
+  r.setLook({ sand: sand }); r.setPaper(true); if (r.setSandLight) r.setSandLight(light);
+  for (var f = 0; f < 3; f++) {
+    sim.beginFrame(); sim.targetTop = Math.max(0, sim.nTop - 3); sim.step();
+    r.drawSand(0); var buf = r.buf.slice(), np = sim.np; sim.np = 0; r.frameNo--; r.drawSand(0); sim.np = np;
+    var BW = r.BW, cx = sim.geo.cx * 2, gy = sim.gateY * 2, best = 1, x, y, i;
+    for (y = gy + 8; y < r.BH; y++) for (x = Math.round(cx - 10); x <= cx + 10; x++) {
+      i = y * BW + x; var v = buf[i] >>> 0;
+      if (v === (r.buf[i] >>> 0) || (r.buf[i] >>> 24) !== 0) continue;   // (a grain in the air, over the empty bulb)
+      var al = (v >>> 24) / 255, c = [0, 8, 16].map(function (sh, k) { return ((v >>> sh) & 255) * al + bg[k] * (1 - al); });
+      var yy = Yof((c[0] | 0) | ((c[1] | 0) << 8) | ((c[2] | 0) << 16)), q = yy > bgY ? (yy + 0.05) / (bgY + 0.05) : (bgY + 0.05) / (yy + 0.05);
+      if (q > best) best = q;
+    }
+    if (best < worst) worst = best;
+  }
+  return worst;
+}
+test('the light look\'s falling grains stand out of the page: the most visible pixel of a grain in the air at least 2.5 : 1 for the pale sands, Sahara not below 19c84db, in both lights', function () {
+  var B = piecesAt(SOFT_BASE), pale = ['moonstone', 'seaglass', { h: 45, s: 0.2, l: 0.97 }], out = [], ctl = [];
+  ['soft', 'sunlit'].forEach(function (light) {
+    pale.forEach(function (sd) {
+      var q = fallContrast(P, sd, light), nm = typeof sd === 'object' ? 'pale 45/0.2/0.97' : sd;
+      ok(q >= 2.5, light + ', ' + nm + ': ' + q.toFixed(2) + ' : 1');
+      out.push(light + ' ' + nm + ' ' + q.toFixed(2));
+    });
+    var qs = fallContrast(P, 'sahara', light), qb = fallContrast(B, 'sahara', 'soft');
+    ok(qs >= qb, light + ', Sahara: ' + qs.toFixed(2) + ' against ' + qb.toFixed(2) + ' at ' + SOFT_BASE);
+    out.push(light + ' sahara ' + qs.toFixed(2) + ' (' + SOFT_BASE + ' ' + qb.toFixed(2) + ')');
+  });
+  // control: the tree as it was (19c84db, and the sunlit sand as first built) fails the pale sands
+  pale.forEach(function (sd) { ctl.push(fallContrast(B, sd, 'soft')); });
+  ok(ctl.every(function (q) { return q < 2.5; }), 'control: the grains of before passed: ' + ctl.map(function (q) { return q.toFixed(2); }).join(', '));
+  var F = piecesAt(FIRST_BUILT), fb = pale.map(function (sd) { return fallContrast(F, sd, 'sunlit').toFixed(2); });
+  return out.join('; ') + '; control: ' + SOFT_BASE + ' ' + ctl.map(function (q) { return q.toFixed(2); }).join(', ') + ' (as first built, ' + FIRST_BUILT + ', Sunlit: ' + fb.join(', ') + ')';
+});
+
+function oklabC(v) {
+  var r = lin(v[0]), g = lin(v[1]), b = lin(v[2]);
+  var l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s2 = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return { L: 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s2, C: Math.hypot(1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s2, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s2) };
+}
+/** The mean colour of the lit (left) flank's surface band on the symmetric heap, 8 cells deep. */
+function litFlank(r) {
+  var sim = r.sim, W = sim.W, H = sim.H, BW = r.BW, acc = [0, 0, 0, 0], x, y, q;
+  for (x = 0; x < W; x++) {
+    if (x + 0.5 > sim.geo.cx - 4) continue;
+    var top = -1; for (y = sim.gateY + 1; y < H; y++) if (sim.cell[y * W + x] >= P.REST) { top = y; break; }
+    if (top < 0) continue;
+    for (y = top; y < top + 8; y++) for (q = 0; q < 4; q++) { var v = r.buf[(y * 2 + (q >> 1)) * BW + x * 2 + (q & 1)] >>> 0; if ((v >>> 24) !== 255) continue; acc[0] += v & 255; acc[1] += (v >>> 8) & 255; acc[2] += (v >>> 16) & 255; acc[3]++; }
+  }
+  return [acc[0] / acc[3], acc[1] / acc[3], acc[2] / acc[3]];
+}
+test('the sunlit sand\'s lit side is lit in colour: in the light look Sahara\'s lit flank has at least 1.2 times Soft\'s colour (OKLab C) and is lighter', function () {
+  function lit(PP, light) { var r = realRenderer(PP, heapGlass()); r.setPaper(true); r.setSandLight(light); r.drawSand(); r.drawSand(); return oklabC(litFlank(r)); }
+  var soft = lit(P, 'soft'), sun = lit(P, 'sunlit'), first = lit(piecesAt(FIRST_BUILT), 'sunlit');
+  ok(sun.C >= 1.2 * soft.C && sun.L > soft.L, 'lit flank C ' + sun.C.toFixed(3) + ' L ' + sun.L.toFixed(3) + ', Soft C ' + soft.C.toFixed(3) + ' L ' + soft.L.toFixed(3));
+  ok(first.C < 1.2 * soft.C, 'control: as first built (' + FIRST_BUILT + ', lit by a roll toward white) the lit flank\'s C ' + first.C.toFixed(3) + ' passed');
+  return 'C ' + sun.C.toFixed(3) + ' (Soft ' + soft.C.toFixed(3) + ', x ' + (sun.C / soft.C).toFixed(2) + '), L ' + sun.L.toFixed(3) + ' (' + soft.L.toFixed(3) + '); control: as first built C x ' + (first.C / soft.C).toFixed(2);
+});
+
+test('the sunlit sand\'s surface is smoothed: under the shaded flank the level does not stripe from column to column', function () {
+  /** Across the right flank's columns: the mean relative luminance 4 to 10 cells under the surface; the spread of its column-to-column steps. */
+  function stripes(PP) {
+    var sim = heapGlass(), r = realRenderer(PP, sim), W = sim.W, H = sim.H, BW = r.BW, x, y, q, m = [];
+    // a staircase surface (the lattice's own): every other column one cell lower
+    for (x = 0; x < W; x += 2) { for (y = sim.gateY + 1; y < H; y++) if (sim.cell[y * W + x] === P.REST) { sim.cell[y * W + x] = P.EMPTY; break; } }
+    sim.seed.fill(40);                                   // (one kind of grain: only the light differs from column to column)
+    r.setPaper(true); r.setSandLight('sunlit'); r.drawSand(); r.drawSand();
+    for (x = Math.ceil(sim.geo.cx + 8); x < W; x++) {
+      var top = -1; for (y = sim.gateY + 1; y < H; y++) if (sim.cell[y * W + x] >= P.REST) { top = y; break; }
+      if (top < 0 || top + 10 >= H) continue;
+      var sum = 0, n = 0;
+      for (y = top + 4; y <= top + 10; y++) for (q = 0; q < 4; q++) { var v = r.buf[(y * 2 + (q >> 1)) * BW + x * 2 + (q & 1)] >>> 0; if ((v >>> 24) !== 255) continue; sum += Yof(v); n++; }
+      if (n > 12) m.push(sum / n);
+    }
+    var d = 0; for (x = 1; x < m.length; x++) d += Math.abs(m[x] - m[x - 1]);
+    var mean = m.reduce(function (a, b) { return a + b; }, 0) / m.length;
+    return d / (m.length - 1) / mean;
+  }
+  var now = stripes(P), first = stripes(piecesAt(FIRST_BUILT)), BOUND = 0.04;
+  ok(now < BOUND, 'the step from column to column is ' + (100 * now).toFixed(1) + ' % of the level');
+  ok(first >= BOUND, 'control: as first built (' + FIRST_BUILT + ', the slope of the raw stairs) ' + (100 * first).toFixed(1) + ' %');
+  return 'mean step ' + (100 * now).toFixed(1) + ' % of the level (bound ' + 100 * BOUND + ' %); control: as first built ' + (100 * first).toFixed(1) + ' %';
+});
+
+test('the sunlit sand\'s resting glints do not cloud the bloom: in the dark look a resting bed\'s brightest bloom is within 10 % of Soft\'s', function () {
+  function bloom(PP, light, sand) {
+    var r = realRenderer(PP, heapGlass()); r.setLook({ sand: sand }); r.setSandLight(light);
+    var t = 0; for (var f = 0; f < 6; f++) { r.drawSand(); if (r.frameNo % 3 === 0) for (var i = 0; i < r.bloomA.length; i++) if (r.bloomA[i] > t) t = r.bloomA[i]; }
+    return t;
+  }
+  var out = [], ctl = [], F = piecesAt(FIRST_BUILT);
+  ['volcanic', 'garnet'].forEach(function (sd) {
+    var s0 = bloom(P, 'soft', sd), s1 = bloom(P, 'sunlit', sd), sF = bloom(F, 'sunlit', sd);
+    ok(Math.abs(s1 / s0 - 1) <= 0.10, sd + ': Sunlit\'s bloom ' + (s1 / s0).toFixed(3) + ' of Soft\'s');
+    out.push(sd + ' ' + (s1 / s0).toFixed(3)); ctl.push(sd + ' ' + (sF / s0).toFixed(3));
+    ok(Math.abs(sF / s0 - 1) > 0.10, 'control: as first built ' + sd + ' ' + (sF / s0).toFixed(3));
+  });
+  return 'Sunlit over Soft: ' + out.join(', ') + '; control: as first built (every glint 0.7) ' + ctl.join(', ');
+});
+
+test('a custom colour\'s sand is lit by its own sun record (customSand), not Sahara\'s', function () {
+  var r = realRenderer(P, heapGlass()), cols = [[236, 0.1, 0.22], [45, 0.2, 0.97]], out = [];
+  cols.forEach(function (c) {
+    r.setLook({ sand: { h: c[0], s: c[1], l: c[2] } });
+    var want = P.customSand(c[0], c[1], c[2]).sun, got = r._sunConsts(1).sun;
+    ok(JSON.stringify(got) === JSON.stringify(want), c.join('/') + ': ' + JSON.stringify(got) + ', not ' + JSON.stringify(want));
+    out.push(c.join('/') + ' paper ' + got.paper);
+  });
+  // control: a theme put together without the record falls back to Sahara's
+  var th = r.theme; r.theme = Object.assign({}, th); delete r.theme.sun;
+  var fb = r._sunConsts(1).sun; r.theme = th;
+  ok(fb === P.SANDS.sahara.sun, 'control: without the record the light was not Sahara\'s');
+  return out.join('; ') + '; control: without it, Sahara\'s';
 });
 
 console.log(failures ? 'render-unit: ' + failures + ' of ' + count + ' cases FAILED' : 'render-unit: all ' + count + ' cases passed');
