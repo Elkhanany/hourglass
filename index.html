@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Hourglass</title>
   <!-- this page's release: sw.js's VERSION names the same (check-release); Tune's last line shows it -->
-  <meta name="hourglass-version" content="1.20.2">
+  <meta name="hourglass-version" content="1.21.0">
   <meta name="description" content="A hyper-realistic sand hourglass timer. Every grain is simulated; every sound is synthesised live.">
   <meta name="theme-color" content="#0b0c0e">
   <meta name="color-scheme" content="dark">
@@ -216,6 +216,16 @@
               <button type="button" role="radio" aria-checked="true" data-grain="0" aria-label="Classic: the sand as it has been">Classic</button>
               <button type="button" role="radio" aria-checked="false" data-grain="1" aria-label="Fine: twice the grains">Fine <i>×2</i></button>
               <button type="button" role="radio" aria-checked="false" data-grain="2" aria-label="Finest: four times the grains">Finest <i>×4</i></button>
+            </div>
+          </div>
+          <!-- how the sand is lit: one key light from the upper left, or the even light it had before -->
+          <div class="row" id="light-row">
+            <span><b id="light-name">Light</b><small>How the sand is lit: one light from the upper left, or an even light</small></span>
+          </div>
+          <div class="sub">
+            <div id="lights" class="segmented two" role="radiogroup" aria-labelledby="light-name">
+              <button type="button" role="radio" aria-checked="true" data-light="sunlit" aria-label="Sunlit: one light from the upper left">Sunlit</button>
+              <button type="button" role="radio" aria-checked="false" data-light="soft" aria-label="Soft: an even light, as before">Soft</button>
             </div>
           </div>
         </div>

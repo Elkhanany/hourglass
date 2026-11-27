@@ -13,7 +13,7 @@
 'use strict';
 
 // Bump on every release: a new name retires the previous cache.
-var VERSION = 'hourglass-v1.20.2';
+var VERSION = 'hourglass-v1.21.0';
 
 // The app's files: what an install caches, whole, and what the app is answered from. index.html's
 // <meta name="hourglass-version"> says the same release as VERSION (check-release); every file the
@@ -77,6 +77,7 @@ var SHELL = [
   './realsand/shaders/tally.wgsl',
   './realsand/shaders/flip.wgsl',
   './realsand/shaders/grains.wgsl',
+  './realsand/shaders/relief.wgsl',
   './realsand/shaders/tone.wgsl'
 ];
 

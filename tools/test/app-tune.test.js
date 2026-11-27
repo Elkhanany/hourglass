@@ -79,7 +79,7 @@ var SIZES = [[390, 844], [375, 667], [430, 932]];
 var TOP_AT = { '390 x 844': 454, '375 x 667': 365, '430 x 932': 502 };   // the design's measurements of the app
 var ASK = 'Put the look and sound back as they came', SURE = 'Tap again to put them back', DONE = 'Look and sound put back';
 // what the reset puts back: a new install's values
-var BACK = { theme: 'sahara', sand: 'sahara', finish: 'walnut', frame: true, layers: false, background: 'dark', volume: 0.8, character: 'asmr', ambience: 'none', ambienceLevel: 0.5, chime: true,
+var BACK = { theme: 'sahara', sand: 'sahara', finish: 'walnut', frame: true, layers: false, background: 'dark', sandLight: 'sunlit', volume: 0.8, character: 'asmr', ambience: 'none', ambienceLevel: 0.5, chime: true,
              sandLevel: 1, bowlLevel: 1, bowlRings: 'once', ambFade: 0 };
 
 /* ---- a copy with something broken, for a control ---------------------------------------- */
@@ -235,6 +235,92 @@ async function rememberBad(env) {
     try { await sleep(400); var L = await look(t); out.push({ v: v, ok: shows(L, 'sand') && t.errors.length === 0, detail: JSON.stringify(v) + ': ' + brief(L) }); } finally { await t.close(); }
   }
   return out;
+}
+
+/* ---- LIGHT: the sand's light, Sunlit or Soft --------------------------------------------- */
+// The Sand tab's row "Light" (after Grain): two radios, Sunlit checked as the app comes. A tap on
+// Soft saves sandLight 'soft' and the classic sand is drawn soft at once; a key (ArrowLeft) back
+// to Sunlit saves it and lights it; a reload comes up as saved; a save of 1.20.0 (none) is sunlit.
+async function lightRow(env, o) {
+  o = o || {};
+  var t = await env.open({ storage: o.storage || {}, routes: o.routes || [] }), m = {};
+  function state() {
+    return t.eval(function () {
+      var g = document.getElementById('lights'), row = document.getElementById('light-row');
+      var rs = g ? Array.prototype.map.call(g.querySelectorAll('[role="radio"]'), function (r) { return [r.dataset.light, r.textContent.trim(), r.getAttribute('aria-checked'), r.tabIndex]; }) : [];
+      var prev = row && row.previousElementSibling;
+      return { radios: rs, label: g && document.getElementById(g.getAttribute('aria-labelledby')) ? document.getElementById(g.getAttribute('aria-labelledby')).textContent : null,
+               panel: row && row.closest('[role="tabpanel"]') ? row.closest('[role="tabpanel"]').id : null,
+               afterGrain: !!prev && !!prev.querySelector('#grains'), sunlit: window.Hourglass.renderer.sunlit,
+               saved: (JSON.parse(localStorage.getItem('hourglass.settings.v1') || '{}')).sandLight };
+    });
+  }
+  try {
+    await sleep(600);
+    await tune.open(t);
+    m.boot = await state();
+    await t.page.click('#lights [data-light="soft"]');
+    await sleep(200);
+    m.soft = await state();
+    await t.page.focus('#lights [data-light="soft"]');
+    await t.page.keyboard.press('ArrowLeft');
+    await sleep(200);
+    m.key = await state();
+    await t.page.click('#lights [data-light="soft"]');
+    await sleep(200);
+    await t.reload();
+    await sleep(600);
+    m.reload = await state();
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+function lightRowOk(m) {
+  var two = function (st, on) { return st.radios.length === 2 && st.radios[0][0] === 'sunlit' && st.radios[0][1] === 'Sunlit' && st.radios[1][0] === 'soft' && st.radios[1][1] === 'Soft' &&
+                                       st.radios[on === 'sunlit' ? 0 : 1][2] === 'true' && st.radios[on === 'sunlit' ? 1 : 0][2] === 'false' && st.radios[on === 'sunlit' ? 0 : 1][3] === 0; };
+  return {
+    row: { ok: m.boot.panel === 'panel-sand' && m.boot.afterGrain && m.boot.label === 'Light' && two(m.boot, 'sunlit') && m.boot.sunlit === true && (m.boot.saved === undefined || m.boot.saved === 'sunlit'),
+           detail: JSON.stringify(m.boot) },
+    saved: { ok: two(m.soft, 'soft') && m.soft.saved === 'soft' && m.soft.sunlit === false && two(m.key, 'sunlit') && m.key.saved === 'sunlit' && m.key.sunlit === true &&
+                 two(m.reload, 'soft') && m.reload.saved === 'soft' && m.reload.sunlit === false && m.errors.length === 0,
+             detail: 'a tap on Soft: ' + JSON.stringify(m.soft) + '; ArrowLeft: ' + JSON.stringify(m.key) + '; Soft again and a reload: ' + JSON.stringify(m.reload) + ' ' + m.errors.slice(0, 2).join(' | ') }
+  };
+}
+
+// Through a Flip the classic sand is drawn with the glass's angle of the same frame (renderer.drawSand(rot)): the
+// sunlit sand's key stays in the room in the frame of the swap too. Each frame's sunlit drawing is watched: how far
+// the angle its key is turned back by lies from the glass's angle against the room as the frame ends.
+async function lightTurn(env, o) {
+  o = o || {};
+  var t = await env.open({ storage: { 'hourglass.settings.v1': { durationMs: 60000 } }, routes: o.routes || [] }), m = {};
+  try {
+    await sleep(600);
+    await t.eval(function () {
+      var Hg = window.Hourglass, R = Hg.renderer, draw = R._drawSunlit, W = window.__turn = { frames: 0, worst: 0, swaps: 0, atSwap: null, last: null };
+      function off(a) { a = Math.abs(a) % (2 * Math.PI); return a > Math.PI ? 2 * Math.PI - a : a; }
+      var flip = Hg.sim.completeFlip, swapped = false;
+      Hg.sim.completeFlip = function () { swapped = true; W.swaps++; return flip.apply(this, arguments); };
+      R._drawSunlit = function () {
+        var d = off(this.lightRot - (Hg.sim.angle + Hg.sim.tilt));
+        W.frames++; if (d > W.worst) W.worst = d;
+        if (swapped) { swapped = false; W.atSwap = d; }
+        return draw.apply(this, arguments);
+      };
+      Hg.start();
+    });
+    await sleep(500);
+    await t.eval(function () { window.Hourglass.flipNow(); });
+    await t.page.waitForFunction(function () { return !window.Hourglass.flip.active && window.__turn.swaps >= 1; }, null, { timeout: 15000, polling: 50 });
+    await sleep(300);
+    m = await t.eval(function () { var W = window.__turn; return { frames: W.frames, worst: W.worst, swaps: W.swaps, atSwap: W.atSwap, sunlit: window.Hourglass.renderer.sunlit }; });
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+function lightTurnOk(m) {
+  return { turn: { ok: m.sunlit === true && m.frames >= 30 && m.swaps === 1 && m.atSwap !== null && m.atSwap < 1e-6 && m.worst < 1e-6 && m.errors.length === 0,
+                   detail: m.frames + ' frames drawn sunlit through a Flip, the key\'s angle at most ' + m.worst.toFixed(4) + ' rad from the glass\'s, ' +
+                           (m.atSwap === null ? 'no swap seen' : m.atSwap.toFixed(4) + ' in the swap\'s frame') + ' ' + m.errors.slice(0, 2).join(' | ') } };
 }
 
 /* ---- PLACE and TOP: one phone size ------------------------------------------------------- */
@@ -751,7 +837,7 @@ function focusOk(m) {
 // mute button, the grain, a sequence, breathing, Full Zen, the screen not kept awake, what the app
 // has learned and hinted). Real motion is left off: left on, it has a life of its own at the boot.
 var CHANGED = {
-  theme: 'lapis', sand: 'garnet', sandColor: '185,0.5,0.5', finish: 'copper', frame: false, layers: true, background: 'light', volume: 0.35, character: 'bamboo', ambience: 'rain', ambienceLevel: 0.7, chime: false,
+  theme: 'lapis', sand: 'garnet', sandColor: '185,0.5,0.5', finish: 'copper', frame: false, layers: true, background: 'light', sandLight: 'soft', volume: 0.35, character: 'bamboo', ambience: 'rain', ambienceLevel: 0.7, chime: false,
   sandLevel: 0.4, bowlLevel: 1.6, bowlRings: 'tap', ambFade: 600000, silentRing: false,
   muted: true, grain: 1, zenFull: true, keepAwake: false, breath: true, breathPattern: 'box', durationMs: 600000, restMs: 120000, rounds: 3,
   motionSign: -1, mendNotes: 2, hintCrack: true, hintZen: 3, hintMotion: 3, tuneTab: 'time',
@@ -872,7 +958,7 @@ function resetOk(m, save) {
   var quiet = function (st) { return names(st.events).filter(function (n) { return n !== 'buzz'; }).length === 0; };
   // 1. the first tap
   var ask = {
-    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 15 &&
+    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 16 &&
         m.idle.link.join('|') === 'idle|' + ASK && m.asked.link.join('|') === 'armed|' + SURE && untouched(m.asked) && JSON.stringify(m.asked.events) === '[["buzz",8]]' &&
         m.gaveUp.link.join('|') === 'idle|' + ASK && untouched(m.gaveUp) && m.gaveUp.events.length === 0 && m.waited >= 2900 && m.waited < 5500,
     detail: JSON.stringify(m.place) + '; ' + m.idle.link.join(': ') + ' → ' + m.asked.link.join(': ') + ' ' + JSON.stringify(m.asked.events) + (untouched(m.asked) ? '' : ' AND THE SAVE CHANGED') +
@@ -1167,7 +1253,7 @@ function hintReducedOk(m) {
 
 /* ---- RADIOS ------------------------------------------------------------------------------ */
 // The groups whose arrow keys are tried in Tune (Grain is left out: a choice there builds the page again).
-var RADIO_TRY = ['sands', 'shapes', 'finishes', 'looks', 'ambiences', 'characters', 'rings', 'ambfades', 'breaths'];
+var RADIO_TRY = ['sands', 'lights', 'shapes', 'finishes', 'looks', 'ambiences', 'characters', 'rings', 'ambfades', 'breaths'];
 async function radios(env, o) {
   o = o || {};
   var st = {}; st[KEY] = { ambience: 'brook', ambFade: 300000, chime: true, breath: true };
@@ -1409,6 +1495,21 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
           });
         }))] });
       }, keysOk);
+    }
+
+    if (wanted('light')) {
+      var lr = lightRowOk(await lightRow(env));
+      s.check('LIGHT: the Sand tab has the row "Light" after Grain, two radios Sunlit and Soft, Sunlit checked (and lit) as the app comes from a save without it', lr.row.ok, lr.row.detail);
+      s.check('LIGHT: a tap on Soft saves it and the sand is drawn soft at once; ArrowLeft back to Sunlit saves and lights it; a reload comes up as saved', lr.saved.ok, lr.saved.detail);
+      await control('LIGHT: a copy whose row shows the choice but does not save it', 'saved', function () {
+        return lightRow(env, { routes: [broken(env, 'app.js', swap(/    settings\.sandLight = b\.dataset\.light === 'soft' \? 'soft' : 'sunlit';\n    save\(\); syncLights\(\);/,
+          "    settings.sandLight = b.dataset.light === 'soft' ? 'soft' : 'sunlit';\n    syncLights();"))] });
+      }, lightRowOk);
+      var lt = lightTurnOk(await lightTurn(env));
+      s.check('LIGHT: through a Flip the classic sand is drawn with the glass\'s angle of the same frame: the sunlit key stays in the room, in the frame of the swap too', lt.turn.ok, lt.turn.detail);
+      await control('LIGHT: a copy that draws the sand without the frame\'s angle (the key a frame old: half a turn off in the swap\'s frame)', 'turn', function () {
+        return lightTurn(env, { routes: [broken(env, 'app.js', swap(/      else renderer\.drawSand\(sim\.angle \+ sim\.tilt\);/, '      else renderer.drawSand();'))] });
+      }, lightTurnOk);
     }
 
     if (wanted('radios')) {

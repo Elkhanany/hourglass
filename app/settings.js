@@ -144,7 +144,11 @@
     // 'light' on paper white, 'system' as the device's own light or dark setting, 'hours' light
     // from 7:00 to 19:00 by the device's clock and dark at night. A save from before it is dark.
     { id: 'background', default: 'dark',
-      valid: function (v) { return v === 'light' || v === 'system' || v === 'hours'; } }
+      valid: function (v) { return v === 'light' || v === 'system' || v === 'hours'; } },
+    // How the sand is lit (Tune's Sand tab, "Light"): 'sunlit', one key light from the upper left, as the
+    // app comes from 1.21.0 (a save from before it has none, and is sunlit too); 'soft', the even light of before.
+    { id: 'sandLight', default: 'sunlit',
+      valid: function (v) { return v === 'soft'; } }
   ];
 
   /**

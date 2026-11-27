@@ -65,9 +65,14 @@ the brim.
 The **moon button** in the top bar turns the whole app from its dark look (a
 glass lit in a dark room, as it always was) to a light one on a soft paper
 white, and back. In the light look the button shows a sun. The glass is lit
-for a white room there, so that its outline and the thickness of its wall
-show as glass does on white; the sand keeps its colours, and even the palest
-(Moonstone, a pale colour of your own) stands out of the paper; the warm glow
+for a white room there and is clear, as glass is on white: the paper and the
+sand are seen through it without a milky film, its outline is a fine dark
+line all round, a faint grey near its edges shows the wall's thickness, and
+the room's windows lie on it as soft white highlights; the sand keeps its
+colours. Sand falling through the lower bulb has a darker side, away from the
+light, so that even the palest (Moonstone, a pale colour of your own) can be
+watched as it falls, and a pale sand is drawn a shade deeper where it lies
+against the paper, at the top of each heap and along the glass; the warm glow
 behind the glass, which white cannot show, is a quiet wash of the sand's
 colour, and the breathing pace deepens it as you breathe in.
 
@@ -150,6 +155,21 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   behind a short fade; the running time is kept, a crack is not. Finer sand
   is more work for the phone: if the glass ever stutters on Finest, Fine has
   half as many grains for about a third of the work.
+- **Light** (from 1.21.0) is Sunlit (as the app comes) or Soft. Sunlit lights the sand with
+  one light from the upper left, the side the glass's own highlight is on: the
+  heap has a lit flank, brighter and of a deeper colour, and a shaded one that
+  keeps its colour; the crest that faces the light catches a bright edge; the
+  sand darkens softly where it touches the glass; and here and there a grain
+  that faces the light sparkles, the same grains for as long as the sand lies
+  still. The light stays where it is in the room, so it stays upper left when
+  the glass is leaned or turned over. In the dark look the sand is no brighter
+  on the whole than under Soft and keeps its calm. Soft is the even light of
+  earlier versions; in the light look it also gets the falling sand's darker
+  side and a pale sand's deeper top (above), as Sunlit does.
+  Both sands take the same light: with Real sand on, the heap is lit from
+  the same side and as strongly as the classic sand's.
+  Nothing else changes with it: not the timer, the flow or the sounds. *Put
+  the look and sound back as they came* puts it back to Sunlit.
 - **In the hand: Real motion**: the sand feels what the phone feels. Lean it
   and the piles slump, lay it on its side and the flow (and the clock) stop,
   turn it over and the other bulb becomes the top. No turn starts a glass:
@@ -163,7 +183,7 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.20.2" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.21.0" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;

@@ -118,10 +118,12 @@ then on (`showLook`), with the metas and the moon button (`#btn-look`,
 `--accent-text`, the sand's accent deepened where it is text or a thin line)
 and the few rules that differ, below the dark ones, untouched. The glass is
 told by `renderer.setPaper(on)`: the rendered glass is lit by a white room
-with dark cards behind it and dark flags at its sides (`glass/gl.js`, a second
-program per glass, made when first asked for, the dark one's text unchanged),
-the drawn glass is outlined in a deep ink, the cracks get a dark line under
-their bright one, and the bore is greyed a little so a pale sand shows. The
+with dark cards behind it and dark flags at its sides and laid over the paper
+as clear glass, with no film and no veil over the bore (`glass/gl.js`, a second
+program per glass, made when first asked for, the dark one's text unchanged;
+see docs/engines.md), the drawn glass is outlined in a deep ink and its bore
+greyed a little so a pale sand shows, and the cracks get a dark line under
+their bright one. The
 sand and Real sand keep their colours (Real sand draws premultiplied over
 whatever lies behind it: nothing of `realsand/` changes). Nothing is built
 again: a running glass runs on.
@@ -322,10 +324,13 @@ sounding the same: `sandLevel` (0 to 1, Tune's Sand over 100, default 1),
 'three' or 'tap'), `ambFade` (0 for off, or 60000, 300000 or 600000 ms) and
 `silentRing` (true). A level out of its range, or a choice that is none of
 its record's, is the default. Then come the Time tab's two: `quick`
-("1,5,10,15,30,60") and `endsAt` (false). The last, the 44th (1.19.0), is
+("1,5,10,15,30,60") and `endsAt` (false). The 44th (1.19.0) is
 `background`: 'dark' (the default, the app as it has always looked), 'light',
 'system' or 'hours'; any other value is 'dark', and a save from before it comes
-up dark. The reset link of Tune puts it back to 'dark' with the look.
+up dark. The reset link of Tune puts it back to 'dark' with the look. The
+last, the 45th (1.21.0), is `sandLight`: 'sunlit' (the default: the sand lit
+by one key light) or 'soft' (the even light of before); any other value, and
+a save from before it, is 'sunlit', and the reset link puts it back to that.
 
 `HourglassSettings.load(storage, search, reg)` gives the values: the
 defaults; over them the saved values of the right type; the version step

@@ -645,5 +645,357 @@ test('Spill: kicks, Reduce Motion and relayout', function () {
     'a new material repaints it';
 });
 
+/* ---- the sunlit sand (Tune's Light) ---------------------------------------------------- */
+// Soft is the sand as it was drawn at SOFT_BASE, byte for byte (HOURGLASS_SOFT_BASE names another commit).
+var SOFT_BASE = process.env.HOURGLASS_SOFT_BASE || '19c84db';   // (release 1.20.0, on main: Soft's sand is drawn as there)
+var paths = require('./lib/paths.js');
+function realRenderer(PP, sim) {
+  return new PP.Renderer(sim, { back: fakeCanvas(), sand: fakeCanvas(), bloom: fakeCanvas(), front: fakeCanvas(), light: fakeCanvas() });
+}
+function fnv(b) { var h = 0x811c9dc5, u = new Uint8Array(b.buffer, b.byteOffset, b.byteLength); for (var i = 0; i < u.length; i++) { h ^= u[i]; h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); }
+/** A running glass, as the app has it half way (the same in any copy of the pieces). */
+function runningGlass(PP, seed, up) {
+  var sim = new PP.Sim({ scale: 1.08, seed: seed }), t, i;
+  sim.reset(Math.round(sim.capacity * 0.8)); sim.gateOpen = true; t = sim.nTop;
+  for (i = 0; i < 700; i++) { sim.beginFrame(); t -= 3; sim.targetTop = Math.max(0, Math.ceil(t)); sim.step(); }
+  if (up) { sim.flipping = true; sim.angle = Math.PI; for (i = 0; i < 40; i++) { sim.beginFrame(); sim.step(); } }
+  return sim;
+}
+/** A still, symmetric heap in the lower bulb, nothing above it and nothing in the air. */
+function heapGlass() {
+  var sim = new Sim({ scale: 1.08, seed: 99 }), W = sim.W, H = sim.H, g = sim.geo, x, y, i;
+  for (i = 0; i < W * H; i++) if (sim.cell[i] !== P.WALL) sim.cell[i] = P.EMPTY;
+  var bottom = 0;
+  for (y = 0; y < H; y++) if (sim.rowMin[y] <= sim.rowMax[y]) bottom = y;
+  var apex = Math.round(bottom - (bottom - sim.gateY) * 0.45);
+  for (y = sim.gateY + 1; y < H; y++) for (x = sim.rowMin[y]; x <= sim.rowMax[y]; x++) {
+    i = y * W + x;
+    if (sim.cell[i] === P.WALL) continue;
+    if (y >= apex + Math.abs(x + 0.5 - g.cx) * 0.62) { sim.cell[i] = P.REST; sim.seed[i] = (Math.imul(i, 0x9E3779B1) >>> 24) & 255; }
+  }
+  sim.np = 0;
+  return sim;
+}
+function lin(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+/** Mean relative luminance of the drawn sand left and right of the axis (4 cells clear of it), in the lower half. */
+function flanks(r) {
+  var BW = r.BW, BH = r.BH, cx = r.sim.geo.cx * 2, s = [0, 0, 0, 0], x, y, v, side;
+  for (y = BH >> 1; y < BH; y++) for (x = 0; x < BW; x++) {
+    v = r.buf[y * BW + x] >>> 0;
+    if ((v >>> 24) !== 255) continue;
+    side = x < cx - 8 ? 0 : (x > cx + 8 ? 2 : -1);
+    if (side < 0) continue;
+    s[side] += 0.2126 * lin(v & 255) + 0.7152 * lin((v >>> 8) & 255) + 0.0722 * lin((v >>> 16) & 255); s[side + 1]++;
+  }
+  return { left: s[0] / s[1], right: s[2] / s[3] };
+}
+/** Pixels of the sand's buffer drawn outside the glass's edge (each half cell against the edge mask). */
+function outside(r) {
+  var BW = r.BW, BH = r.BH, W = r.sim.W, n = 0, x, y;
+  for (y = 0; y < BH; y++) for (x = 0; x < BW; x++) {
+    if (!r.buf[y * BW + x]) continue;
+    if (!((r.edgeMask[(y >> 1) * W + (x >> 1)] >> (((y & 1) << 1) | (x & 1))) & 1)) n++;
+  }
+  return n;
+}
+
+test('the sunlit sand: on a symmetric heap the left flank (toward the key) is the brighter by a set margin, in both looks, and stays on the screen\'s left with the glass turned over', function () {
+  var MARGIN = { light: 2.2, dark: 2.2 }, out = [], soft = [];
+  [false, true].forEach(function (paper) {
+    var r = realRenderer(P, heapGlass()), name = paper ? 'light' : 'dark';
+    r.setPaper(paper); r.setSandLight('sunlit');
+    r.drawSand(); r.drawSand();                       // (the surface's light is the frame before's)
+    var f = flanks(r), q = f.left / f.right;
+    ok(q >= MARGIN[name], name + ' look: the left flank is ' + q.toFixed(2) + ' times the right, under ' + MARGIN[name]);
+    // the glass turned over (the canvas turns with it): the key stays in the room, so the lit flank is the lattice's right
+    r.drawGlass(Math.PI); r.drawSand(); r.drawSand();
+    var f2 = flanks(r), q2 = f2.right / f2.left;
+    ok(q2 >= MARGIN[name], name + ' look, turned over: the screen\'s left flank is ' + q2.toFixed(2) + ' times the other');
+    out.push(name + ' ' + q.toFixed(2) + ' : 1 (turned over ' + q2.toFixed(2) + ')');
+    // control: the same heap under Soft has no lit side, and fails the margin
+    r.drawGlass(0); r.setSandLight('soft'); r.drawSand();
+    var f3 = flanks(r), q3 = f3.left / f3.right;
+    ok(q3 < MARGIN[name] && q3 > 0.9 && q3 < 1.1, 'control: Soft gave ' + q3.toFixed(2));
+    soft.push(q3.toFixed(2));
+  });
+  // control: a key that ignores the glass's angle leaves the lit flank on the lattice's left when turned over
+  var rc = realRenderer(P, heapGlass());
+  rc.setSandLight('sunlit'); rc.drawSand(); rc.drawSand();
+  rc.drawGlass(Math.PI); rc.lightRot = 0; rc.drawSand(); rc.drawSand();
+  var fc = flanks(rc);
+  ok(fc.right / fc.left < 1, 'control: a key that does not turn back still lit the screen\'s left (' + (fc.right / fc.left).toFixed(2) + ')');
+  return out.join('; ') + ' (margins ' + MARGIN.light + ' and ' + MARGIN.dark + ', relative luminance); controls: Soft ' + soft.join(' and ') +
+    ', a key that does not turn back ' + (fc.right / fc.left).toFixed(2) + ' turned over';
+});
+
+test('the sunlit sand in the frame of a swap: drawn with the glass\'s angle of that frame, its lit flank stays on the screen\'s left', function () {
+  // the app's own order in a frame: the sand is drawn before the glass is (drawGlass), and a swap turns the
+  // lattice end for end and the angle back by half a turn between the two
+  function swapFrame(told) {
+    var r = realRenderer(P, heapGlass()), sim = r.sim, out = {};
+    r.setPaper(true); r.setSandLight('sunlit');
+    // just short of half a turn: the heap lies in the lattice's lower half, the screen's left is the lattice's right
+    sim.angle = Math.PI - 0.02;
+    r.drawSand(told ? sim.angle + sim.tilt : undefined); r.drawGlass(sim.angle + sim.tilt);
+    r.drawSand(told ? sim.angle + sim.tilt : undefined); r.drawGlass(sim.angle + sim.tilt);
+    var f = flanks(r);
+    out.before = f.right / f.left;
+    sim.completeFlip(); sim.angle = 0;                // the swap (app.js swapEnds, then the turn's end)
+    r.drawSand(told ? sim.angle + sim.tilt : undefined);
+    out.swap = sides(r);
+    r.drawGlass(sim.angle + sim.tilt);
+    r.drawSand(told ? sim.angle + sim.tilt : undefined);
+    out.after = sides(r);
+    return out;
+  }
+  /** The drawn sand's left over its right, over the whole picture (after the swap the heap lies in the lattice's upper half). */
+  function sides(r) {
+    var BW = r.BW, BH = r.BH, cx = r.sim.geo.cx * 2, s = [0, 0, 0, 0], x, y, v, side;
+    for (y = 0; y < BH; y++) for (x = 0; x < BW; x++) {
+      v = r.buf[y * BW + x] >>> 0;
+      if ((v >>> 24) !== 255) continue;
+      side = x < cx - 8 ? 0 : (x > cx + 8 ? 2 : -1);
+      if (side < 0) continue;
+      s[side] += 0.2126 * lin(v & 255) + 0.7152 * lin((v >>> 8) & 255) + 0.0722 * lin((v >>> 16) & 255); s[side + 1]++;
+    }
+    return (s[0] / s[1]) / (s[2] / s[3]);
+  }
+  var a = swapFrame(true), c = swapFrame(false);
+  ok(a.before >= 1.8 && a.swap >= 1.8 && a.after >= 1.8, 'told the angle: the screen\'s left over its right is ' + a.before.toFixed(2) + ' before, ' + a.swap.toFixed(2) + ' in the swap\'s frame, ' + a.after.toFixed(2) + ' after');
+  // control: drawn as drawGlass was last told (the frame before's angle), the swap's frame is lit from the other side
+  ok(c.before >= 1.8 && c.swap < 1 && c.after >= 1.8, 'control: not told, the swap\'s frame gave ' + c.swap.toFixed(2) + ' (before ' + c.before.toFixed(2) + ', after ' + c.after.toFixed(2) + ')');
+  return 'the screen\'s left flank over its right (light look): ' + a.before.toFixed(2) + ' before the swap, ' + a.swap.toFixed(2) + ' in its frame, ' + a.after.toFixed(2) + ' after; control: lit by the angle the glass was last drawn at, the swap\'s frame is ' +
+    c.swap.toFixed(2) + ' (the shaded side lit for a frame)';
+});
+
+test('Soft is the sand as ' + SOFT_BASE + ' drew it: byte for byte in the dark look; in the light look byte for byte for the beds of a sand that is not pale (only the grains in the air are drawn otherwise), a pale sand\'s beds deeper at their tops', function () {
+  var parts = paths.physicsParts(), src = parts.map(function (f) { return L.gitShow(SOFT_BASE, f); }).join('\n'), B = L.loadIsolated(src, SOFT_BASE);
+  var cases = [[1234567, false, 0], [777, true, Math.PI], [4242, false, 0.5]], n = 0, sun = 0, beds = 0, air = 0;
+  cases.forEach(function (c) {
+    var rb = realRenderer(B, runningGlass(B, c[0], c[1])), rs = realRenderer(P, runningGlass(P, c[0], c[1]));
+    ok(fnv(rb.sim.cell) === fnv(rs.sim.cell), 'the two copies simulated different sand');
+    [false, true].forEach(function (paper) {
+      rb.setPaper(paper); rs.setPaper(paper); rs.setSandLight('soft');
+      [rb, rs].forEach(function (r) { r.drawGlass(c[2]); for (var k = 0; k < 4; k++) r.drawSand(); });
+      if (!paper) {
+        ok(fnv(rb.buf) === fnv(rs.buf), 'seed ' + c[0] + ', dark look: Soft drew ' + fnv(rs.buf) + ', ' + SOFT_BASE + ' ' + fnv(rb.buf));
+        ok(fnv(rb.bloomA) === fnv(rs.bloomA), 'seed ' + c[0] + ': the bloom differs');
+        n++;
+      } else {
+        // the light look: the grains in the air are drawn with a dark side (and differ); the beds alone are the same
+        if (fnv(rb.buf) !== fnv(rs.buf)) air++;
+        var npb = rb.sim.np, nps = rs.sim.np;
+        rb.sim.np = 0; rs.sim.np = 0; rb.drawSand(); rs.drawSand();
+        ok(fnv(rb.buf) === fnv(rs.buf) && fnv(rb.bloomA) === fnv(rs.bloomA), 'seed ' + c[0] + ', light look, the beds alone: Soft drew ' + fnv(rs.buf) + ', ' + SOFT_BASE + ' ' + fnv(rb.buf));
+        rb.sim.np = npb; rs.sim.np = nps; beds++;
+      }
+      // control: the same frame under Sunlit is another picture
+      rs.setSandLight('sunlit'); rb.drawSand(); rs.drawSand();
+      if (fnv(rb.buf) !== fnv(rs.buf)) sun++;
+      rs.setSandLight('soft'); rb.drawSand(); rs.drawSand();
+    });
+  });
+  ok(sun === n + beds, 'control: Sunlit drew ' + SOFT_BASE + '\'s picture in ' + (n + beds - sun) + ' of ' + (n + beds));
+  ok(air === beds, 'the light look\'s grains in the air were drawn as before in ' + (beds - air) + ' of ' + beds);
+  // a pale sand: its beds are drawn deeper at their tops in the light look (and not in the dark)
+  var mb = realRenderer(B, runningGlass(B, 99, false)), ms = realRenderer(P, runningGlass(P, 99, false)), pale = [];
+  [false, true].forEach(function (paper) {
+    [mb, ms].forEach(function (r) { r.setLook({ sand: 'moonstone' }); r.setPaper(paper); r.sim.np = 0; r.drawGlass(0); r.drawSand(); r.drawSand(); });
+    pale.push(fnv(mb.buf) === fnv(ms.buf));
+  });
+  ok(pale[0] && !pale[1], 'Moonstone\'s beds: the same as ' + SOFT_BASE + ' in the dark look ' + pale[0] + ', in the light ' + pale[1] + ' (deeper: false)');
+  return n + ' frames in the dark look identical with the bloom; ' + beds + ' in the light look with their beds identical and the grains in the air drawn anew in ' + air +
+    '; Moonstone\'s beds deeper in the light look only; control: Sunlit differs in all ' + sun;
+});
+
+test('the sunlit sand\'s tables: the cells once per shape, the look\'s on a change of look or sand (and each frame of a fade), the light\'s on a turn of 0.01 rad; none on a still frame', function () {
+  var r = realRenderer(P, runningGlass(P, 31337, false)), b, k;
+  r.setSandLight('sunlit');
+  for (k = 0; k < 30; k++) r.drawSand();
+  b = r._sun.builds;
+  ok(b.cells === 1 && b.look === 1 && b.light === 1, '30 still frames built ' + JSON.stringify(b));
+  r.setPaper(true); r.drawSand(); r.drawSand();
+  ok(b.cells === 1 && b.look === 2 && b.light === 2, 'a change of look built ' + JSON.stringify(b));
+  r._paperMix(0.5); r.drawSand(); r._paperMix(0.25); r.drawSand(); r._paperMix(0); r.drawSand();
+  ok(b.look === 5 && r._sun.k.A === P.SUNLIT.dark.A + r._sun.k.sun.lift, 'three frames of a fade built the look ' + (b.look - 2) + ' times, and it ends exactly in the dark look (A ' + r._sun.k.A + ')');
+  r.drawGlass(0.005); r.drawSand();
+  ok(b.light === 5, 'a turn of 0.005 rad built the light\'s tables');
+  r.drawGlass(0.02); r.drawSand();
+  ok(b.light === 6 && b.look === 5 && b.cells === 1, 'a turn of 0.02 rad built ' + JSON.stringify(b));
+  r.setLook({ sand: 'moonstone' }); r.drawSand(); r.drawSand();
+  ok(b.look === 6 && b.cells === 1, 'another sand built ' + JSON.stringify(b));
+  // control: a renderer that made its look anew every frame is found out by the same count
+  var rc = realRenderer(P, runningGlass(P, 31337, false));
+  rc.setSandLight('sunlit');
+  for (k = 0; k < 30; k++) { rc._sunRev++; rc.drawSand(); }
+  ok(rc._sun.builds.look === 30, 'control: ' + JSON.stringify(rc._sun.builds));
+  // made before the first frame (prepareSun, as the app boots): that frame builds only the light's tables,
+  // and draws what it would have drawn; control: without it, the first frame builds the cells and the look
+  var rp = realRenderer(P, runningGlass(P, 4242, false)), rq = realRenderer(P, runningGlass(P, 4242, false));
+  rp.setSandLight('sunlit'); rq.setSandLight('sunlit');
+  rp.prepareSun();
+  var pre = JSON.stringify(rp._sun.builds);
+  rp.drawSand(); rq.drawSand();
+  ok(pre === JSON.stringify({ cells: 1, look: 1, light: 0 }) && rp._sun.builds.cells === 1 && rp._sun.builds.look === 1, 'prepareSun built ' + pre + ', then the first frame ' + JSON.stringify(rp._sun.builds));
+  ok(fnv(rp.buf) === fnv(rq.buf), 'the first frame after prepareSun differs from one without it');
+  ok(rq._sun.builds.cells === 1 && rq._sun.builds.look === 1 && pre !== '{"cells":0,"look":0,"light":0}', 'control: the first frame without prepareSun built ' + JSON.stringify(rq._sun.builds));
+  var rs0 = realRenderer(P, runningGlass(P, 4242, false)); rs0.prepareSun();
+  ok(rs0._sun === null, 'under the soft light prepareSun made tables');
+  return 'still: ' + JSON.stringify({ cells: 1, look: 1, light: 1 }) + ' over 30 frames; control: rebuilt each frame, 30 counted; made before the first frame by prepareSun, the same picture';
+});
+
+test('the sunlit sand draws no grain outside the glass\'s edge, in both looks, upright, turned over and leaned, on every shape', function () {
+  var n = 0, px = 0;
+  Object.keys(P.SHAPES).forEach(function (id) {
+    [[false, 0], [true, Math.PI], [false, 0.52]].forEach(function (c) {
+      var sim = new Sim({ scale: 1.08, seed: 5 + n, shape: id === 'classic' ? undefined : id }), t, i;
+      sim.reset(Math.round(sim.capacity * 0.8)); sim.gateOpen = true; t = sim.nTop;
+      for (i = 0; i < 260; i++) { sim.beginFrame(); t -= 3; sim.targetTop = Math.max(0, Math.ceil(t)); sim.step(); }
+      if (c[0]) { sim.flipping = true; sim.angle = Math.PI; for (i = 0; i < 30; i++) { sim.beginFrame(); sim.step(); } }
+      var r = realRenderer(P, sim);
+      r.setSandLight('sunlit');
+      [false, true].forEach(function (paper) {
+        r.setPaper(paper); r.drawGlass(c[1]); r.drawSand(); r.drawSand();
+        var o = outside(r);
+        ok(o === 0, id + (paper ? ', light look' : ', dark look') + ', turned ' + c[1] + ': ' + o + ' pixels outside the glass');
+        for (i = 0; i < r.buf.length; i++) if (r.buf[i]) px++;
+        n++;
+      });
+    });
+  });
+  // control: with the edge mask taken out of the drawing, grains against the wall poke out
+  var rc = realRenderer(P, runningGlass(P, 1234567, false)), keep = rc.edgeMask;
+  rc.setSandLight('sunlit');
+  rc.edgeMask = new Uint8Array(keep.length).fill(15); rc.drawSand(); rc.edgeMask = keep;
+  var oc = outside(rc);
+  ok(oc > 0, 'control: an unclipped drawing was not found out');
+  return n + ' frames, ' + px + ' pixels of sand, none outside; control: unclipped, ' + oc + ' outside';
+});
+
+/* the light look's falling grains, the sunlit sand's colour, its smoothed surface, its bloom, a custom sand's record */
+var FIRST_BUILT = process.env.HOURGLASS_SUN_FIRST || 'd7a050c';   // the sunlit sand as first built: the controls below
+function piecesAt(rev) { return L.loadIsolated(paths.physicsParts().map(function (f) { return L.gitShow(rev, f); }).join('\n'), rev); }
+function Yof(v) { return 0.2126 * lin(v & 255) + 0.7152 * lin((v >>> 8) & 255) + 0.0722 * lin((v >>> 16) & 255); }
+/**
+ * The audit's measure on a running glass: the most visible pixel of a grain in the air against the page behind
+ * it (#f3f0ea seen through the clear glass, 247 242 234), down the middle of the lower bulb; the least of 3 frames.
+ */
+function fallContrast(PP, sand, light) {
+  var sim = runningGlass(PP, 4242, false), r = realRenderer(PP, sim), bg = [247, 242, 234], bgY = Yof(bg[0] | (bg[1] << 8) | (bg[2] << 16)), worst = 99;
+  r.setLook({ sand: sand }); r.setPaper(true); if (r.setSandLight) r.setSandLight(light);
+  for (var f = 0; f < 3; f++) {
+    sim.beginFrame(); sim.targetTop = Math.max(0, sim.nTop - 3); sim.step();
+    r.drawSand(0); var buf = r.buf.slice(), np = sim.np; sim.np = 0; r.frameNo--; r.drawSand(0); sim.np = np;
+    var BW = r.BW, cx = sim.geo.cx * 2, gy = sim.gateY * 2, best = 1, x, y, i;
+    for (y = gy + 8; y < r.BH; y++) for (x = Math.round(cx - 10); x <= cx + 10; x++) {
+      i = y * BW + x; var v = buf[i] >>> 0;
+      if (v === (r.buf[i] >>> 0) || (r.buf[i] >>> 24) !== 0) continue;   // (a grain in the air, over the empty bulb)
+      var al = (v >>> 24) / 255, c = [0, 8, 16].map(function (sh, k) { return ((v >>> sh) & 255) * al + bg[k] * (1 - al); });
+      var yy = Yof((c[0] | 0) | ((c[1] | 0) << 8) | ((c[2] | 0) << 16)), q = yy > bgY ? (yy + 0.05) / (bgY + 0.05) : (bgY + 0.05) / (yy + 0.05);
+      if (q > best) best = q;
+    }
+    if (best < worst) worst = best;
+  }
+  return worst;
+}
+test('the light look\'s falling grains stand out of the page: the most visible pixel of a grain in the air at least 2.5 : 1 for the pale sands, Sahara not below 19c84db, in both lights', function () {
+  var B = piecesAt(SOFT_BASE), pale = ['moonstone', 'seaglass', { h: 45, s: 0.2, l: 0.97 }], out = [], ctl = [];
+  ['soft', 'sunlit'].forEach(function (light) {
+    pale.forEach(function (sd) {
+      var q = fallContrast(P, sd, light), nm = typeof sd === 'object' ? 'pale 45/0.2/0.97' : sd;
+      ok(q >= 2.5, light + ', ' + nm + ': ' + q.toFixed(2) + ' : 1');
+      out.push(light + ' ' + nm + ' ' + q.toFixed(2));
+    });
+    var qs = fallContrast(P, 'sahara', light), qb = fallContrast(B, 'sahara', 'soft');
+    ok(qs >= qb, light + ', Sahara: ' + qs.toFixed(2) + ' against ' + qb.toFixed(2) + ' at ' + SOFT_BASE);
+    out.push(light + ' sahara ' + qs.toFixed(2) + ' (' + SOFT_BASE + ' ' + qb.toFixed(2) + ')');
+  });
+  // control: the tree as it was (19c84db, and the sunlit sand as first built) fails the pale sands
+  pale.forEach(function (sd) { ctl.push(fallContrast(B, sd, 'soft')); });
+  ok(ctl.every(function (q) { return q < 2.5; }), 'control: the grains of before passed: ' + ctl.map(function (q) { return q.toFixed(2); }).join(', '));
+  var F = piecesAt(FIRST_BUILT), fb = pale.map(function (sd) { return fallContrast(F, sd, 'sunlit').toFixed(2); });
+  return out.join('; ') + '; control: ' + SOFT_BASE + ' ' + ctl.map(function (q) { return q.toFixed(2); }).join(', ') + ' (as first built, ' + FIRST_BUILT + ', Sunlit: ' + fb.join(', ') + ')';
+});
+
+function oklabC(v) {
+  var r = lin(v[0]), g = lin(v[1]), b = lin(v[2]);
+  var l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s2 = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return { L: 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s2, C: Math.hypot(1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s2, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s2) };
+}
+/** The mean colour of the lit (left) flank's surface band on the symmetric heap, 8 cells deep. */
+function litFlank(r) {
+  var sim = r.sim, W = sim.W, H = sim.H, BW = r.BW, acc = [0, 0, 0, 0], x, y, q;
+  for (x = 0; x < W; x++) {
+    if (x + 0.5 > sim.geo.cx - 4) continue;
+    var top = -1; for (y = sim.gateY + 1; y < H; y++) if (sim.cell[y * W + x] >= P.REST) { top = y; break; }
+    if (top < 0) continue;
+    for (y = top; y < top + 8; y++) for (q = 0; q < 4; q++) { var v = r.buf[(y * 2 + (q >> 1)) * BW + x * 2 + (q & 1)] >>> 0; if ((v >>> 24) !== 255) continue; acc[0] += v & 255; acc[1] += (v >>> 8) & 255; acc[2] += (v >>> 16) & 255; acc[3]++; }
+  }
+  return [acc[0] / acc[3], acc[1] / acc[3], acc[2] / acc[3]];
+}
+test('the sunlit sand\'s lit side is lit in colour: in the light look Sahara\'s lit flank has at least 1.2 times Soft\'s colour (OKLab C) and is lighter', function () {
+  function lit(PP, light) { var r = realRenderer(PP, heapGlass()); r.setPaper(true); r.setSandLight(light); r.drawSand(); r.drawSand(); return oklabC(litFlank(r)); }
+  var soft = lit(P, 'soft'), sun = lit(P, 'sunlit'), first = lit(piecesAt(FIRST_BUILT), 'sunlit');
+  ok(sun.C >= 1.2 * soft.C && sun.L > soft.L, 'lit flank C ' + sun.C.toFixed(3) + ' L ' + sun.L.toFixed(3) + ', Soft C ' + soft.C.toFixed(3) + ' L ' + soft.L.toFixed(3));
+  ok(first.C < 1.2 * soft.C, 'control: as first built (' + FIRST_BUILT + ', lit by a roll toward white) the lit flank\'s C ' + first.C.toFixed(3) + ' passed');
+  return 'C ' + sun.C.toFixed(3) + ' (Soft ' + soft.C.toFixed(3) + ', x ' + (sun.C / soft.C).toFixed(2) + '), L ' + sun.L.toFixed(3) + ' (' + soft.L.toFixed(3) + '); control: as first built C x ' + (first.C / soft.C).toFixed(2);
+});
+
+test('the sunlit sand\'s surface is smoothed: under the shaded flank the level does not stripe from column to column', function () {
+  /** Across the right flank's columns: the mean relative luminance 4 to 10 cells under the surface; the spread of its column-to-column steps. */
+  function stripes(PP) {
+    var sim = heapGlass(), r = realRenderer(PP, sim), W = sim.W, H = sim.H, BW = r.BW, x, y, q, m = [];
+    // a staircase surface (the lattice's own): every other column one cell lower
+    for (x = 0; x < W; x += 2) { for (y = sim.gateY + 1; y < H; y++) if (sim.cell[y * W + x] === P.REST) { sim.cell[y * W + x] = P.EMPTY; break; } }
+    sim.seed.fill(40);                                   // (one kind of grain: only the light differs from column to column)
+    r.setPaper(true); r.setSandLight('sunlit'); r.drawSand(); r.drawSand();
+    for (x = Math.ceil(sim.geo.cx + 8); x < W; x++) {
+      var top = -1; for (y = sim.gateY + 1; y < H; y++) if (sim.cell[y * W + x] >= P.REST) { top = y; break; }
+      if (top < 0 || top + 10 >= H) continue;
+      var sum = 0, n = 0;
+      for (y = top + 4; y <= top + 10; y++) for (q = 0; q < 4; q++) { var v = r.buf[(y * 2 + (q >> 1)) * BW + x * 2 + (q & 1)] >>> 0; if ((v >>> 24) !== 255) continue; sum += Yof(v); n++; }
+      if (n > 12) m.push(sum / n);
+    }
+    var d = 0; for (x = 1; x < m.length; x++) d += Math.abs(m[x] - m[x - 1]);
+    var mean = m.reduce(function (a, b) { return a + b; }, 0) / m.length;
+    return d / (m.length - 1) / mean;
+  }
+  var now = stripes(P), first = stripes(piecesAt(FIRST_BUILT)), BOUND = 0.04;
+  ok(now < BOUND, 'the step from column to column is ' + (100 * now).toFixed(1) + ' % of the level');
+  ok(first >= BOUND, 'control: as first built (' + FIRST_BUILT + ', the slope of the raw stairs) ' + (100 * first).toFixed(1) + ' %');
+  return 'mean step ' + (100 * now).toFixed(1) + ' % of the level (bound ' + 100 * BOUND + ' %); control: as first built ' + (100 * first).toFixed(1) + ' %';
+});
+
+test('the sunlit sand\'s resting glints do not cloud the bloom: in the dark look a resting bed\'s brightest bloom is within 10 % of Soft\'s', function () {
+  function bloom(PP, light, sand) {
+    var r = realRenderer(PP, heapGlass()); r.setLook({ sand: sand }); r.setSandLight(light);
+    var t = 0; for (var f = 0; f < 6; f++) { r.drawSand(); if (r.frameNo % 3 === 0) for (var i = 0; i < r.bloomA.length; i++) if (r.bloomA[i] > t) t = r.bloomA[i]; }
+    return t;
+  }
+  var out = [], ctl = [], F = piecesAt(FIRST_BUILT);
+  ['volcanic', 'garnet'].forEach(function (sd) {
+    var s0 = bloom(P, 'soft', sd), s1 = bloom(P, 'sunlit', sd), sF = bloom(F, 'sunlit', sd);
+    ok(Math.abs(s1 / s0 - 1) <= 0.10, sd + ': Sunlit\'s bloom ' + (s1 / s0).toFixed(3) + ' of Soft\'s');
+    out.push(sd + ' ' + (s1 / s0).toFixed(3)); ctl.push(sd + ' ' + (sF / s0).toFixed(3));
+    ok(Math.abs(sF / s0 - 1) > 0.10, 'control: as first built ' + sd + ' ' + (sF / s0).toFixed(3));
+  });
+  return 'Sunlit over Soft: ' + out.join(', ') + '; control: as first built (every glint 0.7) ' + ctl.join(', ');
+});
+
+test('a custom colour\'s sand is lit by its own sun record (customSand), not Sahara\'s', function () {
+  var r = realRenderer(P, heapGlass()), cols = [[236, 0.1, 0.22], [45, 0.2, 0.97]], out = [];
+  cols.forEach(function (c) {
+    r.setLook({ sand: { h: c[0], s: c[1], l: c[2] } });
+    var want = P.customSand(c[0], c[1], c[2]).sun, got = r._sunConsts(1).sun;
+    ok(JSON.stringify(got) === JSON.stringify(want), c.join('/') + ': ' + JSON.stringify(got) + ', not ' + JSON.stringify(want));
+    out.push(c.join('/') + ' paper ' + got.paper);
+  });
+  // control: a theme put together without the record falls back to Sahara's
+  var th = r.theme; r.theme = Object.assign({}, th); delete r.theme.sun;
+  var fb = r._sunConsts(1).sun; r.theme = th;
+  ok(fb === P.SANDS.sahara.sun, 'control: without the record the light was not Sahara\'s');
+  return out.join('; ') + '; control: without it, Sahara\'s';
+});
+
 console.log(failures ? 'render-unit: ' + failures + ' of ' + count + ' cases FAILED' : 'render-unit: all ' + count + ' cases passed');
 process.exit(failures ? 1 : 0);

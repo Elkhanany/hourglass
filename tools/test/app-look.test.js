@@ -422,6 +422,35 @@ function accentsOk(m) {
                    '; the closest ' + pair + ' ' + min.toFixed(1) + ' ' + m.errors.slice(0, 2).join(' | ') };
 }
 
+/* ---- FADESAND: the first frame of a look's fade draws the sand at the start look ------------- */
+async function fadeSand(env, o) {
+  var t = await env.open(Object.assign({ init: pageInit, rawStorage: {} }, o || {}));
+  try {
+    await sleep(900);
+    var m = await t.eval(function () {
+      return new Promise(function (res) {
+        var R = window.Hourglass.renderer, seen = [], ds = R.drawSand, was = document.documentElement.getAttribute('data-look');
+        R.setSandLight('sunlit');
+        R.drawSand = function () { seen.push(R.mix); return ds.apply(R, arguments); };
+        document.querySelector('#looks [data-look="light"]').click();
+        var t0 = Date.now();
+        (function wait() {
+          // (to the fade's end, which a loaded machine may take a while to draw)
+          if ((seen.length >= 3 && seen[seen.length - 1] === 1) || Date.now() - t0 > 5000) { R.drawSand = ds; res({ was: was, seen: seen, paper: R.paper }); }
+          else setTimeout(wait, 50);
+        })();
+      });
+    });
+    m.errors = t.errors.slice();
+    return m;
+  } finally { await t.close(); }
+}
+function fadeSandOk(m) {
+  var s = m.seen;
+  return { ok: m.was !== 'light' && s.length >= 3 && s[0] < 0.5 && s[s.length - 1] === 1 && m.paper === true && m.errors.length === 0,
+    detail: 'the look shares the sand was drawn at: ' + s.slice(0, 4).map(function (v) { return +v.toFixed(3); }).join(', ') + (s.length > 4 ? ' ... ' + s[s.length - 1] : '') + ' (' + s.length + ' frames) ' + m.errors.slice(0, 2).join(' | ') };
+}
+
 /* ---- the run --------------------------------------------------------------------------------- */
 (async function () {
   var env = await H.start(), s = new H.Suite('app-look'), only = env.args.only;
@@ -505,6 +534,13 @@ function accentsOk(m) {
       await control('ACCENT: a style sheet with 1.20.0\'s gold for the black sand', null, function () {
         return accents(env, { routes: [broken(env, 'styles.css', swap('  --accent: #9ba2ad;', '  --accent: #d9b061;'))] }, 'dark');
       }, accentsOk);
+    }
+    if (wanted('fadesand')) {
+      var fs = fadeSandOk(await fadeSand(env));
+      s.check('FADESAND: from the dark look to the light, the first frame of the fade draws the sand at the dark look (as the page and the glass are), and the last at the light', fs.ok, fs.detail);
+      await control('FADESAND: a copy that leaves the renderer at the end look until the fade\'s first step', null, function () {
+        return fadeSand(env, app(swap('      if (fade) { renderer._paperMix(from); lookFadeTo(from); }', '      if (fade) { lookFadeTo(from); }')));
+      }, fadeSandOk);
     }
     if (wanted('narrow')) {
       var n = narrowOk(await narrow(env));

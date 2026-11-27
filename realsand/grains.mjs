@@ -9,6 +9,13 @@
  * neck warp (setWarp), the room's light turned back by the glass's angle on
  * screen, and the Reset's sweep with its thread (design 6.2, 6.5); left out, as
  * the lab leaves them, the grains are drawn as the lab has always drawn them.
+ * The app's sunlit sand (encode's look.lit) lights each grain by one key light,
+ * as the classic sand is lit (glass/renderer.js, the sunlit sand): its colours
+ * are the classic sand's own table (setTones), the body of sand takes the
+ * bore's normal (setWarp's half-widths), and the free surface its light from
+ * the beds' relief, which two small compute passes (shaders/relief.wgsl) make
+ * each frame of the solver's points, read only (per column the top of each bed,
+ * then its slope, its soft shadow and its light).
  *
  * Part of the Hourglass project. License: GPL-3.0. The quad-per-particle idea
  * follows Smoosh's density.wgsl (MIT, see LICENSES.md).
@@ -33,8 +40,26 @@ export function flightOf(crowd, all = false) {
  */
 export function exposure(frames, frameMs, hz) { return frames * frameMs / 1000 * hz; }
 
-/* The view's uniform (grains.wgsl View): 7 vec4s. */
-const VIEW_FLOATS = 28;
+/* The view's uniform (grains.wgsl View): 14 vec4s, the last 7 the sunlit sand's (all 0: the grains as they always were). */
+const VIEW_FLOATS = 56;
+/* The sunlit sand's colour table: light levels x 256 seeds (glass/renderer.js LEVELS), and what a level is in light. */
+export const TONE_LEVELS = 48;
+const LEVEL_STEP = 0.031;
+
+/**
+ * The sunlit sand's colour table for setTones, from the classic sand's own (glass/renderer.js sunTables().lut: 48
+ * levels x 256 seeds, bytes r, g, b, 255): the same colours, each seed's kind in the alpha byte (255 a plain
+ * grain, 254 a glossy one, hiBoost over 3, 253 mica), which says how near the key's mirror direction its facet must face
+ * to glint.
+ */
+export function tonesFromLUT(lut, isMica, hiBoost, into = null) {
+  const out = into && into.length === TONE_LEVELS * 256 ? into : new Uint32Array(TONE_LEVELS * 256);
+  for (let i = 0; i < out.length; i++) {
+    const s = i & 255, kind = isMica && isMica[s] ? 253 : (hiBoost && hiBoost[s] > 3 ? 254 : 255);
+    out[i] = ((lut[i] & 0x00ffffff) | (kind << 24)) >>> 0;
+  }
+  return out;
+}
 
 export class GrainRenderer {
   /**
@@ -57,40 +82,86 @@ export class GrainRenderer {
     // the neck warp per grid row (setWarp); none until it is given
     this.warpRows = 0; this.warpCx = 0; this.warpCy = 0;
     this.warpBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    // the sunlit sand: its colour table (setTones); the beds' tops per column, found afresh each frame, and their
+    // relief made of them (two buffers: each frame reads the one the last frame wrote and writes the other), with
+    // those passes' uniform; none of it is used until a frame is drawn with look.lit
+    const U = GPUBufferUsage;
+    this.tonesBuf = device.createBuffer({ size: TONE_LEVELS * 256 * 4, usage: U.STORAGE | U.COPY_DST });
+    this.hasTones = false; this.hasHalf = false;
+    this.columns = 0; this.reliefAt = 0; this.wasLit = false;
+    this.topsBuf = device.createBuffer({ size: 16, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    this.reliefBufs = [0, 1].map(() => device.createBuffer({ size: 32, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC }));
+    this.reliefData = new Float32Array(16);
+    this.reliefUni = device.createBuffer({ size: 64, usage: U.UNIFORM | U.COPY_DST });
+    this.topsGroup = null; this.reliefGroups = null;
+    this.n = { relief: 0 };              // relief passes encoded (the tests count them)
   }
   async init(shaders) {
-    const module = await shaders.module(this.device, 'grains');
+    const [module, relief] = await Promise.all([shaders.module(this.device, 'grains'), shaders.module(this.device, 'relief')]);
     const blend = { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' };
-    this.pipeline = await this.device.createRenderPipelineAsync({
-      layout: 'auto',
-      vertex: { module, entryPoint: 'vertexMain' },
-      fragment: { module, entryPoint: 'fragmentMain', targets: [{ format: this.format, blend: { color: blend, alpha: blend } }] },
-      primitive: { topology: 'triangle-strip' }
-    });
+    [this.pipeline, this.topsPipe, this.reliefPipe] = await Promise.all([
+      this.device.createRenderPipelineAsync({
+        layout: 'auto',
+        vertex: { module, entryPoint: 'vertexMain' },
+        fragment: { module, entryPoint: 'fragmentMain', targets: [{ format: this.format, blend: { color: blend, alpha: blend } }] },
+        primitive: { topology: 'triangle-strip' }
+      }),
+      this.device.createComputePipelineAsync({ layout: 'auto', compute: { module: relief, entryPoint: 'csTops' } }),
+      this.device.createComputePipelineAsync({ layout: 'auto', compute: { module: relief, entryPoint: 'csMain' } })]);
   }
+  /** The solver's particle buffer (after each configure). */
   bind(particles) {
     this.particles = particles;
-    this.group = this.device.createBindGroup({
+    const d = this.device, buf = b => ({ buffer: b });
+    this.wasLit = false;
+    // (group i draws with relief buffer i; relief group i writes buffer i from the other)
+    this.groups = this.reliefBufs.map(rb => d.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer: this.viewBuf } }, { binding: 1, resource: { buffer: particles } },
-        { binding: 2, resource: { buffer: this.palBuf } }, { binding: 3, resource: { buffer: this.warpBuf } }]
-    });
+      entries: [this.viewBuf, particles, this.palBuf, this.warpBuf, rb, this.tonesBuf].map((b, binding) => ({ binding, resource: buf(b) }))
+    }));
+    this.group = this.groups[this.reliefAt];
+    this.topsGroup = d.createBindGroup({ layout: this.topsPipe.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: buf(this.reliefUni) }, { binding: 1, resource: buf(particles) }, { binding: 2, resource: buf(this.topsBuf) }] });
+    this.reliefGroups = this.reliefBufs.map((rb, i) => d.createBindGroup({
+      layout: this.reliefPipe.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: buf(this.reliefUni) }, { binding: 2, resource: buf(this.topsBuf) },
+        { binding: 3, resource: buf(this.reliefBufs[1 - i]) }, { binding: 4, resource: buf(rb) }]
+    }));
   }
   /**
    * The neck warp (design 6.2): warp[j], per grid row j (its centre), the drawn glass's
    * half-width over the simulated one (glass.mjs buildGlass's warp); each point is drawn at
    * x = cx + (x - cx) warp(y). (cx, cy): the neck's centre, grid. Binds again if bound.
+   * For the sunlit sand: half, per grid row, the drawn glass's half-width itself, cells (glass.mjs halfDrawn):
+   * the bore the body of sand lies against; columns, the grid's width (the beds' relief is per column). Without
+   * them the grains are never drawn sunlit.
    */
-  setWarp(warp, cx, cy) {
-    const n = warp ? warp.length : 0;
-    if (n > 0) {
-      this.warpBuf.destroy?.();
-      this.warpBuf = this.device.createBuffer({ size: Math.max(16, Math.ceil(n * 4 / 16) * 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-      this.device.queue.writeBuffer(this.warpBuf, 0, warp instanceof Float32Array ? warp : new Float32Array(warp));
+  setWarp(warp, cx, cy, half = null, columns = 0) {
+    const n = warp ? warp.length : 0, lit = n > 0 && !!half && half.length === n && columns > 0;
+    const U = GPUBufferUsage, W = lit ? columns | 0 : 0;
+    if (W !== this.columns) {
+      this.topsBuf.destroy?.();
+      for (const b of this.reliefBufs) b.destroy?.();
+      this.topsBuf = this.device.createBuffer({ size: Math.max(16, Math.ceil(2 * W * 4 / 16) * 16), usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+      this.reliefBufs = [0, 1].map(() => this.device.createBuffer({ size: Math.max(32, 2 * W * 16), usage: U.STORAGE | U.COPY_DST | U.COPY_SRC }));
+      this.columns = W;
     }
+    if (n > 0) {
+      const data = new Float32Array(lit ? 2 * n : n);
+      data.set(warp);
+      if (lit) data.set(half, n);
+      this.warpBuf.destroy?.();
+      this.warpBuf = this.device.createBuffer({ size: Math.max(16, Math.ceil(data.length * 4 / 16) * 16), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      this.device.queue.writeBuffer(this.warpBuf, 0, data);
+    }
+    this.hasHalf = lit;
     this.warpRows = n; this.warpCx = +cx || 0; this.warpCy = +cy || 0;
     if (this.particles) this.bind(this.particles);
   }
+  /** The sunlit sand's colour table (tonesFromLUT): a Uint32Array of TONE_LEVELS x 256. */
+  setTones(t) { this.device.queue.writeBuffer(this.tonesBuf, 0, t, 0, TONE_LEVELS * 256); this.hasTones = true; }
+  /** Whether a frame given look.lit is drawn sunlit: the colours, the bore and the grid's width are all here. */
+  get canLight() { return this.hasTones && this.hasHalf && this.columns > 0 && !!this.reliefGroups; }
   /** 256 x [r, g, b, a] (a 2: a mica grain that glints), as palette.mjs makes them. */
   setPalette(p) { this.device.queue.writeBuffer(this.palBuf, 0, p); }
   /**
@@ -109,6 +180,16 @@ export class GrainRenderer {
    *     { kind: 2, apex, slope, thread: { lo, hi, spread, share, n, frame } }: the grains of the
    *       upper bulb shown up to the surface y = apex - slope |x - cx|, and the thread's n grains,
    *       between heights lo and hi, within spread cells of the axis, share of them drawn.
+   *   lit: the sunlit sand, null (or left out) for the grains as they always were:
+   *     { key [x, y, z], half [x, y, z]: the key light's direction and the direction half way between it and
+   *       the eye, unit vectors in the grid's axes (x right, y up, z toward the eye);
+   *       A, K, X, wrap, C, kw, kd, wd: the look's constants (sand/sands.js SUNLIT, with the sand's own in them);
+   *       cells: grid cells per app cell; share: the share of grains that can glint; mica: how near the mirror
+   *       direction a mica facet must face; glint [r, g, b] (0 to 1); still: the displacement in a substep
+   *       above which a grain moves (cells); slow: the displacement in a substep up to which a crowded point
+   *       lies in a bed (cells); frame: counts the frames drawn; fresh: the beds are new (a fill, a turn), so
+   *       the relief keeps nothing from before }.
+   *     Drawn sunlit only when canLight; the relief's two passes are encoded first.
    */
   encode(enc, count, look) {
     const v = this.viewData;
@@ -121,6 +202,7 @@ export class GrainRenderer {
     v[12] = this.warpCx; v[13] = this.warpCy; v[14] = this.warpRows; v[15] = count;
     const th = look.light || 0;
     v[16] = Math.cos(th); v[17] = Math.sin(th);
+    v[53] = look.paper > 0 ? Math.min(1, look.paper) : 0;     // (the light look's share: a grain in the air gets a dark side)
     const sw = look.sweep;
     let extra = 0;
     if (sw && sw.kind === 1) { v[20] = 1; v[21] = sw.S; v[22] = sw.min ?? 0; }
@@ -130,6 +212,35 @@ export class GrainRenderer {
       v[24] = t.lo ?? 0; v[25] = t.hi ?? 0; v[26] = t.spread ?? 0; v[27] = t.frame ?? 0;
       extra = count > 0 && (t.share ?? 0) > 0 && t.hi > t.lo ? (t.n | 0) : 0;
     }
+    const lit = look.lit && this.canLight ? look.lit : null;
+    if (lit) {
+      const L = lit.key, H = lit.half, l2 = Math.hypot(L[0], L[1]) || 1, g = lit.glint;
+      v[28] = L[0]; v[29] = L[1]; v[30] = L[2]; v[31] = 1;
+      v[32] = H[0]; v[33] = H[1]; v[34] = H[2]; v[35] = lit.X / LEVEL_STEP;
+      v[36] = lit.A; v[37] = lit.K; v[38] = lit.wrap; v[39] = lit.C;
+      v[40] = lit.kw; v[41] = lit.kd; v[42] = 1 / lit.wd; v[43] = lit.cells;
+      v[44] = lit.share * 6 / Math.PI; v[45] = lit.mica; v[46] = L[0] / l2; v[47] = L[1] / l2;
+      v[48] = g[0]; v[49] = g[1]; v[50] = g[2]; v[51] = lit.frame || 0;
+      v[52] = lit.still; v[54] = lit.deep || 0;
+      // the beds' relief for this frame: the tops found afresh, then read with the buffer the last frame wrote
+      // and written to the other
+      const r = this.reliefData, W = this.columns;
+      r[0] = L[0]; r[1] = L[1]; r[2] = L[2]; r[3] = W;
+      r[4] = H[0]; r[5] = H[1]; r[6] = H[2]; r[7] = lit.fresh || !this.wasLit ? 1 : 0;
+      r[8] = lit.A; r[9] = lit.K; r[10] = lit.wrap; r[11] = this.warpCy;
+      r[12] = count; r[13] = look.flight || FLIGHT; r[14] = lit.slow; r[15] = 0;
+      this.device.queue.writeBuffer(this.reliefUni, 0, r);
+      this.reliefAt ^= 1;
+      enc.clearBuffer(this.topsBuf);
+      const cp = enc.beginComputePass({ label: 'relief' });
+      if (count) { cp.setPipeline(this.topsPipe); cp.setBindGroup(0, this.topsGroup); cp.dispatchWorkgroups(Math.ceil(count / 64)); }
+      cp.setPipeline(this.reliefPipe); cp.setBindGroup(0, this.reliefGroups[this.reliefAt]);
+      cp.dispatchWorkgroups(Math.ceil(2 * W / 64));
+      cp.end();
+      this.group = this.groups[this.reliefAt];
+      this.n.relief++;
+    }
+    this.wasLit = !!lit;
     this.device.queue.writeBuffer(this.viewBuf, 0, v);
     let target;
     if (this.offscreen) {
