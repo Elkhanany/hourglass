@@ -79,7 +79,37 @@
  *   - a first hearing: Ocean's audition (12 s from its cue) holds one whole
  *     wave, Drips' (9 s) at least three drops, for five seeds
  *
- *   node tools/test/audio-levels.test.js [port | --port <n>]      (default $PORT, else 8803)
+ * Coming in: how the sound begins when a glass is set running (the engine's begin(), release
+ * 1.20.1), each render with a watchdog and one more try on a fresh page:
+ *
+ *   - at a start, with Ocean: the ambience is silent at 1 s (at least 40 dB under its settled
+ *     level), 30.5, 13.5 and 3.5 dB under it 4, 6 and 8 s after the start (each within 2 dB), within
+ *     1 dB from 10 s on, and never steps by more than 1.5 dB from one tenth of a second to the
+ *     next once it is above -50 dB; nothing sounds in the first 50 ms. The sand's own stream
+ *     rises from silence over 1.5 s (never by more than 0.15 of its level in a tenth of a
+ *     second), its first grains struck softly, and is within 1 dB of its settled level from
+ *     2.5 s on, the same sound as without a rise from 3 s on
+ *   - a short glass (10 s): a wait of 0.5 s and a rise of 2.5 s, over before the fade before
+ *     the end begins, which is followed as ever
+ *   - a resume after a long pause: no wait, the ambience over 3 s and the sand over 0.6 s
+ *   - a pause while the start's rise is under way, then a resume: no jump, not louder than
+ *     before the pause, and never ahead of the start's own rise; the sand's the same way
+ *   - the fade before the end beginning under a rise: the ambience is never louder than the
+ *     rise alone nor than the fade alone, turns round once from the level it has, with no step
+ *   - hidden while it rises (no more frames), the ambience still arrives on its curve
+ *   - not changed: an audition (as a tap in Tune) and a glass that runs on (the bowl, a thump,
+ *     a clack, a tap, a shake, a turn, mute and unmute, the page hidden and back) are the
+ *     engine of release 1.20.0 to the last bits (0693c1f; HOURGLASS_START_BASE names another);
+ *     under a rise a thump, a clack, a tap, a shake and the bowl are what they are without one;
+ *     an audition under a rise is heard at once
+ *   The controls: this engine with begin() doing nothing (the sound as it was: there within
+ *     half a second); a bus opened in one step; copies without the short glass's rule, whose
+ *     resume always takes the resume's own short rise, whose fade before the end is written onto
+ *     the rise's own gain, whose audition waits for the rise, and one whose rise is put on all of
+ *     the sand's sounds. Each fails the check it is the control of.
+ *
+ *   node tools/test/audio-levels.test.js [port | --port <n>] [--only start]      (default $PORT, else 8803)
+ *                                             --only start: the cases of "Coming in" alone
  */
 'use strict';
 var childProcess = require('child_process');
@@ -88,10 +118,13 @@ var Server = require('./lib/static-server.js');
 
 var paths = require('./lib/paths.js');
 var ROOT = paths.ROOT, AUDIO = '/' + paths.script('audio.js');
-var PORT_AT = process.argv.indexOf('--port');
-var PORT = +((PORT_AT > 0 ? process.argv[PORT_AT + 1] : process.argv[2]) || process.env.PORT || 8803);
+var PORT_AT = process.argv.indexOf('--port'), ONLY_AT = process.argv.indexOf('--only');
+var ONLY = ONLY_AT > 0 ? process.argv[ONLY_AT + 1] : '';
+if (ONLY && ONLY !== 'start') { console.error('audio-levels: --only takes "start" (the cases of "Coming in")'); process.exit(2); }
+var PORT = +((PORT_AT > 0 ? process.argv[PORT_AT + 1] : (/^\d+$/.test(process.argv[2] || '') ? process.argv[2] : '')) || process.env.PORT || 8803);
 var BASE = 'http://127.0.0.1:' + PORT;
 var SOUND_BASE = process.env.HOURGLASS_SOUND_BASE || 'd16fdcd';     // the engine before the Sound tab's levels (Sand, Bowl, the fade before the end)
+var START_BASE = process.env.HOURGLASS_START_BASE || '0693c1f';     // the engine of release 1.20.0, before the sound came in gently (begin())
 
 var failures = 0, cases = 0;
 function report(ok, name, detail) {
@@ -152,6 +185,404 @@ function harness() {
   };
 }
 
+
+/* ---- coming in: the sound at a start and after a pause (begin()) ------------------------- */
+
+/**
+ * In the page: one render of a glass, from a small description (plain data, so that each render
+ * is a call of its own and can be made again on a fresh page):
+ *   E         the engine's global name            dur    seconds rendered
+ *   amb       an ambience playing behind it       sand   the stream is fed (flow, landings, grains)
+ *   flat      the compressor and the clipper made plain (what comes out is what went in)
+ *   sandOff   the Sand level at 0: the ambience alone, whatever the glass does
+ *   ran       the glass runs from the first frame, with no start (it has run for long)
+ *   acts      [[time, what, …], …]: 'start' s | 'pause' | 'resume' s | 'run' | 'stop' | 'hold' |
+ *             'show' | 'audition' | 'fade' s | 'turn' s | 'shake' s | 'thump' | 'clack' | 'tap' |
+ *             'chime' | 'mute' | 'unmute'; each done just before the first frame at or after
+ *             its time, as the app's state changes between two frames
+ *   step      (a control) the start opens the ambience's bus in one step
+ *   onAll     (a control) the start's rise is put on all of the sand's sounds
+ * Resolves to the mean square and the peak of every tenth of a second, the first 50 ms after
+ * the first act against the last second, the bus's gain six times a second, and the grains struck.
+ */
+function startHarness() {
+  var SR = 48000;
+  function build(o) {
+    var A = window[o.E];
+    Math.random = window.HourglassAudio._synth.mulberry32(o.seed || 5);
+    var off = new OfflineAudioContext(2, Math.round(SR * o.dur), SR);
+    Object.defineProperty(off, 'state', { get: function () { return 'running'; } });
+    var a = new A();
+    a.ctx = off; a.volume = 0.8;
+    if (o.sandOff) a.sandLevel = 0;
+    if (a._finishPrep) a._finishPrep();
+    a._build();
+    if (o.flat) { a.comp.threshold.value = 0; a.comp.knee.value = 0; a.comp.ratio.value = 1; a.clip.curve = null; }
+    a._cushion = 1;
+    if (o.amb) { a._makeAmbience(o.amb, 1); a.ambience = o.amb; a.ambLevel = 0.5; a._startAmbience(o.amb); }
+    var acts = (o.acts || []).slice().sort(function (x, y) { return x[0] - y[0]; }), ai = 0;
+    var run = !!o.ran, held = false, fade = null, turn = null, shake = null, k = 0;
+    var info = { bus: [], ticks: [], restarted: 0, begins: 0 };
+    var ev = { nev: 0, evK: new Uint8Array(8), evV: new Float32Array(8), evX: new Float32Array(8) }, er = window.HourglassAudio._synth.mulberry32(99);
+    var tick = a._tick;
+    a._tick = function (when, glass, amp) { info.ticks.push([+when.toFixed(4), amp]); return tick.apply(this, arguments); };
+    function act(c, t) {
+      var what = c[1], now = off.currentTime;
+      if (what === 'start' || what === 'resume') {
+        run = true;
+        if (a.begin) { a.begin(c[2], what === 'resume'); info.begins++; }
+        if (what === 'start' && o.step) a.ambBus.gain.setValueAtTime(a._ambGain(), now);
+        if (what === 'start' && o.onAll) { a.gSand.gain.setValueAtTime(0, now); a.gSand.gain.linearRampToValueAtTime(1, now + 1.5); }
+      } else if (what === 'pause' || what === 'stop') { run = false; a.hush(); }
+      else if (what === 'run') run = true;
+      else if (what === 'hold') { a.hold(run ? 57 : 0, 1); held = true; }
+      else if (what === 'show') held = false;
+      else if (what === 'audition') { var was = a._amb.srcs[0]; a._startAmbience(o.amb, true); if (a._amb.srcs[0] !== was) info.restarted++; }
+      else if (what === 'fade') fade = [t, c[2]];
+      else if (what === 'turn') turn = [t, c[2]];
+      else if (what === 'shake') shake = [t, c[2]];
+      else if (what === 'thump') a.thump(1, 0.3, 1);
+      else if (what === 'clack') a.clack(1, -0.2);
+      else if (what === 'tap') a.tap();
+      else if (what === 'chime') a.chime(0);
+      else if (what === 'mute') a.setMuted(true);
+      else if (what === 'unmute') a.setMuted(false);
+    }
+    window.__every(off, a, 0.05, o.dur - 0.05, 1 / 60, function (a2, t) {
+      while (ai < acts.length && acts[ai][0] <= t + 1e-9) act(acts[ai++], t);
+      if (held) return;                             // the page is hidden: no frame runs
+      var st = { dt: 1 / 60, flow: 0, impacts: 0, tail: 1, fill: 0.4, bottom: 6000, slides: 0, pouring: false,
+                 running: false, ambient: run, flipping: false, spin: 0, angle: 0, sim: null };
+      var turning = turn && t < turn[0] + turn[1], j;
+      if (turning) {                                // (the Flip button's turn, as the classic sand feeds it)
+        var q = (t - turn[0]) / turn[1];
+        st.flipping = true; st.angle = Math.PI * q * q * (3 - 2 * q); st.spin = Math.PI * 6 * q * (1 - q) / turn[1];
+        st.slides = 1000 * (q < 0.5 ? 120 * q : 60 - 80 * (q - 0.5));
+      } else if (run) {
+        st.running = true;
+        if (o.sand) {
+          st.flow = 57; st.impacts = 57;
+          ev.nev = 0;                               // its grains: 40 a second, landing on the pile
+          for (j = 0; j < 2; j++) if (er() < 1 / 3) { ev.evK[ev.nev] = 1; ev.evV[ev.nev] = 0.3 + 0.7 * er(); ev.evX[ev.nev] = 2 * er() - 1; ev.nev++; }
+          st.sim = ev;
+        }
+      }
+      if (shake && t < shake[0] + shake[1]) { st.slides = 46000; st.agit = 1.08; st.rushPan = 0.6 * Math.sin(31 * t); }
+      if (fade) st.ambFade = Math.pow(Math.max(0, 1 - (t - fade[0]) / fade[1]), 1.5);
+      a2.update(st);
+      if (k++ % 10 === 0) info.bus.push([+t.toFixed(3), a2.ambBus.gain.value / (a2._ambGain() || 1)]);
+    });
+    return { off: off, info: info, first: acts.length ? acts[0][0] : 0 };
+  }
+  function measure(buf, b, o) {
+    var L = buf.getChannelData(0), R = buf.getChannelData(1), n = Math.floor(o.dur * 10), ms = [], pk = [], w, i;
+    for (w = 0; w < n; w++) {
+      var s2 = 0, p = 0;
+      for (i = w * SR / 10; i < (w + 1) * SR / 10; i++) { s2 += (L[i] * L[i] + R[i] * R[i]) / 2; var m = Math.max(Math.abs(L[i]), Math.abs(R[i])); if (m > p) p = m; }
+      ms.push(s2 / (SR / 10)); pk.push(p);
+    }
+    function span(t0, t1) {                         // the mean square, and the largest jump between two samples
+      var s3 = 0, j = 0, i0 = Math.round(t0 * SR), i1 = Math.min(L.length, Math.round(t1 * SR));
+      for (i = i0 + 1; i < i1; i++) { s3 += (L[i] * L[i] + R[i] * R[i]) / 2; j = Math.max(j, Math.abs(L[i] - L[i - 1]), Math.abs(R[i] - R[i - 1])); }
+      return { ms: s3 / (i1 - i0 - 1), jump: j };
+    }
+    return { ms: ms, pk: pk, first50: span(b.first, b.first + 0.05), last: span(o.dur - 1.05, o.dur - 0.05), bus: b.info.bus, ticks: b.info.ticks,
+             restarted: b.info.restarted, begins: b.info.begins };
+  }
+  var real = Math.random;
+  window.__startScene = function (o) {
+    if (typeof window[o.E] !== 'function') return Promise.resolve({ error: 'no engine ' + o.E });
+    var b = build(o);
+    return b.off.startRendering().then(function (buf) { Math.random = real; return measure(buf, b, o); });
+  };
+  /** Two renders of one description on two engines (or with o2's changes): how far apart they are, in dB under the first (from t0 on). */
+  window.__startPair = function (o, o2, t0) {
+    var b = build(o);
+    return b.off.startRendering().then(function (x) {
+      var o3 = {}, key;
+      for (key in o) o3[key] = o[key];
+      for (key in o2) o3[key] = o2[key];
+      var b2 = build(o3);
+      return b2.off.startRendering().then(function (y) {
+        Math.random = real;
+        var e = 0, d = 0, i0 = Math.round((t0 || 0) * SR), c, i;
+        for (c = 0; c < 2; c++) {
+          var u = x.getChannelData(c), v = y.getChannelData(c);
+          for (i = i0; i < u.length; i++) { d += (u[i] - v[i]) * (u[i] - v[i]); e += u[i] * u[i]; }
+        }
+        return { apart: d === 0 ? -200 : +(10 * Math.log10(d / (e + 1e-30))).toFixed(1), level: e > 0 ? +(10 * Math.log10(e / (2 * (u.length - i0)))).toFixed(1) : -200,
+                 begins: [b.info.begins, b2.info.begins] };
+      });
+    });
+  };
+}
+
+/** This engine with one thing changed (a control), under another global name; throws if the text to change is not there. */
+function engineCopy(src, name, edits) {
+  edits.concat([['root.HourglassAudio = HourglassAudio;', 'root.' + name + ' = HourglassAudio;']]).forEach(function (e) {
+    if (src.indexOf(e[0]) < 0) throw new Error('audio-levels: the copy ' + name + ' could not be made: no "' + e[0].slice(0, 60) + '"');
+    src = src.split(e[0]).join(e[1]);
+  });
+  return src;
+}
+/** The controls of "Coming in": [global name, what it is, the text changed]. */
+var START_COPIES = [
+  ['HourglassAudioNoBegin', 'begin() does nothing: the sound as it was', [['HourglassAudio.prototype.begin = function (seconds, resumed) {', 'HourglassAudio.prototype.begin = function (seconds, resumed) { return;']]],
+  ['HourglassAudioSlow', 'rises twice and four times as long', [['var IN = { sand: 1.5, sandBack: 0.6, wait: 2, rise: 8,', 'var IN = { sand: 6, sandBack: 0.6, wait: 2, rise: 16,']]],
+  ['HourglassAudioNoShort', 'no rule for a short glass', [['var most = (seconds > 0 ? seconds : 0) * IN.riseOf,', 'var most = 1e9,'], ['x: -Math.min(IN.wait, (seconds > 0 ? seconds : 0) * IN.waitOf)', 'x: -IN.wait']]],
+  ['HourglassAudioNoCarry', 'a resume always takes the resume\'s own short rise', [['if (!r || !r.start) this._rise =', 'if (true) this._rise ='], ['this._sandIn = { x: s ? s.x : 0, len: s ? s.len : 0, bx: 0,', 'this._sandIn = { x: 0, len: 0, bx: 0,']]],
+  ['HourglassAudioFight', 'the fade before the end written onto the rise\'s own gain', [["this._set('ambEnd', this.ambEnd.gain, fe, 0.35);", "this._set('ambEnd', this.ambBus.gain, fe * this._ambGain(), 0.35);"]]],
+  ['HourglassAudioNoAudition', 'an audition waits for the rise', [['if (on && !heard) { if (this._ambRise(t, r)) return; }\n      else if (heard) { this._rise = null; this._last.amb = undefined; }', 'if (on) { if (this._ambRise(t, r)) return; }']]],
+  ['HourglassAudioGlide', 'the ambience\'s bus opens with a time constant of 0.6 s for 0.5', [['this._ambGlide(t, on ? this._ambGain() : 0, on ? 0.5 :', 'this._ambGlide(t, on ? this._ambGain() : 0, on ? 0.6 :']]]
+];
+
+/**
+ * The cases of "Coming in". P.page is the page (P.open() makes a fresh one); every render is a
+ * call of its own with a watchdog: one that has not ended after 90 s is tried once more on a
+ * fresh page, and counted.
+ */
+async function comingIn(P) {
+  var HUNG = {}, renders = 0, hangs = 0;
+  async function call(fn, arg) {
+    for (var tries = 0; tries < 2; tries++) {
+      renders++;
+      var run = P.page.evaluate(fn, arg);
+      run.catch(function () {});
+      var r = await Promise.race([run, new Promise(function (res) { setTimeout(function () { res(HUNG); }, 90000); })]);
+      if (r !== HUNG) { if (r && r.error) throw new Error(r.error); return r; }
+      hangs++;
+      console.log('INFO a render had not ended after 90 s: once more, on a fresh page');
+      P.page.close().catch(function () {});
+      P.page = await P.open();
+    }
+    throw new Error('a render hung twice');
+  }
+  function scene(E, dur, acts, more) {
+    var o = { E: E, dur: dur, acts: acts, seed: 5 }, k;
+    for (k in more) o[k] = more[k];
+    return call(function (o2) { return window.__startScene(o2); }, o);
+  }
+  function pair(o, o2, t0) { o.seed = 5; return call(function (a) { return window.__startPair(a[0], a[1], a[2]); }, [o, o2, t0 || 0]); }
+  var NOW = 'HourglassAudio', OFF = 'HourglassAudioNoBegin', WAS = 'HourglassAudioWas';
+  var OCEAN = { amb: 'ocean', flat: true, sandOff: true }, SAND = { sand: true, flat: true };
+  var T0 = 1;                                        // the start, seconds into a render
+  /** X's level under R's in each tenth of a second, in dB (-200 where X is silent). */
+  function under(X, R) { return X.ms.map(function (v, k) { return v > 0 && R.ms[k] > 0 ? 10 * Math.log10(v / R.ms[k]) : -200; }); }
+  /** X's share of R's level in each tenth of a second (0..1; 1 where neither sounds). */
+  function share(X, R) { return X.ms.map(function (v, k) { return R.ms[k] > 0 ? Math.sqrt(v / R.ms[k]) : 1; }); }
+  function w(t) { return Math.round(t * 10); }       // the tenth of a second that begins at t
+  function f1(v) { return v <= -199 ? 'silent' : v.toFixed(1); }
+  /** From the tenth beginning at t0: the largest rise from one tenth to the next once above `floor` dB, and the largest fall. */
+  function steps(e, t0, t1, floor) {
+    var up = 0, down = 0;
+    for (var k = w(t0); k + 1 < e.length && k + 1 <= w(t1); k++) {
+      if (e[k] > floor) { up = Math.max(up, e[k + 1] - e[k]); down = Math.max(down, e[k] - e[k + 1]); }
+    }
+    return { up: up, down: down };
+  }
+  /** The pins [[seconds after `from`, dB], …] within tol: '' when all hold, else what does not. */
+  function pins(e, from, list, tol) {
+    return list.filter(function (q) { return !(Math.abs(e[w(from + q[0])] - q[1]) <= tol); })
+      .map(function (q) { return f1(e[w(from + q[0])]) + ' dB at ' + q[0] + ' s for ' + q[1]; }).join(', ');
+  }
+  function within(e, t0, t1, tol) { for (var k = w(t0); k <= w(t1) && k < e.length; k++) if (!(Math.abs(e[k]) <= tol)) return false; return true; }
+  function shown(e, from, times) { return times.map(function (t) { return t + ' s: ' + f1(e[w(from + t)]); }).join(', '); }
+
+  // Ocean with its bus open all along: its settled level, tenth by tenth (the loops begin at the same places in every render)
+  var ref = await scene(NOW, 18, [], { amb: 'ocean', flat: true, sandOff: true, ran: true });
+
+  /* -- a start: the ambience ------------------------------------------------------------- */
+  var START = [[T0, 'start', 300]];
+  var sA = under(await scene(NOW, 13.5, START, OCEAN), ref), rawA = null;
+  var offRaw = await scene(OFF, 13.5, START, OCEAN), cA = under(offRaw, ref);
+  var slowA = under(await scene('HourglassAudioSlow', 13.5, START, OCEAN), ref);
+  var stepRaw = await scene(OFF, 13.5, START, { amb: 'ocean', step: true });
+  var offHeard = await scene(OFF, 13.5, START, { amb: 'ocean' });
+  rawA = await scene(NOW, 13.5, START, { amb: 'ocean' });          // (as heard: through the compressor and the clipper)
+  var RISE = [[4, -30.5], [6, -13.5], [8, -3.5]];
+  function silentAt1(e) { return e[w(T0 + 1)] <= -40; }
+  report(silentAt1(sA), 'a start, Ocean behind the sand: the ambience stays silent first: 1 s after the start it is at least 40 dB under its settled level',
+         f1(sA[w(T0 + 1)]) + ' dB (' + shown(sA, T0, [0, 0.5, 1, 1.5, 2, 2.5, 3]) + ')');
+  report(!silentAt1(cA), 'control: with begin() doing nothing (the sound as it was) it is there at once, and fails that', shown(cA, T0, [0, 0.2, 0.5, 1, 2]));
+  report(pins(sA, T0, RISE, 2) === '', '... then it rises on its curve: 30.5, 13.5 and 3.5 dB under its level 4, 6 and 8 s after the start (each within 2 dB)',
+         shown(sA, T0, [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) + (pins(sA, T0, RISE, 2) ? '; ' + pins(sA, T0, RISE, 2) : ''));
+  report(pins(cA, T0, RISE, 2) !== '' && pins(slowA, T0, RISE, 2) !== '', 'control: the sound as it was, and a rise twice as long, fail that', pins(cA, T0, RISE, 2) + '; twice as long: ' + pins(slowA, T0, RISE, 2));
+  report(within(sA, T0 + 10, 13.3, 1), '... and has arrived: within 1 dB of its settled level from 10 s after the start on', shown(sA, T0, [9, 9.5, 10, 10.5, 11, 12]));
+  report(!within(slowA, T0 + 10, 13.3, 1), 'control: a rise twice as long has not, and fails that', shown(slowA, T0, [10, 11, 12]));
+  var stA = steps(sA, T0, 13.3, -50), stC = steps(cA, T0, 13.3, -50);
+  report(stA.up <= 1.5 && stA.down <= 0.3, '... with no step: once above -50 dB it never rises by more than 1.5 dB from one tenth of a second to the next, and never falls',
+         'largest rise ' + stA.up.toFixed(2) + ' dB, largest fall ' + stA.down.toFixed(2) + ' dB');
+  report(!(stC.up <= 1.5), 'control: the sound as it was rises faster, and fails that', 'largest rise ' + stC.up.toFixed(2) + ' dB in a tenth of a second');
+  /* -- a start: the sand's own stream ----------------------------------------------------- */
+  var sandNow = await scene(NOW, 6, START, SAND), sandOff = await scene(OFF, 6, START, SAND), sandSlow = await scene('HourglassAudioSlow', 6, START, SAND);
+  /** The stream's rise, from its share of the level it has without one: what is wrong with it ('' when it is as asked). */
+  function sandRise(q, from, len, o) {
+    var bad = [], k, up = 0, down = 0, db = function (t) { return 20 * Math.log10(q[w(from + t)] + 1e-9); };
+    for (k = w(from); k + 1 < q.length; k++) { up = Math.max(up, q[k + 1] - q[k]); down = Math.max(down, q[k] - q[k + 1]); }
+    if (!(db(o.early[0]) <= o.early[1])) bad.push(f1(db(o.early[0])) + ' dB at ' + o.early[0] + ' s');
+    if (!(db(o.mid[0]) >= o.mid[1] && db(o.mid[0]) <= o.mid[2])) bad.push(f1(db(o.mid[0])) + ' dB at ' + o.mid[0] + ' s');
+    for (k = w(from + o.by); k < q.length - 1; k++) if (!(Math.abs(20 * Math.log10(q[k] + 1e-9)) <= 1)) { bad.push('not within 1 dB at ' + (k / 10 - from).toFixed(1) + ' s'); break; }
+    if (!(up <= o.up)) bad.push('a rise of ' + up.toFixed(2) + ' of its level in a tenth of a second');
+    if (!(down <= 0.05)) bad.push('a fall of ' + down.toFixed(2));
+    return bad.join(', ');
+  }
+  function sandShown(q, from, times) { return times.map(function (t) { return t + ' s: ' + f1(20 * Math.log10(q[w(from + t)] + 1e-9)); }).join(', '); }
+  var AT_START = { early: [0.2, -20], mid: [0.7, -10, -4], by: 2.5, up: 0.15 };
+  var qB = share(sandNow, sandOff);
+  report(sandRise(qB, T0, 1.5, AT_START) === '',
+         'a start: the sand\'s own stream rises from silence over about 1.5 s: at least 20 dB under its level 0.2 s after the start, 4 to 10 dB under at 0.7 s, within 1 dB from 2.5 s on; never by more than 0.15 of its level in a tenth of a second, never falling',
+         'dB under the stream with no rise: ' + sandShown(qB, T0, [0.1, 0.2, 0.4, 0.7, 1, 1.3, 1.6, 2.5]) + (sandRise(qB, T0, 1.5, AT_START) ? '; ' + sandRise(qB, T0, 1.5, AT_START) : ''));
+  report(sandRise(share(sandOff, sandOff), T0, 1.5, AT_START) !== '' && sandRise(share(sandSlow, sandOff), T0, 1.5, AT_START) !== '',
+         'control: the sound as it was (at its level at once), and a rise four times as long, fail that',
+         sandRise(share(sandOff, sandOff), T0, 1.5, AT_START) + '; four times as long: ' + sandRise(share(sandSlow, sandOff), T0, 1.5, AT_START));
+  /** The loudest grain struck in [t0, t1), as its gain. */
+  function loudest(X, t0, t1) { return X.ticks.reduce(function (m, g) { return g[0] >= t0 && g[0] < t1 && g[1] > m ? g[1] : m; }, 0); }
+  function peak(X, t0, t1) { var m = 0; for (var k = w(t0); k < w(t1); k++) m = Math.max(m, X.pk[k]); return m; }
+  function soft(X) {
+    var settled = loudest(X, T0 + 2.5, 6);
+    return { first: loudest(X, T0, T0 + 0.3) / settled, then: loudest(X, T0, T0 + 0.75) / settled, peak: 20 * Math.log10(peak(X, T0, T0 + 0.5) / peak(X, T0 + 2.5, 5.9)), n: X.ticks.length };
+  }
+  // the first 50 ms: Ocean as heard, and the sand's stream (fed its landings and its grains from the first frame on)
+  function quietFirst(X, under) { return X.first50.ms <= X.last.ms * under && X.first50.jump <= X.last.jump; }
+  function firstShown(X) { return f1(10 * Math.log10(X.first50.ms / X.last.ms + 1e-20)) + ' dB against its settled sound, the largest jump between two samples ' + X.first50.jump.toExponential(1) + ' (settled ' + X.last.jump.toExponential(1) + ')'; }
+  report(quietFirst(rawA, 1e-6) && quietFirst(sandNow, 1e-3),
+         'nothing sounds in the first 50 ms after the start, no click: Ocean, as heard, at least 60 dB under its settled sound, the sand\'s stream at least 30 dB under its own, and no jump between two samples larger than the settled sound\'s',
+         'Ocean: ' + firstShown(rawA) + '; the sand: ' + firstShown(sandNow));
+  report(!quietFirst(offHeard, 1e-6) && !quietFirst(stepRaw, 1e-6) && !quietFirst(sandOff, 1e-3),
+         'control: the sound as it was is heard in its first 50 ms (Ocean, and the sand), and a bus opened in one step is there at once: each fails that',
+         'Ocean as it was: ' + firstShown(offHeard) + '; in one step: ' + firstShown(stepRaw) + '; the sand as it was: ' + firstShown(sandOff));
+  var gN = soft(sandNow), gO = soft(sandOff);
+  report(gN.first <= 0.2 && gN.then <= 0.6 && gN.peak < 0 && gN.n > 100,
+         '... its first grains struck softly: none in the first 0.3 s at more than a fifth of the loudest once settled, none in the first 0.75 s at more than 0.6 of it, and the sound\'s peak in its first half second under its settled peaks',
+         'the loudest grain of the first 0.3 s at ' + gN.first.toFixed(2) + ' of the settled loudest, of the first 0.75 s at ' + gN.then.toFixed(2) + '; the first half second peaks ' + gN.peak.toFixed(1) + ' dB against the settled peaks (' + gN.n + ' grains)');
+  report(!(gO.first <= 0.2 && gO.then <= 0.6), 'control: the sound as it was strikes its first grains at full strength, and fails that',
+         'the first 0.3 s at ' + gO.first.toFixed(2) + ' of the settled loudest, the first 0.75 s at ' + gO.then.toFixed(2) + '; peaks ' + gO.peak.toFixed(1) + ' dB');
+  var same = await pair({ E: NOW, dur: 7, acts: START, sand: true, flat: true }, { E: OFF }, T0 + 3);
+  var sameSlow = await pair({ E: 'HourglassAudioSlow', dur: 7, acts: START, sand: true, flat: true }, { E: OFF }, T0 + 3);
+  report(same.apart <= -60 && same.level > -60, '... and once it has arrived the sand is the sound it is without a rise (from 3 s after the start: the difference at least 60 dB under it)',
+         same.apart + ' dB under the sound (' + same.level + ' dBFS)');
+  report(sameSlow.apart > -60, 'control: a rise four times as long is still under way then, and fails that', sameSlow.apart + ' dB under the sound');
+
+  /* -- a short glass ------------------------------------------------------------------------ */
+  var SHORT = [[T0, 'start', 10], [T0 + 5, 'fade', 5]], SHORT_RISE = [[1.1, -30.5], [1.8, -12], [2.4, -3]];
+  var sC = under(await scene(NOW, 12.5, SHORT, OCEAN), ref), cC = under(await scene('HourglassAudioNoShort', 12.5, SHORT, OCEAN), ref);
+  function shortOk(e) { return e[w(T0 + 0.3)] <= -40 && pins(e, T0, SHORT_RISE, 3) === '' && within(e, T0 + 3.2, T0 + 4.8, 1); }
+  report(shortOk(sC), 'a short glass (10 s): a wait of half a second (a twentieth of its time) and a rise of 2.5 s (a quarter): silent at 0.3 s, 30.5, 12 and 3 dB under its level at 1.1, 1.8 and 2.4 s (within 3 dB), within 1 dB from 3.2 s on',
+         shown(sC, T0, [0.3, 0.6, 1.1, 1.8, 2.4, 3.2, 4]) + (pins(sC, T0, SHORT_RISE, 3) ? '; ' + pins(sC, T0, SHORT_RISE, 3) : ''));
+  function fadeOk(e) { return Math.abs(e[w(T0 + 4.8)]) <= 1 && Math.abs(e[w(T0 + 7.5)] + 8) <= 1.5 && e[w(T0 + 10.5)] <= -40; }
+  report(fadeOk(sC), '... and its fade before the end (its last 5 s) is followed as ever: whole as the fade begins, 8 dB under halfway (the share 9.3 dB under, 0.35 s behind), gone after the end',
+         shown(sC, T0, [4.8, 6, 7.5, 9, 10.5]));
+  report(!shortOk(cC) && !fadeOk(cC), 'control: a copy with no rule for a short glass (2 s, then 8 s) is still silent when the fade begins, and fails both', shown(cC, T0, [1.1, 2.4, 3.2, 4.8, 7.5]));
+
+  /* -- a resume ----------------------------------------------------------------------------- */
+  var BACK = [[3, 'pause'], [10, 'resume', 280]], BACK_RISE = [[0.7, -31], [1.5, -13.5], [2.2, -4]];
+  var sD = under(await scene(NOW, 14.5, BACK, { amb: 'ocean', flat: true, ran: true }), ref), cD = under(await scene(OFF, 14.5, BACK, { amb: 'ocean', flat: true, ran: true }), ref);
+  function backOk(e) { var st = steps(e, 10, 14.3, -50); return within(e, 2.5, 2.9, 0.5) && e[w(9.8)] <= -60 && pins(e, 10, BACK_RISE, 3) === '' && within(e, 13.2, 14.3, 1) && st.up <= 4.5 && st.down <= 0.3; }
+  report(backOk(sD), 'a resume after a long pause (7 s): no wait, the ambience over about 3 s: 31, 13.5 and 4 dB under its level 0.7, 1.5 and 2.2 s after it (within 3 dB), within 1 dB from 3.2 s on, never more than 4.5 dB from one tenth of a second to the next',
+         'before the pause ' + f1(sD[w(2.8)]) + ' dB, as it resumes ' + f1(sD[w(9.8)]) + '; after it: ' + shown(sD, 10, [0.2, 0.7, 1.5, 2.2, 3.2, 4]) + '; largest rise ' + steps(sD, 10, 14.3, -50).up.toFixed(2) + ' dB');
+  report(!backOk(cD), 'control: the sound as it was is back within a second, and fails that', shown(cD, 10, [0.2, 0.7, 1.5, 2.2]));
+  var BACK_SAND = [[3, 'pause'], [6, 'resume', 280]], AT_BACK = { early: [0.1, -12], mid: [0.3, -10, -2], by: 1.2, up: 0.3 };
+  var bsN = await scene(NOW, 9, BACK_SAND, { sand: true, flat: true, ran: true }), bsO = await scene(OFF, 9, BACK_SAND, { sand: true, flat: true, ran: true });
+  var qD = share(bsN, bsO);
+  report(sandRise(qD, 6, 0.6, AT_BACK) === '', '... and the sand over about 0.6 s: at least 12 dB under its level 0.1 s after the resume, 2 to 10 dB under at 0.3 s, within 1 dB from 1.2 s on, never by more than 0.3 of its level in a tenth of a second',
+         'dB under the stream with no rise: ' + sandShown(qD, 6, [0, 0.1, 0.2, 0.3, 0.4, 0.6, 0.9, 1.2]) + (sandRise(qD, 6, 0.6, AT_BACK) ? '; ' + sandRise(qD, 6, 0.6, AT_BACK) : ''));
+  report(sandRise(share(bsO, bsO), 6, 0.6, AT_BACK) !== '', 'control: the sound as it was fails that', sandRise(share(bsO, bsO), 6, 0.6, AT_BACK));
+
+  /* -- a pause while the start's rise is under way, then a resume ----------------------------- */
+  var CUT = [[T0, 'start', 300], [6, 'pause'], [8, 'resume', 295]];
+  var sE = under(await scene(NOW, 16.5, CUT, OCEAN), ref), cE1 = under(await scene('HourglassAudioNoCarry', 16.5, CUT, OCEAN), ref), cE2 = under(await scene(OFF, 16.5, CUT, OCEAN), ref);
+  /** What is wrong after the resume at 8 s (the start 7 s before it, 2 s of them paused): '' when it carries on as asked. */
+  function carried(e) {
+    var bad = [], before = e[w(5.9)], st = steps(e, 8, 16.3, -50), k;
+    for (k = w(8); k <= w(8.4); k++) if (!(e[k] <= before + 0.5)) { bad.push('louder than before the pause (' + f1(before) + ' dB) ' + (k / 10 - 8).toFixed(1) + ' s after the resume: ' + f1(e[k])); break; }
+    if (!(st.up <= 1.5)) bad.push('a rise of ' + st.up.toFixed(2) + ' dB in a tenth of a second');
+    if (!(st.down <= 0.3)) bad.push('a fall of ' + st.down.toFixed(2) + ' dB');
+    for (k = w(8); k < e.length - 1; k++) {            // the start's own rise after as many seconds of running (2 s of wait, then 8 s: the engine's curve, 54 (1 - u)^2 dB under)
+      var u = (5 + k / 10 + 0.05 - 8 - 2) / 8, own = u >= 1 ? 0 : -54 * (1 - u) * (1 - u);
+      if (!(e[k] <= own + 1)) { bad.push('ahead of the start\'s own rise ' + (k / 10 - 8).toFixed(1) + ' s after the resume: ' + f1(e[k]) + ' dB for ' + own.toFixed(1)); break; }
+    }
+    if (!within(e, 15.5, 16.3, 1)) bad.push('not arrived by 15.5 s');
+    return bad.join(', ');
+  }
+  report(carried(sE) === '' && sE[w(5.9)] > -30 && sE[w(5.9)] < -18,
+         'a pause while the start\'s rise is under way (5 s after the start), a resume 2 s later: it carries on from the level it has: no step, not louder than before the pause, never ahead of the start\'s own rise, and it arrives',
+         'before the pause ' + f1(sE[w(5.9)]) + ' dB; after the resume: ' + shown(sE, 8, [0, 0.5, 1, 2, 3, 4, 5, 6, 7, 8]) + (carried(sE) ? '; ' + carried(sE) : ''));
+  report(carried(cE1) !== '' && carried(cE2) !== '', 'control: a copy whose resume always takes the resume\'s own short rise, and the sound as it was, fail that', carried(cE1) + '; as it was: ' + carried(cE2));
+  var CUT_SAND = [[T0, 'start', 300], [1.1, 'pause'], [3, 'resume', 299]];
+  var csN = await scene(NOW, 6, CUT_SAND, SAND), csO = await scene(OFF, 6, CUT_SAND, SAND), csC = await scene('HourglassAudioNoCarry', 6, CUT_SAND, SAND);
+  function sandCarried(X) { var q = share(X, csO), k, up = 0; for (k = w(3); k + 1 < q.length; k++) up = Math.max(up, q[k + 1] - q[k]); return { at: 20 * Math.log10(q[w(3.6)] + 1e-9), up: up, end: 20 * Math.log10(q[w(5.5)] + 1e-9) }; }
+  var scN = sandCarried(csN), scC = sandCarried(csC);
+  report(scN.at <= -4 && scN.up <= 0.3 && Math.abs(scN.end) <= 1,
+         '... and the sand, paused a tenth of a second into its rise: after the resume it is the lower of the two rises: still 4 dB or more under its level 0.6 s after it (the start\'s rise goes on), no step, arrived 2.5 s after it',
+         f1(scN.at) + ' dB 0.6 s after the resume, ' + f1(scN.end) + ' dB at 2.5 s; largest rise ' + scN.up.toFixed(2) + ' of its level in a tenth of a second');
+  report(!(scC.at <= -4), 'control: a copy whose resume takes the resume\'s own rise alone is at its level by then, and fails that', f1(scC.at) + ' dB 0.6 s after the resume');
+
+  /* -- the fade before the end begins under a rise --------------------------------------------- */
+  // (5 s after the start, over 6 s: the share (1 - t / 6)^1.5, which the engine follows 0.35 s behind)
+  var MEET = [[T0, 'start', 300], [6, 'fade', 6]];
+  var sF = under(await scene(NOW, 13, MEET, OCEAN), ref), cF = under(await scene('HourglassAudioFight', 13, MEET, OCEAN), ref), cF2 = under(await scene(OFF, 13, MEET, OCEAN), ref);
+  /** What is wrong where the fade meets the rise: '' when the level is never above either, turns round once and has no step. */
+  function met(e) {
+    var bad = [], k, top = w(6), fell = false;
+    for (k = w(6); k < e.length - 1; k++) if (e[k] > e[top]) top = k;
+    for (k = w(T0); k + 1 < e.length - 1 && !bad.length; k++) {
+      if (e[k] <= -50 && e[k + 1] <= -50) continue;
+      if (e[k + 1] - e[k] > 1.5) bad.push('a step of ' + (e[k + 1] - e[k]).toFixed(2) + ' dB up ' + (k / 10 - T0).toFixed(1) + ' s after the start');
+      if (k < top && e[k + 1] < e[k] - 0.3) bad.push('it falls ' + (k / 10 - T0).toFixed(1) + ' s after the start, before it turns round at ' + (top / 10 - T0).toFixed(1) + ' s');
+      if (k >= top && e[k + 1] > e[k] + 0.3) bad.push('it rises again ' + (k / 10 - T0).toFixed(1) + ' s after the start, after it turned round at ' + (top / 10 - T0).toFixed(1) + ' s');
+    }
+    // the rise alone (the engine's curve), and the fade alone (the share, followed as the engine follows it: a glide of 0.35 s)
+    var gl = 1, tt = 6, fadeAt = {};
+    for (k = 0; k < 7000; k++) { tt = 6 + k / 1000; gl += (Math.pow(Math.max(0, 1 - (tt - 6) / 6), 1.5) - gl) * (1 - Math.exp(-0.001 / 0.35)); if (k % 100 === 50) fadeAt[Math.round((tt - 0.05) * 10)] = 20 * Math.log10(gl + 1e-9); }
+    for (k = w(T0); k < e.length - 1; k++) {
+      var u = (k / 10 + 0.05 - T0 - 2) / 8, rise = u <= 0 ? -200 : u >= 1 ? 0 : -54 * (1 - u) * (1 - u), fade = fadeAt[k] === undefined ? 0 : fadeAt[k];
+      if (e[k] > Math.max(rise, -60) + 1 || e[k] > Math.max(fade, -60) + 1) { bad.push('louder than ' + (e[k] > Math.max(rise, -60) + 1 ? 'the rise' : 'the fade') + ' alone ' + (k / 10 - T0).toFixed(1) + ' s after the start: ' + f1(e[k]) + ' dB'); break; }
+    }
+    if (!(e[top] > -20 && e[top] < -4)) bad.push('its highest ' + f1(e[top]) + ' dB');
+    if (!(e[w(12.8)] <= -45)) bad.push('not gone after the fade\'s end');
+    return bad.join(', ');
+  }
+  report(met(sF) === '',
+         'the fade before the end beginning under a rise (5 s after the start): the two never work against each other: the ambience is never louder than the rise alone nor than the fade alone, climbs on until the fade outweighs the rise, turns round once from the level it has, with no step, and is gone at the fade\'s end',
+         shown(sF, T0, [4, 5, 5.5, 6, 6.5, 7, 7.5, 8, 9, 10, 11]) + (met(sF) ? '; ' + met(sF) : ''));
+  report(met(cF) !== '' && met(cF2) !== '', 'control: a copy whose fade is written onto the rise\'s own gain (the two fight), and the sound as it was, fail that', met(cF) + '; as it was: ' + met(cF2));
+
+  /* -- hidden while it rises -------------------------------------------------------------------- */
+  var HIDE = [[T0, 'start', 300], [4, 'hold']], HIDE_RISE = [[6, -13.5], [8, -3.5]];
+  var sI = under(await scene(NOW, 13.5, HIDE, OCEAN), ref), cI = under(await scene(OFF, 13.5, HIDE, OCEAN), ref);
+  report(pins(sI, T0, HIDE_RISE, 2) === '' && within(sI, T0 + 10, 13.3, 1), 'the page hidden 3 s after the start (no frame after it): the ambience still arrives on its curve: 13.5 and 3.5 dB under its level at 6 and 8 s, within 1 dB from 10 s on',
+         shown(sI, T0, [3, 4, 6, 8, 10, 12]));
+  report(pins(cI, T0, HIDE_RISE, 2) !== '', 'control: the sound as it was fails that', shown(cI, T0, [3, 6, 8]));
+
+  /* -- not changed -------------------------------------------------------------------------------- */
+  var TAP = { E: NOW, dur: 8, amb: 'ocean', acts: [[1, 'audition']] };
+  var aud = await pair(TAP, { E: WAS }), audSelf = await pair(TAP, {}), audCtl = await pair(TAP, { E: 'HourglassAudioGlide' });
+  report(aud.apart <= -80 && aud.apart <= audSelf.apart + 3 && aud.level > -60, 'not changed: an audition (Ocean chosen in Tune, the glass waiting) is the engine of release 1.20.0 (' + START_BASE + ') to the last bits',
+         'the difference ' + aud.apart + ' dB under the sound (' + aud.level + ' dBFS; a render against itself ' + audSelf.apart + ' dB)');
+  report(audCtl.apart > -80, 'control: a copy whose bus opens with a time constant of 0.6 s for 0.5 is told apart', audCtl.apart + ' dB under the sound');
+  var RUNS = { E: NOW, dur: 12, amb: 'ocean', sand: true, ran: true,
+               acts: [[1, 'thump'], [1.2, 'clack'], [1.5, 'tap'], [2, 'chime'], [2.5, 'shake', 1], [4, 'turn', 2.6], [7, 'mute'], [7.6, 'unmute'], [8.5, 'hold'], [10, 'show'], [11, 'stop']] };
+  var runs = await pair(RUNS, { E: WAS }), runsSelf = await pair(RUNS, {}), runsCtl = await pair(RUNS, { E: 'HourglassAudioGlide' });
+  report(runs.apart <= -80 && runs.apart <= runsSelf.apart + 3 && runs.level > -60,
+         'not changed: a glass that runs on (no start in it): Ocean behind the sand, a thump, a clack, a tap, the bowl, a shake, a turn, mute and unmute, the page hidden and back, a stop: the engine of release 1.20.0 to the last bits',
+         'the difference ' + runs.apart + ' dB under the sound (' + runs.level + ' dBFS; a render against itself ' + runsSelf.apart + ' dB)');
+  report(runsCtl.apart > -80, 'control: the copy whose bus opens more slowly is told apart there too', runsCtl.apart + ' dB under the sound');
+  var HAND = { E: NOW, dur: 6, acts: [[T0, 'start', 300], [1.03, 'tap'], [1.2, 'thump'], [1.35, 'clack'], [1.5, 'shake', 0.8], [2.4, 'chime']] };
+  var hand = await pair(HAND, { E: OFF }), handCtl = await pair({ E: NOW, dur: 6, acts: HAND.acts, onAll: true }, { E: OFF, onAll: false });
+  report(hand.apart <= -80 && hand.level > -60 && hand.begins[0] === 1 && hand.begins[1] === 1,
+         'not changed under a rise: a tap, a thump, a clack, a shake and the bowl in the first seconds after a start are what they are without one, to the last bits',
+         'the difference ' + hand.apart + ' dB under the sound (' + hand.level + ' dBFS)');
+  report(handCtl.apart > -60, 'control: a rise put on all of the sand\'s sounds changes them, and fails that', handCtl.apart + ' dB under the sound');
+  var HEAR = [[T0, 'start', 300], [2.5, 'audition']];
+  var hear = await scene(NOW, 5, HEAR, { amb: 'ocean' }), hearCtl = await scene('HourglassAudioNoAudition', 5, HEAR, { amb: 'ocean' });
+  function busAt(X, t) { return X.bus.reduce(function (b, q) { return Math.abs(q[0] - t) < Math.abs(b[0] - t) ? q : b; })[1]; }
+  report(busAt(hear, 3.5) >= 0.79 && busAt(hear, 2.4) <= 0.001 && hear.restarted === 1,
+         'an audition while a rise is under way (1.5 s after the start, the ambience still silent) is heard at once, from its cue: its bus within 2 dB of its level a second later',
+         'the bus at ' + busAt(hear, 2.4).toFixed(4) + ' of its level before the tap, ' + busAt(hear, 3.5).toFixed(3) + ' a second after it; its loops begun again: ' + hear.restarted);
+  report(!(busAt(hearCtl, 3.5) >= 0.79), 'control: a copy whose audition waits for the rise fails that', 'the bus at ' + busAt(hearCtl, 3.5).toFixed(4) + ' of its level a second after the tap');
+  report(null, 'coming in: ' + renders + ' renders, ' + hangs + ' not ended after 90 s and made again');
+}
+
 async function main() {
   var server = await new Promise(function (res, rej) {
     var s = Server.start(PORT, ROOT, function () { res(s); });
@@ -159,9 +590,7 @@ async function main() {
   });
   var browser = await chromium.launch();
   try {
-    var page = await browser.newPage();
     var errors = [];
-    page.on('pageerror', function (e) { errors.push(e.message); });
     var oldSrc = childProcess.execFileSync('git', ['show', 'f446085:audio.js'], { cwd: ROOT, encoding: 'utf8' })
       .replace('root.HourglassAudio = HourglassAudio;', 'root.HourglassAudioOld = HourglassAudio;');
     // the engine before the Sound tab's levels (the base of this step), and this engine with the bowl's level taken out (a control)
@@ -170,15 +599,34 @@ async function main() {
     var nowSrc = require('fs').readFileSync(require('path').join(ROOT, AUDIO.slice(1)), 'utf8');
     var noBowlSrc = nowSrc.replace("(soft ? 0.07 : 0.12) * this.bowlLevel", "(soft ? 0.07 : 0.12)").replace('root.HourglassAudio = HourglassAudio;', 'root.HourglassAudioNoBowl = HourglassAudio;');
     if (noBowlSrc.indexOf('HourglassAudioNoBowl') < 0 || noBowlSrc.indexOf('* this.bowlLevel') >= 0) throw new Error('audio-levels: the copy without the bowl\'s level could not be made');
-    await page.route(BASE + '/__levels.html', function (r) {
-      r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="' + AUDIO + '"></script><script src="/__old-audio.js"></script>' +
-                  '<script src="/__base-audio.js"></script><script src="/__nobowl-audio.js"></script>' });
-    });
-    await page.route(BASE + '/__old-audio.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: oldSrc }); });
-    await page.route(BASE + '/__base-audio.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: baseSrc }); });
-    await page.route(BASE + '/__nobowl-audio.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: noBowlSrc }); });
-    await page.goto(BASE + '/__levels.html');
-    await page.evaluate(harness);
+    // the engine of release 1.20.0 (before the sound came in gently), and this engine's copies for the controls of "Coming in"
+    var wasSrc;
+    try { wasSrc = childProcess.execFileSync('git', ['show', START_BASE + ':' + AUDIO.slice(1)], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
+    catch (e) { wasSrc = childProcess.execFileSync('git', ['show', START_BASE + ':audio.js'], { cwd: ROOT, encoding: 'utf8' }); }   // (a base from before the file moved)
+    var scripts = { '/__old-audio.js': oldSrc, '/__base-audio.js': baseSrc, '/__nobowl-audio.js': noBowlSrc,
+                    '/__was-audio.js': wasSrc.replace('root.HourglassAudio = HourglassAudio;', 'root.HourglassAudioWas = HourglassAudio;') };
+    START_COPIES.forEach(function (c) { scripts['/__' + c[0] + '.js'] = engineCopy(nowSrc, c[0], c[2]); });
+    /** A fresh page with every engine loaded and the harness in place. */
+    var open = async function () {
+      var pg = await browser.newPage();
+      pg.on('pageerror', function (e) { errors.push(e.message); });
+      await pg.route(BASE + '/__levels.html', function (r) {
+        r.fulfill({ contentType: 'text/html', body: '<!doctype html><meta charset="utf-8"><script src="' + AUDIO + '"></script>' +
+                    Object.keys(scripts).map(function (u) { return '<script src="' + u + '"></script>'; }).join('') });
+      });
+      await Promise.all(Object.keys(scripts).map(function (u) {
+        return pg.route(BASE + u, function (r) { r.fulfill({ contentType: 'text/javascript', body: scripts[u] }); });
+      }));
+      await pg.goto(BASE + '/__levels.html');
+      await pg.evaluate(harness);
+      await pg.evaluate(startHarness);
+      return pg;
+    };
+    var P = { page: await open(), open: open };
+    try { await comingIn(P); }
+    catch (e) { report(false, 'coming in: the cases ran to their end', String(e && e.stack || e).split('\n').slice(0, 3).join(' | ')); }
+    var page = P.page;
+    if (ONLY === 'start') { report(errors.length === 0, 'no page errors', errors.join(' | ')); return; }
 
     var res = await page.evaluate(async function () {
       var A = window.HourglassAudio, OLD = window.HourglassAudioOld, out = {};
@@ -733,8 +1181,9 @@ async function main() {
     await browser.close();
     server.close();
   }
-  console.log('\n' + (cases - failures) + ' checks, ' + failures + ' failed');
-  process.exit(failures ? 1 : 0);
 }
 
-main().catch(function (e) { console.error(e); process.exit(1); });
+main().then(function () {
+  console.log('\n' + (cases - failures) + ' checks, ' + failures + ' failed');
+  process.exit(failures ? 1 : 0);
+}, function (e) { console.error(e); process.exit(1); });

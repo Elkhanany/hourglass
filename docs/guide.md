@@ -190,6 +190,18 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
 - **Ambience**: None, Brook, Rain, Ocean, Waterfall or Drips behind the
   sand (the one you tap plays long enough to be heard), and its own level
   under the cards while one is chosen.
+  When a glass starts, the sand is heard first: its sound comes up over
+  about a second and a half. The ambience stays silent for about two
+  seconds, then comes in slowly over about eight more, so it is at its
+  level some ten seconds after the start (from 1.20.1; before, it was there
+  within a second, ahead of the first grain). A short glass takes less: a
+  twentieth of its time silent and a quarter of it rising at most (a
+  10-second glass half a second, then two and a half). After a pause both
+  come back sooner, the sand in about half a second and the ambience in
+  about three, from the level it still has; a pause in the middle of a
+  start's rise, then a resume, carries on with that rise. A glass turned
+  over while it runs, and the turns of work and rest, are no start: the
+  ambience goes on through them as it is.
 - **Fade out before the end** (while an ambience is chosen): the ambience
   falls away over the glass's last minute, last 5 minutes or last 10 minutes
   (turned on, it starts at 5), so the glass ends in quiet; the sand and the
