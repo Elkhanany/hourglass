@@ -481,7 +481,18 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   it whole, and a theme or layered sand chosen while the GPU sand runs (the
   new colours at once; a re-tone that moves no grain); and `?debug=sand`
   and the row's "Copy a report", whose report carries the start-up times
-  and the stream's first fall to the reports. The monitor every suite runs (`stubs/page-init.js`) follows
+  and the stream's first fall to the reports. Its LIGHT case holds that
+  Tune's Light and the look reach Real sand, with the real adapter and the
+  app's own Renderer on the mock chip: at the handover the engine is told
+  the saved light and the look shown, and its frames are drawn with that
+  look's constants and the room's key; a change of look is told on the
+  frames of the fade, with shares between the looks that never go back, and
+  ends on exactly the light look's; the row's Soft takes the light out of
+  the engine's frames and the classic sand's, Sunlit puts it back; with a
+  slow start, the look and the row changed while the engine is not ready
+  break nothing, and the engine takes over with what they are by then. Its
+  control is an app that never tells the engine, which stays soft.
+  The monitor every suite runs (`stubs/page-init.js`) follows
   `Hourglass.sim` when Real sand takes over, and checks the GPU's readbacks
   against its count (`audit()`). `app-regression`'s service worker check
   serves a new build of the engine midway: the app keeps its cached engine,
@@ -829,11 +840,29 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   at 0 as before, covers the whole frame); after a second without readbacks the
   agitation that had faded stays faded; and the same motion of the same GPU
   bed is the same sound at the phone's, a tablet's, the Fine and the Finest
-  lattice.
+  lattice. The sand's light (`setLight`): a `RealSand` is soft until told;
+  told Sunlit, the glass asleep is drawn once more with the classic sand's
+  key (`KEY_LIGHT`), the look's constants with the sand's own in them as
+  the Renderer gives them, and the Renderer's sunlit colour table, each
+  seed's kind in its alpha byte (another sand has another key: the
+  control); the grains have the drawn bore's half-width per row; the same
+  light again draws nothing, and each step of a fade is drawn once with its
+  own table and constants, a + (b - a) m; the key is turned back by the
+  glass's angle against the room, and in the first frame after a swap it is
+  upright again with the points and the relief starts afresh (a key turned
+  back by the rotor's CSS angle, a frame old, would point down and to the
+  right there: the control); Soft again leaves every other field of the
+  look as it was, and `_look()`'s text is the base's with the one field
+  added (a grain drawn a little larger is found out); with no Renderer to
+  give the tables the sand draws on soft, no error.
   `realsand-shell` checks the service worker's shell for Real sand: every
   path in it exists (one missing would fail the whole install), every module
   `realsand/boot.mjs` loads and every shader of the engine is in it, and
   `app.js`, the lab, the engine and its shaders name the same build stamp.
+  The sunlit sand's relief shader (`relief.wgsl`), which the grains load
+  beside their own, is named by them, held by the shell and named in the
+  engine's licences; its control is a shell without it, found out by the
+  check on the shaders the engine names.
   `realsand-gpu` runs only when named (`node tools/test/run-all.js
   realsand-gpu`, about 47 minutes on a shared four-core machine, every core
   busy, when Tune offered seven shapes; SHAPES takes about 5 minutes for
@@ -843,7 +872,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   hundredths of real time, so once the engine has started the page's clock
   is made virtual (its time, frames and timers driven by the test, a frame
   at a time, each once the chip has done the last), and the sand runs at
-  real time in it. Nine cases, the first eight on 10 s glasses: the start and the handover;
+  real time in it. Ten cases, the first nine on 10 s glasses: the start and the handover;
   the bed's sounds before the start (nothing while asleep; flicked along the
   glass as `motion.js` reports a flick, a thump of the energy of the bed's
   fastest fall, fed within 6 frames of that fall and as loud as the classic
@@ -867,12 +896,33 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   a Flip at 4 s; a pour, then real motion turning the glass over while sand
   is poured; 30 s hidden and caught up by one transfer; and the chip lost
   mid-run (the CPU sand at the same counts in the same frame, the clock
-  untouched, then back). Then each shape Tune offers, the page loaded in
+  untouched, then back). LIT is the sunlit sand (Tune's Light), measured on
+  the engine's own canvas: under Sunlit the sand's side toward the screen's
+  left is the brighter by at least 1.2 to 1 in relative luminance, upright
+  and at rest, in both looks, and under Soft the two sides are alike (the
+  control). Soft is the picture of before: the grain renderer of the commit
+  before the sunlit sand (`9937dc8`, its `grains.mjs` and `grains.wgsl`
+  taken from git; `HOURGLASS_SOFT_BASE` names another, as for `render-unit`)
+  draws the same points with the same look in the same commands on a canvas
+  of its own, and the two canvases are equal byte for byte at rest, with
+  the stream running, at every fourth frame of a full turn and after it;
+  under Sunlit nearly every pixel differs (the control). After that turn,
+  with the engine's points turned end for end, a new glass is lit from the
+  screen's left as before. Through a second full turn, under Sunlit, the key
+  each frame is drawn with, as the screen then shows the canvas, is the
+  room's (`KEY_LIGHT`) in every frame, the swap's too, and while the glass
+  leans on its way over (17 to 57 degrees) the lit side is the screen's
+  left; the key turned back by the rotor's CSS angle as it stood when the
+  frame was drawn, which the soft bead goes by, is a frame behind the turn
+  (the control). A bed that has turned over lies to one side of the glass,
+  so there the new glass is measured, not the bed. LIT takes about four
+  minutes with the engine's start (`--only boot,lit`). Then each shape Tune
+  offers, the page loaded in
   it: a 60-minute glass filled to its cap with exactly the ledger's points
   on the chip, and a 10 s glass whose last grain crosses within one frame
   after 00:00.0. With `--shots <dir>` it saves pictures of the app with
   Real sand on, each shape mid-run among them. `--only <case>[,<case>...]`
-  (BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, SHAPES, as its log
+  (BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, SHAPES, as its log
   names them, any letter case) runs those cases alone, in that order: the
   engine is always started, a case sets up what it needs from the one
   before it, a name that is no case is an error that lists them, and the

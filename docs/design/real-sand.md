@@ -449,6 +449,13 @@ a 2-D canvas, since a headless browser's WebGPU canvas cannot be read back.
   inside the glass the app draws.
 - **The light.** Grains are lit from the room's upper left. The canvas turns
   with the glass, so the light is turned back by the glass's angle on screen.
+  Since Tune has Light (Sunlit, Soft), Sunlit lights the bed as the classic
+  sand's is lit, by the same key, constants and colour table: each grain's
+  light is worked out in the vertex stage (the bore's normal for the body
+  against the glass, the beds' relief for the free surface, a bead in
+  flight), and two read-only compute passes make the relief from the points
+  each frame. Soft is this section's picture, unchanged. How it works is in
+  `docs/engines.md`, "Real sand under the same light".
 - **Blur.** A grain in flight is drawn as the streak it makes in one display
   frame; a grain with sand crowded around it (a bed moving as a whole) is
   drawn sharp.

@@ -159,12 +159,80 @@ takes about the same time under Sunlit as Soft does (about 1 ms on a
 desktop JIT for either). The timer, the physics and the sound read nothing
 of it: the light only reads the bed.
 
-Real sand is told the light and the look through the adapter, where it has
-the method: `real.setLight(light, m)`, `light` 'sunlit' or 'soft', `m` how
-much of the light look is shown (0 the dark, 1 the light, between while the
-looks fade). The app calls it when Real sand takes over, on every frame of a
-fade and at its end, and when the row changes; an engine without it draws on
-as before.
+#### Real sand under the same light
+
+Real sand is lit by the same key, with the same constants and the same
+colours, so that with Real sand on or off the heap is lit from the same side
+with the same strength (measured on the same half-run glass, the crater's
+lit side over its shaded one, relative luminance: light look 1.71 to the
+classic sand's 1.62, dark look 1.56 to 1.48).
+
+- **What it is told.** `real.setLight(light, m)`: `light` 'sunlit' or 'soft',
+  `m` how much of the light look is shown (0 the dark, 1 the light, between
+  on every frame of a fade). The app calls it (`sandLightTo`) when Real sand
+  takes over, on every frame of a fade and at its end, and when the row
+  changes; an engine without the method draws on as before, and a `RealSand`
+  that was never told is soft (the lab never tells it).
+- **Nothing is copied.** The adapter reads the key from
+  `HourglassPhysics.KEY_LIGHT` and asks the app's Renderer for the look's
+  tables (`renderer.sunTables(m)`: the constants with the sand's `sun` record
+  in them, and the 48 × 256 colour table the classic sand itself draws
+  with). The table goes to the graphics chip as it is, each seed's kind
+  (plain, glossy, mica) in its alpha byte; it is made again when the look,
+  the sand or layered sand's tone changes, on each frame of a fade too.
+- **The key's turn.** The canvas turns with the glass, so the key is turned
+  back by the glass's angle against the room, `angle + tilt`, read from the
+  engine's own fields when the frame is drawn. At a swap the points and the
+  angle change in the same call, so the lit side never jumps. (The bead's
+  light of the soft picture is turned back by the rotor's CSS angle, which
+  the app sets after the sand is drawn: a frame behind, and left as it was
+  so that Soft stays the picture of before.)
+- **Per grain, in the vertex stage** (`realsand/shaders/grains.wgsl`): the
+  body's normal from the drawn bore's half-width at the grain's height (the
+  half-widths go to the chip beside the neck's warp, a row each), the light
+  through the glass, the contact shade, the depth's darkening; near the top
+  of its bed the free surface's light instead; a grain in flight (little sand
+  round it) the bead's mean light. That light, times the grain's own shade,
+  picks a level of the colour table; the grain carries the colours three
+  levels down and three up as well, and the fragment stage keeps its bead:
+  the side toward the key the brighter colour, the far side the darker (the
+  classic bead has a lit and a dark pixel so). A grain's facet is a tilt
+  from a hash of its index (a moving grain's tumbles); it glints, a small
+  spot of the sand's glint colour, when it faces the key's mirror direction,
+  mica from further off than a glossy grain, and only a share of the grains
+  can (the sand's `glints`).
+- **The free surface** (`realsand/shaders/relief.wgsl`, two small compute
+  passes encoded before the grains are drawn). The first finds, per column of
+  the grid and per bulb, the highest point that lies in a bed: crowded, slow
+  (under 2 % of a free fall over the glass), and not within a cell under the
+  counting line, where the stream leaves the neck from rest. (The tally's own
+  `surface` is the highest point slower than 2 cells a second, for the heap's
+  angle: on a bed that still creeps it lies up to ten cells under the top.)
+  The second makes each column's light as the classic sand's column pass
+  does: the slope over three spans, a horizon test toward the key at 1, 2,
+  3, 5, 8 and 11 columns, the ambient and the key on the surface's normal.
+  A column's height is half the last frame's and half the new, so the crest
+  does not flicker by a grain; a column with no bed point keeps its height
+  for 20 frames; a gap between two columns takes the height between them.
+  After a fill or a swap nothing is kept from before. Both passes only read
+  the solver's points; they write two buffers of their own (read and
+  written in turn, so no thread reads what another writes).
+- **Soft is the picture of before, exactly.** Under Soft the look given to
+  the grains has no light, the shader takes the lines it always took, and no
+  relief pass is encoded. `realsand-gpu`'s LIT case holds it: the grain
+  renderer of the commit before this one draws the same points beside the
+  engine's own, and the two pictures are equal byte for byte.
+- **Cost.** Per grain corner the vertex stage adds about 75 arithmetic
+  operations, three `exp`, one `sqrt`, two hashes and five loads from
+  buffers (two half-width rows, one relief entry, three colours); per
+  fragment about 12 operations in place of the soft bead's 15. Per frame:
+  one dispatch over the points (six loads and at most one atomic maximum
+  each), one of five workgroups over the columns, a 49 kB table when the
+  look or the sand changes. On this project's test machine (WebGPU in
+  software, where the physics is nearly all of a frame) a drawn frame took
+  the same time under Sunlit as under Soft to within the run-to-run spread
+  (see `docs/testing.md`, the LIT case). On a phone it has not been
+  measured.
 
 Grain counts depend on the duration: on phones from about 10,000 (one minute)
 to 21,000 (45 minutes), up to 24,000 after adding sand; roughly 45 % more on
@@ -816,10 +884,12 @@ and layered sand's second tone are the same as the classic sand's and change
 with them at once. The solver's neck is a little wider than the drawn one, so
 each grain is drawn pulled in toward the axis near the neck (by the drawn
 width over the simulated one, row by row) and the sand lies inside the glass
-the app draws. The grains are lit from the upper left of the room: the canvas
-turns with the glass, so the light is turned back by the glass's angle on
-screen. Grains in flight are drawn as their streaks, a bed moving as a whole
-sharp (the lab's rule). Reset is drawn as the classic sand draws it, in about
+the app draws. The grains are lit from the upper left of the room: under
+Tune's Sunlit by the classic sand's own key, body, free surface and glints
+(see "Real sand under the same light" above); under Soft each grain is a bead
+lit from that side and no more, the canvas's turn taken back by the glass's
+angle on screen. Grains in flight are drawn as their streaks, a bed moving as
+a whole sharp (the lab's rule). Reset is drawn as the classic sand draws it, in about
 a second: the old sand drawn into the neck (every grain's squared distance
 from the neck falling by the same amount, the sand frozen), then the new bed
 shown from the neck up under a rising heap, with the thread that pours it.

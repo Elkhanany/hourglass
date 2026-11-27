@@ -156,6 +156,8 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   it stays upper left when the glass is leaned or turned over. In the light
   look the sand is lit more brightly and warmly than in the dark one, where it
   keeps its calm. Soft is the even light the sand had before 1.21.0, exactly.
+  Both sands take the same light: with Real sand on, the heap is lit from
+  the same side and as strongly as the classic sand's.
   Nothing else changes with it: not the timer, the flow or the sounds. *Put
   the look and sound back as they came* puts it back to Sunlit.
 - **In the hand: Real motion**: the sand feels what the phone feels. Lean it

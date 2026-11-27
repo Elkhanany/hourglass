@@ -78,7 +78,7 @@ var paths = require('./lib/paths.js');
 var ROOT = paths.ROOT;
 var t0 = Date.now(), count = 0, failures = 0;
 function log(s) { console.log(s); }
-function check(ok, what) { count++; if (!ok) failures++; log((ok ? 'ok    ' : 'FAIL  ') + what); }
+function check(ok, what, detail) { count++; if (!ok) failures++; log((ok ? 'ok    ' : 'FAIL  ') + what + (detail ? ': ' + detail : '')); }
 function f1(x) { return isFinite(x) ? x.toFixed(1) : String(x); }
 var tick = function () { return new Promise(function (r) { setImmediate(r); }); };
 
@@ -196,6 +196,8 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     Grains.prototype.init = async function () {};
     Grains.prototype.bind = function () {};
     Grains.prototype.setPalette = function (p) { this.pal = p; };
+    Grains.prototype.setWarp = function (warp, cx, cy, half, columns) { this.warp = { rows: warp && warp.length, half: half, columns: columns }; };
+    Grains.prototype.setTones = function (t) { this.tones = t; this.toneSets = (this.toneSets || 0) + 1; };
     Grains.prototype.encode = function (enc, n, look) { this.draws++; this.look = look; };
     Grains.prototype.present = function () {};
     return {
@@ -1631,6 +1633,109 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   var rXA = await XA.attach({ glass: glassFor(P.makeGeometry(1.08)) });
   check(rXA.glass.geo.shape !== XA.cpu.geo.shape, '... and a delta glass given the classic glass\'s field is found out (control)');
   check(shapeOk, 'every shape: a 10 s and a 5-minute glass run to their end, the last point out within a frame or two of 00:00.0, none early: ' + shapeRuns.join('; '));
+  /* ------------------------------------------------------------------------------------ *
+   *  The sand's light (Tune's Light: Sunlit, Soft): setLight(light, m)
+   * ------------------------------------------------------------------------------------ */
+  /** The app Renderer's sand tables without its canvases: a sand's colour table and, from it, its sunlit tables (sunTables). */
+  function sandRenderer(id) {
+    var R = Object.create(P.Renderer.prototype);
+    R.lut = new Uint32Array(48 * 256); R.isMica = new Uint8Array(256); R.hiBoost = new Uint8Array(256); R.emit = new Float32Array(256); R.aoTab = new Uint8Array(256);
+    R.layers = false; R._sunRev = 0; R.mix = 0; R.theme = P.SANDS[id];
+    R._buildLUT();
+    return R;
+  }
+  var K0 = P.KEY_LIGHT, near = function (a, b, e) { return Math.abs(a - b) <= (e || 1e-9); };
+  var LT = makeApp({ ms: 10000, seed: 211 }), RL = sandRenderer('moonstone');
+  var rLT = await LT.attach({ renderer: RL }); LT.calibrate(); LT.T.rem = LT.T.durationMs; LT.T.state = 'paused';
+  await LT.run(3500);
+  var gL = LT.env.grains, lookSoft = gL.look, base0 = JSON.stringify([lookSoft.m, lookSoft.o, lookSoft.r, lookSoft.liquid, lookSoft.exposure, lookSoft.flight, lookSoft.light, lookSoft.sweep]);
+  check(lookSoft.lit === null && !gL.tones && rLT.modes.mode === 'asleep', 'a RealSand is under the soft light until it is told: its frames carry no light (look.lit null), and no table is made');
+  /** What the next frame is drawn with after fn(), the glass asleep: the look, whether a frame was drawn at all, the tables made. */
+  async function litAfter(fn) {
+    var d0 = gL.draws, t0 = rLT.n.litTables, r0 = rLT.n.redraws, enc = gL.encode, first = null;
+    gL.encode = function (e, n, look) { if (!first) first = look; return enc.call(this, e, n, look); };
+    fn();
+    var woke = rLT.isActive();
+    await LT.run(100);
+    gL.encode = enc;
+    // (first: the first frame drawn after fn; look, lit: the last)
+    return { first: first, look: gL.look, lit: gL.look.lit, draws: gL.draws - d0, tables: rLT.n.litTables - t0, redraws: rLT.n.redraws - r0, woke: woke, asleep: rLT.modes.mode === 'asleep' };
+  }
+  function keyAt(th) { var c = Math.cos(th), sn = Math.sin(th); return [c * K0[0] - sn * K0[1], sn * K0[0] + c * K0[1], K0[2]]; }
+  function isKey(v, th) { var k = keyAt(th); return near(v[0], k[0], 1e-6) && near(v[1], k[1], 1e-6) && near(v[2], k[2], 1e-6); }
+  // sunlit in the light look: the key, the constants and the colours are the classic sand's own
+  var s1 = await litAfter(function () { rLT.setLight('sunlit', 1); }), k1 = RL._sunConsts(1), t1 = RL.sunTables(1), li = s1.lit || {};
+  var half1 = (function () { var l = Math.hypot(K0[0], K0[1], K0[2] + 1); return [K0[0] / l, K0[1] / l, (K0[2] + 1) / l]; })();
+  var constsOk = !!s1.lit && ['A', 'K', 'X', 'wrap', 'C', 'kw', 'kd', 'wd'].every(function (n) { return li[n] === k1[n]; });
+  var tonesOk = !!gL.tones && gL.tones.length === 48 * 256 && (function () {
+    for (var i = 0; i < gL.tones.length; i++) {
+      var sd = i & 255, kind = RL.isMica[sd] ? 253 : (RL.hiBoost[sd] > 3 ? 254 : 255);
+      if (gL.tones[i] !== (((t1.lut[i] & 0x00ffffff) | (kind << 24)) >>> 0)) return false;
+    }
+    return true;
+  })();
+  check(s1.woke && s1.draws === 1 && s1.redraws === 1 && s1.asleep && s1.tables === 1 && !!s1.lit && isKey(li.key, 0) && near(li.half[0], half1[0], 1e-6) && near(li.half[2], half1[2], 1e-6),
+    'setLight(\'sunlit\', 1): the glass asleep is drawn once more, lit by the classic sand\'s key (P.KEY_LIGHT, upright: the room\'s own direction), with half way to the eye for the glints',
+    s1.lit ? 'key ' + li.key.map(function (v) { return v.toFixed(3); }).join(', ') : 'no light in the look');
+  check(constsOk && near(li.K, P.SUNLIT.paper.K * 0.76, 1e-9) && li.A === P.SUNLIT.paper.A && near(li.cells, rLT.s) && li.share === 0.10 && li.mica === 0.955 &&
+    near(li.glint[0], RL.theme.glint[0] / 255) && li.still > 0 && li.slow > li.still,
+    '... with the light look\'s constants (sand/sands.js SUNLIT.paper) and the sand\'s own in them, as the Renderer gives them (Moonstone\'s key on paper 0.76 of it: K ' +
+    (li.K || 0).toFixed(3) + '), the grid\'s cells per app cell, the sand\'s share of glints and its glint colour');
+  check(tonesOk, '... and its colours are the Renderer\'s own sunlit table for that look (sunTables: 48 levels x 256 seeds), each seed\'s kind in the alpha byte (mica, glossy, plain)');
+  check(gL.warp && gL.warp.half && gL.warp.half.length === gL.warp.rows && gL.warp.columns === rLT.glass.W &&
+    near(gL.warp.half[Math.floor(rLT.glass.cy) + 40], rLT.glass.halfDrawn(Math.abs(Math.floor(rLT.glass.cy) + 40.5 - rLT.glass.cy)), 1e-5),
+    '... the grains have the drawn glass\'s half-width per grid row (the bore the body of sand lies against) and the grid\'s width');
+  // control: another sand has other constants
+  var kSah = sandRenderer('sahara')._sunConsts(1);
+  check(kSah.K !== k1.K && near(kSah.K, P.SUNLIT.paper.K * 0.95, 1e-9), '... and another sand another key (control: Sahara\'s on paper is 0.95 of it, ' + kSah.K.toFixed(3) + ')');
+  // the same again changes nothing; the fade's steps mix every constant by the same share, each drawn, each with its table
+  var same = await litAfter(function () { rLT.setLight('sunlit', 1); });
+  var steps = [0.75, 0.5, 0.25, 0], fadeOk = true, fadeSeen = [];
+  for (var fi = 0; fi < steps.length; fi++) {
+    var mF = steps[fi], sF = await litAfter(function () { rLT.setLight('sunlit', mF); }), kF = RL._sunConsts(mF);
+    var mixA = P.SUNLIT.dark.A + (P.SUNLIT.paper.A - P.SUNLIT.dark.A) * mF, mixWrap = P.SUNLIT.dark.wrap + (P.SUNLIT.paper.wrap - P.SUNLIT.dark.wrap) * mF;
+    fadeOk = fadeOk && sF.draws === 1 && sF.tables === 1 && !!sF.lit && sF.lit.A === kF.A && sF.lit.K === kF.K && near(sF.lit.A, mixA, 1e-12) && near(sF.lit.wrap, mixWrap, 1e-12) && sF.asleep;
+    fadeSeen.push(mF + ': A ' + (sF.lit ? sF.lit.A.toFixed(3) : '?'));
+  }
+  check(!same.woke && same.draws === 0 && same.tables === 0 && fadeOk && gL.look.lit.A === P.SUNLIT.dark.A && near(gL.look.lit.K, P.SUNLIT.dark.K, 1e-12),
+    'the same light again draws nothing; each step of a fade between the looks (m 0.75, 0.5, 0.25, 0) is drawn once with its own table and constants, a + (b - a) m, and at 0 exactly the dark look\'s',
+    fadeSeen.join('; '));
+  // the light stays in the room: leaned, and at a swap (the glass turned over) in the swap's own frame
+  var sLean = await litAfter(function () { rLT.angle = 0.5; rLT._redraw = true; });
+  var beforeSwap = await litAfter(function () { rLT.angle = Math.PI - 0.01; rLT._redraw = true; });
+  // (the rotor's CSS turn is the frame before's, as in the app, where it is set after the sand is drawn)
+  rLT.o.rotor = { style: { transform: 'rotate(' + (Math.PI - 0.01).toFixed(4) + 'rad)' } };
+  var swap = await litAfter(function () { rLT.completeFlip(); });
+  var swapLit = swap.first && swap.first.lit, oldRule = keyAt(swap.first ? swap.first.light : 0);
+  check(!!sLean.lit && isKey(sLean.lit.key, 0.5) && !!beforeSwap.lit && isKey(beforeSwap.lit.key, Math.PI - 0.01) && !!swapLit && isKey(swapLit.key, 0) && swapLit.fresh && !beforeSwap.lit.fresh &&
+    !swap.lit.fresh && rLT.valve.parity === 1,
+    'the key is turned back by the glass\'s angle against the room (leaned 0.5 rad; just short of half a turn), and in the first frame after a swap it is upright again with the points: the lit side does not jump, and the beds\' relief starts afresh for that frame alone',
+    swapLit ? 'the swap\'s frame: key ' + swapLit.key.map(function (v) { return v.toFixed(3); }).join(', ') : 'no frame drawn');
+  check(!!swap.first && near(swap.first.light, Math.PI - 0.01, 1e-3) && oldRule[0] > 0.5 && oldRule[1] < -0.3,
+    '... while a key turned back by the rotor\'s CSS angle (the frame before\'s, as the bead\'s light of before) would point down and to the right in that frame (control)',
+    'x ' + oldRule[0].toFixed(2) + ', y ' + oldRule[1].toFixed(2));
+  // soft again: no light in the look, and what the grains are otherwise given is what it was before any light
+  rLT.o.rotor = null;
+  var back = await litAfter(function () { rLT.setLight('soft', 0); });
+  var baseNow = JSON.stringify([back.look.m, back.look.o, back.look.r, back.look.liquid, back.look.exposure, back.look.flight, back.look.light, back.look.sweep]);
+  check(back.draws >= 1 && back.first.lit === null && back.lit === null && baseNow === base0 && Object.keys(back.look).sort().join() === 'exposure,flight,light,liquid,lit,m,o,r,sweep',
+    'setLight(\'soft\'): the next frame has no light in its look, and every other field of the look is as before any light was set');
+  // the look's own lines are the base's: the fields of before are worked out by the same text
+  var lookOf = function (src) { var m = /\n  _look\(hz\) \{\n([\s\S]*?)\n  \}\n/.exec(src); return m ? m[1] : null; };
+  var lookHead = lookOf(adapterSrc), SOFT_BASE = process.env.HOURGLASS_SOFT_BASE || '9937dc8', lookBase = null;
+  try { lookBase = lookOf(require('./lib/base.js').show(SOFT_BASE, 'realsand/app-sand.mjs')); } catch (eB) { /* (checked below) */ }
+  var strip = function (t) { return t.split('\n').filter(function (l) { return !/^\s*(\/\/ the sunlit sand|lit: this\._litLook)/.test(l); }).join('\n').replace(/_sweepLook\(\),\n/, '_sweepLook()\n'); };
+  check(!!lookHead && !!lookBase && strip(lookHead) === lookBase,
+    'under the soft light the look is the base\'s (' + SOFT_BASE + '): _look()\'s text is its text with the one field lit added', lookBase ? '' : 'the base\'s app-sand.mjs is not had from git');
+  check(!!lookHead && !!lookBase && strip(lookHead.replace('0.75 / css.dpr', '0.8 / css.dpr')) !== lookBase, '... and a grain drawn a little larger is found out (control)');
+  // without a Renderer that gives the tables, or without the classic sand's key, the sand stays as it was: nothing breaks
+  var NL = makeApp({ ms: 10000, seed: 213 }), rNL = await NL.attach(); NL.calibrate(); NL.T.rem = NL.T.durationMs; NL.T.state = 'paused';
+  await NL.run(600);
+  rNL.setLight('sunlit', 1);
+  var wokeNL = rNL.isActive();
+  await NL.run(100);
+  check(wokeNL && NL.env.grains.look.lit === null && rNL.n.errors === 0, 'with no Renderer to give the sunlit tables (the lab, a test) setLight draws on under the soft light: no error, look.lit null');
+
   // the control: the same delta glass on a neck that passes too little sand for its pace (60 points a
   // second where it needs about 170) must end late, and be found out
   var CD = makeApp({ ms: 10000, seed: 331, shape: 'delta', plant: { q0: 60 } });

@@ -50,6 +50,21 @@
  *  LOSS    the device destroyed mid-run and reported lost: the CPU sand takes over in the same
  *          frame with the ledger's counts, the clock untouched, its canvas shown; Real sand is
  *          rebuilt and takes the sand back;
+ *  LIT     the sunlit sand (Tune's Light), on the engine's own canvas. Sunlit: the sand's side toward
+ *          the screen's left is the brighter by a set margin, in both looks; under Soft the two
+ *          sides are alike (the control). Soft is the picture of before: the grain renderer of the
+ *          base (LIT_BASE, its grains.mjs and grains.wgsl taken from git) draws the same points
+ *          with the same look in the same commands on a canvas of its own, and the two canvases
+ *          are equal byte for byte at rest, with the stream running, at every sampled frame of a
+ *          turn, and after it; under Sunlit they differ (the control). After that turn (the
+ *          engine's points now lie turned end for end) a new glass is lit from the screen's left
+ *          as before. Through a second full turn, under Sunlit, the key the grains are drawn with,
+ *          as the screen shows the canvas, stays the room's (KEY_LIGHT) in every frame, the
+ *          swap's too, and while the glass leans on its way over the lit side is the screen's
+ *          left; the key turned back by the rotor's CSS angle as it stood when the frame was
+ *          drawn, the rule the bead's light of before goes by, is a frame behind the turn (the
+ *          control). (Once turned over the bed lies to one side of the glass, all of it on the
+ *          lit side or the shaded one: no flanks to compare, so the new glass is.)
  *  SHAPES  each glass shape Tune offers, the page loaded in it (release 1.15.0): a 60-minute glass
  *          filled to its cap (the clock's full glass for that shape) with exactly the ledger's
  *          points on the GPU, none outside, the GPU's glass the shape's own; then a 10 s glass
@@ -66,7 +81,7 @@
  * browsers at once.
  *
  * --only <case>[,<case>...] runs those cases alone (the names above, any letter case; they run
- * in the order the log prints them: BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, SHAPES,
+ * in the order the log prints them: BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, SHAPES,
  * whatever the order named), and the last line names them, so the run is never read as the
  * whole suite; a name that is not a case is an error that lists the cases. The page is always
  * loaded and the engine started (BOOT's checks only when BOOT is named), and a case sets up
@@ -93,7 +108,9 @@ for (var i = 2; i < process.argv.length; i++) {
   else if (process.argv[i] === '--shapes') shapesArg = process.argv[++i] || '';
 }
 // the cases, in the order they run (whatever the order --only names them in)
-var CASES = ['BOOT', 'SOUND', 'RUN', 'RESET', 'FLIP', 'POUR', 'HIDDEN', 'LOSS', 'SHAPES'];
+var CASES = ['BOOT', 'SOUND', 'RUN', 'RESET', 'FLIP', 'POUR', 'HIDDEN', 'LOSS', 'LIT', 'SHAPES'];
+// LIT: the commit whose grain renderer draws "the picture of before" (HOURGLASS_SOFT_BASE names another; render-unit's too)
+var LIT_BASE = process.env.HOURGLASS_SOFT_BASE || '9937dc8';
 var ONLY = null;
 if (onlyArg !== null) {
   ONLY = onlyArg.split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean);
@@ -262,6 +279,95 @@ function installWatch() {
     var fr = H.sim.frame;
     if (W.keep) W.frames.push({ f: V.frames, now: Date.now(), rem: T.rem, state: T.state, nTop: H.sim.nTop, above: t ? t.above : -1,
       th: fr.thump[0] + fr.thump[2] + fr.slam[0], agit: H.sim.agitation() });
+  };
+}
+
+
+/**
+ * LIT, in the page: the base's grain renderer (its module and shader, given as text) beside the engine's own, on a
+ * canvas of its own, drawing the same points with the same look in the same commands; and what each drawn frame's
+ * key is on the screen. window.__lit: same() compares the two canvases, flanks() measures the engine's.
+ */
+async function installLit(a) {
+  var H = window.Hourglass, rs = H.realSand, g = rs.grains, V = window.__vt, K0 = window.HourglassPhysics.KEY_LIGHT;
+  var url = URL.createObjectURL(new Blob([a.mjs], { type: 'text/javascript' }));
+  var mod = await import(url);
+  var c0 = document.createElement('canvas');
+  c0.width = rs.canvas.width; c0.height = rs.canvas.height;
+  var g0 = new mod.GrainRenderer(rs.device, c0, { offscreen: true });
+  await g0.init({ module: function (device) { return Promise.resolve(device.createShaderModule({ code: a.wgsl })); } });
+  g0.bind(rs.solver.buffers.particles);
+  g0.setWarp(rs.glass.warp, rs.glass.cx, rs.glass.cy);
+  var L = window.__lit = { draws: 0, pair: 0, look: null, track: null, g0: g0 };
+  var setPal = g.setPalette.bind(g);
+  g.setPalette = function (p) { setPal(p); g0.setPalette(p); };
+  rs.setPalette();
+  var enc = g.encode.bind(g), pres = g.present.bind(g);
+  g.encode = function (e, n, look) {
+    var both = !g.copyPending && !g0.copyPending;
+    enc(e, n, look); g0.encode(e, n, look);
+    L.draws++; L.look = look;
+    if (both) L.pair = L.draws;             // (this frame's picture reaches both canvases)
+  };
+  g.present = function () { return Promise.all([pres(), g0.present()]); };
+  /** Until both canvases hold what was last drawn. */
+  L.settle = async function () {
+    for (var k = 0; k < 400 && (g.copyPending || g0.copyPending || g.copyQueued || g0.copyQueued); k++) await V.realSleep(5);
+  };
+  /** One frame whose picture both canvases hold (asleep, the glass is drawn again for it). */
+  L.frame = async function () {
+    await L.settle();
+    var d = L.draws;
+    if (rs.stats().mode === 'asleep') rs._redraw = true;
+    await V.frame();
+    await L.settle();
+    return L.draws > d && L.pair === L.draws;
+  };
+  /** The two canvases, pixel for pixel: how many differ, of how many drawn. */
+  L.same = function () {
+    var w = rs.canvas.width, h = rs.canvas.height;
+    var p = rs.canvas.getContext('2d').getImageData(0, 0, w, h).data, q = c0.getContext('2d').getImageData(0, 0, w, h).data, n = 0, drawn = 0;
+    for (var i = 0; i < p.length; i += 4) {
+      if (p[i + 3] || q[i + 3]) drawn++;
+      if (p[i] !== q[i] || p[i + 1] !== q[i + 1] || p[i + 2] !== q[i + 2] || p[i + 3] !== q[i + 3]) n++;
+    }
+    return { differ: n, drawn: drawn };
+  };
+  /** How the screen shows the canvas: the rotor's turn, and half a turn more while it holds a picture from before a swap (rad, clockwise). */
+  L.shown = function () { return rs._rotorAngle() + (rs._cssTurned ? Math.PI : 0); };
+  function lin(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  /**
+   * The sand on the engine's canvas, left and right of its own middle as the screen shows it: the mean relative
+   * luminance of each side (a twentieth of the canvas's width clear of the middle), and their ratio.
+   */
+  L.flanks = function () {
+    var w = rs.canvas.width, h = rs.canvas.height, d = rs.canvas.getContext('2d').getImageData(0, 0, w, h).data;
+    var th = L.shown(), c = Math.cos(th), sn = Math.sin(th), x, y, i, n = 0, mx = 0, xs;
+    for (y = 0; y < h; y += 2) for (x = 0; x < w; x += 2) { i = (y * w + x) * 4; if (d[i + 3] < 200) continue; n++; mx += (x - w / 2) * c - (y - h / 2) * sn; }
+    if (!n) return { n: 0, ratio: NaN };
+    mx /= n;
+    var S = [0, 0, 0, 0], gap = w / 20;
+    for (y = 0; y < h; y += 2) for (x = 0; x < w; x += 2) {
+      i = (y * w + x) * 4;
+      if (d[i + 3] < 200) continue;
+      xs = (x - w / 2) * c - (y - h / 2) * sn - mx;
+      var k = xs < -gap ? 0 : (xs > gap ? 2 : -1);
+      if (k < 0) continue;
+      S[k] += 0.2126 * lin(d[i]) + 0.7152 * lin(d[i + 1]) + 0.0722 * lin(d[i + 2]); S[k + 1]++;
+    }
+    return { n: n, left: S[0] / S[1], right: S[2] / S[3], ratio: (S[0] / S[1]) / (S[2] / S[3]), theta: th };
+  };
+  /**
+   * A drawn frame's key as the screen shows it (the canvas's axes turned by the shown angle): how far from the
+   * room's key (KEY_LIGHT) the key the grains were lit with lies, and the key turned back by the rotor's CSS
+   * angle as it was when the frame was drawn (look.light: the rule the bead's light of before goes by).
+   */
+  L.keyOff = function () {
+    var look = L.look, th = L.shown(), c = Math.cos(th), sn = Math.sin(th);
+    function off(kx, ky) { var sx = c * kx + sn * ky, sy = -sn * kx + c * ky; return Math.hypot(sx - K0[0], sy - K0[1]); }
+    var a = look.light, ca = Math.cos(a), sa = Math.sin(a);
+    return { lit: look.lit ? off(look.lit.key[0], look.lit.key[1]) : null, old: off(ca * K0[0] - sa * K0[1], sa * K0[0] + ca * K0[1]),
+      theta: th, parity: rs.valve.parity, fresh: !!(look.lit && look.lit.fresh) };
   };
 }
 
@@ -803,6 +909,111 @@ function installWatch() {
       return JSON.stringify({ log: (r.log || []).slice(-6), lost: rs && rs._lostInfo, n: rs && rs.stats().n });
     });
     check(lb.live && lb.real && lb.rstate === 'on', 'LOSS: Real sand is rebuilt and takes the sand back', lb.rstate + ': ' + lb.note + (why ? '; ' + why.slice(0, 900) : ''));
+    }
+
+    /* ---- LIT ------------------------------------------------------------- */
+    if (doCase('LIT')) {
+    var baseLib = require('./lib/base.js'), baseMjs = null, baseWgsl = null;
+    try { baseMjs = baseLib.show(LIT_BASE, 'realsand/grains.mjs'); baseWgsl = baseLib.show(LIT_BASE, 'realsand/shaders/grains.wgsl'); } catch (eb) { /* (checked below) */ }
+    check(!!baseMjs && !!baseWgsl, 'LIT: the grain renderer of ' + LIT_BASE + ' (grains.mjs, grains.wgsl) is had from git', baseMjs ? '' : 'git show failed: the commit is not in this clone');
+    if (baseMjs && baseWgsl) {
+    await newGlass();
+    await frames(30);
+    await page.evaluate(installLit, { mjs: baseMjs, wgsl: baseWgsl });
+    /** Tune's Light row and the look, by their own controls; then a frame both canvases hold. */
+    async function setLit(light, look) {
+      await page.evaluate(function (a) {
+        var b = document.querySelector('#lights [data-light="' + a.light + '"]');
+        if (b.getAttribute('aria-checked') !== 'true') b.click();
+        if (a.look) { var l = document.querySelector('[data-look="' + a.look + '"]'); if (l.getAttribute('aria-checked') !== 'true') l.click(); }
+      }, { light: light, look: look || null });
+      if (look) await page.waitForTimeout(450);          // (the looks' fade runs on the page's own animation clock)
+      await frames(3);
+    }
+    /** One frame both canvases hold: the two compared, the engine's flanks, the frame's key on the screen. */
+    function litFrame() {
+      return page.evaluate(async function () {
+        var L = window.__lit, ok = await L.frame(), rs = window.Hourglass.realSand;
+        return { ok: ok, same: L.same(), flanks: L.flanks(), key: L.keyOff(), light: rs._light, relief: rs.grains.n.relief, mode: rs.stats().mode };
+      });
+    }
+    var SUN = 1.2, f2 = function (v) { return v === v ? v.toFixed(2) : String(v); };
+    var look0 = await page.evaluate(function () { return document.documentElement.getAttribute('data-look') === 'light' ? 'light' : 'dark'; });
+    // upright, at rest: sunlit in the dark look and in the light, then soft
+    await setLit('sunlit', 'dark');
+    var uD = await litFrame();
+    await setLit('sunlit', 'light');
+    var uL = await litFrame();
+    await setLit('soft', 'dark');
+    var sA = await litFrame();
+    check(uD.ok && uL.ok && uD.light.on && uD.light.m === 0 && uL.light.m === 1 && uD.flanks.ratio >= SUN && uL.flanks.ratio >= SUN,
+      'LIT: sunlit, the sand\'s side toward the screen\'s left is the brighter, upright and at rest, in both looks (relative luminance, at least ' + SUN + ' : 1)',
+      'dark ' + f2(uD.flanks.ratio) + ' : 1, light ' + f2(uL.flanks.ratio) + ' : 1, ' + uD.flanks.n + ' pixels sampled');
+    check(sA.ok && !sA.light.on && sA.flanks.ratio < SUN && sA.flanks.ratio > 0.9 && sA.flanks.ratio < 1.1, 'LIT: ... and under Soft the two sides are alike (control)', f2(sA.flanks.ratio) + ' : 1');
+    check(sA.ok && sA.same.differ === 0 && sA.same.drawn > 5000, 'LIT: Soft is the picture of ' + LIT_BASE + ', byte for byte: at rest', JSON.stringify(sA.same));
+    check(uD.same.differ > 0.2 * uD.same.drawn && uL.same.differ > 0.2 * uL.same.drawn, 'LIT: ... while Sunlit is another picture (control)',
+      'dark ' + uD.same.differ + ' of ' + uD.same.drawn + ' pixels differ, light ' + uL.same.differ + ' of ' + uL.same.drawn);
+    // the stream running, soft
+    await page.evaluate(function () { window.Hourglass.start(); });
+    await frames(60);
+    var sB = await litFrame();
+    check(sB.ok && sB.same.differ === 0 && sB.same.drawn > 5000 && sB.mode !== 'asleep', 'LIT: Soft is the picture of ' + LIT_BASE + ': with the stream running', JSON.stringify(sB.same) + ', ' + sB.mode);
+    /** A Flip to its end, every 4th frame one both canvases hold: what each of those says. */
+    async function turn() {
+      await page.evaluate(function () { window.Hourglass.flipNow(); });
+      var out = [];
+      for (var k = 0; k < 400; k++) {
+        if (k % 4 === 0) out.push(await litFrame()); else await frames(1);
+        if (!(await page.evaluate(function () { return window.Hourglass.flip.active; }))) break;
+      }
+      out.push(await litFrame());
+      return out;
+    }
+    // a full turn under Soft: the base's picture in every sampled frame, the swap's and the leaned ones among them
+    var tS = await turn(), worst = 0, held = 0, leaned = 0;
+    tS.forEach(function (r) { if (r.ok) { held++; worst = Math.max(worst, r.same.differ); if (Math.abs(Math.sin(r.key.theta)) > 0.3) leaned++; } });
+    check(held >= 8 && leaned >= 3 && worst === 0, 'LIT: Soft is the picture of ' + LIT_BASE + ': through a full turn, in every sampled frame',
+      held + ' frames compared (' + leaned + ' with the glass leaned over 17 degrees), at most ' + worst + ' pixels differ');
+    await frames(120);
+    var sD = await litFrame();
+    check(sD.ok && sD.same.differ === 0 && sD.same.drawn > 5000, 'LIT: Soft is the picture of ' + LIT_BASE + ': after the turn', JSON.stringify(sD.same));
+    // after that full turn the engine's points lie turned end for end; a new glass (a Reset: the bed even again) is lit from the screen's left as before
+    await page.evaluate(function () { window.Hourglass.reset(); });
+    await frames(150, sweeping);
+    await frames(40);
+    await setLit('sunlit', null);
+    var aT = await litFrame();
+    check(aT.ok && aT.key.parity !== sB.key.parity && aT.flanks.ratio >= SUN && aT.key.lit < 0.01,
+      'LIT: after a full turn (the engine\'s points turned end for end) a new glass is lit from the screen\'s left as before',
+      f2(aT.flanks.ratio) + ' : 1, the key ' + aT.key.lit.toFixed(3) + ' from the room\'s');
+    // a second full turn, sunlit, every frame of it: the key stays the room's; leaned on the way over, the lit side is the screen's left
+    var tK = await page.evaluate(async function () {
+      var H = window.Hourglass, L = window.__lit, V = window.__vt, rs = H.realSand, out = { n: 0, lit: 0, old: 0, swap: null, lean: [] }, p0 = rs.valve.parity;
+      H.flipNow();
+      for (var k = 0; k < 400 && H.flip.active; k++) {
+        var d = L.draws;
+        await L.settle();
+        await V.frame();
+        if (L.draws === d || !L.look.lit) continue;
+        var o = L.keyOff(), t = Math.abs(o.theta);
+        out.n++; out.lit = Math.max(out.lit, o.lit); out.old = Math.max(out.old, o.old);
+        if (out.swap === null && rs.valve.parity !== p0) out.swap = { lit: o.lit, fresh: o.fresh };
+        if (rs.valve.parity === p0 && t > 0.3 && t < 1.0 && out.lean.length < 12) { await L.settle(); if (L.pair === L.draws) out.lean.push(L.flanks().ratio); }
+      }
+      return out;
+    });
+    var leanMin = tK.lean.length ? Math.min.apply(null, tK.lean) : NaN;
+    check(tK.n >= 30 && tK.lit < 0.01 && !!tK.swap && tK.swap.lit < 0.01 && tK.swap.fresh,
+      'LIT: through a full turn the key the grains are lit with is the room\'s, as the screen shows the canvas, in every frame drawn, the swap\'s too (whose relief starts afresh)',
+      tK.n + ' frames, at most ' + tK.lit.toFixed(4) + ' from KEY_LIGHT; the swap\'s frame ' + (tK.swap ? tK.swap.lit.toFixed(4) : 'not seen'));
+    check(tK.old > 0.02, 'LIT: ... while the key turned back by the rotor\'s CSS angle as it stood when the frame was drawn (the bead\'s light of before goes by it) is a frame behind the turn (control)',
+      'up to ' + tK.old.toFixed(3) + ' from KEY_LIGHT');
+    check(tK.lean.length >= 3 && leanMin >= SUN, 'LIT: leaned (17 to 57 degrees, on the way over) the lit side is the screen\'s left',
+      tK.lean.length + ' frames, ' + tK.lean.map(f2).join(', ') + ' : 1');
+    await frames(30);
+    // as it was found: the look, the light of the app (sunlit), the engine's own renderer alone
+    await setLit('sunlit', look0);
+    }
     }
 
     /* ---- SHAPES ---------------------------------------------------------- */
