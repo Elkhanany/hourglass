@@ -20,6 +20,10 @@
  *   SHIM     Hourglass.setTheme(id) is still the material of old: that sand over its own caps
  *   RELOAD   a sand, a finish and a custom colour come back after a reload
  *   NARROW   at 320 px: four sands a row, three finishes a row, every name whole, the well 44 px
+ *   ACCENT   each of the nine and a custom sand chosen in Tune, in both looks: the selected pill and
+ *            the Start button wear that sand's own accent, and no two of the ten are alike (at least
+ *            10 apart, CIEDE2000: 1.20.0's black sand and lapis were golds 4.3 and 6.0 from sahara's)
+ *            (release 1.20.1); pictures of the bottom bar for each go to $HOURGLASS_SHOTS
  *   NAMES    a save whose theme is a name every object has ({ v: 2, theme: 'valueOf' }) starts the
  *            app with the default look, saved so; a sound character 'toString' and an ambience
  *            'constructor' come up as the default sound, saved so (release 1.15.1)
@@ -34,6 +38,8 @@ var fs = require('fs');
 var path = require('path');
 var H = require('./stubs/harness.js');
 var tune = require('./lib/tune.js');
+var colour = require('./lib/colour.js');
+var SHOTS = process.env.HOURGLASS_SHOTS || '';
 var sleep = H.sleep;
 var KEY = 'hourglass.settings.v1';
 var SIX = ['sahara', 'volcanic', 'moonstone', 'lapis', 'rosequartz', 'seaglass'];
@@ -366,6 +372,56 @@ function narrowOk(m) {
            detail: js(m) };
 }
 
+/* ---- ACCENT (1.20.1) ------------------------------------------------------------------------ */
+var CUSTOM_ACCENT = '#b5522e';             // a terracotta: a custom sand of its own, like none of the nine
+var ACCENT_APART = 10;                     // CIEDE2000, the least between any two sands' accents
+async function accents(env, o, look) {
+  var t = await env.open(Object.assign({ init: pageInit, storage: { 'hourglass.settings.v1': { background: look } } }, o || {})), m = { look: look, sands: {} };
+  try {
+    await sleep(900);
+    var ids = NINE.concat(['custom']);
+    for (var i = 0; i < ids.length; i++) {
+      await tune.tap(t, '#sands [data-sand="' + ids[i] + '"]'); await settle(t);
+      if (ids[i] === 'custom') {
+        await tune.show(t, '#sand-color');
+        await t.eval(function (hex) {
+          var w = document.getElementById('sand-color');
+          w.value = hex; w.dispatchEvent(new Event('input', { bubbles: true })); w.dispatchEvent(new Event('change', { bubbles: true }));
+        }, CUSTOM_ACCENT);
+        await settle(t);
+      }
+      await tune.close(t);
+      await sleep(450);                    // (a pill's colour eases in over 0.22 s)
+      m.sands[ids[i]] = await t.eval(function () {
+        var root = document.documentElement, pill = document.querySelector('#durations .pill[aria-checked="true"]'), go = document.getElementById('btn-play');
+        return { look: root.getAttribute('data-look') || 'dark', accent: getComputedStyle(root).getPropertyValue('--accent').trim(),
+                 pill: pill ? getComputedStyle(pill).backgroundColor : null, start: go ? getComputedStyle(go).backgroundColor : null };
+      });
+      if (SHOTS && !o) {                   // (a control's pictures are not kept)
+        var box = await t.eval(function () { var r = document.querySelector('.panel').getBoundingClientRect(); return { x: 0, y: Math.max(0, r.top - 12), width: window.innerWidth, height: Math.min(window.innerHeight, r.bottom + 12) - Math.max(0, r.top - 12) }; });
+        await t.page.screenshot({ path: path.join(SHOTS, 'accent-' + look + '-' + (i + 1 < 10 ? '0' : '') + (i + 1) + '-' + ids[i] + '.png'), clip: box });
+      }
+    }
+    m.errors = t.errors.slice();
+    return m;
+  } finally { await t.close(); }
+}
+function accentsOk(m) {
+  var ids = Object.keys(m.sands), bad = [], min = 1e9, pair = '', i, j;
+  ids.forEach(function (id) {
+    var a = m.sands[id], c = colour.rgb(a.accent), p = colour.rgb(a.pill), g = colour.rgb(a.start);
+    if (a.look !== m.look || !c || !p || !g || p.join() !== c.join() || g.join() !== c.join()) bad.push(id + ' ' + js(a));
+  });
+  for (i = 0; i < ids.length; i++) for (j = i + 1; j < ids.length; j++) {
+    var p1 = colour.rgb(m.sands[ids[i]].pill), p2 = colour.rgb(m.sands[ids[j]].pill), d = p1 && p2 ? colour.de00(p1, p2) : 0;
+    if (d < min) { min = d; pair = ids[i] + '/' + ids[j]; }
+    if (d < ACCENT_APART) bad.push(ids[i] + ' and ' + ids[j] + ' ' + d.toFixed(1) + ' apart');
+  }
+  return { ok: ids.length === 10 && bad.length === 0 && m.errors.length === 0,
+           detail: (bad.slice(0, 4).join(' | ') || ids.map(function (id) { return id + ' ' + m.sands[id].pill.replace(/\s/g, ''); }).join(', ')) +
+                   '; the closest ' + pair + ' ' + min.toFixed(1) + ' ' + m.errors.slice(0, 2).join(' | ') };
+}
+
 /* ---- the run --------------------------------------------------------------------------------- */
 (async function () {
   var env = await H.start(), s = new H.Suite('app-look'), only = env.args.only;
@@ -440,6 +496,15 @@ function narrowOk(m) {
                       '  if (!window.HourglassAudio.AMBIENCES[settings.ambience]) settings.ambience = \'none\';')(src));
         }));
       }, namesOk);
+    }
+    if (wanted('accent')) {
+      for (var li = 0; li < 2; li++) {
+        var lk = ['dark', 'light'][li], ac = accentsOk(await accents(env, null, lk));
+        s.check('ACCENT: in the ' + lk + ' look each of the nine and a custom sand chosen in Tune puts its own accent on the selected pill and the Start button, and no two of the ten are within ' + ACCENT_APART + ' (CIEDE2000)', ac.ok, ac.detail);
+      }
+      await control('ACCENT: a style sheet with 1.20.0\'s gold for the black sand', null, function () {
+        return accents(env, { routes: [broken(env, 'styles.css', swap('  --accent: #9ba2ad;', '  --accent: #d9b061;'))] }, 'dark');
+      }, accentsOk);
     }
     if (wanted('narrow')) {
       var n = narrowOk(await narrow(env));

@@ -37,8 +37,8 @@
           "Book Antiqua", "Noto Serif", Cambria, "Times New Roman", serif;
 }
 [data-theme="volcanic"] {
-  --accent: #d9b061;
-  --accent-ink: #171003;
+  --accent: #9ba2ad;
+  --accent-ink: #0e1116;
   --glow: 214, 164, 78;
   --glow-a: 0.15;
 }
@@ -49,7 +49,7 @@
   --glow-a: 0.19;
 }
 [data-theme="lapis"] {
-  --accent: #d1ad5e;
+  --accent: #86a6f2;
   --accent-ink: #0a1022;
   --glow: 104, 136, 230;
   --glow-a: 0.16;
@@ -67,7 +67,7 @@
   --glow-a: 0.17;
 }
 [data-theme="garnet"] {
-  --accent: #e59aa2;
+  --accent: #ee8593;
   --accent-ink: #1c0a0d;
   --glow: 226, 110, 122;
   --glow-a: 0.16;
@@ -137,9 +137,12 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 .sheet:focus { outline: none; }      /* (a sheet given the focus itself, as Tune open again after a reload) */
 [hidden] { display: none !important; }
 
+/* The app fills the screen it is shown on, edge to edge: its box is the window's (inset: 0), never a
+   viewport unit. On an iPhone's home-screen app 100dvh can come out shorter than the screen, and
+   under the box it left the page's own flat ground showed as a band of another colour along the
+   bottom, behind the home indicator (1.20.1). */
 #app {
   position: fixed; inset: 0;
-  height: 100vh; height: 100dvh;
   overflow: hidden;
   isolation: isolate;
 }
@@ -376,7 +379,7 @@ html[data-look="light"] #btn-look .ic-moon { display: none; }
     0 18px 50px rgba(0, 0, 0, 0.55);
 }
 
-#duration-row { display: flex; align-items: flex-start; gap: 6px; }
+#duration-row { display: flex; align-items: flex-start; gap: 6px; container-type: inline-size; }
 #duration-row .pill-custom { flex: none; margin-top: 2px; padding: 0 13px 0 11px; font-size: 14px; }
 #durations {
   flex: 1 1 auto; min-width: 0;
@@ -401,6 +404,22 @@ html[data-look="light"] #btn-look .ic-moon { display: none; }
   #duration-row .pill-custom.seq { padding: 0 11px; }
   #duration-row .pill-custom.seq .ic { display: none; }   /* a sequence ("25·5 ×4") needs the icon's room */
   #duration-row .pill-custom.long { padding: 0 8px; font-size: 12px; }   /* ... and the longest ("99:59·60 ×12") a little more */
+}
+/* ... and wherever else the bar is narrower than the six pills with their "m" and Custom need (a
+   window between a phone's width and a wide one, a phone on its side): the same, by the bar's own
+   width, so all six and Custom always show whole */
+@container (max-width: 519px) {
+  #durations { gap: 4px; padding: 2px 6px 9px 8px; scroll-padding: 0 6px; -webkit-mask-image: none; mask-image: none; }
+  #durations .pill { min-width: 34px; padding: 0 6px; }
+  #durations .pill i { display: none; }
+  #duration-row .pill-custom { padding: 0 10px 0 8px; gap: 4px; font-size: 13.5px; }
+  #duration-row .pill-custom.seq { padding: 0 11px; }
+  #duration-row .pill-custom.seq .ic { display: none; }
+  #duration-row .pill-custom.long { padding: 0 8px; font-size: 12px; }
+}
+/* a wide window has room for them with their "m": the bar is wider there */
+@media (min-width: 600px) {
+  .panel { max-width: 560px; }
 }
 /* The narrowest phones: six two-digit pills ("99" in each, the quick durations being anyone's) and
    Custom still fit with no scroll, Custom without its icon */
@@ -1033,6 +1052,115 @@ html[data-look="light"] .switch:checked { background: var(--accent-text); }
 html[data-look="light"] .switch::after { background: #fffefb; box-shadow: 0 1px 4px rgba(40, 32, 20, 0.3); }
 html[data-look="light"] .well { box-shadow: inset 0 0 0 1px rgba(40, 32, 20, 0.16), 0 0 0 3px var(--raise-2), 0 3px 8px rgba(60, 46, 28, 0.22); }
 html[data-look="light"] #toast { background: rgba(252, 250, 246, 0.94); box-shadow: inset 0 0 0 1px var(--hair), 0 8px 24px rgba(60, 46, 28, 0.18); }
+
+/* ------------------------------------------------------------------ *
+ *  Between the looks (app.js, "Light and dark"): a change of look while the app is open is one
+ *  cross-fade. While it lasts the page has html.look-fade, and --lk, which the browser animates,
+ *  says how far it has got: 0 the dark look, 1 the light. Everything the two looks paint
+ *  differently is said here once more, as the dark look's value and the light's mixed by --lk
+ *  (M below: color-mix(in srgb, dark, light var(--lp)); a length or a share, by calc), so the
+ *  page goes from one look to the other in one piece, the glass with it (renderer._paperMix).
+ *  At rest neither look reads anything here: each is painted exactly as it always was.
+ * ------------------------------------------------------------------ */
+@property --lk { syntax: '<number>'; inherits: true; initial-value: 0; }
+html.look-fade {
+  --lp: calc(var(--lk) * 100%);
+  --bg: color-mix(in srgb, #0b0c0e, #f3f0ea var(--lp));
+  --ink: color-mix(in srgb, #ece7df, #1f1d1a var(--lp));
+  --ink-2: color-mix(in srgb, rgba(236, 231, 223, 0.62), rgba(31, 29, 26, 0.80) var(--lp));
+  --ink-3: color-mix(in srgb, rgba(236, 231, 223, 0.38), rgba(31, 29, 26, 0.68) var(--lp));
+  --hair: color-mix(in srgb, rgba(255, 255, 255, 0.085), rgba(40, 32, 20, 0.12) var(--lp));
+  --panel: color-mix(in srgb, rgba(24, 25, 28, 0.58), rgba(251, 249, 245, 0.72) var(--lp));
+  --panel-solid: color-mix(in srgb, #17181b, #fbf9f5 var(--lp));
+  --sheet-rgb: calc(22 + 228 * var(--lk)), calc(23 + 225 * var(--lk)), calc(26 + 218 * var(--lk));
+  --sheet-a: calc(0.86 + 0.06 * var(--lk));
+  --raise: color-mix(in srgb, rgba(255, 255, 255, 0.055), rgba(60, 48, 30, 0.05) var(--lp));
+  --raise-2: color-mix(in srgb, rgba(255, 255, 255, 0.10), rgba(60, 48, 30, 0.09) var(--lp));
+  --deep: color-mix(in srgb, var(--accent) 36%, #241f19);                     /* the light look's --accent-text */
+  --accent-text: color-mix(in srgb, var(--accent), var(--deep) var(--lp));  /* where the dark look has the accent itself */
+}
+html.look-fade, html.look-fade body { background: var(--bg); }
+html.look-fade #ambient {
+  background:
+    radial-gradient(60% 34% at 50% 34%, rgba(var(--glow), calc(var(--glow-a) * (0.85 - 0.30 * var(--lk)))), transparent 72%),
+    radial-gradient(62% 36% at 50% 64%, rgba(var(--glow), calc(var(--glow-a) * (1 - 0.35 * var(--lk)))), transparent 74%),
+    radial-gradient(120% 90% at 50% 50%, color-mix(in srgb, #15161a, #fbf9f5 var(--lp)) 0%, color-mix(in srgb, #0b0c0e, #f3f0ea var(--lp)) 58%, color-mix(in srgb, #060709, #e9e4db var(--lp)) 100%);
+}
+html.look-fade #ambient::after { background: radial-gradient(110% 80% at 50% 46%, transparent calc(48% + 4% * var(--lk)), color-mix(in srgb, rgba(0, 0, 0, 0.55), rgba(70, 56, 36, 0.10) var(--lp)) 100%); }
+html.look-fade #breath {
+  background:
+    radial-gradient(var(--b1, 60%) 34% at 50% 34%, rgba(var(--glow), calc(var(--glow-a) * (0.6 + 0.3 * var(--lk)))), transparent 72%),
+    radial-gradient(var(--b2, 62%) 36% at 50% 64%, rgba(var(--glow), calc(var(--glow-a) * (0.7 + 0.35 * var(--lk)))), transparent 74%),
+    radial-gradient(var(--b3, 70%) 52% at 50% 49%, rgba(var(--glow), calc(var(--glow-a) * (0.75 + 0.35 * var(--lk)))),
+      color-mix(in srgb, rgba(var(--glow), calc(var(--glow-a) * 0.3)), rgba(70, 56, 36, 0.05) var(--lp)) calc(42% + 4% * var(--lk)), transparent calc(70% + 2% * var(--lk)));
+}
+html.look-fade #shadow { background: radial-gradient(50% 50% at 50% 50%, color-mix(in srgb, rgba(0, 0, 0, 0.62), rgba(50, 40, 28, 0.30) var(--lp)), color-mix(in srgb, rgba(0, 0, 0, 0.28), rgba(50, 40, 28, 0.12) var(--lp)) 45%, transparent 72%); }
+html.look-fade #readout { text-shadow: 0 0 34px rgba(var(--glow), calc(0.20 * (1 - var(--lk)))); }
+html.look-fade #app[data-state="running"] #status { color: color-mix(in srgb, rgba(var(--glow), 0.8), var(--deep) var(--lp)); }
+html.look-fade #app[data-state="done"] #status, html.look-fade #btn-motion { color: var(--accent-text); }
+html.look-fade button:focus-visible, html.look-fade input:focus-visible, html.look-fade .wheel:focus-visible { outline-color: var(--accent-text); }
+/* the moon and the sun, one into the other */
+html.look-fade #btn-look .ic { display: block; grid-area: 1 / 1; }
+html.look-fade #btn-look .ic-moon { opacity: calc(1 - var(--lk)); }
+html.look-fade #btn-look .ic-sun { opacity: var(--lk); }
+html.look-fade .panel {
+  box-shadow: inset 0 0 0 1px var(--hair), inset 0 1px 0 rgba(255, 255, 255, calc(0.07 + 0.63 * var(--lk))),
+    0 calc(18px - 4px * var(--lk)) calc(50px - 10px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.55), rgba(60, 46, 28, 0.14) var(--lp));
+}
+html.look-fade .chip .swatch { box-shadow: 0 0 10px rgba(var(--glow), calc(0.5 * (1 - var(--lk)))), 0 0 0 1px rgba(40, 32, 20, calc(0.18 * var(--lk))); }
+html.look-fade #scrim { background: color-mix(in srgb, rgba(4, 5, 6, 0.5), rgba(40, 34, 26, 0.28) var(--lp)); }
+html.look-fade #scrim.light { background: color-mix(in srgb, rgba(4, 5, 6, 0.2), rgba(40, 34, 26, 0.08) var(--lp)); }
+html.look-fade .sheet {
+  box-shadow: inset 0 0 0 1px var(--hair), inset 0 1px 0 rgba(255, 255, 255, calc(0.08 + 0.72 * var(--lk))),
+    0 calc(-24px + 6px * var(--lk)) calc(70px - 20px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.6), rgba(60, 46, 28, 0.16) var(--lp));
+}
+html.look-fade .grab { background: color-mix(in srgb, rgba(255, 255, 255, 0.18), rgba(40, 32, 20, 0.20) var(--lp)); }
+html.look-fade .tabs button[aria-selected="true"],
+html.look-fade .segmented button[aria-checked="true"] {
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.13), #fffefb var(--lp));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, calc(0.10 * (1 - var(--lk)))), inset 0 0 0 1px rgba(40, 32, 20, calc(0.10 * var(--lk))),
+    0 calc(2px - 1px * var(--lk)) calc(8px - 4px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.3), rgba(60, 46, 28, 0.16) var(--lp));
+}
+html.look-fade .sands [aria-checked="true"], html.look-fade .finishes [aria-checked="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--accent-text), 0 calc(2px * var(--lk)) calc(22px - 12px * var(--lk)) color-mix(in srgb, rgba(var(--glow), 0.12), rgba(60, 46, 28, 0.10) var(--lp));
+}
+html.look-fade .orb {
+  box-shadow: inset 0 -6px 10px rgba(0, 0, 0, calc(0.42 - 0.12 * var(--lk))), inset 0 0 0 1px color-mix(in srgb, rgba(255, 255, 255, 0.14), rgba(40, 32, 20, 0.16) var(--lp)),
+    0 calc(5px - 2px * var(--lk)) calc(12px - 4px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.4), rgba(60, 46, 28, 0.22) var(--lp));
+}
+html.look-fade .cap {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, rgba(255, 255, 255, 0.12), rgba(40, 32, 20, 0.14) var(--lp)),
+    0 calc(3px - 1px * var(--lk)) calc(8px - 2px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.45), rgba(60, 46, 28, 0.22) var(--lp));
+}
+html.look-fade .shapes button[aria-checked="true"], html.look-fade #quick button.lit { box-shadow: inset 0 0 0 1.5px var(--accent-text); }
+html.look-fade .shapes button.in-use b::after { background: var(--accent-text); }
+html.look-fade .shape-art .bore { fill: color-mix(in srgb, rgba(236, 231, 223, 0.05), rgba(31, 29, 26, 0.04) var(--lp)); stroke: color-mix(in srgb, rgba(236, 231, 223, 0.62), rgba(31, 29, 26, 0.62) var(--lp)); }
+html.look-fade .segmented.chars button[aria-checked="true"] .ic, html.look-fade .quiet-link[data-state="armed"] { color: var(--accent-text); }
+html.look-fade input[type="range"]::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, var(--accent-text) var(--fill, 80%), color-mix(in srgb, rgba(255, 255, 255, 0.14), rgba(40, 32, 20, 0.14) var(--lp)) var(--fill, 80%));
+}
+html.look-fade input[type="range"]::-moz-range-track { background: color-mix(in srgb, rgba(255, 255, 255, 0.14), rgba(40, 32, 20, 0.14) var(--lp)); }
+html.look-fade input[type="range"]::-moz-range-progress { background: var(--accent-text); }
+html.look-fade input[type="range"]::-webkit-slider-thumb {
+  background: color-mix(in srgb, #f4f1ea, #fffefb var(--lp));
+  box-shadow: 0 0 0 1px rgba(40, 32, 20, calc(0.14 * var(--lk))), 0 2px calc(8px - 2px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.5), rgba(60, 46, 28, 0.25) var(--lp)),
+    inset 0 -2px 3px rgba(0, 0, 0, calc(0.14 * (1 - var(--lk))));
+}
+html.look-fade input[type="range"]::-moz-range-thumb {
+  background: color-mix(in srgb, #f4f1ea, #fffefb var(--lp));
+  box-shadow: 0 0 0 1px rgba(40, 32, 20, calc(0.14 * var(--lk))), 0 2px calc(8px - 2px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.5), rgba(60, 46, 28, 0.25) var(--lp));
+}
+html.look-fade .switch { background: color-mix(in srgb, rgba(255, 255, 255, 0.14), rgba(40, 32, 20, 0.16) var(--lp)); }
+html.look-fade .switch:checked { background: var(--accent-text); }
+html.look-fade .switch::after { background: color-mix(in srgb, #f4f1ea, #fffefb var(--lp)); box-shadow: 0 calc(2px - 1px * var(--lk)) calc(6px - 2px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.4), rgba(40, 32, 20, 0.3) var(--lp)); }
+html.look-fade .well {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, rgba(255, 255, 255, 0.18), rgba(40, 32, 20, 0.16) var(--lp)), 0 0 0 3px var(--raise-2),
+    0 calc(4px - 1px * var(--lk)) calc(12px - 4px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.45), rgba(60, 46, 28, 0.22) var(--lp));
+}
+html.look-fade #toast {
+  background: color-mix(in srgb, rgba(30, 31, 35, 0.9), rgba(252, 250, 246, 0.94) var(--lp));
+  box-shadow: inset 0 0 0 1px var(--hair), 0 calc(10px - 2px * var(--lk)) calc(30px - 6px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.5), rgba(60, 46, 28, 0.18) var(--lp));
+}
 
 @media (prefers-reduced-motion: reduce) {
   .hud, .sheet, #scrim, #toast, .pill, .act, .sands button, .finishes button, #quick button { transition-duration: 0.01s !important; }

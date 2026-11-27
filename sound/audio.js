@@ -2012,6 +2012,10 @@
     this._amb = null;         // the one playing
     this._ambPreview = 0;     // audition until this context time
     this._ambUntil = 0;       // after a glass ends: flows on until this context time
+    // coming in, after a start or a pause (begin()):
+    this._sandIn = null;      // the sand's rise: { x, len, bx, blen } (s run and s long: the start's, the resume's)
+    this._rise = null;        // the ambience's: { len, x, at, start } (x s along it at context time `at`; at < 0: it stands)
+    this._ambCourse = { v: 0, seg: [] };   // the ambience bus's gain: v, then through [time, target, tau] … (its level is known at any moment)
     this._raw = {};           // pre-synthesised source material
     this._prepK = 0;          // the next PREP step…
     this._job = null;         // …or the rest of the one under way
@@ -2250,6 +2254,7 @@
       var ab = this.ambBus.gain;
       try { ab.cancelScheduledValues(t); } catch (e1) {}
       ab.setValueAtTime(0, t);
+      this._ambCourse = { v: 0, seg: [] };
       this._ambUntil = 0;
       this._last = {};                 // force every parameter to re-sync
     } else if (!document.hidden) {
@@ -2649,8 +2654,9 @@
     if (!this.ready) return;
     var ctx = this.ctx, t = ctx.currentTime, d = AMBIENCES[id], i;
     if (this._amb && this._amb.id === id) {
-      // Playing already. Chosen to be heard while it is silent: once more, from where there is something to hear
-      if (!audition || this._last.amb > 0) {
+      // Playing already. Chosen to be heard while it is silent (its bus shut, or a rise that has
+      // not brought it up yet): once more, from where there is something to hear
+      if (!audition || (this._last.amb > 0 && !(this._rise && this._ambAt(t) < 0.1 * this._ambGain()))) {
         if (audition) this._ambPreview = Math.max(this._ambPreview, t + (d.audition || 5));
         return;
       }
@@ -2722,13 +2728,19 @@
    * Glide the ambience bus. On while `on` (the glass is running), while it is
    * auditioned, and until the bowl after a glass ends. Then it recedes: slowly
    * after a glass (τ 2 s, −4.3 dB/s: −20 dB 5 s after the bowl, −40 dB at 10 s),
-   * gently (τ 0.9 s) on pause or reset.
+   * gently (τ 0.9 s) on pause or reset. After a start or a pause it comes in on
+   * its rise (begin(), "Coming in" below); an audition is heard at once.
    */
   HourglassAudio.prototype._ambience = function (on) {
-    var t = this.ctx.currentTime;
-    on = !!this._amb && this.ambience !== 'none' && (on || t < this._ambPreview || t < this._ambUntil);
-    this._set('amb', this.ambBus.gain, on ? this._ambGain() : 0,
-              on ? 0.5 : (this._ambUntil && t < this._ambUntil + 1 ? 2.0 : 0.9));
+    var t = this.ctx.currentTime, r = this._rise, heard = t < this._ambPreview;
+    on = !!this._amb && this.ambience !== 'none' && (on || heard || t < this._ambUntil);
+    if (r) {
+      // coming in after a start or a pause (begin()): the rise has the bus while the glass runs
+      if (on && !heard) { if (this._ambRise(t, r)) return; }
+      else if (heard) { this._rise = null; this._last.amb = undefined; }   // an audition is heard at once and whole: it ends a rise
+      else if (r.at >= 0) { r.x += t - r.at; r.at = -1; }                  // paused: it stands where it is
+    }
+    this._ambGlide(t, on ? this._ambGain() : 0, on ? 0.5 : (this._ambUntil && t < this._ambUntil + 1 ? 2.0 : 0.9));
   };
   /** The glass has run out: the stream flows on until the bowl sounds (`delay` s), then recedes under it. */
   HourglassAudio.prototype.end = function (delay) {
@@ -2740,6 +2752,137 @@
     // heard at its new level: 3 s of a brook, more of what takes longer to show itself
     var d = AMBIENCES[this.ambience];
     if (audition && this.ready) this._ambPreview = Math.max(this._ambPreview, this.ctx.currentTime + Math.max(3, (d.audition || 5) / 2));
+  };
+
+  /* ---------------------------------------------------------------- *
+   *  Coming in: how the sound begins when a glass is set running
+   *
+   *  The app says when (begin()): at a start, and after a pause. The sand is
+   *  heard first, the water behind it later. The times, in seconds:
+   *
+   *    at a start     the sand's own stream (its hush, its crackle, its
+   *                   grains) rises from silence over IN.sand; the ambience
+   *                   stays silent for IN.wait, then rises over IN.rise
+   *    a short glass  the wait is at most IN.waitOf of the time the glass
+   *                   has to run, and no rise longer than IN.riseOf of it
+   *                   (a 10 s glass: 0.5 s, then 2.5 s)
+   *    after a pause  the same, shorter: the sand over IN.sandBack, the
+   *                   ambience over IN.back with no wait
+   *
+   *  The sand's rise is a plain ease in and out. The ambience's is the
+   *  rising half of a bell in decibels: at the share u of its length it is
+   *  IN.foot (1 - u)^2 dB under its level. It climbs fastest where nothing
+   *  is heard yet (13.5 dB a second at the foot of an 8 s rise, never more
+   *  than 1.5 dB in a tenth of a second) and ever more slowly as it arrives:
+   *  no moment where it begins, none where it stops.
+   *
+   *  Nothing ever jumps. A rise is entered where its curve has the level the
+   *  ambience has at that moment: from silence at its foot (a start's after
+   *  its wait), part of the way up from a level it still has (a stream still
+   *  receding under the bowl). A pause stops a rise where it is, and the
+   *  resume goes on with it: a start's rise, paused, stays the start's slow
+   *  rise, and the sand's is then the lower of the start's and the resume's,
+   *  so a quick pause and resume is no shortcut to the full level. The fade
+   *  before the end is a gain of its own after the bus, so the two never
+   *  work against each other: where it begins under a rise the ambience
+   *  climbs on until the fade's fall outweighs the rise, turns round once,
+   *  from the level it has, and falls with the fade. An audition is heard
+   *  at once and whole, as ever, and ends a rise. Only the levels change:
+   *  the same grains and the same beds play as without a rise.
+   * ---------------------------------------------------------------- */
+  var IN = { sand: 1.5, sandBack: 0.6, wait: 2, rise: 8, back: 3, waitOf: 1 / 20, riseOf: 1 / 4, foot: 54, step: 0.1 };
+
+  /**
+   * The glass is set running, with `seconds` to run: the sound comes in gently (the rules are
+   * above). `resumed`: after a pause; else a start (from waiting, from finished, a new glass that
+   * runs on). May be called before there is a context: the rises begin when the sound does.
+   */
+  HourglassAudio.prototype.begin = function (seconds, resumed) {
+    var most = (seconds > 0 ? seconds : 0) * IN.riseOf, s = this._sandIn, r = this._rise;
+    if (resumed) {
+      this._sandIn = { x: s ? s.x : 0, len: s ? s.len : 0, bx: 0, blen: Math.min(IN.sandBack, most) };
+      if (!r || !r.start) this._rise = { len: Math.max(IN.step, Math.min(IN.back, most)), x: 0, at: -1, start: false };
+    } else {
+      this._sandIn = { x: 0, len: Math.min(IN.sand, most), bx: 0, blen: 0 };
+      this._rise = { len: Math.max(IN.step, Math.min(IN.rise, most)), x: -Math.min(IN.wait, (seconds > 0 ? seconds : 0) * IN.waitOf), at: -1, start: true };
+    }
+  };
+
+  /** The sand's share of its level while it comes in, `dt` s further on: the lower of the start's rise and the resume's. */
+  HourglassAudio.prototype._sandRise = function (dt) {
+    var a = this._sandIn, k = 1, u;
+    a.x += dt; a.bx += dt;
+    if (a.x < a.len) { u = a.x / a.len; k = u * u * (3 - 2 * u); }
+    if (a.bx < a.blen) { u = a.bx / a.blen; u = u * u * (3 - 2 * u); if (u < k) k = u; }
+    if (a.x >= a.len && a.bx >= a.blen) {
+      this._sandIn = null;
+      u = this._last; u.hS = u.hG = u.cS = u.cG = undefined;   // (arrived: the beds exactly at their levels, as without a rise)
+    }
+    return k;
+  };
+
+  /** The ambience bus's gain at context time t: it is set only through _ambCourseTo (and to nothing in _onState), which keeps its course. */
+  HourglassAudio.prototype._ambAt = function (t) {
+    var c = this._ambCourse, v = c.v, i, s, to;
+    for (i = 0; i < c.seg.length; i++) {
+      s = c.seg[i];
+      if (s[0] >= t) break;
+      to = i + 1 < c.seg.length && c.seg[i + 1][0] < t ? c.seg[i + 1][0] : t;
+      v = s[1] + (v - s[1]) * Math.exp(-(to - s[0]) / s[2]);
+    }
+    return v;
+  };
+  /**
+   * From t on the bus glides through `seg` ([time, target, tau], in order, the first at t), from
+   * the value it has; or, with `from`, from that value at once (only where nothing is heard).
+   */
+  HourglassAudio.prototype._ambCourseTo = function (t, seg, from) {
+    var c = this._ambCourse, g = this.ambBus.gain, v = from !== undefined ? from : this._ambAt(t), n = c.seg.length, i;
+    if (from !== undefined || (n && c.seg[n - 1][0] > t)) {              // (a rise's steps still to come)
+      try { g.cancelScheduledValues(t); } catch (e) {}
+    }
+    if (from !== undefined) g.setValueAtTime(from, t);
+    for (i = 0; i < seg.length; i++) g.setTargetAtTime(seg[i][1], seg[i][0], seg[i][2]);
+    this._ambCourse = { v: v, seg: seg };
+  };
+  /** One glide of the bus, as _set would make it (the same rule for a value it already has). */
+  HourglassAudio.prototype._ambGlide = function (t, value, tau) {
+    var last = this._last.amb;
+    if (last !== undefined && Math.abs(last - value) <= Math.abs(value) * 0.004 + 1e-4) return;
+    this._last.amb = value;
+    this._ambCourseTo(t, [[t, value, tau]]);
+  };
+  /**
+   * The ambience comes in: the bus is put on its rise `r`, from the level it has, or left on it.
+   * True while the rise has the bus; false once it has arrived (the bus is at its level).
+   */
+  HourglassAudio.prototype._ambRise = function (t, r) {
+    var gain = this._ambGain(), len = r.len, v, lv, x, u, tk, seg, from;
+    if (r.at >= 0 && this._last.amb === gain) {            // on its way
+      if (t < r.at + len - r.x) return true;
+      this._rise = null;                                   // arrived: from here on as ever
+      return false;
+    }
+    if (r.at >= 0) r.x += t - r.at;                        // (its level was changed, or the context came back: once more from here)
+    // An ambience that the fade before the end has closed has no level: its bus is shut behind it.
+    if (this._last.ambEnd < 0.001) from = 0;
+    v = from === 0 ? 0 : this._ambAt(t);
+    lv = gain > 0 ? v / gain : 1;
+    if (lv >= 1) { this._rise = null; this._last.amb = undefined; return false; }   // at its level already (an audition just heard)
+    // where the curve has that level; from silence, the rest of the wait, or its foot
+    x = lv > Math.pow(10, -IN.foot / 20) ? len * (1 - Math.sqrt(-20 * Math.log(lv) / Math.LN10 / IN.foot)) : (r.x < 0 ? r.x : 0);
+    r.x = x; r.at = t;
+    seg = [];
+    if (x < 0) seg.push([t, 0, IN.step]);
+    // the bus follows the curve in steps of IN.step, each aimed at where the curve is a step later: about half a step behind it
+    for (tk = x < 0 ? t - x : t; ; tk += IN.step) {
+      u = (x + tk - t + IN.step) / len;
+      if (u >= 1) { seg.push([tk, gain, IN.step]); break; }
+      seg.push([tk, gain * Math.pow(10, -IN.foot * (1 - u) * (1 - u) / 20), IN.step]);
+    }
+    this._last.amb = gain;
+    this._ambCourseTo(t, seg, from);
+    return true;
   };
 
   /* ---------------------------------------------------------------- *
@@ -2787,6 +2930,8 @@
     // glide, never a step: sand added or the glass turned brings it back up as smoothly.
     var fe = typeof st.ambFade === 'number' && st.ambFade >= 0 && st.ambFade < 1 ? st.ambFade : 1;
     this._set('ambEnd', this.ambEnd.gain, fe, 0.35);
+    // ---- coming in (begin()): the stream's share of its level, 1 once it has arrived ---
+    var sIn = this._sandIn && amb ? this._sandRise(dt) : 1;
 
     // ---- the stream, and its breathing -----------------------------------
     // Heard against its own slow mean, the flow's swell lifts the whole sand.
@@ -2819,15 +2964,18 @@
     var dens = imp > 0 ? (0.5 + 0.5 * Math.sqrt(Math.min(1, imp / 300))) * Math.min(1, imp / 4) * Math.sqrt(pulse) * tail : 0;
     // Shaken, every grain rattles at once: the crackle rises to a floor set by
     // the agitation, a soft shaker shimmer, and settles back when it calms.
-    var agit = st.agit > 0 ? (st.agit < 3 ? st.agit : 3) : 0;
+    var agit = st.agit > 0 ? (st.agit < 3 ? st.agit : 3) : 0, shimmer = 0;
     this._agit = agit;
     if (agit > 0) {
       var floor = 0.28 * Math.pow(agit, 1.5);
       floor = (floor < 0.45 ? floor : 0.45) * (this._shake || 1);
-      if (floor > dens) dens = floor;
+      shimmer = floor;
     }
-    // (the first grains on bare glass: fewer, each one heard)
-    this._beds(bed * cs, 0.55 * bed * cg, dens * cs, 0.5 * dens * cg, 0.12, 0.10);
+    // (the first grains on bare glass: fewer, each one heard; while the stream comes in its hush
+    // and its crackle are lower by sIn, the shimmer of a shaken glass as it is)
+    var crk = dens > shimmer ? dens : shimmer;
+    if (sIn < 1) this._beds(bed * cs, 0.55 * bed * cg, crk * cs, 0.5 * crk * cg, 0.12, 0.10, sIn, crk > 0 ? Math.max(dens * sIn, shimmer) / crk : 1);
+    else this._beds(bed * cs, 0.55 * bed * cg, crk * cs, 0.5 * crk * cg, 0.12, 0.10);
     // a shorter fall as the pile rises: a little less air
     var fill = st.fill || 0;
     this._set('bri', this.bedShelf.gain, -3.5 * fill, 0.5);
@@ -2844,7 +2992,7 @@
       if (surge > 0 || rnd() < dt * 0.05) {
         var sv = surge > 0 ? Math.min(1, surge / 0.25) : 0.3 * rnd();
         this._slumpT = t; this._slumpGap = 1.2 + 2.3 * rnd();
-        this._slump(t + 0.01, (0.35 + 0.65 * sv) * lvl * tail, (rnd() < 0.5 ? -1 : 1) * (0.18 + 0.25 * rnd()));
+        this._slump(t + 0.01, (0.35 + 0.65 * sv) * lvl * tail * sIn, (rnd() < 0.5 ? -1 : 1) * (0.18 + 0.25 * rnd()));
       }
     }
 
@@ -2858,7 +3006,7 @@
     this._wander += 0.06 * Math.sqrt(2 * kd) * gauss(rnd) - this._wander * kd;
     if (n) {
       var r = this._evRate > 1 ? this._evRate : 1, keep = Math.min(r, 22 + 0.28 * r) / r;
-      var soft = this._grain / Math.sqrt(1 + r / 150), take = n < 16 ? n : 16;
+      var soft = this._grain / Math.sqrt(1 + r / 150) * sIn, take = n < 16 ? n : 16;
       for (var k = 0; k < take; k++) {
         if (rnd() > keep) continue;
         var e = n <= 16 ? k : (rnd() * n) | 0;
@@ -2973,10 +3121,11 @@
    * The beds' levels: the hush and the crackle, on sand and on glass, gliding
    * at tau h and c. Each bed's shuffler plays while either of its two does.
    */
-  HourglassAudio.prototype._beds = function (hS, hG, cS, cG, h, c) {
+  HourglassAudio.prototype._beds = function (hS, hG, cS, cG, h, c, kh, kc) {
     var tg = this._tg, td = this._td;
     tg.S = hS > cS ? hS : cS; tg.G = hG > cG ? hG : cG;
     td.S = td.G = 6 * (h > c ? h : c);                      // silent by then, to −50 dB
+    if (kh !== undefined) { hS *= kh; hG *= kh; cS *= kc; cG *= kc; }   // (coming in: lower, the same beds playing)
     this._set('hS', this.gHushS.gain, hS, h);
     this._set('hG', this.gHushG.gain, hG, h);
     this._set('cS', this.gCrkS.gain, cS, c);
@@ -3022,8 +3171,10 @@
     tail = tail >= 0 ? (tail < 1 ? tail : 1) : 1;
     var lvl = on ? (0.34 + 0.66 * Math.pow(Math.min(1, flow / 320), 0.45)) * tail : 0;
     var dens = flow > 0 ? (0.5 + 0.5 * Math.sqrt(Math.min(1, flow / 300))) * Math.min(1, flow / 4) * tail : 0;
-    var c = this._cushion, cs = Math.sqrt(c), cg = Math.sqrt(1 - c);
-    this._beds(lvl * cs, 0.55 * lvl * cg, dens * cs, 0.5 * dens * cg, 0.3, 0.3);
+    var c = this._cushion, cs = Math.sqrt(c), cg = Math.sqrt(1 - c), h = 0.3, a = this._sandIn;
+    // (hidden while the sand was still coming in: no frame will lead it on, so it arrives by itself, in the time that was left)
+    if (a && on) { h = Math.max(h, Math.max(a.len - a.x, a.blen - a.bx) / 3); this._sandIn = null; }
+    this._beds(lvl * cs, 0.55 * lvl * cg, dens * cs, 0.5 * dens * cg, h, h);
     for (i = 0; i < BED_KEYS.length; i++) {
       var k = BED_KEYS[i];
       if (this._tg[k] > 1e-4) { this.shuf[k].park(t); this._cutAt[k] = 0; }

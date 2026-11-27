@@ -233,12 +233,15 @@
     var t = THEMES[id];
     return { id: id, name: t.short, sand: t.sand, sand2: t.sand2, glint: t.glint, light: t.light, glass: t.glass, glow: t.glow, ui: ui };
   }
+  // Each sand's accent is its own and of its sand (1.20.1): the selected pill, the Start button and the
+  // lit tab say which sand is chosen, so no two are alike (black sand a silver-graphite, lapis a blue,
+  // garnet a deeper red than rose quartz's pink).
   var SANDS = {
     sahara: sandOf('sahara', { accent: '#e9b872', accentInk: '#1b1206', glow: '255, 176, 92', glowA: 0.20, orb: ['#f0c98a', '#cf9645', '#8f5b23'] }),
     // (the page's glow for the black sand is a shade warmer than the room's, as it has always been)
-    volcanic: sandOf('volcanic', { accent: '#d9b061', accentInk: '#171003', glow: '214, 164, 78', glowA: 0.15, orb: ['#4a4658', '#201f29', '#0c0c11'] }),
+    volcanic: sandOf('volcanic', { accent: '#9ba2ad', accentInk: '#0e1116', glow: '214, 164, 78', glowA: 0.15, orb: ['#4a4658', '#201f29', '#0c0c11'] }),
     moonstone: sandOf('moonstone', { accent: '#c9d6ea', accentInk: '#0d131c', glow: '168, 196, 235', glowA: 0.19, orb: ['#f6f3ec', '#cfd6e2', '#8e99ab'] }),
-    lapis: sandOf('lapis', { accent: '#d1ad5e', accentInk: '#0a1022', glow: '104, 136, 230', glowA: 0.16, orb: ['#3c5bb8', '#1e2f72', '#0d1638'] }),
+    lapis: sandOf('lapis', { accent: '#86a6f2', accentInk: '#0a1022', glow: '104, 136, 230', glowA: 0.16, orb: ['#3c5bb8', '#1e2f72', '#0d1638'] }),
     rosequartz: sandOf('rosequartz', { accent: '#e9b0b2', accentInk: '#1f1012', glow: '236, 168, 178', glowA: 0.17, orb: ['#fbe3e4', '#e8b4ba', '#b97f88'] }),
     seaglass: sandOf('seaglass', { accent: '#a3d6c9', accentInk: '#0b1816', glow: '150, 212, 198', glowA: 0.17, orb: ['#e6f6f1', '#a9d6cb', '#5f9a8e'] }),
     // Almandine garnet: the wine-red heavy sand of Pfeiffer Beach and Emerald Creek.
@@ -266,7 +269,7 @@
       },
       glass: { tint: [255, 226, 230], smoke: 0.13 },
       glow: [226, 110, 122],
-      ui: { accent: '#e59aa2', accentInk: '#1c0a0d', glow: '226, 110, 122', glowA: 0.16, orb: ['#c4506a', '#8a2a3f', '#3a0e1a'] }
+      ui: { accent: '#ee8593', accentInk: '#1c0a0d', glow: '226, 110, 122', glowA: 0.16, orb: ['#c4506a', '#8a2a3f', '#3a0e1a'] }
     },
     // Olivine: the green sand of Papakolea, Hawaii. Glassy peridot crystals weathered out of basalt.
     olivine: {
@@ -585,12 +588,14 @@
       }
 
       // --- what the page wears: a light accent, its ink nearly black, and the ink readable on it ---
+      // (a coloured sand's accent is its own hue; a pale neutral one's its glow's; a dark neutral one's a
+      // cool silver-graphite, as volcanic's is: never the gold of sahara, which would look like no change)
       var ac = blend([
         { h: h, s: clamp(s + 0.10, 0.36, 0.72), l: clamp(l + 0.04, 0.64, 0.82) },
         { h: gl.h, s: 0.44, l: 0.85 },
-        { h: 40, s: 0.60, l: 0.61 }
+        { h: 217, s: 0.10, l: 0.64 }
       ], [wC, wLN, wDN]);
-      var ik = blend([{ h: h, s: 0.5, l: 0.07 }, { h: gl.h, s: 0.37, l: 0.08 }, { h: 39, s: 0.77, l: 0.05 }], [wC, wLN, wDN]);
+      var ik = blend([{ h: h, s: 0.5, l: 0.07 }, { h: gl.h, s: 0.37, l: 0.08 }, { h: 217, s: 0.22, l: 0.07 }], [wC, wLN, wDN]);
       var ink = ints(hsl(ik.h, ik.s, ik.l)), accent = ints(hsl(ac.h, ac.s, ac.l));
       guard = 0;
       while (contrast(accent, ink) < 7.5 && ac.l < 0.88 && guard++ < 60) { ac.l += 0.01; accent = ints(hsl(ac.h, ac.s, ac.l)); }

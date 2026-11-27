@@ -42,7 +42,20 @@
  *      The control, on another fresh page: the same events made by a script
  *      (no gesture of the user's) leave the context suspended and silent
  *
- *   node tools/test/audio-api.test.js [port | --port <n>]      (default $PORT, else 8803)
+ * The sound comes in gently when a glass is set running (release 1.20.1):
+ *  15. in the real app, Ocean chosen, by the engine's own clock: a tap on the glass starts it and
+ *      the app tells the engine once (begin(300, not resumed)); the ambience's bus is still shut a
+ *      second later, 10 to 18 dB under its level 6 s after the start and within 1 dB at 10.8 s; a
+ *      pause and a tap tell it of a resume; the Flip button on the running glass, and a sequence's
+ *      own turn between work and rest, tell it nothing and the bus holds at its level through
+ *      them; another duration picked while it runs, and a finished glass flipped to start again,
+ *      are starts, and so is a finished glass given new sand (it stands paused, but has not run
+ *      since). The controls, each on a fresh page with a copy of app.js: one that never tells the
+ *      engine (the ambience is there within a second), one that tells it at every turn, and one
+ *      that takes every start from paused for a resume
+ *
+ *   node tools/test/audio-api.test.js [port | --port <n>] [--only start]      (default $PORT, else 8803)
+ *                                             --only start: case 15 alone
  */
 'use strict';
 var chromium = require('playwright').chromium;
@@ -51,8 +64,10 @@ var Server = require('./lib/static-server.js');
 var paths = require('./lib/paths.js');
 var seed = require('./lib/seed.js');
 var ROOT = paths.ROOT, AUDIO = '/' + paths.script('audio.js');
-var PORT_AT = process.argv.indexOf('--port');
-var PORT = +((PORT_AT > 0 ? process.argv[PORT_AT + 1] : process.argv[2]) || process.env.PORT || 8803);
+var PORT_AT = process.argv.indexOf('--port'), ONLY_AT = process.argv.indexOf('--only');
+var ONLY = ONLY_AT > 0 ? process.argv[ONLY_AT + 1] : '';
+if (ONLY && ONLY !== 'start') { console.error('audio-api: --only takes "start" (case 15, the sound coming in)'); process.exit(2); }
+var PORT = +((PORT_AT > 0 ? process.argv[PORT_AT + 1] : (/^\d+$/.test(process.argv[2] || '') ? process.argv[2] : '')) || process.env.PORT || 8803);
 var BASE = 'http://127.0.0.1:' + PORT;
 
 var failures = 0, cases = 0;
@@ -86,6 +101,168 @@ var NEW_CALLS = [
   ['setSandLevel', [0.5]], ['setSandLevel', [1]], ['setBowlLevel', [1.5]], ['setBowlLevel', [1]], ['setSilentRing', [false]], ['setSilentRing', [true]], ['stopChime', []]
 ];
 
+
+/* ---- 15. the sound comes in gently at a start, in the real app ------------------------------ */
+
+/** In the page, once the app runs: every begin() the app calls, and the ambience bus's share of its level at every frame the engine plays. */
+function watchComingIn() {
+  var Hg = window.Hourglass, A = Hg.audio, begin = A.begin, update = A.update;
+  var W = window.__in = { begins: [], bus: [] };
+  A.begin = function (seconds, resumed) {
+    W.begins.push({ at: performance.now(), seconds: seconds, resumed: !!resumed, turning: Hg.flip.active, phase: Hg.seq.phase });
+    return begin.apply(A, arguments);
+  };
+  A.update = function () {
+    var r = update.apply(A, arguments);
+    if (A.ready && A.ctx.state === 'running' && A._ambGain() > 0) W.bus.push([performance.now(), A.ambBus.gain.value / A._ambGain()]);
+    if (W.bus.length > 8000) W.bus.splice(0, 4000);
+    return r;
+  };
+}
+/**
+ * A fresh page of the app (Ocean chosen, a 5-minute glass), driven through a start and what
+ * follows it; `appSrc`: a copy of app.js in place of the app's own (a control); `upTo`: 'start',
+ * 'turn' or 'all'. Resolves to what was seen. (The one-minute and 10 s glasses of the later steps
+ * are small ones: a turn of the 5-minute glass's sand is slow where the browser draws in software.)
+ */
+async function comingInRun(browser, errors, appSrc, upTo) {
+  var c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+  var out = { begins: [] };
+  try {
+    await c.addInitScript(seed.seedOnce, seed.storageFor({ storage: { 'hourglass.settings.v1': { ambience: 'ocean', durationMs: 300000 } } }));
+    var p = await c.newPage();
+    p.on('pageerror', function (e) { errors.push('coming in: ' + e.message); });
+    if (appSrc) await p.route(BASE + '/app.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: appSrc }); });
+    await p.goto(BASE + '/');
+    await p.waitForFunction(function () { return window.Hourglass && window.Hourglass.audio; });
+    // (the app makes the sand's material and the chosen ambience while it idles: a first touch finds them ready)
+    await p.waitForFunction(function () { return !!window.Hourglass.audio._ambRaw.ocean; }, null, { timeout: 30000 });
+    await p.evaluate(watchComingIn);
+    var box = await p.locator('#stage').boundingBox(), cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+    var seen = function () { return p.evaluate(function () { var W = window.__in, T = window.Hourglass.timer; return { begins: W.begins, now: performance.now(), state: T.state, rem: T.rem }; }); };
+    /** The bus's share of its level `s` seconds after performance time t0 (the frame nearest to it), and its least from s0 to s1. */
+    var busAt = function (t0, s) { return p.evaluate(function (a) { var b = window.__in.bus, best = null, i; for (i = 0; i < b.length; i++) if (!best || Math.abs(b[i][0] - a[0] - a[1] * 1000) < Math.abs(best[0] - a[0] - a[1] * 1000)) best = b[i]; return best ? best[1] : -1; }, [t0, s]); };
+    var busLeast = function (t0, t1) { return p.evaluate(function (a) { var b = window.__in.bus, m = 9, i; for (i = 0; i < b.length; i++) if (b[i][0] >= a[0] && b[i][0] <= a[1] && b[i][1] < m) m = b[i][1]; return m; }, [t0, t1]); };
+
+    // a tap on the glass: the first touch makes the context, and starts the glass
+    await p.touchscreen.tap(cx, cy);
+    await p.waitForFunction(function () { var a = window.Hourglass.audio; return a.ready && a.ctx.state === 'running' && !!a._amb; }, null, { timeout: 15000 });
+    await sleep(11300);
+    var s1 = await seen(), t0 = s1.begins.length ? s1.begins[0].at : s1.now - 11300;
+    out.start = { begins: s1.begins.slice(), state: s1.state, at1: await busAt(t0, 1), at6: await busAt(t0, 6), at108: await busAt(t0, 10.8) };
+    if (upTo === 'start') return out;
+
+    // a pause, then a tap: a resume
+    await p.evaluate(function () { window.Hourglass.pause(); });
+    await sleep(1500);
+    await p.touchscreen.tap(cx, cy);
+    await sleep(4000);
+    var s2 = await seen();
+    out.resume = { begins: s2.begins.slice(s1.begins.length), state: s2.state, rem: s2.rem / 1000 };
+
+    // another duration picked while it runs (one minute): a new glass that runs on
+    await p.evaluate(function () { window.Hourglass.setDuration(60000); });
+    await sleep(6500);                               // (the new sand is poured in a second; then it runs 5 s, the time it will have left once turned over)
+    var s3 = await seen();
+    out.picked = { begins: s3.begins.slice(s2.begins.length), state: s3.state, least: await busLeast(s2.now, s3.now) };
+
+    // the Flip button's turn of the running glass (the one-minute glass: its turn is light enough for a browser that draws in software)
+    await p.evaluate(function () { window.Hourglass.flipNow(false); });
+    await p.waitForFunction(function () { return window.Hourglass.flip.active; }, null, { timeout: 5000 });
+    await p.waitForFunction(function () { return !window.Hourglass.flip.active; }, null, { timeout: 30000 });
+    await sleep(400);
+    var s4 = await seen();
+    out.turn = { begins: s4.begins.slice(s3.begins.length), state: s4.state, least: await busLeast(s3.now, s4.now) };
+    if (upTo === 'turn') return out;
+
+    // a sequence (10 s of work, 10 s of rest), picked while it runs, and its own turn between work and rest
+    await p.evaluate(function () { window.Hourglass.setDuration(10000, 10000, 1); });
+    await sleep(2500);
+    var s5 = await seen();
+    await p.waitForFunction(function () { var Hg = window.Hourglass; return Hg.seq.phase === 1 && !Hg.flip.active && !Hg.seq.gap && Hg.timer.state === 'running'; }, null, { timeout: 60000 });
+    await sleep(500);
+    var s6 = await seen();
+    out.phase = { picked: s5.begins.slice(s4.begins.length), begins: s6.begins.slice(s5.begins.length), state: s6.state, least: await busLeast(s5.now, s6.now) };
+    // the rest runs out: finished. Flipped to start again (the Start button's way from a finished glass)
+    await p.waitForFunction(function () { return window.Hourglass.timer.state === 'done'; }, null, { timeout: 40000 });
+    await sleep(1500);
+    var s7 = await seen();
+    await p.evaluate(function () { window.Hourglass.start(); });
+    await p.waitForFunction(function () { return window.Hourglass.timer.state === 'running' && !window.Hourglass.flip.active; }, null, { timeout: 30000 });
+    await sleep(300);
+    var s8 = await seen();
+    out.again = { ended: s7.begins.slice(s6.begins.length), begins: s8.begins.slice(s7.begins.length), state: s8.state };
+    return out;
+  } finally { await c.close(); }
+}
+async function comingInApp(browser, errors) {
+  var appSrc = require('fs').readFileSync(require('path').join(ROOT, 'app.js'), 'utf8');
+  function copy(from, to) { if (appSrc.indexOf(from) < 0) throw new Error('audio-api: no "' + from + '" in app.js: the control could not be made'); return appSrc.split(from).join(to); }
+  var db = function (v) { return v > 0 ? (20 * Math.log10(v)).toFixed(1) + ' dB' : 'shut'; };
+  var told = function (b) { return b.map(function (x) { return 'begin(' + x.seconds.toFixed(1) + ', ' + (x.resumed ? 'resumed' : 'a start') + ')'; }).join(', ') || 'nothing'; };
+  function startOk(st) {
+    return st.begins.length === 1 && !st.begins[0].resumed && Math.abs(st.begins[0].seconds - 300) < 1 && st.state === 'running' &&
+           st.at1 >= 0 && st.at1 <= 0.01 && st.at6 >= 0.126 && st.at6 <= 0.316 && st.at108 >= 0.89 && st.at108 <= 1.01;
+  }
+  function startShown(st) { return 'the engine told: ' + told(st.begins) + '; the bus 1 s after the start: ' + db(st.at1) + ', at 6 s: ' + db(st.at6) + ', at 10.8 s: ' + db(st.at108); }
+  var r = await comingInRun(browser, errors, null, 'all');
+  report(startOk(r.start), 'coming in, in the app: a tap on the glass starts it and the engine is told once (a start, 300 s to run); Ocean\'s bus is still shut a second later, 10 to 18 dB under its level at 6 s and within 1 dB at 10.8 s',
+         startShown(r.start));
+  report(r.resume.begins.length === 1 && r.resume.begins[0].resumed && Math.abs(r.resume.begins[0].seconds - (r.resume.rem + 4)) < 2 && r.resume.state === 'running',
+         'coming in: a pause, then a tap: the engine is told of a resume, with the time that is left', told(r.resume.begins) + '; ' + r.resume.rem.toFixed(1) + ' s left 4 s later');
+  report(r.picked.begins.length === 1 && !r.picked.begins[0].resumed && Math.abs(r.picked.begins[0].seconds - 60) < 0.5 && r.picked.least >= 0.9,
+         'coming in: another duration picked while it runs (a new glass that runs on) is a start, and the ambience, playing already, holds', told(r.picked.begins) + '; the bus never under ' + db(r.picked.least));
+  report(r.turn.begins.length === 0 && r.turn.state === 'running' && r.turn.least >= 0.95,
+         'coming in: the Flip button\'s turn of the running glass is no start: the engine is told nothing, and the ambience holds at its level through it',
+         'told: ' + told(r.turn.begins) + '; the bus never under ' + db(r.turn.least) + ' through the turn');
+  report(r.phase.picked.length === 1 && r.phase.begins.length === 0 && r.phase.state === 'running' && r.phase.least >= 0.9,
+         'coming in: a sequence\'s own turn between work and rest is no start: the engine is told nothing, and the ambience holds through the phase\'s end, its bowl and the turn',
+         'told: ' + told(r.phase.begins) + '; the bus never under ' + db(r.phase.least));
+  report(r.again.ended.length === 0 && r.again.begins.length === 1 && !r.again.begins[0].resumed && Math.abs(r.again.begins[0].seconds - 10) < 0.5 && r.again.begins[0].phase === 0,
+         'coming in: a finished glass flipped to start again is a start (told as its turn ends, not before)', 'at the end: ' + told(r.again.ended) + '; started again: ' + told(r.again.begins));
+  // the controls
+  var never = await comingInRun(browser, errors, copy("      soundBegins(was === 'paused' && sounded);", ''), 'start');
+  report(!startOk(never.start) && never.start.begins.length === 0 && never.start.at1 > 0.5,
+         'coming in (control): a copy of app.js that never tells the engine: the ambience is there within a second, and fails the start\'s check', startShown(never.start));
+  var always = await comingInRun(browser, errors, copy("    if (s === 'running' && was !== 'running') {", "    if (s === 'running') {"), 'turn');
+  report(always.turn.begins.length > 0, 'coming in (control): a copy that tells the engine whenever the glass is set running: a turn of the running glass is told as a start, and fails that check',
+         'told at the turn: ' + told(always.turn.begins));
+  // a finished glass given new sand stands paused without having run since: started then, it starts
+  var poured = await comingInPoured(browser, errors, null);
+  report(poured.state === 'paused' && poured.first.length === 1 && poured.begins.length === 1 && !poured.begins[0].resumed,
+         'coming in: sand poured into a finished glass (it stands paused, and has not run since it ran out), then Start: a start, not a resume', 'after the pour: ' + poured.state + '; told: ' + told(poured.begins));
+  var pouredCtl = await comingInPoured(browser, errors, copy("soundBegins(was === 'paused' && sounded);", "soundBegins(was === 'paused');"));
+  report(pouredCtl.begins.length === 1 && pouredCtl.begins[0].resumed, 'coming in (control): a copy that takes every start from paused for a resume fails that check', 'told: ' + told(pouredCtl.begins));
+}
+/** A fresh page: a 10 s glass run out, sand poured into it (the sand button held), then started. What the engine was told (no sound is needed for that). */
+async function comingInPoured(browser, errors, appSrc) {
+  var c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+  try {
+    await c.addInitScript(seed.seedOnce, seed.storageFor({ storage: { 'hourglass.settings.v1': { ambience: 'ocean', durationMs: 10000 } } }));
+    var p = await c.newPage();
+    p.on('pageerror', function (e) { errors.push('coming in: ' + e.message); });
+    if (appSrc) await p.route(BASE + '/app.js', function (r) { r.fulfill({ contentType: 'text/javascript', body: appSrc }); });
+    await p.goto(BASE + '/');
+    await p.waitForFunction(function () { return window.Hourglass && window.Hourglass.audio; });
+    await sleep(600);
+    await p.evaluate(watchComingIn);
+    await p.evaluate(function () { window.Hourglass.start(); });
+    await p.waitForFunction(function () { return window.Hourglass.timer.state === 'done'; }, null, { timeout: 40000 });
+    await sleep(1200);
+    var b = await p.locator('#btn-sand').boundingBox();
+    await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await p.mouse.down();
+    await sleep(700);
+    await p.mouse.up();
+    await sleep(300);
+    var before = await p.evaluate(function () { return { state: window.Hourglass.timer.state, n: window.__in.begins.length }; });
+    await p.evaluate(function () { window.Hourglass.start(); });
+    await sleep(300);
+    var all = await p.evaluate(function () { return window.__in.begins; });
+    return { state: before.state, first: all.slice(0, before.n), begins: all.slice(before.n) };
+  } finally { await c.close(); }
+}
+
 async function main() {
   var server = await new Promise(function (res, rej) {
     var s = Server.start(PORT, ROOT, function () { res(s); });
@@ -93,6 +270,12 @@ async function main() {
   });
   var browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
   try {
+    if (ONLY === 'start') {
+      var errs = [];
+      await comingInApp(browser, errs);
+      report(errs.length === 0, 'no page errors', errs.join(' | '));
+      return;
+    }
     var ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
     await ctx.addInitScript(seed.seedOnce, seed.storageFor({}));   // the classic sand (lib/seed.js)
     var page = await ctx.newPage();
@@ -637,13 +820,17 @@ async function main() {
              'one touch (control): the same events made by a script, with no gesture of the user\'s: the context is made but stays suspended, and nothing plays', JSON.stringify(noUser));
     } finally { await strict.close(); }
 
+    /* ---- 15. the sound comes in gently at a start ---------------------------------------- */
+    await comingInApp(browser, errors);
+
     report(errors.length === 0, 'no page or console errors', errors.join(' | '));
   } finally {
     await browser.close();
     server.close();
   }
-  console.log('\n' + (cases - failures) + '/' + cases + ' passed');
-  process.exit(failures ? 1 : 0);
 }
 
-main().catch(function (e) { console.error(e); process.exit(1); });
+main().then(function () {
+  console.log('\n' + (cases - failures) + '/' + cases + ' passed');
+  process.exit(failures ? 1 : 0);
+}, function (e) { console.error(e); process.exit(1); });

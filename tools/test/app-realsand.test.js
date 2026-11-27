@@ -130,12 +130,22 @@
  *        engine again. A start that took over gives the session its three retries back: a start
  *        cut short after three earlier ones and a watchdog swap is still tried again.
  *
+ *  WAITS the phone's motion never starts a glass (app.js stateAfterSwap), with Real sand on the
+ *        mock chip and the motion stub: after Reset the phone turned over and back (its heading
+ *        to pi and to 0) three times in a row. Each time the glass waits: idle, the clock
+ *        unchanged, the Start button, nothing saved, every point the chip holds above the neck
+ *        (in between: every point below, 00:00.0, still waiting), the valve shut, and no point
+ *        crossed the neck by the plant's count or the adapter's. A 10 s glass run to its end and
+ *        turned over by the phone waits the same way, every point above; a tap runs it out on
+ *        time. The control (appWithout: stateAfterSwap as it was before the rule): the same turns
+ *        end the waiting glass at the first and run it at the second, and its points cross.
+ *
  *  Some controls are app.js with one thing undone (appWithout), served in its place: the check
  *  that thing answers must fail on it.
  *
  *   node tools/test/app-realsand.test.js [--port 8905] [--only slow]
  *   (cases: off nogpu mock fail stamp again slow wake life norebuild crash residue asleep quiet
- *    sounds defaultna defaultmock migrate build hang restart)
+ *    sounds defaultna defaultmock migrate build hang restart waits)
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -2248,6 +2258,117 @@ async function testSounds(s, env) {
   } finally { await t.close(); }
 }
 
+/* ---- WAITS: the phone's motion never starts a glass, with Real sand ------------------------- */
+/** The glass as a person meets it, and the neck by the mock chip's counts: its points above the line as the ledger holds the glass, and crossings while shut. */
+function waitsRead(t) {
+  return t.eval(function () {
+    var Hg = window.Hourglass, T = Hg.timer, rs = Hg.realSand, live = !!rs && Hg.sim === rs, e = window.__mockEnv, pl = e && e.solver && e.solver.plant;
+    return { live: live, state: T.state, rem: T.rem, top: Hg.sim.nTop, total: Hg.sim.total, base: Hg.grav.base,
+      status: document.getElementById('status').textContent, label: document.getElementById('btn-play').getAttribute('aria-label'),
+      shown: document.getElementById('readout').textContent.replace(/\s+/g, ''), saved: localStorage.getItem('hourglass.session.v1'),
+      ptsTop: live && pl ? pl.topFor(rs.valve.parity) : -1, pts: pl ? pl.above + pl.below : -1, shut: live ? !!rs.valve.closed : null,
+      plantShut: pl ? pl.closedCross : -1, crossedShut: live ? rs.stats().ends.crossedShut : -1, bowls: window.__bowls | 0, flips: __mon.flips };
+  });
+}
+function waitsShow(r) {
+  return JSON.stringify({ state: r.state, rem: Math.round(r.rem), top: r.top + '/' + r.total, points: r.ptsTop + '/' + r.pts, shut: r.shut, status: r.status, button: r.label, shown: r.shown,
+    saved: r.saved ? JSON.parse(r.saved).state : null, crossedShut: r.plantShut + '/' + r.crossedShut, held: r.base ? 'over' : 'upright' });
+}
+async function phoneTo(t, heading, ms) {
+  await t.eval(function (h) { window.__motion.heading = h; }, heading);
+  await sleep(ms || 1500);
+}
+/** After Reset, the phone turned over and back `n` times: what the glass read in between and upright again, each time. */
+async function waitsTurns(t, n) {
+  var out = [];
+  for (var k = 0; k < n; k++) {
+    await phoneTo(t, Math.PI);
+    var mid = await waitsRead(t);
+    await phoneTo(t, 0);
+    out.push({ mid: mid, up: await waitsRead(t) });
+  }
+  return out;
+}
+async function waitsOpen(env, ms, routes) {
+  var t = await openMock(env, { seed: 37 }, { durationMs: ms, tilt: true }, { motionStub: true, routes: routes });
+  await waitLive(t);
+  await sleep(600);
+  await t.eval(function () {
+    var A = window.Hourglass.audio, chime = A.chime;
+    window.__bowls = 0;
+    A.chime = function () { window.__bowls++; return chime.apply(A, arguments); };
+  });
+  return t;
+}
+async function testWaits(s, env) {
+  var t = await waitsOpen(env, 300000);
+  try {
+    await t.page.tap('#btn-reset');
+    await sleep(1900);
+    var r0 = await waitsRead(t), grav = await t.eval(function () { return window.Hourglass.grav.on && !!window.__motionStub; });
+    s.check('WAITS: Real sand on the mock chip, Real motion on (the motion stub), a 5-minute glass after Reset: it waits, every point above the neck',
+            grav && r0.live && r0.state === 'idle' && Math.abs(r0.rem - 300000) < 0.5 && r0.top === r0.total && r0.ptsTop === r0.pts && r0.pts > 0 && r0.saved === null, waitsShow(r0));
+    await t.eval(function () { __mon.flips = 0; });
+    var turns = await waitsTurns(t, 3);
+    turns.forEach(function (q, k) {
+      var m = q.mid, u = q.up;
+      s.check('WAITS: the phone turned over (' + (k + 1) + ' of 3): in between the glass waits, every point below the neck: idle, 00:00.0, the Start button, the valve shut, nothing saved',
+              m.live && m.state === 'idle' && m.rem === 0 && m.top === 0 && m.ptsTop === 0 && m.pts === r0.pts && m.shut === true && m.label === 'Start' &&
+              m.status === 'Tap the glass to begin' && m.shown === '00:00.0' && m.saved === null && Math.abs(m.base - Math.PI) < 1e-6, waitsShow(m));
+      s.check('WAITS: ... and brought back (' + (k + 1) + ' of 3): it waits as after Reset: idle, the clock unchanged, every point above the neck again, the valve shut, the Start button, nothing saved',
+              u.live && u.state === 'idle' && Math.abs(u.rem - 300000) < 0.5 && u.top === u.total && u.ptsTop === r0.pts && u.pts === r0.pts && u.shut === true && u.label === 'Start' &&
+              u.status === 'Tap the glass to begin' && u.shown === '05:00.0' && u.saved === null && u.base === 0, waitsShow(u));
+    });
+    var last = turns[2].up;
+    s.check('WAITS: through the three turns and back no point crossed the neck (the plant\'s count of crossings while shut, and the adapter\'s) and no bowl rang',
+            last.plantShut === 0 && last.crossedShut === 0 && last.bowls === 0 && last.ptsTop === r0.pts, 'crossings while shut ' + last.plantShut + ' and ' + last.crossedShut + ', bowls ' + last.bowls);
+    await sleep(300);
+    await H.invariants(s, t, 'WAITS');
+  } finally { await t.close(); }
+
+  // a glass that has run out, turned over by the phone: it waits, every point above; a tap runs it out on time
+  t = await waitsOpen(env, 10000);
+  try {
+    await t.eval(function () { window.Hourglass.start(); });
+    await waitFor(t, function () { return window.Hourglass.timer.state === 'done' && window.Hourglass.sim.nTop === 0; }, 20000);
+    await sleep(1600);
+    var d0 = await waitsRead(t);
+    await phoneTo(t, Math.PI);
+    var d1 = await waitsRead(t);
+    await sleep(1200);
+    var d2 = await waitsRead(t);
+    s.check('WAITS: a 10 s glass run to its end (one bowl), the phone turned over: its sand above, it waits with the time it would run, no session; 1.2 s later the same, every point still above, none crossed',
+            d0.state === 'done' && d0.bowls === 1 && d1.live && d1.state === 'idle' && Math.abs(d1.rem - 10000) < 0.5 && d1.top === d1.total && d1.ptsTop === d1.pts && d1.label === 'Start' && d1.saved === null &&
+            d2.state === 'idle' && d2.rem === d1.rem && d2.ptsTop === d2.pts && d2.plantShut === 0 && d2.crossedShut === 0 && d2.bowls === 1,
+            'finished ' + waitsShow(d0) + '; turned over ' + waitsShow(d1) + '; later ' + waitsShow(d2));
+    await record(t);
+    var g = await t.glass();
+    await t.touch.tap(g.cx, g.cy, 60);
+    var e = await runToEnd(t, 20000);
+    var d3 = await waitsRead(t);
+    s.check('WAITS: a tap starts it, and it runs out on time (the last point within 30 ms of 00:00.0)', e.done && e.d >= -5 && e.d <= 30 && e.early === 0 && d3.bowls === 2, fmtEnd(e) + ', bowls ' + d3.bowls);
+    await t.eval(function () { window.__motion.heading = 0; });
+    await sleep(1500);
+    await H.invariants(s, t, 'WAITS finished');
+  } finally { await t.close(); }
+
+  // the control: stateAfterSwap as it was before the rule
+  var old = appWithout(env, [['if (byPhone && was !== \'running\') return was === \'paused\' ? \'paused\' : \'idle\';', '']]);
+  t = await waitsOpen(env, 300000, [old.route]);
+  try {
+    await t.page.tap('#btn-reset');
+    await sleep(1900);
+    var c0 = await waitsRead(t);
+    await phoneTo(t, Math.PI);
+    var c1 = await waitsRead(t);
+    await phoneTo(t, 0);
+    var c2 = await waitsRead(t);
+    s.check('WAITS (control): app.js without the phone\'s rule: the same turn ends the waiting glass ("Time") and the turn back runs it, its points crossing the neck',
+            old.found && c0.state === 'idle' && c1.state === 'done' && c1.label === 'Flip and start again' && c2.state === 'running' && c2.ptsTop < c0.pts && c2.rem < 300000,
+            (old.found ? '' : 'the text to undo is not in app.js; ') + waitsShow(c1) + '; ' + waitsShow(c2));
+  } finally { await t.close(); }
+}
+
 async function main() {
   var s = new H.Suite('app-realsand');
   var env = await H.start();
@@ -2256,7 +2377,7 @@ async function main() {
     var cases = { off: testOff, nogpu: testNoGpu, mock: testMock, fail: testFail, stamp: testStamp, again: testAgain,
       slow: testSlow, wake: testWake, life: testLife, norebuild: testNoRebuild, crash: testCrash, residue: testResidue, asleep: testAsleep,
       quiet: testQuiet, sounds: testSounds, defaultna: testDefaultNa, defaultmock: testDefaultMock, migrate: testMigrate, build: testBuild, hang: testHang,
-      restart: testRestart };
+      restart: testRestart, waits: testWaits };
     for (var k in cases) {
       if (only && only !== k) continue;
       try { await cases[k](s, env); } catch (e) {
