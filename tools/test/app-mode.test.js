@@ -1022,7 +1022,7 @@ async function paceCase(s, env) {
     (function step(n) { w.frames.push(n - last); last = n; if (w.frames.length < 240) requestAnimationFrame(step); })(last);
   });
   await sleep(600);
-  var a = await t.eval(function () { var W = window.Hourglass, T = W.timer; return { rem: T.rem - (Date.now() - T.lastTick), at: Date.now(), sim: W.sim, n: W.sim.total }; });
+  var a = await t.eval(function () { var W = window.Hourglass, T = W.timer; return { rem: T.rem - (Date.now() - T.lastTick), at: Date.now() }; });
   for (var i = 0; i < 3; i++) { await t.page.tap('#btn-look'); await sleep(500); }
   var b = await t.eval(function () {
     var W = window.Hourglass, T = W.timer, w = window.__pace, c = w.cost.slice().sort(function (x, y) { return x - y; });
