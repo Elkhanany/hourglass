@@ -2365,6 +2365,7 @@ async function testWaits(s, env) {
     var h1 = await waitsRead(t);
     await sleep(1200);
     var h1b = await waitsRead(t);
+    await t.eval(function () { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });   // (F on the page, not on the button)
     await t.page.keyboard.press('f');
     await sleep(300); await home(); await sleep(300);
     var h2 = await waitsRead(t);

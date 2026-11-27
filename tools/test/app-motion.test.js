@@ -766,6 +766,9 @@ async function testTurns(s, env) {
     await H.invariants(s, t, 'TURNS');
   } finally { await t.close(); }
 
+}
+async function testTurnSeq(s, env) {
+  var t;
   // a work and rest sequence, end to end: its own turns run it; turned over by the Flip button
   // once it has ended, it waits at its first glass; a tap begins Work
   t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: 10000, restMs: 10000, rounds: 1 } } });
@@ -789,8 +792,8 @@ async function testTurns(s, env) {
     var q5 = await startRead(t);
     s.check('TURNS: a sequence (work 10 s, rest 10 s) runs through its own turn into Rest and ends; the Flip button then turns it to wait at its first glass (the work time, phase 0) and it stays so; a tap begins Work',
             q1.state === 'running' && /^Rest/.test(q1.status) && q1.phase === 1 && q2.state === 'done' && q2.phase === 2 && waitsFull(q3, 10000, '00:10.0') && q3.phase === 0 &&
-            waitsFull(q4, 10000, '00:10.0') && nothingEnded(q4) && q5.state === 'running' && /^Work/.test(q5.status) && q5.phase === 0,
-            [q1, q2, q3, q4, q5].map(function (q) { return turnShow(q) + ' phase ' + q.phase; }).join(' → '));
+            waitsFull(q4, 10000, '00:10.0') && q4.chime === 0 && q4.relSteps === 0 && q4.saves.length === 0 && q5.state === 'running' && /^Work/.test(q5.status) && q5.phase === 0,
+            [q1, q2, q3, q4, q5].map(function (q) { return turnShow(q) + ' phase ' + q.phase; }).join(' → ') + '; ' + endedShow(q4) + '; saved ' + q4.saved);
     await t.eval(function () { window.Hourglass.pause(); });
     await sleep(600);
   } finally { await t.close(); }
@@ -807,6 +810,7 @@ async function testTurns(s, env) {
     if (!only || only === 'sides') await testSides(s, env);
     if (!only || only === 'start') await testStart(s, env);
     if (!only || only === 'turns') await testTurns(s, env);
+    if (!only || only === 'turns' || only === 'turnseq') await testTurnSeq(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {
