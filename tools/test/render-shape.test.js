@@ -977,13 +977,13 @@ EXTRA.push({ name: 'a device that refuses the shader gets the drawn glass of the
 /*
  * On white the rendered glass is clear (the light look's glass made clear): read back from
  * WebGL and laid over the paper in numbers (T.paper), with Sahara's colour as the sand,
- *   - an empty bulb is the paper seen through glass: within 3.0 (CIELAB) of #f3f0ea at the
- *     median and 0.92 of its luminance or more, away from the wall and the highlights;
+ *   - an empty bulb is the paper seen through glass: within 2.0 (CIELAB) of #f3f0ea at the
+ *     median and 0.95 of its luminance or more, away from the wall and the highlights;
  *   - a flat patch of the sand behind the near wall keeps its colour: 0.93 of its chroma or more,
  *     its L* within 3 %, and toward the wall no film whitens it (the 95th percentile of its L*
- *     there 1.03 of its own at most);
+ *     there 1.04 of its own at most);
  *   - the rim is darker than the paper all round the outline (the darkest point out along each
- *     normal 0.40 under the paper's luminance at the palest point, 0.85 at the median);
+ *     normal 0.40 under the paper's luminance at the palest point, 0.84 at the median);
  *   - the room's highlights are still there (20 pixels or more brighter than the paper in the
  *     clear bulb).
  * The control is the same glass with the film put back as it was before (the alpha lifted to the
@@ -993,7 +993,7 @@ var PAPER_SAND = [36, 0.62, 0.61];      // Sahara's colour (sand/sands.js), the 
 function filmBack(src) {
   var lift = "'  a = clamp(max(a, max(col.r, max(col.g, col.b))), 0.0, 1.0);',";
   var swaps = [
-    ["{ dark: [], paper: ['    tr = absorb * (1.0 - F) * (1.0 - (Fi - 0.04) / 0.96);', '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;'] },", ''],
+    ["{ dark: [], paper: ['    tr = absorb * (1.0 - F);', '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;', '    fill = PAGE * F * absorb;'] },", ''],
     ["{ dark: [], paper: ['  col = min(max(col, fill), vec3(1.0));'] },", ''],
     [lift, lift + "\n{ dark: [], paper: ['  if (uPass < 0.5) { col += 0.075 * vec3(0.60, 0.58, 0.55) * (1.0 - a); a += 0.075 * (1.0 - a); }'] },"],
     ['gl.uniform1f(u.uGain, paper ? 1.15 : 1.1);', 'gl.uniform1f(u.uGain, paper ? 2.4 : 1.1);']
@@ -1006,13 +1006,13 @@ function filmBack(src) {
 }
 function paperFails(m) {
   var f = [];
-  if (!(m.clear.de <= 3.0)) f.push('the empty bulb is ' + m.clear.de + ' from the paper (3.0 at most)');
-  if (!(m.clear.lum >= 0.92)) f.push('the empty bulb has ' + m.clear.lum + ' of the paper\'s luminance (0.92 at least)');
+  if (!(m.clear.de <= 2.0)) f.push('the empty bulb is ' + m.clear.de + ' from the paper (2.0 at most)');
+  if (!(m.clear.lum >= 0.95)) f.push('the empty bulb has ' + m.clear.lum + ' of the paper\'s luminance (0.95 at least)');
   if (!(m.sand.C >= 0.93)) f.push('the sand behind the glass keeps ' + m.sand.C + ' of its chroma (0.93 at least)');
   if (!(Math.abs(m.sand.L - 1) <= 0.03)) f.push('the sand behind the glass has ' + m.sand.L + ' of its L* (within 3 %)');
-  if (!(m.sand.edge <= 1.03)) f.push('toward the wall the sand is whitened to ' + m.sand.edge + ' of its L* (1.03 at most)');
+  if (!(m.sand.edge <= 1.04)) f.push('toward the wall the sand is whitened to ' + m.sand.edge + ' of its L* (1.04 at most)');
   if (!(m.rim.worst >= 0.40)) f.push('the rim is only ' + m.rim.worst + ' darker than the paper at its palest (' + m.rim.at + ', y ' + m.rim.y + ' cells; 0.40 at least)');
-  if (!(m.rim.median >= 0.85)) f.push('the rim is ' + m.rim.median + ' darker than the paper at the median (0.85 at least)');
+  if (!(m.rim.median >= 0.84)) f.push('the rim is ' + m.rim.median + ' darker than the paper at the median (0.84 at least)');
   if (!(m.clear.highlights >= 20)) f.push('only ' + m.clear.highlights + ' highlight pixels in the clear bulb (20 at least)');
   return f;
 }

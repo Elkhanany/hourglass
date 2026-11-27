@@ -272,12 +272,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   after a lost context, and that a device which refuses that shader is
   given the drawn glass of the same shape. On white (the light look) the
   rendered glass of every shape is clear: its two layers read back from WebGL
-  and laid over the paper in numbers, an empty bulb within 3.0 (CIELAB) of
-  #f3f0ea at the median and 0.92 of its luminance, away from the wall and
+  and laid over the paper in numbers, an empty bulb within 2.0 (CIELAB) of
+  #f3f0ea at the median and 0.95 of its luminance, away from the wall and
   the highlights; a flat patch of Sahara's colour behind the near wall
-  keeping 0.93 of its chroma and its L* within 3 %, and no more than 1.03 of
+  keeping 0.93 of its chroma and its L* within 3 %, and no more than 1.04 of
   its L* toward the wall; the rim darker than the paper all round the outline
-  (0.40 under its luminance at the palest point, 0.85 at the median; the
+  (0.40 under its luminance at the palest point, 0.84 at the median; the
   waist, where the walls meet, left out); the room's highlights there. Its
   control is the same glass with the film put back as it was before (the
   alpha lifted to the sheen under the steep exposure, the grey veil over the

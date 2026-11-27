@@ -208,11 +208,11 @@
     '    float Fi = ri > 0.5 ? 0.04 + 0.96 * pow(1.0 - max(ni.z, 0.0), 8.0) : 1.0;',
     '    vec3 tr = absorb * (1.0 - F) * (1.0 - Fi);',
     '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;',
-    // On white the wall in front is clear: it covers what is behind it by what its outer face
-    // mirrors and its glass takes, and its inner face only by what it mirrors at a glance, toward
-    // the edge, where the sand meets the glass; what it mirrors is added over the page and the sand
-    // at its own strength, not as a film (the light look)
-    { dark: [], paper: ['    tr = absorb * (1.0 - F) * (1.0 - (Fi - 0.04) / 0.96);', '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;'] },
+    // On white (the light look) the wall in front is clear: it covers what lies behind it only by
+    // what its outer face mirrors and its glass takes (the contact shade where the sand meets the
+    // glass is the sand's own), and its outer face gives back at least the page's light it takes,
+    // so that the page is not greyed and a sand is not filmed; the room's lights lie over that
+    { dark: [], paper: ['    tr = absorb * (1.0 - F);', '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;', '    fill = PAGE * F * absorb;'] },
     // edge-on, the wall is solid glass: it bends light in from the sides
     '    float rim = 1.0 - smoothstep(-0.25, 0.35, dIn);',
     '    if (rim > 0.0) {',
@@ -222,6 +222,7 @@
     '      vec3 o = normalize(vec3(-sx * sin(dv), -dro * 0.5, -cos(dv)));',
     '      col += rim * room(rotZ(o, uRot)) * (1.0 - F) * (1.0 - F) * exp(-uAbs * hlf * 0.5);',
     '      a = mix(a, 0.82, rim);',
+    { dark: [], paper: ['      fill *= 1.0 - rim;'] },          // (edge-on it draws the outline dark)
     '    }',
     '  } else {',
     '    if (dIn <= -0.3) { gl_FragColor = vec4(0.0); return; }',
@@ -232,9 +233,9 @@
     '    col = room(rotZ(vec3(0.0, 0.0, -1.0) + 2.0 * nb.z * nb, uRot)) * Fb * 0.5;',
     '    vec3 tb = absorb * (1.0 - Fb * 0.7);',
     '    a = 1.0 - (tb.r + tb.g + tb.b) / 3.0;',
-    // ... and the wall behind the sand gives back at least the page's light it takes, so the bore
-    // is the page seen through clear glass, the room's lights over it, and greys nowhere
-    { dark: [], paper: ['    fill = PAGE * Fb * 0.7 * absorb;'] },
+    // ... and the wall behind the sand gives back at least all the page's light it takes, so the
+    // bore is the page seen through clear glass, the room's lights over it, and greys nowhere
+    { dark: [], paper: ['    fill = PAGE * a;'] },
     '    edge *= smoothstep(-0.3, 0.3, dIn);',
     '  }',
     '  col = vec3(1.0) - exp(-col * uGain);',                             // film-like roll-off

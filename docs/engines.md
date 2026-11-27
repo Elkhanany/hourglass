@@ -72,9 +72,10 @@ the pieces fit together).
   behind it, dark flags at its sides) and lays it over the paper as clear
   glass: each layer is premultiplied colour at the strength the glass gives,
   never a film. The near wall covers what lies behind it only by what its outer
-  face mirrors and its glass takes (its inner face only by what it mirrors at a
-  glance, toward the edge, where the sand meets the glass); the wall behind the
-  sand gives back at least the page's light it takes; the white room is
+  face mirrors and its glass takes, and gives back at least the page's light its
+  face takes (the shade where the sand meets the glass is the sand's own); the
+  wall behind the sand gives back at least all the page's light it takes; the
+  white room is
   mirrored at about the paper's own white (an exposure of 1.15). So an empty
   bulb is the paper seen through glass, a sand behind it keeps its colour, the
   room's highlights lie over both, and the wall seen edge-on, which bends the
