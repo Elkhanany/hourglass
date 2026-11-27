@@ -728,6 +728,46 @@ test('the sunlit sand: on a symmetric heap the left flank (toward the key) is th
     ', a key that does not turn back ' + (fc.right / fc.left).toFixed(2) + ' turned over';
 });
 
+test('the sunlit sand in the frame of a swap: drawn with the glass\'s angle of that frame, its lit flank stays on the screen\'s left', function () {
+  // the app's own order in a frame: the sand is drawn before the glass is (drawGlass), and a swap turns the
+  // lattice end for end and the angle back by half a turn between the two
+  function swapFrame(told) {
+    var r = realRenderer(P, heapGlass()), sim = r.sim, out = {};
+    r.setPaper(true); r.setSandLight('sunlit');
+    // just short of half a turn: the heap lies in the lattice's lower half, the screen's left is the lattice's right
+    sim.angle = Math.PI - 0.02;
+    r.drawSand(told ? sim.angle + sim.tilt : undefined); r.drawGlass(sim.angle + sim.tilt);
+    r.drawSand(told ? sim.angle + sim.tilt : undefined); r.drawGlass(sim.angle + sim.tilt);
+    var f = flanks(r);
+    out.before = f.right / f.left;
+    sim.completeFlip(); sim.angle = 0;                // the swap (app.js swapEnds, then the turn's end)
+    r.drawSand(told ? sim.angle + sim.tilt : undefined);
+    out.swap = sides(r);
+    r.drawGlass(sim.angle + sim.tilt);
+    r.drawSand(told ? sim.angle + sim.tilt : undefined);
+    out.after = sides(r);
+    return out;
+  }
+  /** The drawn sand's left over its right, over the whole picture (after the swap the heap lies in the lattice's upper half). */
+  function sides(r) {
+    var BW = r.BW, BH = r.BH, cx = r.sim.geo.cx * 2, s = [0, 0, 0, 0], x, y, v, side;
+    for (y = 0; y < BH; y++) for (x = 0; x < BW; x++) {
+      v = r.buf[y * BW + x] >>> 0;
+      if ((v >>> 24) !== 255) continue;
+      side = x < cx - 8 ? 0 : (x > cx + 8 ? 2 : -1);
+      if (side < 0) continue;
+      s[side] += 0.2126 * lin(v & 255) + 0.7152 * lin((v >>> 8) & 255) + 0.0722 * lin((v >>> 16) & 255); s[side + 1]++;
+    }
+    return (s[0] / s[1]) / (s[2] / s[3]);
+  }
+  var a = swapFrame(true), c = swapFrame(false);
+  ok(a.before >= 1.8 && a.swap >= 1.8 && a.after >= 1.8, 'told the angle: the screen\'s left over its right is ' + a.before.toFixed(2) + ' before, ' + a.swap.toFixed(2) + ' in the swap\'s frame, ' + a.after.toFixed(2) + ' after');
+  // control: drawn as drawGlass was last told (the frame before's angle), the swap's frame is lit from the other side
+  ok(c.before >= 1.8 && c.swap < 1 && c.after >= 1.8, 'control: not told, the swap\'s frame gave ' + c.swap.toFixed(2) + ' (before ' + c.before.toFixed(2) + ', after ' + c.after.toFixed(2) + ')');
+  return 'the screen\'s left flank over its right (light look): ' + a.before.toFixed(2) + ' before the swap, ' + a.swap.toFixed(2) + ' in its frame, ' + a.after.toFixed(2) + ' after; control: lit by the angle the glass was last drawn at, the swap\'s frame is ' +
+    c.swap.toFixed(2) + ' (the shaded side lit for a frame)';
+});
+
 test('Soft is the sand as ' + SOFT_BASE + ' drew it, byte for byte, in both looks (a hash of the sand\'s buffer on fixed beds)', function () {
   var parts = paths.physicsParts(), src = parts.map(function (f) { return L.gitShow(SOFT_BASE, f); }).join('\n'), B = L.loadIsolated(src, SOFT_BASE);
   var cases = [[1234567, false, 0], [777, true, Math.PI], [4242, false, 0.5]], n = 0, sun = 0;

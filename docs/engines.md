@@ -101,8 +101,11 @@ unit vector in the screen's axes (x right, y up, z toward the eye) from the
 upper left and in front, the quarter of the glass's key softbox in
 `glass/gl.js`'s room, so the glass's highlight and the sand's lit flank
 agree; Real sand reads the same constant. The light stays in the room: it is
-turned back by the angle the glass was last drawn at (`drawGlass`'s `rot`),
-so it stays upper left on screen when the glass leans or is turned over.
+turned back by the glass's angle against the room in the frame being drawn
+(`drawSand(rot)`, which the app gives `sim.angle + sim.tilt`; the sand is
+drawn before the glass, and in the frame of a swap the angle the glass was
+last drawn at is the other way up), so it stays upper left on screen when
+the glass leans, is turned over, and in the frame it swaps its ends.
 
 - **The body** of sand pressed against the front glass is a surface of
   revolution like the bore: across a row its normal is (s, 0, √(1 − s²)) with

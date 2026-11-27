@@ -1552,7 +1552,7 @@
       var s1 = performance.now();
       simMs = s1 - s0;
       if (real) real.submit(now);               // Real sand: this frame's substeps and its picture, on the GPU
-      else renderer.drawSand();
+      else renderer.drawSand(sim.angle + sim.tilt);    // (the angle of this frame: the sunlit sand's key stays in the room at a swap too)
       drawMs = performance.now() - s1;
       dirty = false;
     }

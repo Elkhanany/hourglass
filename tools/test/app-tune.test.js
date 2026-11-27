@@ -287,6 +287,42 @@ function lightRowOk(m) {
   };
 }
 
+// Through a Flip the classic sand is drawn with the glass's angle of the same frame (renderer.drawSand(rot)): the
+// sunlit sand's key stays in the room in the frame of the swap too. Each frame's sunlit drawing is watched: how far
+// the angle its key is turned back by lies from the glass's angle against the room as the frame ends.
+async function lightTurn(env, o) {
+  o = o || {};
+  var t = await env.open({ storage: { 'hourglass.settings.v1': { durationMs: 60000 } }, routes: o.routes || [] }), m = {};
+  try {
+    await sleep(600);
+    await t.eval(function () {
+      var Hg = window.Hourglass, R = Hg.renderer, draw = R._drawSunlit, W = window.__turn = { frames: 0, worst: 0, swaps: 0, atSwap: null, last: null };
+      function off(a) { a = Math.abs(a) % (2 * Math.PI); return a > Math.PI ? 2 * Math.PI - a : a; }
+      var flip = Hg.sim.completeFlip, swapped = false;
+      Hg.sim.completeFlip = function () { swapped = true; W.swaps++; return flip.apply(this, arguments); };
+      R._drawSunlit = function () {
+        var d = off(this.lightRot - (Hg.sim.angle + Hg.sim.tilt));
+        W.frames++; if (d > W.worst) W.worst = d;
+        if (swapped) { swapped = false; W.atSwap = d; }
+        return draw.apply(this, arguments);
+      };
+      Hg.start();
+    });
+    await sleep(500);
+    await t.eval(function () { window.Hourglass.flipNow(); });
+    await t.page.waitForFunction(function () { return !window.Hourglass.flip.active && window.__turn.swaps >= 1; }, null, { timeout: 15000, polling: 50 });
+    await sleep(300);
+    m = await t.eval(function () { var W = window.__turn; return { frames: W.frames, worst: W.worst, swaps: W.swaps, atSwap: W.atSwap, sunlit: window.Hourglass.renderer.sunlit }; });
+    m.errors = t.errors.slice();
+  } finally { await t.close(); }
+  return m;
+}
+function lightTurnOk(m) {
+  return { turn: { ok: m.sunlit === true && m.frames >= 30 && m.swaps === 1 && m.atSwap !== null && m.atSwap < 1e-6 && m.worst < 1e-6 && m.errors.length === 0,
+                   detail: m.frames + ' frames drawn sunlit through a Flip, the key\'s angle at most ' + m.worst.toFixed(4) + ' rad from the glass\'s, ' +
+                           (m.atSwap === null ? 'no swap seen' : m.atSwap.toFixed(4) + ' in the swap\'s frame') + ' ' + m.errors.slice(0, 2).join(' | ') } };
+}
+
 /* ---- PLACE and TOP: one phone size ------------------------------------------------------- */
 function geo(t) {
   return t.eval(function () {
@@ -1469,6 +1505,11 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
         return lightRow(env, { routes: [broken(env, 'app.js', swap(/    settings\.sandLight = b\.dataset\.light === 'soft' \? 'soft' : 'sunlit';\n    save\(\); syncLights\(\);/,
           "    settings.sandLight = b.dataset.light === 'soft' ? 'soft' : 'sunlit';\n    syncLights();"))] });
       }, lightRowOk);
+      var lt = lightTurnOk(await lightTurn(env));
+      s.check('LIGHT: through a Flip the classic sand is drawn with the glass\'s angle of the same frame: the sunlit key stays in the room, in the frame of the swap too', lt.turn.ok, lt.turn.detail);
+      await control('LIGHT: a copy that draws the sand without the frame\'s angle (the key a frame old: half a turn off in the swap\'s frame)', 'turn', function () {
+        return lightTurn(env, { routes: [broken(env, 'app.js', swap(/      else renderer\.drawSand\(sim\.angle \+ sim\.tilt\);/, '      else renderer.drawSand();'))] });
+      }, lightTurnOk);
     }
 
     if (wanted('radios')) {

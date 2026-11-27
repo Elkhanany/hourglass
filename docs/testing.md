@@ -267,7 +267,12 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Node; cracks, their glint, kintsugi and the spill in the real app; and,
   with no cracks, the picture against f446085, pixel for pixel (a Renderer
   as it comes draws the sand Soft, so that comparison is Soft's).
-  `render-unit` also holds the sunlit sand (Tune's Light), in Node: on a
+  `render-unit` also holds the sunlit sand (Tune's Light), in Node (and its
+  frame of a swap: in the app's own order, the sand drawn before the glass,
+  the lit flank stays on the screen's left in the frame the lattice is
+  turned end for end, when `drawSand` is given the glass's angle of that
+  frame; lit by the angle the glass was last drawn at, the control, the
+  shaded side is lit for that frame): on a
   still, symmetric heap the left flank (toward the key) has at least 1.8
   times the right's mean relative luminance in the light look and 1.5 times
   in the dark, and with the glass turned over the lit flank is the one on
@@ -549,7 +554,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Sand tab's Light row (after Grain, Sunlit checked and lit as the app comes,
   a tap or an arrow key saves it and lights or softens the sand at once, a
   reload as saved; control: a copy that shows the choice and does not save
-  it), the
+  it; and through a Flip every frame of the classic sand is drawn with the
+  glass's angle of that frame, the swap's too, where a copy that draws it
+  without is half a turn off: the control), the
   tab row in one place on every tab, the sheet's top 44 px under the neck,
   the tabs as a screen reader meets them, the haptic labels on every button
   at boot, the reset link (what it puts back, the sand and its finish among it,

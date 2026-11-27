@@ -83,7 +83,7 @@
     this.sunlit = false;  // the sand lit by one key light (setSandLight); off, it is drawn as it always was
     this._sun = null;     // the sunlit sand's tables, made when it is first drawn (_drawSunlit)
     this._sunRev = 0;     // counts the colour table's rebuilds: the sunlit tables follow it
-    this.lightRot = 0;    // the glass against the room, as drawGlass was last told (the key light stays in the room)
+    this.lightRot = 0;    // the glass against the room, as drawSand or drawGlass was last told (the key light stays in the room)
     this.glass = null;    // [far wall, near wall] WebGL layers, or null → drawn glass
     this.glassRot = 0;
     this._initGlass();
@@ -436,8 +436,17 @@
 
   /* ---------------------------------------------------------------- *
    *  Sand: one lit bead per simulated grain
+   *
+   *  `rot`: how far the glass is turned against the room now (rad,
+   *  clockwise; app.js gives sim.angle + sim.tilt), for the sunlit sand's
+   *  key. In a frame the sand is drawn before the glass, and in the frame of
+   *  a swap (the lattice turned end for end, the angle back by half a turn)
+   *  the angle the glass was last drawn at is the other way up: lit by it,
+   *  the bed's shaded side would flash for that frame. Left out, the key
+   *  stays as drawGlass was last told.
    * ---------------------------------------------------------------- */
-  Renderer.prototype.drawSand = function () {
+  Renderer.prototype.drawSand = function (rot) {
+    if (rot === +rot) this.lightRot = rot;
     if (this.sunlit) { this._drawSunlit(); return; }
     var sim = this.sim, W = sim.W, H = sim.H, BW = this.BW;
     var cell = sim.cell, seed = sim.seed, buf = this.buf, lut = this.lut;
