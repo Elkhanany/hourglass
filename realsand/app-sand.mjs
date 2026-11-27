@@ -992,7 +992,8 @@ export class RealSand {
     if (was.on === on && was.m === m) return;
     if (on && !was.on) this._reliefKey = null;            // (the relief of before the soft light is not this bed's)
     this._light = { on, m };
-    this._redraw = true;
+    // (the soft picture is the same in either look: nothing to draw again for a look alone)
+    if (on || was.on) this._redraw = true;
   }
 
   /** Per grid row (its centre), the drawn glass's half-width, cells: the bore the sunlit sand's body lies against. */
