@@ -225,17 +225,24 @@ classic sand's 1.62, dark look 1.56 to 1.48).
   relief pass is encoded. `realsand-gpu`'s LIT case holds it: the grain
   renderer of the commit before this one draws the same points beside the
   engine's own, and the two pictures are equal byte for byte.
-- **Cost.** Per grain corner the vertex stage adds about 75 arithmetic
-  operations, three `exp`, one `sqrt`, two hashes and five loads from
-  buffers (two half-width rows, one relief entry, three colours); per
-  fragment about 12 operations in place of the soft bead's 15. Per frame:
-  one dispatch over the points (six loads and at most one atomic maximum
-  each), one of five workgroups over the columns, a 49 kB table when the
-  look or the sand changes. On this project's test machine (WebGPU in
-  software, where the physics is nearly all of a frame) a drawn frame took
-  the same time under Sunlit as under Soft to within the run-to-run spread
-  (see `docs/testing.md`, the LIT case). On a phone it has not been
-  measured.
+- **Cost.** Counted from the shader: the vertex stage adds about 180 scalar
+  operations for each corner of a grain's quad, four corners a grain (among
+  them four `exp`, one `sqrt` and two integer hashes), and six loads from
+  buffers (two half-width rows, one relief entry, three colours); the
+  fragment stage about 45 operations a fragment on top of the soft bead's
+  15. Per frame: one dispatch over the points (six loads and at most one
+  atomic maximum a point), one of five workgroups over the columns, and a
+  49 kB table when the look or the sand changes. Measured on this project's
+  test machine, WebGPU in software (a 10 s glass, 1,952 points, the engine
+  of the commit before beside this one, each twice, alone on the machine): a
+  frame of a running glass took 279 and 336 ms before, 294 and 306 ms under
+  Soft, 291 and 293 ms under Sunlit; a frame that only draws (the glass
+  asleep) 123 and 138 ms before, 127 and 132 ms under Soft, 127 and 134 ms
+  under Sunlit. So here Sunlit over Soft is 1.00 to within the run-to-run
+  spread of 5 to 10 %: in software a frame is the physics and the copy to
+  the test's canvas, and the added shading cannot be told from the noise.
+  On a phone it has not been measured: that is the figure that counts, and
+  the engine's own report (`?debug=sand`) is where to read it.
 
 Grain counts depend on the duration: on phones from about 10,000 (one minute)
 to 21,000 (45 minutes), up to 24,000 after adding sand; roughly 45 % more on
