@@ -993,8 +993,9 @@ var PAPER_SAND = [36, 0.62, 0.61];      // Sahara's colour (sand/sands.js), the 
 function filmBack(src) {
   var lift = "'  a = clamp(max(a, max(col.r, max(col.g, col.b))), 0.0, 1.0);',";
   var swaps = [
-    ["{ dark: [], paper: ['    tr = absorb * (1.0 - F);', '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;', '    fill = PAGE * F * absorb;'] },", ''],
-    ["{ dark: [], paper: ['  col = min(max(col, fill), vec3(1.0));'] },", ''],
+    // (the near wall's clear block, the windows' light over the page and the shoulder with it: all of the light look's own)
+    ["{ dark: [], paper: ['    tr = absorb * (1.0 - F);', '    a = 1.0 - (tr.r + tr.g + tr.b) / 3.0;', '    fill = PAGE * F * absorb;',\n      // the key's window and the lamp seen in the wall: added over the page as light (on white a mirror's\n      // highlight is the only thing brighter than the page), and a faint grey shoulder toward the grazing\n      // side, where the wall is thick, inside its dark outline\n      '    vec3 rr = rotZ(vec3(0.0, 0.0, -1.0) + 2.0 * n.z * n, uRot);',\n      '    shine = PAGE_SHINE * min(F * 16.0, 0.9) * (panel(rr, normalize(vec3(-0.66, -0.52, 0.54)), vec2(0.20, 0.46), 0.12)',\n      '      + smoothstep(0.9990, 0.99975, dot(rr, normalize(vec3(-0.40, -0.50, 0.77)))));',\n      '    fill *= 1.0 - 0.05 * smoothstep(0.55, 0.95, abs(s));'] },", ''],
+    ["{ dark: [], paper: ['  col = min(max(col, fill) + shine, vec3(1.0));'] },", ''],
     [lift, lift + "\n{ dark: [], paper: ['  if (uPass < 0.5) { col += 0.075 * vec3(0.60, 0.58, 0.55) * (1.0 - a); a += 0.075 * (1.0 - a); }'] },"],
     ['gl.uniform1f(u.uGain, paper ? 1.15 : 1.1);', 'gl.uniform1f(u.uGain, paper ? 2.4 : 1.1);']
   ];
