@@ -1718,15 +1718,15 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   rLT.o.rotor = null;
   var back = await litAfter(function () { rLT.setLight('soft', 0); });
   var baseNow = JSON.stringify([back.look.m, back.look.o, back.look.r, back.look.liquid, back.look.exposure, back.look.flight, back.look.light, back.look.sweep]);
-  check(back.draws >= 1 && back.first.lit === null && back.lit === null && baseNow === base0 && Object.keys(back.look).sort().join() === 'exposure,flight,light,liquid,lit,m,o,r,sweep',
-    'setLight(\'soft\'): the next frame has no light in its look, and every other field of the look is as before any light was set');
+  check(back.draws >= 1 && back.first.lit === null && back.lit === null && baseNow === base0 && Object.keys(back.look).sort().join() === 'exposure,flight,light,liquid,lit,m,o,paper,r,sweep' && back.look.paper === 0,
+    'setLight(\'soft\'): the next frame has no light in its look, and every other field of the look is as before any light was set (the light look\'s share, paper, 0 in the dark look)', JSON.stringify([back.draws, back.first && back.first.lit, back.lit, baseNow === base0, Object.keys(back.look).sort().join(), back.look.paper]));
   // the look's own lines are the base's: the fields of before are worked out by the same text
   var lookOf = function (src) { var m = /\n  _look\(hz\) \{\n([\s\S]*?)\n  \}\n/.exec(src); return m ? m[1] : null; };
-  var lookHead = lookOf(adapterSrc), SOFT_BASE = process.env.HOURGLASS_SOFT_BASE || '9937dc8', lookBase = null;
+  var lookHead = lookOf(adapterSrc), SOFT_BASE = process.env.HOURGLASS_SOFT_BASE || '19c84db', lookBase = null;
   try { lookBase = lookOf(require('./lib/base.js').show(SOFT_BASE, 'realsand/app-sand.mjs')); } catch (eB) { /* (checked below) */ }
-  var strip = function (t) { return t.split('\n').filter(function (l) { return !/^\s*(\/\/ the sunlit sand|lit: this\._litLook)/.test(l); }).join('\n').replace(/_sweepLook\(\),\n/, '_sweepLook()\n'); };
+  var strip = function (t) { return t.split('\n').filter(function (l) { return !/^\s*(\/\/ the sunlit sand|lit: this\._litLook|\/\/ how much of the light look|paper: this\._light\.m)/.test(l); }).join('\n').replace(/_sweepLook\(\),\n/, '_sweepLook()\n'); };
   check(!!lookHead && !!lookBase && strip(lookHead) === lookBase,
-    'under the soft light the look is the base\'s (' + SOFT_BASE + '): _look()\'s text is its text with the one field lit added', lookBase ? '' : 'the base\'s app-sand.mjs is not had from git');
+    'under the soft light the look is the base\'s (' + SOFT_BASE + '): _look()\'s text is its text with the two fields lit and paper added', lookBase ? '' : 'the base\'s app-sand.mjs is not had from git');
   check(!!lookHead && !!lookBase && strip(lookHead.replace('0.75 / css.dpr', '0.8 / css.dpr')) !== lookBase, '... and a grain drawn a little larger is found out (control)');
   // without a Renderer that gives the tables, or without the classic sand's key, the sand stays as it was: nothing breaks
   var NL = makeApp({ ms: 10000, seed: 213 }), rNL = await NL.attach(); NL.calibrate(); NL.T.rem = NL.T.durationMs; NL.T.state = 'paused';

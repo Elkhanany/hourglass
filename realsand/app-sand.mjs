@@ -338,7 +338,7 @@ export class RealSand {
     // the sand's light (setLight): soft until told; the sunlit sand's tables (the Renderer's own, sunTables) and
     // what they were made for, the frames drawn sunlit, and the fill and the way up its relief was last made for
     this._light = { on: false, m: 0 };
-    this._lit = null; this._litKey = null; this._litTheme = null; this._litFrame = 0; this._reliefKey = null;
+    this._lit = null; this._toneTable = null; this._litKey = null; this._litTheme = null; this._litFrame = 0; this._reliefKey = null;
     this.n.litTables = 0;
   }
 
@@ -992,8 +992,8 @@ export class RealSand {
     if (was.on === on && was.m === m) return;
     if (on && !was.on) this._reliefKey = null;            // (the relief of before the soft light is not this bed's)
     this._light = { on, m };
-    // (the soft picture is the same in either look: nothing to draw again for a look alone)
-    if (on || was.on) this._redraw = true;
+    // (the soft picture differs between the looks in its grains in the air only: drawn again all the same)
+    this._redraw = true;
   }
 
   /** Per grid row (its centre), the drawn glass's half-width, cells: the bore the sunlit sand's body lies against. */
@@ -1016,11 +1016,12 @@ export class RealSand {
     const Lt = this._light, R = this.view, K0 = this.P && this.P.KEY_LIGHT;
     if (!Lt.on || !R || typeof R.sunTables !== 'function' || !K0 || !R.lut) return null;
     // (made again for another look, another sand or layered sand's other tone: the palette's key says so)
-    const key = Lt.m + ':' + this._palKey;
+    // (a fade's share in sixteenths, as the classic sand's: about 16 builds in a fade, not one a frame)
+    const mq = Math.round(Lt.m * 16) / 16, key = mq + ':' + this._palKey;
     if (key !== this._litKey || R.theme !== this._litTheme) {
-      this._lit = R.sunTables(Lt.m, this._lit);
+      this._lit = R.sunTables(mq, this._lit);
       this._litKey = key; this._litTheme = R.theme; this.n.litTables++;
-      if (this.grains.setTones) this.grains.setTones(tonesFromLUT(this._lit.lut, R.isMica, R.hiBoost));
+      if (this.grains.setTones) this.grains.setTones(this._toneTable = tonesFromLUT(this._lit.lut, R.isMica, R.hiBoost, this._toneTable));
     }
     const k = this._lit.k, th = this.angle + this.tilt, c = Math.cos(th), sn = Math.sin(th);
     const L = [c * K0[0] - sn * K0[1], sn * K0[0] + c * K0[1], K0[2]];
@@ -1028,7 +1029,7 @@ export class RealSand {
     const bed = this._gen * 2 + this.valve.parity, fresh = bed !== this._reliefKey;
     this._reliefKey = bed;
     const g = (R.theme && R.theme.glint) || [255, 255, 255];
-    return { key: L, half: H, A: k.A, K: k.K, X: k.X, wrap: k.wrap, C: k.C, kw: k.kw, kd: k.kd, wd: k.wd, cells: this.s,
+    return { key: L, half: H, A: k.A, K: k.K, X: k.X, wrap: k.wrap, C: k.C, kw: k.kw, kd: k.kd, wd: k.wd, cells: this.s, deep: this._lit.deep || 0,
       share: k.sun.glints, mica: k.sun.mica, glint: [g[0] / 255, g[1] / 255, g[2] / 255],
       // (a grain moves when it is faster than 2 cells/s, as the tally's point at rest is slower; a crowded point
       // lies in a bed up to 2 % of a free fall over the glass, as the tally's bed is what does not move)
@@ -1140,7 +1141,9 @@ export class RealSand {
       // the room's light turned back by the glass's angle on screen; the Reset's sweep (design 6.2, 6.5)
       light: this._rotorAngle(), sweep: this._sweepLook(),
       // the sunlit sand (setLight), null under the soft light
-      lit: this._litLook(hz)
+      lit: this._litLook(hz),
+      // how much of the light look the page shows: there a grain in the air has a dark side, in either light
+      paper: this._light.m
     };
   }
 

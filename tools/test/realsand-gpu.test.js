@@ -110,7 +110,7 @@ for (var i = 2; i < process.argv.length; i++) {
 // the cases, in the order they run (whatever the order --only names them in)
 var CASES = ['BOOT', 'SOUND', 'RUN', 'RESET', 'FLIP', 'POUR', 'HIDDEN', 'LOSS', 'LIT', 'SHAPES'];
 // LIT: the commit whose grain renderer draws "the picture of before" (HOURGLASS_SOFT_BASE names another; render-unit's too)
-var LIT_BASE = process.env.HOURGLASS_SOFT_BASE || '9937dc8';
+var LIT_BASE = process.env.HOURGLASS_SOFT_BASE || '19c84db';
 var ONLY = null;
 if (onlyArg !== null) {
   ONLY = onlyArg.split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean);

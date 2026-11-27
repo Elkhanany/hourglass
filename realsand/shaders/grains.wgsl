@@ -69,7 +69,9 @@ struct View {
     glint: vec4f,  // x: the share of grains that can glint, over pi/6 (only a facet inside the ball is one); y: how near the
                    // mirror direction a mica facet must face; z: the key's direction on the canvas, x; w: the same, y
     spark: vec4f,  // rgb: the glint's colour; w: the frame (a moving grain's facet tumbles)
-    still: vec4f,  // x: a grain moves when its displacement in a substep is over this (cells)
+    still: vec4f,  // x: a grain moves when its displacement in a substep is over this (cells); y: how much of the light look
+                   // the page shows (0 the dark, 1 the light: a grain in the air gets a dark side); z: light levels a pale sand
+                   // is drawn deeper at its beds' tops in the light look (sunlit)
 };
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -94,6 +96,8 @@ struct VertexOut {
     // the sunlit sand: the grain's colour three light levels down (a: 1 if it glints) and three up (a: 1 if sunlit)
     @location(3) @interpolate(flat) lo: vec4f,
     @location(4) @interpolate(flat) hi: vec4f,
+    // the light look, a grain in the air: rgb its dark side's colour, a: how much of it (0: none, the dark look or a bed)
+    @location(5) @interpolate(flat) shade: vec4f,
 };
 
 fn hash(input: u32) -> u32 {
@@ -217,6 +221,18 @@ fn threadGrain(k: u32) -> vec3f {
     out.color = vec4f(col.rgb * shade, col.a);
     out.lo = vec4f(0.0);
     out.hi = vec4f(0.0);
+    out.shade = vec4f(0.0);
+    // the light look (either light): a grain in the air is its colour on the key's side and under half its light on
+    // the far side, the colour kept (glass/renderer.js _paperTones: x 0.45, at most 0.20 of white, a quarter more colour)
+    let inAir = select(flight, 1.0, index >= count);
+    if (view.still.y > 0.0 && inAir > 0.5) {
+        let cl = pow(max(col.rgb * shade, vec3f(0.0)), vec3f(2.2));
+        let yl = dot(cl, vec3f(0.2126, 0.7152, 0.0722));
+        let f = select(1.0, min(0.45, 0.20 / yl), yl > 1e-4);
+        let yd = yl * f;
+        let dk = max(vec3f(yd) + (cl * f - vec3f(yd)) * 1.25, vec3f(0.0));
+        out.shade = vec4f(pow(dk, vec3f(1.0 / 2.2)), view.still.y);
+    }
     if (view.key.w > 0.5) {
         // The sunlit sand (glass/renderer.js, the sunlit sand: the same light, here per grain).
         let L = view.key.xyz;
@@ -246,7 +262,7 @@ fn threadGrain(k: u32) -> vec3f {
         let moving = dot(moved, moved) > view.still.x * view.still.x;
         // the light level (a level every 0.031 of light from 0.34, as the classic sand's table), the grain's own shade in it
         let lv = clamp(floor(mix(bedLight, view.amb.x + 0.62 * view.amb.y, air) * shade * view.half.w - 10.467742)
-            + select(0.0, 1.0, moving && air < 0.5), 3.0, 44.0);
+            + select(0.0, 1.0, moving && air < 0.5) - floor(view.still.z * step(0.5, top) * (1.0 - air)), 3.0, 44.0);
         let ti = (u32(lv) << 8u) | seed;
         let mid = unpack4x8unorm(tones[ti]);
         let kind = u32(round((1.0 - mid.a) * 255.0));            // 0 plain, 1 glossy, 2 mica
@@ -264,6 +280,14 @@ fn threadGrain(k: u32) -> vec3f {
         out.color = vec4f(mid.rgb, col.a);
         out.lo = vec4f(unpack4x8unorm(tones[ti - 768u]).rgb, select(0.0, 1.0, glints));
         out.hi = vec4f(unpack4x8unorm(tones[ti + 768u]).rgb, 1.0);
+        if (out.shade.a > 0.0) {
+            // the dark side from this light's colour of the grain
+            let cl = pow(mid.rgb, vec3f(2.2));
+            let yl = dot(cl, vec3f(0.2126, 0.7152, 0.0722));
+            let f = select(1.0, min(0.45, 0.20 / yl), yl > 1e-4);
+            let yd = yl * f;
+            out.shade = vec4f(pow(max(vec3f(yd) + (cl * f - vec3f(yd)) * 1.25, vec3f(0.0)), vec3f(1.0 / 2.2)), out.shade.a);
+        }
     }
     return out;
 }
@@ -302,7 +326,14 @@ fn turned(v: vec2f) -> vec2f {
         let t = dot(d, key2) * (1.0 - 0.3 * r2);
         rgb = min(mix(v.color.rgb, select(v.lo.rgb, v.hi.rgb, t > 0.0), min(abs(t), 1.0)) * (0.94 + 0.12 * (1.0 - r2)), vec3f(1.0));
         let gq = d - 0.35 * key2;
-        rgb = mix(rgb, view.spark.rgb, v.lo.a * clamp((0.22 - dot(gq, gq)) * 10.0, 0.0, 1.0));
+        // a sparkle: a bright spot toward the key and the bead round it half way to the glint's colour
+        rgb = mix(rgb, view.spark.rgb, v.lo.a * max(0.5, clamp((0.30 - dot(gq, gq)) * 8.0, 0.0, 1.0)));
+    }
+    if (v.shade.a > 0.0) {
+        // the light look, a grain in the air: its far side from the key (the room's, as the bead above) dark
+        let kd = select(light, view.glint.zw, v.hi.a > 0.5);
+        let far = clamp(0.25 - 1.4 * dot(d, kd), 0.0, 1.0);
+        rgb = mix(rgb, v.shade.rgb, v.shade.a * far);
     }
     if (view.look.x > 0.5) {
         // liquid: soft round drops that run together

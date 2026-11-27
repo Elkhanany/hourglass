@@ -52,8 +52,8 @@ const LEVEL_STEP = 0.031;
  * grain, 254 a glossy one, hiBoost over 3, 253 mica), which says how near the key's mirror direction its facet must face
  * to glint.
  */
-export function tonesFromLUT(lut, isMica, hiBoost) {
-  const out = new Uint32Array(TONE_LEVELS * 256);
+export function tonesFromLUT(lut, isMica, hiBoost, into = null) {
+  const out = into && into.length === TONE_LEVELS * 256 ? into : new Uint32Array(TONE_LEVELS * 256);
   for (let i = 0; i < out.length; i++) {
     const s = i & 255, kind = isMica && isMica[s] ? 253 : (hiBoost && hiBoost[s] > 3 ? 254 : 255);
     out[i] = ((lut[i] & 0x00ffffff) | (kind << 24)) >>> 0;
@@ -202,6 +202,7 @@ export class GrainRenderer {
     v[12] = this.warpCx; v[13] = this.warpCy; v[14] = this.warpRows; v[15] = count;
     const th = look.light || 0;
     v[16] = Math.cos(th); v[17] = Math.sin(th);
+    v[53] = look.paper > 0 ? Math.min(1, look.paper) : 0;     // (the light look's share: a grain in the air gets a dark side)
     const sw = look.sweep;
     let extra = 0;
     if (sw && sw.kind === 1) { v[20] = 1; v[21] = sw.S; v[22] = sw.min ?? 0; }
@@ -220,7 +221,7 @@ export class GrainRenderer {
       v[40] = lit.kw; v[41] = lit.kd; v[42] = 1 / lit.wd; v[43] = lit.cells;
       v[44] = lit.share * 6 / Math.PI; v[45] = lit.mica; v[46] = L[0] / l2; v[47] = L[1] / l2;
       v[48] = g[0]; v[49] = g[1]; v[50] = g[2]; v[51] = lit.frame || 0;
-      v[52] = lit.still;
+      v[52] = lit.still; v[54] = lit.deep || 0;
       // the beds' relief for this frame: the tops found afresh, then read with the buffer the last frame wrote
       // and written to the other
       const r = this.reliefData, W = this.columns;
