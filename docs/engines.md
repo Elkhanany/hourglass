@@ -166,9 +166,12 @@ of it: the light only reads the bed.
 
 Real sand is lit by the same key, with the same constants and the same
 colours, so that with Real sand on or off the heap is lit from the same side
-with the same strength (measured on the same half-run glass, the crater's
-lit side over its shaded one, relative luminance: light look 1.71 to the
-classic sand's 1.62, dark look 1.56 to 1.48).
+with the same strength (measured in pictures of the app on the same
+half-run glass, the upper bed's side toward the light over its other side,
+relative luminance, Real sand to the classic sand: Sahara 1.57 to 1.50 in
+the light look and 1.29 to 1.21 in the dark; Moonstone 1.29 to 1.33 and 1.48
+to 1.33. Volcanic differs more, 1.38 to 1.23, as it does under Soft: the
+classic sand has a glow over its dark sands, Real sand none).
 
 - **What it is told.** `real.setLight(light, m)`: `light` 'sunlit' or 'soft',
   `m` how much of the light look is shown (0 the dark, 1 the light, between
