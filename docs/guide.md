@@ -94,6 +94,12 @@ third of a second (at once with Reduce Motion). The phone's status bar and a PC 
 title bar follow it. *Put the look and sound back as they came* puts it back
 to Dark.
 
+The room reaches every edge of the screen in both looks. Its top and bottom
+edges are one even shade, and so is whatever the phone shows past the page
+(from 1.20.2): an iPhone's home-screen app in the light look, whose status bar
+is not see-through, can lay the page out a little shorter than the screen,
+and the strip it leaves is the room's own edge, not a band of another colour.
+
 ## Tune
 
 **Tune** holds the rest, in four tabs: **Sand**, **Glass**, **Sound** and
@@ -166,7 +172,9 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   the look and sound back as they came* puts it back to Sunlit.
 - **In the hand: Real motion**: the sand feels what the phone feels. Lean it
   and the piles slump, lay it on its side and the flow (and the clock) stop,
-  turn it over and the other bulb becomes the top. Walk and the falling
+  turn it over and the other bulb becomes the top. No turn starts a glass:
+  turned over, only a glass that was running runs on (see *What starts a
+  glass*, under *Playing with the glass*). Walk and the falling
   thread sways; shake it and the sand lifts and lands; twist it and the sand
   sloshes; spin it flat on a table and the sand is pushed to both ends.
   With the classic sand, shaken hard for about three seconds, in any
@@ -175,12 +183,17 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   after a fresh launch a small tilt icon waits in the top bar: tap it and
   allow, or leave it and the glass stands still that time.
 - At the foot (the last line of the Sand tab), how many grains there are,
-  and the version: "Version 1.20.1" when the copy installed for offline use is that same release. "Offline
+  and the version: "Version 1.20.2" when the copy installed for offline use is that same release. "Offline
   copy not installed yet" after it means the app does not yet work offline
   (open it once more with a connection); "update ... ready: close and
   reopen" means a newer release has arrived, and the next launch runs it;
   "offline copy" with another number means the installed copy is another
-  release than the page.
+  release than the page. A tap on the version line shows, for a few seconds,
+  one small line of numbers under it: how the phone lays the page out (the
+  screen, the window, the page's height, the visible part, the safe-area
+  margins, whether it runs as a home-screen app, the status bar's style, the
+  pixel ratio and the app's own box). Nothing is kept or sent; it is there to
+  be read out when the page does not fill a screen as it should.
 
 **Glass**
 
@@ -210,6 +223,18 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
 - **Ambience**: None, Brook, Rain, Ocean, Waterfall or Drips behind the
   sand (the one you tap plays long enough to be heard), and its own level
   under the cards while one is chosen.
+  When a glass starts, the sand is heard first: its sound comes up over
+  about a second and a half. The ambience stays silent for about two
+  seconds, then comes in slowly over about eight more, so it is at its
+  level some ten seconds after the start (from 1.20.1; before, it was there
+  within a second, ahead of the first grain). A short glass takes less: a
+  twentieth of its time silent and a quarter of it rising at most (a
+  10-second glass half a second, then two and a half). After a pause both
+  come back sooner, the sand in about half a second and the ambience in
+  about three, from the level it still has; a pause in the middle of a
+  start's rise, then a resume, carries on with that rise. A glass turned
+  over while it runs, and the turns of work and rest, are no start: the
+  ambience goes on through them as it is.
 - **Fade out before the end** (while an ambience is chosen): the ambience
   falls away over the glass's last minute, last 5 minutes or last 10 minutes
   (turned on, it starts at 5), so the glass ends in quiet; the sand and the
@@ -348,9 +373,10 @@ not turn: the sand fades away below and returns above, in the same time.
 Pause and resume work inside a phase; paused between two phases, the turn
 waits. **Flip**, or a turn by hand, swaps the time within the phase as on any
 glass and skips nothing; **Sand** adds time to the phase. **Reset** goes back
-to the start of the sequence, not started. Flipping a finished sequence starts
-it again from its first glass. A preset, or a custom time with rest Off, ends
-the sequence.
+to the start of the sequence, not started. A finished sequence turned over, by
+hand, by **Flip** or by the phone (*Real motion*), goes back to its first glass
+and waits there for Start or a tap. A preset, or a
+custom time with rest Off, ends the sequence.
 
 The wall clock stays the master here too. If the page was hidden or the phone
 asleep through one or more phase ends, no turn is replayed: on return the
@@ -383,6 +409,19 @@ drag barely stirs it and a hard spin pins it to both ends. Its own motion it
 keeps: carry the glass off quickly and the sand is left behind for a moment,
 the falling thread with it; stop it dead, or let it strike an edge, and the
 sand surges on, piles against the glass and runs back to its slope.
+
+What starts a glass. Only a tap on the glass or the round button (`Space` on
+a keyboard): they start it and pause it. No turn starts it (from 1.20.2).
+Turning it over, by a finger, a flick, **Flip** (`F`) or, with *Real motion*
+on, the phone itself, swaps its time: a glass that was running runs on, and a
+paused one stays paused. A glass that is waiting (after Reset, or as the app
+opens with nothing running) or that has run out (*Time · tap to begin again*)
+only waits, however often it is turned over and back. With its sand above it
+is as it is after Reset: *Tap the glass to begin*, the Start button, and the
+time it will run. With its sand below it waits the same way and reads
+`00:00.0`; Start or a tap there turns the glass over on the screen and runs
+it, and another turn sets it back to wait with its sand above. While it waits no sand passes the neck, no bowl rings and the
+screen is not kept awake.
 
 What you hear. Sand that moves is heard, whether the glass is running or
 not: before it is started, while it is paused and after it has run out, as

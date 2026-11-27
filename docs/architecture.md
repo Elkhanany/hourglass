@@ -243,7 +243,11 @@ pointer down or key and the rest of its gesture (its lift, the click, the
 touch and mouse events, the key's lift): it stops the bowl and goes no
 further. The ambience's fade before the end is worked out by `app.js` from
 the time left (`ambFadeShare`) and handed to the sound engine with every
-frame, which glides a gain after the ambience's bus (`ambEnd`) to it. Sound in
+frame, which glides a gain after the ambience's bus (`ambEnd`) to it. How
+the sound comes in when a glass is set running (the sand first, the
+ambience slowly after it) is the engine's too: `app.js` only says when
+(`soundBegins` calls `begin(seconds, resumed)` at a start and at a resume;
+docs/engines.md, "Coming in"). Sound in
 silent mode is the page's audio session, which `sound/audio.js` sets when the
 sound is first unlocked and at once when the switch moves; with it off the
 app sets it at the launch too.

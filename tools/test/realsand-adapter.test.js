@@ -23,7 +23,9 @@
  *    within a frame or two of 00:00.0 (by the plant's record), never before it by more than a
  *    substep, and nTop never 0 while a point is above: the start (a finished glass started
  *    again: a Flip), the Flip's swap (nTop = total - nTop at once, the time remAt of it), a tilt
- *    swap (real motion, the clock stopped on its side), a pour (the ledger by exactly n grains,
+ *    swap (real motion, the clock stopped on its side; and a glass that waits, turned over by the
+ *    phone and back three times: it still waits, the valve shut, no point across, with the app's
+ *    rule as it was as the control), a pour (the ledger by exactly n grains,
  *    the GPU by exactly the appended points, the time remAt(topAt + made)), a re-time after a
  *    shake that starved the neck, a sequence's next phase (turned unseen: a new fill, calibrated
  *    from nTop), a session saved and restored at boot (CPU counts adopted), the catch-up after
@@ -282,7 +284,7 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
       var f = app.flip;
       f.active = false; app.sim.flipping = false; app.sim.angle = 0; app.sim.wakeAll();
       var next = f.was;
-      if (f.swapped) next = T.rem <= 0 ? 'done' : (f.auto || f.was === 'running' || f.was === 'done') ? 'running' : 'paused';
+      if (f.swapped) next = T.rem <= 0 ? 'done' : (f.auto || f.was === 'running' || f.was === 'done') ? 'running' : (f.was === 'idle' ? 'idle' : 'paused');
       if (app.onSwapped && f.swapped) next = app.onSwapped(next);
       T.state = next;
     };
@@ -302,7 +304,10 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
       app.sim.tilt = wrapPi(app.sim.tilt + Math.PI);
       T.rem = there; app.eventAt = V.wall;
       app.tilts = (app.tilts || []).concat([{ before: before, after: app.sim.nTop, total: app.sim.total, rem: T.rem, want: there }]);
-      T.state = T.rem <= 0 ? 'done' : (was === 'running' || was === 'done') ? 'running' : 'paused';
+      // app.js stateAfterSwap, the phone's turn: the glass runs on only if it was running, a paused one stays
+      // paused, one that waits or has run out waits (o.tiltStarts: as it was before that rule, for a control)
+      if (!o.tiltStarts && was !== 'running') T.state = was === 'paused' ? 'paused' : 'idle';
+      else T.state = T.rem <= 0 ? 'done' : (was === 'running' || was === 'done') ? 'running' : 'paused';
     };
     app.stepGravity = function (dtMs, now) {
       var g = app.grav, want = g.on ? g.target : 0;
@@ -713,6 +718,34 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   endOk(C, 'tilt swap (real motion, turned over at 3 s)');
   check(tl && tl.after === tl.total - tl.before && tl.rem === tl.want && C.stats.censusOff === 0,
     'the tilt swap: nTop ' + (tl && tl.before) + ' -> ' + (tl && tl.after) + ' at once, the time remAt(total - nTop), the clock stopped while the glass lay on its side');
+
+  // a glass that waits, turned over by the phone and back three times (app.js: the phone's motion never starts a
+  // glass): it still waits, the valve shut through every swap, every point on its side of the neck, none across
+  async function waitingTurns(tiltStarts) {
+    var Wt = makeApp({ ms: 10000, seed: 43, motion: true, tiltStarts: tiltStarts });
+    var rW = await Wt.attach(); Wt.calibrate(); Wt.T.rem = Wt.T.durationMs;
+    var pl = Wt.env.solver.plant, all = pl.above + pl.below, seen = [];
+    await Wt.run(500);
+    for (var k = 0; k < 3; k++) {
+      Wt.grav.target = Math.PI; await Wt.run(1500);
+      seen.push({ state: Wt.T.state, rem: Wt.T.rem, top: Wt.sim.nTop, pts: pl.topFor(rW.valve.parity), shut: rW.valve.closed });
+      Wt.grav.target = 0; await Wt.run(1500);
+      seen.push({ state: Wt.T.state, rem: Wt.T.rem, top: Wt.sim.nTop, pts: pl.topFor(rW.valve.parity), shut: rW.valve.closed });
+    }
+    return { app: Wt, real: rW, pl: pl, all: all, seen: seen, tilts: (Wt.tilts || []).length };
+  }
+  var Wn = await waitingTurns(false);
+  var below = Wn.seen.filter(function (q, i) { return i % 2 === 0; }), above = Wn.seen.filter(function (q, i) { return i % 2 === 1; });
+  check(Wn.tilts === 6 && Wn.all > 0 &&
+    below.every(function (q) { return q.state === 'idle' && q.rem === 0 && q.top === 0 && q.pts === 0 && q.shut === true; }) &&
+    above.every(function (q) { return q.state === 'idle' && q.rem === Wn.app.T.durationMs && q.top === Wn.app.sim.total && q.pts === Wn.all && q.shut === true; }) &&
+    Wn.pl.closedCross === 0 && Wn.real.stats().ends.crossedShut === 0 && Wn.pl.above + Wn.pl.below === Wn.all && Wn.app.stats.censusOff === 0 && Wn.app.ends.length === 0,
+    'a waiting glass turned over by the phone and back, three times (' + Wn.tilts + ' tilt swaps): it waits each time (' + Wn.seen.map(function (q) { return q.state + ' ' + q.pts; }).join(', ') +
+    ' points above of ' + Wn.all + '), the valve shut, crossings while shut ' + Wn.pl.closedCross + ' and ' + Wn.real.stats().ends.crossedShut + ', no end');
+  var Wo = await waitingTurns(true);
+  check(Wo.seen[0].state === 'done' && Wo.seen[1].state === 'running' && Wo.seen[1].pts < Wo.all && Wo.seen[1].rem < Wo.app.T.durationMs,
+    'the control, the app\'s rule as it was (a glass turned over starts, unless it had been paused): the first turn ends the waiting glass, the turn back runs it (' +
+    Wo.seen.slice(0, 2).map(function (q) { return q.state + ' ' + q.pts; }).join(', ') + ' points above of ' + Wo.all + ')');
 
   // pour: + Sand held 1.5 s at 3 s, and a tilt swap with a pour in the same frame
   var D = makeApp({ ms: 10000, seed: 51, motion: true });

@@ -280,7 +280,7 @@
     idle: 'Tap the glass to begin',
     running: 'Flowing',
     paused: 'Paused',
-    done: 'Time · flip to begin again',
+    done: 'Time · tap to begin again',
     turning: 'Turning'
   };
   var sheetOpen = null, sheetOpener = null;
@@ -356,15 +356,29 @@
     app.dataset.state = s;
     setStatus(flip.active ? STATUS.turning : statusFor(s));
     btnPlay.setAttribute('aria-label', s === 'running' ? 'Pause' : (s === 'done' ? 'Flip and start again' : 'Start'));
-    if (s === 'running') {
-      if (was !== 'running') T.lastTick = Date.now();   // (a glass that was running keeps its time)
+    if (s === 'running' && was !== 'running') {
+      T.lastTick = Date.now();                          // (a glass that was running keeps its time)
+      soundBegins(was === 'paused' && sounded);         // a start, or a resume: the sound comes in gently
     }
+    if (s !== 'paused') sounded = s === 'running';
     syncWakeLock();
     saveSession();
     breathSync();
     sim.quiet = 0;
     dirty = true;
   }
+
+  /**
+   * The glass is set running, with T.rem to run: the sand's sound comes in first, the ambience
+   * slowly after it (sound/audio.js, "Coming in": the times and the rules are there). `resumed`:
+   * after a pause, shorter. A start is any way from waiting or from finished to running, and a
+   * new glass that runs on (another duration picked while it ran); a turn of a running glass, and
+   * a sequence's own turn between two phases, are not: the sound goes on through them as it is.
+   * A resume is a glass that has run and was paused (`sounded`): one that stands paused without
+   * having run (given sand after it ran out, or found paused at a launch) starts.
+   */
+  var sounded = false;               // the glass has run since it was made new or ran out
+  function soundBegins(resumed) { audio.begin(T.rem / 1000, resumed); }
 
   var pendingStart = false;
   function start() {
@@ -556,6 +570,7 @@
         newGlass();
         resetting = false;
         setState(keepRunning || pendingStart ? 'running' : 'idle');
+        if (T.state === 'running') soundBegins(false);  // (a new glass: a start, whatever it was before)
         pendingStart = false;
         app.classList.remove('swap');
       }, 460);
@@ -614,6 +629,7 @@
     dirty = true;
     if (redo) { reset(keep || pendingStart); return; }
     if (pendingStart && T.state !== 'running') setState('running');
+    else if (T.state === 'running') soundBegins(false); // (a new glass that runs on: a start all the same)
     pendingStart = false;
     T.lastTick = Date.now();                            // the clock starts as the last of the sand lands
   }
@@ -747,11 +763,12 @@
   /**
    * The glass has been turned over: by the sequence itself, a hand, the Flip
    * button or the phone. Between two phases that begins the next one; after
-   * the end of the last, the sequence starts again from its first glass.
+   * the end of the last, the sequence goes back to its first glass and waits
+   * there for Start or a tap (stateAfterSwap).
    */
   function seqSwapped(next) {
     if (seq.gap) { beginPhase(seq.phase + 1); return T.state === 'paused' ? 'paused' : 'running'; }
-    if (seq.rest && seq.phase >= 2 * seq.rounds && next === 'running') beginPhase(0);
+    if (seq.rest && seq.phase >= 2 * seq.rounds && (next === 'running' || next === 'idle')) beginPhase(0);
     return next;
   }
 
@@ -830,10 +847,18 @@
     buzz(22);
     setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was);
   }
-  /** Turning a glass over starts it, unless you had paused it. */
+  /**
+   * What a glass does once it has been turned over; `was`: its state as the turn began.
+   * No turn starts a glass: the first start is always Start (or Space) or a tap on the glass.
+   * Turned by a finger, the Flip button, F or the phone, it runs on only if it was running (its
+   * clock swapped), a paused glass stays paused, and one that waits or has run out waits as it
+   * does after Reset, whichever bulb its sand is in (below, its time reads 00:00.0, and Start
+   * turns it over on the screen and runs it). `auto`: the turn is a start, Start pressed on a
+   * glass whose sand is all below, or a sequence's own turn; that glass runs.
+   */
   function stateAfterSwap(was, auto) {
-    if (T.rem <= 0) return 'done';
-    return (auto || was === 'running' || was === 'done') ? 'running' : 'paused';
+    if (!auto && was !== 'running') return was === 'paused' ? 'paused' : 'idle';
+    return T.rem <= 0 ? 'done' : 'running';
   }
 
   /* ======================================================================
@@ -1386,7 +1411,7 @@
     T.rem = there;
     applyBody(0);
     buzz(18);
-    setState(seqSwapped(stateAfterSwap(was, false)));
+    setState(seqSwapped(stateAfterSwap(was, false)));   // (the phone's turn: it starts nothing)
   }
 
   var tiltOver = 0;
@@ -4631,6 +4656,44 @@
    *  a newer release is installed. Made by script (no markup of its own),
    *  and only where Tune's sheet is; its state is in data-state.
    * ==================================================================== */
+  /**
+   * A tap on the version line shows, for 8 s, one quiet line under it: the screen's size, the
+   * window's (innerWidth x innerHeight), the root's height (clientHeight), the visual viewport's,
+   * the safe-area insets as the page reads them (top right bottom left), whether it is a
+   * home-screen app (display-mode standalone), the status bar's style, the pixel ratio, and the
+   * app's own box (left,top width x height). What the screen shows, nothing kept or sent: for
+   * telling how a phone lays the page out (1.20.2).
+   */
+  var measuresTimer = 0;
+  function measures() {
+    var de = document.documentElement, vv = window.visualViewport, box = app.getBoundingClientRect();
+    var probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;' +
+      'padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';
+    document.body.appendChild(probe);
+    var cs = getComputedStyle(probe), ins = [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map(function (v) { return Math.round(parseFloat(v) || 0); });
+    document.body.removeChild(probe);
+    var standalone = !!((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone);
+    var bar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    var r = function (v) { return Math.round(v * 10) / 10; };
+    return 'screen ' + screen.width + '×' + screen.height + ' · window ' + innerWidth + '×' + innerHeight + ' · root ' + de.clientHeight +
+      ' · visual ' + (vv ? r(vv.height) : '–') + ' · insets ' + ins.join(' ') + ' · standalone ' + (standalone ? 'yes' : 'no') +
+      ' · bar ' + (bar ? bar.getAttribute('content') : '–') + ' · dpr ' + r(window.devicePixelRatio || 1) +
+      ' · app ' + r(box.left) + ',' + r(box.top) + ' ' + r(box.width) + '×' + r(box.height);
+  }
+  function measuresLine(line) {
+    var m = $('measures-line');
+    if (!m) {
+      m = document.createElement('p');
+      m.id = 'measures-line';
+      m.className = 'colophon measures';
+      line.parentNode.insertBefore(m, line.nextSibling);
+    }
+    m.textContent = measures();
+    m.hidden = false;
+    clearTimeout(measuresTimer);
+    measuresTimer = setTimeout(function () { m.hidden = true; }, 8000);
+  }
   function versionLine() {
     var body = $('panel-sand') || (sheetSettings && sheetSettings.querySelector('.sheet-body'));
     if (!body) return;
@@ -4677,6 +4740,7 @@
       try { ctl.postMessage({ type: 'version' }, [ch.port2]); } catch (err) { clearTimeout(timer); show(null); }
     }
     ask();
+    line.addEventListener('click', function () { measuresLine(line); });
     // a worker that takes over meanwhile (the first install, or an update) is asked again, and so
     // is the worker each time Tune is opened
     if (sw && sw.addEventListener) sw.addEventListener('controllerchange', ask);
