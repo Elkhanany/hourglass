@@ -217,7 +217,14 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   again for release 1.20.0, engine build 8: the stamp "8" for "7" wherever a
   boot saves it, and in the sixth boot (a save of build 7's stamp, now an
   earlier build's) one save more at its end, the new stamp; no other entry
-  changed. A traced page is at
+  changed. Both were made again for release 1.21.0, the sand's light and
+  engine build 9: the key `sandLight` ('sunlit') at the end of every full
+  save and the stamp "9" for "8"; in every boot `renderer.setSandLight`
+  after `setFrame` and `renderer.prepareSun` before `layout` (a boot in the
+  light look one `setSandLight` more after `setPaper`); in the Tune trace
+  two new entries (Light: Soft and Sunlit), and one `renderer.drawGlass`
+  more at each change of look and at the reset link's second tap (the glass
+  drawn at the fade's start); no other entry changed. A traced page is at
   noon (the recorder sets the hour of `new Date()`), so Daytime traces the
   same at any hour of the run.
   The two traces use three ports: the suite's own and the next two.

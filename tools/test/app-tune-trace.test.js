@@ -132,9 +132,9 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
     // the reset link, tapped where the sand, the volume, the ambience level, the Sound tab's four (the Sand level, the Bowl level, Rings and the fade) and the background
     // (light, by the moon button: 1.19.0) differ from the defaults: one save of what it put back, the renderer and the sound engine told, the look behind the cross-fade
     var reset = byName(kept, 'the look and sound put back: the second tap'), resetSave = first(reset && reset.now, 'save');
-    s.check('... the reset link\'s second tap, after the look and the sound were changed: one save that puts back the sand, the volume, the ambience level, the Sand and Bowl levels, Rings, the fade and the background (dark), the renderer told the dark look at once, the sound engine each of the four levels, its buzz (12), and the look set behind the cross-fade',
+    s.check('... the reset link\'s second tap, after the look and the sound were changed: one save that puts back the sand, the volume, the ambience level, the Sand and Bowl levels, Rings, the fade and the background (dark), the renderer told the dark look at once and the glass drawn at the fade\'s start (1.21.0), the sound engine each of the four levels, its buzz (12), and the look set behind the cross-fade',
             !!resetSave && JSON.stringify(resetSave[1]) === '{"theme":"sahara","volume":0.8,"ambienceLevel":0.5,"sand":"sahara","sandLevel":1,"bowlLevel":1,"bowlRings":"once","ambFade":0,"background":"dark"}' &&
-            names(reset.now).join() === 'audio.unlock,save,renderer.setPaper,audio.setVolume,audio.setAmbienceLevel,audio.setSandLevel,audio.setBowlLevel,buzz' && JSON.stringify(reset.later) === '[["renderer.setTheme","sahara"]]',
+            names(reset.now).join() === 'audio.unlock,save,renderer.setPaper,renderer.drawGlass,audio.setVolume,audio.setAmbienceLevel,audio.setSandLevel,audio.setBowlLevel,buzz' && JSON.stringify(reset.later) === '[["renderer.setTheme","sahara"]]',
             JSON.stringify(reset));
 
     /* ---- control: a copy that changes the order in two handlers, and has a switch more in Tune ---- */
