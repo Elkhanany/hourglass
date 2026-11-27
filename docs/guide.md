@@ -65,9 +65,11 @@ the brim.
 The **moon button** in the top bar turns the whole app from its dark look (a
 glass lit in a dark room, as it always was) to a light one on a soft paper
 white, and back. In the light look the button shows a sun. The glass is lit
-for a white room there, so that its outline and the thickness of its wall
-show as glass does on white; the sand keeps its colours (lit, under Tune's
-Sunlit, by a brighter, warmer light than in the dark), and even the palest
+for a white room there and is clear, as glass is on white: the paper and the
+sand are seen through it without a milky film, its outline is a fine dark
+line all round, and the room's highlights lie on it; the sand keeps its
+colours (lit, under Tune's Sunlit, by a brighter, warmer light than in the
+dark), and even the palest
 (Moonstone, a pale colour of your own) stands out of the paper; the warm glow
 behind the glass, which white cannot show, is a quiet wash of the sand's
 colour, and the breathing pace deepens it as you breathe in.

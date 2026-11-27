@@ -118,10 +118,12 @@ then on (`showLook`), with the metas and the moon button (`#btn-look`,
 `--accent-text`, the sand's accent deepened where it is text or a thin line)
 and the few rules that differ, below the dark ones, untouched. The glass is
 told by `renderer.setPaper(on)`: the rendered glass is lit by a white room
-with dark cards behind it and dark flags at its sides (`glass/gl.js`, a second
-program per glass, made when first asked for, the dark one's text unchanged),
-the drawn glass is outlined in a deep ink, the cracks get a dark line under
-their bright one, and the bore is greyed a little so a pale sand shows. The
+with dark cards behind it and dark flags at its sides and laid over the paper
+as clear glass, with no film and no veil over the bore (`glass/gl.js`, a second
+program per glass, made when first asked for, the dark one's text unchanged;
+see docs/engines.md), the drawn glass is outlined in a deep ink and its bore
+greyed a little so a pale sand shows, and the cracks get a dark line under
+their bright one. The
 sand and Real sand keep their colours (Real sand draws premultiplied over
 whatever lies behind it: nothing of `realsand/` changes). Nothing is built
 again: a running glass runs on.
