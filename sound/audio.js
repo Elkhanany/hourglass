@@ -1998,6 +1998,10 @@
     this.sandLevel = 1;
     this.bowlLevel = 1;
     this.silentRing = true;
+    // the stage (headphones, spatial): asked for, and on (built); off as the app comes
+    this._spatialWant = false;
+    this._spatial = false;
+    this._stage = null;
     this._bowls = [];         // the completion bowls still ringing: { out, end } (stopChime fades them)
     this._last = {};          // last scheduled value per parameter
     this._cushion = 0;
@@ -2463,7 +2467,7 @@
     this.ambEnd = G(1);
     this.ambBus.connect(this.ambEnd);
     this.ambEnd.connect(this.comp);
-    var aW = G(0.12); this.ambEnd.connect(aW); aW.connect(this.conv);
+    var aW = this._ambWet = G(0.12); this.ambEnd.connect(aW); aW.connect(this.conv);
 
     this.ready = true;
     for (var key in BEDS) if (raw[key]) this._bedReady(key);
@@ -2473,6 +2477,367 @@
     if (this.ambience !== 'none') this._loadAmbience(this.ambience);
     this._applyCharacter(0.01);
     this._applyMaster();
+    if (this._spatialWant) this._stageOn();
+  };
+
+  /* ----------------------------------------------------------------------
+   *  The stage: the glass heard in front of you, on headphones
+   *
+   *  Off (as the app comes), nothing of this is made and the graph is the
+   *  one above, sample for sample. On (setSpatial(true)), the sand's stereo
+   *  faders become five bars, each a line across the glass whose two ends
+   *  are its left and right channels, and every end is placed between ten
+   *  still virtual loudspeakers round the glass: PannerNodes with the
+   *  browser's own head-related filters (HRTF), never moved. A lean, a turn
+   *  or the phone laid flat changes only the gains into them. A correction
+   *  EQ and a trim keep the level and the tone as they were, and a room
+   *  computed here (image sources and a noise tail, each image through the
+   *  same filters) replaces the desk's small room for the sand.
+   *
+   *  Frames. The glass's own: x across it (−1 … 1, + its right), y along it
+   *  (−1 the far end of the lower bulb, 0 the neck, +1 the top). Seen: the
+   *  glass turned by `turn` (its angle with gravity, clockwise as drawn), x
+   *  to the listener's right, y up. The speakers: azimuth + to the right,
+   *  elevation + up; every elevation on one of the database's 15° rows (it
+   *  rounds anything else down to one), and no speaker dead ahead (both
+   *  ears the same: inside the head), so the neck is a phantom between two.
+   * ---------------------------------------------------------------------- */
+  var STAGE = {
+    //       round the ring from the top, clockwise as seen: [azimuth, elevation]
+    ring: [[0, 15], [28, 15], [40, 0], [28, -15], [0, -15], [-28, -15], [-40, 0], [-28, 15]],
+    inner: [[-10, 0], [10, 0]],
+    gw: 0.8,                      // the glass's half-width, seen, against its half-height
+    // the bars: [y along the glass, half-width]; the land's and the rush's y follow the sand
+    bars: { neck: [-0.25, 0.34], pour: [0.9, 0.4], land: [-0.7, 1.0], glass: [0, 0.7], rush: [-0.55, 0.8] },
+    // the filters' own colour averaged over the ten speakers, and the low end that two speakers'
+    // crosstalk adds to a stereo bus heard by both ears: [type, Hz, Q, dB]
+    eq: [['lowshelf', 1800, 0.7, -8], ['peaking', 170, 0.7, -6], ['peaking', 1250, 1.2, 1.5],
+         ['peaking', 2400, 1.0, -2.5], ['peaking', 9000, 1.6, 8.5]],
+    trim: 1.15,                   // the level, against the sand without the stage
+    // and each character's own: how much of it is in which bar, and how alike its two channels
+    // are, colours it differently. [trim dB, then six octave bands from 250 Hz to 8 kHz, dB],
+    // measured against the same character without the stage (tools/test/audio-spatial.test.js)
+    tone: { asmr: [-1.6, -1.5, -0.4, 3.4, 1.1, 1.6, 2.1], warm: [0.6, -4.6, -0.8, 3.3, 1, -0.9, 2.9],
+            pure: [-1.4, -2.7, -1.2, 2.2, 0.1, 3.9, 2.5], chime: [0.2, -6.2, -1.9, 2.3, 0, -0.8, 0.4],
+            bamboo: [0.4, -1.1, -0.4, 5.7, 3.5, -3.9, -0.9], dune: [-0.9, -3.8, -0.9, 5.1, -0.1, -1.1, 6.1] },
+    toneHz: [250, 500, 1000, 2000, 4000, 8000],
+    wide: 1.3,                    // the scene, seen, widened across: the generic head hears little of a small angle
+    bal: 0.5,                     // dB, + the left ear louder: the filters' own left/right difference
+    tau: 0.03                     // s: how fast a gain glides to a new place
+  };
+  var STAGE_D = Math.PI / 180;
+
+  /** A unit vector (listener facing −z, +x right, +y up) for azimuth and elevation in degrees. */
+  function stageDir(az, el) {
+    return [Math.sin(az * STAGE_D) * Math.cos(el * STAGE_D), Math.sin(el * STAGE_D), -Math.cos(az * STAGE_D) * Math.cos(el * STAGE_D)];
+  }
+  /** One still loudspeaker: mono in (a stereo input would be filtered left by left, right by right), distance ours. */
+  function stagePanner(ctx, az, el) {
+    var p = ctx.createPanner(), v = stageDir(az, el);
+    p.panningModel = 'HRTF';
+    p.distanceModel = 'inverse'; p.refDistance = 1; p.rolloffFactor = 0;
+    p.channelCount = 1; p.channelCountMode = 'explicit';
+    if (p.positionX) { p.positionX.value = v[0]; p.positionY.value = v[1]; p.positionZ.value = v[2]; }
+    else p.setPosition(v[0], v[1], v[2]);
+    return p;
+  }
+  /**
+   * The gains of the ten speakers for a point (sx, sy) seen (|(sx, sy)| ≤ 1, beyond it on the
+   * ring): constant power between the two ring speakers either side of its angle, between the
+   * inner pair by its side, and between the inner pair and the ring by its distance from the neck.
+   * Their squares add up to 1; at most four are not 0.
+   */
+  function stageGains(sx, sy, out) {
+    var r = Math.sqrt(sx * sx + sy * sy);
+    if (r > 1) { sx /= r; sy /= r; r = 1; }
+    var phi = Math.atan2(sx, sy) / STAGE_D;
+    if (phi < 0) phi += 360;
+    var k = Math.floor(phi / 45) % 8, t = (phi - 45 * k) / 45;
+    var ring = Math.sin(r * Math.PI / 2), inner = Math.cos(r * Math.PI / 2);
+    var q = sx / 0.5;
+    q = q < -1 ? -1 : (q > 1 ? 1 : q);
+    for (var i = 0; i < 10; i++) out[i] = 0;
+    out[k] = ring * Math.cos(t * Math.PI / 2);
+    out[(k + 1) % 8] = ring * Math.sin(t * Math.PI / 2);
+    out[8] = inner * Math.cos((q + 1) * Math.PI / 4);
+    out[9] = inner * Math.sin((q + 1) * Math.PI / 4);
+    return out;
+  }
+
+  /**
+   * The room, computed for one sample rate: a furnished shoebox (3.6 × 2.6 × 4.4 m, the head off
+   * centre so the walls differ), the glass 0.4 m ahead and a little under the eyes, a desk under
+   * it. Every image source up to the second bounce and the desk's, each delayed, scaled and
+   * darkened by its walls and rendered through the HRTF from where it arrives; then a noise tail
+   * whose two ears agree below ~500 Hz and not above, darkening as it dies. Each ear is then
+   * brought to unit energy and its end faded, as makeRoomIR's, so a character's room level means
+   * what it meant. Rendering it offline also loads the HRTF's data (an offline context waits for
+   * it), so when it resolves the live speakers have their filters. Resolves to [L, R]
+   * (Float32Arrays) or null where there is no offline context; kept per rate.
+   */
+  var stageRooms = {};
+  function stageRoom(sr) {
+    if (stageRooms[sr]) return stageRooms[sr];
+    var OAC = root.OfflineAudioContext || root.webkitOfflineAudioContext;
+    if (!OAC) return Promise.resolve(null);
+    var len = Math.floor(sr * 0.42), off;
+    try { off = new OAC(2, len, sr); } catch (e) { return Promise.resolve(null); }
+    var L = [3.6, 2.6, 4.4], lis = [1.45, 1.2, 1.7], src = [lis[0], lis[1] - 0.05, lis[2] - 0.4];
+    var desk = 0.74, c = 343, B = [[0.78, 0.78], [0.55, 0.8], [0.72, 0.72]];
+    var d0 = Math.sqrt(0.05 * 0.05 + 0.4 * 0.4), imgs = [];
+    var add = function (p, g, bounces) {
+      var dx = p[0] - lis[0], dy = p[1] - lis[1], dz = p[2] - lis[2], d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      imgs.push({ t: (d - d0) / c, g: g * d0 / d, b: bounces,
+                  az: Math.atan2(dx, -dz) / STAGE_D, el: Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)) / STAGE_D });
+    };
+    for (var nx = -1; nx <= 1; nx++) for (var mx = 0; mx <= 1; mx++)
+    for (var ny = -1; ny <= 1; ny++) for (var my = 0; my <= 1; my++)
+    for (var nz = -1; nz <= 1; nz++) for (var mz = 0; mz <= 1; mz++) {
+      var n = [nx, ny, nz], m = [mx, my, mz], p = [], g = 1, bounces = 0;
+      for (var ax = 0; ax < 3; ax++) {
+        p.push((1 - 2 * m[ax]) * src[ax] + 2 * n[ax] * L[ax]);
+        var lo = Math.abs(n[ax] - m[ax]), hi = Math.abs(n[ax]);      // bounces off the wall at 0 and the one at L
+        g *= Math.pow(B[ax][0], lo) * Math.pow(B[ax][1], hi);
+        bounces += lo + hi;
+      }
+      if (bounces > 0 && bounces <= 2) add(p, g, bounces);
+    }
+    add([src[0], 2 * desk - src[1], src[2]], 0.85, 1);                   // the desk under the glass
+    var imp = off.createBuffer(1, 1, sr);
+    imp.getChannelData(0)[0] = 1;
+    imgs.forEach(function (im) {
+      var s = off.createBufferSource(), f = off.createBiquadFilter(), gg = off.createGain();
+      s.buffer = imp;
+      f.type = 'lowpass'; f.frequency.value = im.b > 1 ? 4500 : 7500; f.Q.value = 0.5;
+      gg.gain.value = im.g;
+      var pn = stagePanner(off, im.az, im.el < -45 ? -45 : im.el);
+      s.connect(f); f.connect(gg); gg.connect(pn); pn.connect(off.destination);
+      s.start(im.t);
+    });
+    var done = new Promise(function (res) {
+      off.oncomplete = function (e) { res(e.renderedBuffer); };    // (an older WebKit's offline context has no promise)
+      var r = off.startRendering();
+      if (r && r.then) r.then(res, function () { res(null); });
+    });
+    stageRooms[sr] = done.then(function (buf) {
+      if (!buf) return null;
+      var r = mulberry32(0x51ab1e), onset = 0.018, rt = 0.3, kc = 1 - Math.exp(-TAU * 500 / sr);
+      var lc = 0, hl = [0, 0], tl = [0, 0], early = 0, et = 0, i, ch, out = [], tail = [new Float32Array(len), new Float32Array(len)];
+      for (ch = 0; ch < 2; ch++) { var e0 = buf.getChannelData(ch); out.push(new Float32Array(e0)); for (i = 0; i < len; i++) early += e0[i] * e0[i]; }
+      for (i = 0; i < len; i++) {
+        var t = i / sr, env = t < onset ? 0 : Math.exp(-6.9 * (t - onset) / rt) * Math.min(1, (t - onset) / 0.015);
+        var k = 1 - Math.exp(-TAU * (1800 + 7000 * Math.exp(-t / 0.08)) / sr);
+        lc += kc * ((r() * 2 - 1) - lc);
+        for (ch = 0; ch < 2; ch++) {
+          var w = r() * 2 - 1;
+          hl[ch] += kc * (w - hl[ch]);                        // each ear's own lows, thrown away
+          tl[ch] += k * ((w - hl[ch]) + 1.2 * lc - tl[ch]);   // its own highs and the shared lows
+          tail[ch][i] = tl[ch] * env;
+          et += tail[ch][i] * tail[ch][i];
+        }
+      }
+      var tg = Math.sqrt(1.4 * early / et);
+      for (ch = 0; ch < 2; ch++) {
+        var dd = out[ch], en = 0;
+        for (i = 0; i < len; i++) { dd[i] += tail[ch][i] * tg; en += dd[i] * dd[i]; }
+        en = 1 / Math.sqrt(en);
+        for (i = 0; i < len; i++) dd[i] *= en;
+        for (i = len - 256; i < len; i++) dd[i] *= (len - i) / 256;
+      }
+      return out;
+    });
+    return stageRooms[sr];
+  }
+
+  // (for the tests: the stage's numbers, its gains and its room)
+  HourglassAudio._stage = { STAGE: STAGE, gains: stageGains, room: stageRoom };
+
+  /**
+   * Headphones, spatial (the stage, above): on, the sand is heard as an object in front of the
+   * listener; off, the graph is the one it always was. May be called before there is a context
+   * (the stage is then built with the graph). Resolves once the stage's room is in (its first
+   * build also loads the HRTF's data): true; false when off, or with nothing to build yet.
+   */
+  HourglassAudio.prototype.setSpatial = function (on) {
+    on = !!on;
+    this._spatialWant = on;
+    if (this.ready && on !== this._spatial) {
+      if (on) this._stageOn(); else this._stageOff();
+    }
+    return this._stage ? this._stage.room : Promise.resolve(false);
+  };
+
+  /** Build the stage and send the sand's faders into it (setSpatial). */
+  HourglassAudio.prototype._stageOn = function () {
+    var ctx = this.ctx, self = this, i;
+    var G = function (v) { var g = ctx.createGain(); g.gain.value = v; return g; };
+    var S = this._stage = { s: 1, p: 0, th: NaN, flat: 0, flatAt: 0, at: null, conv: null, nodes: [], tmp: new Float32Array(10) };
+    var keep = function (n) { S.nodes.push(n); return n; };
+    // ten still speakers into one sum; its correction, its level and its balance; then the Sand level
+    var sum = keep(G(1)), last = sum;
+    S.spk = [];
+    for (i = 0; i < 10; i++) {
+      var a = i < 8 ? STAGE.ring[i] : STAGE.inner[i - 8], p = keep(stagePanner(ctx, a[0], a[1]));
+      p.connect(sum);
+      S.spk.push(p);
+    }
+    STAGE.eq.forEach(function (e) {
+      var b = keep(ctx.createBiquadFilter());
+      b.type = e[0]; b.frequency.value = e[1]; b.Q.value = e[2]; b.gain.value = e[3];
+      last.connect(b); last = b;
+    });
+    S.tone = STAGE.toneHz.map(function (f) {
+      var b = keep(ctx.createBiquadFilter());
+      b.type = 'peaking'; b.frequency.value = f; b.Q.value = 1.41; b.gain.value = 0;
+      last.connect(b); last = b;
+      return b;
+    });
+    var trim = keep(G(STAGE.trim)), sp = keep(ctx.createChannelSplitter(2)), mg = keep(ctx.createChannelMerger(2));
+    var gl = keep(G(Math.pow(10, STAGE.bal / 40))), gr = keep(G(Math.pow(10, -STAGE.bal / 40)));
+    last.connect(trim); trim.connect(sp); sp.connect(gl, 0); sp.connect(gr, 1);
+    gl.connect(mg, 0, 0); gr.connect(mg, 0, 1); mg.connect(this.gSand);
+    S.trim = trim;
+    this._stageTone(0);
+    // one end of a bar: a mono signal with a gain into each speaker, linked only while it reaches it
+    var end = function (src, ch) {
+      var e = { inp: keep(G(1)), g: [], on: [], zero: [] };
+      e.inp.channelCount = 1; e.inp.channelCountMode = 'explicit';
+      src.connect(e.inp, ch);
+      for (var j = 0; j < 10; j++) { var gj = keep(G(0)); gj.connect(S.spk[j]); e.g.push(gj); e.on.push(false); e.zero.push(0); }
+      return e;
+    };
+    var bar = function (src, def) {
+      var s2 = keep(ctx.createChannelSplitter(2));
+      src.connect(s2);
+      return { y: def[0], w: def[1], L: end(s2, 0), R: end(s2, 1) };
+    };
+    // the faders, each taken from where it went (and only from there)
+    this.gWhisper.disconnect(this.gSand);
+    this.gTicks.disconnect(this.gSand); this.gBeds.disconnect(this.gSand);
+    this.gModal.disconnect(this.gSand); this.gBody.disconnect(this.gSand); this.gFoley.disconnect(this.gSand);
+    this.pEnv.disconnect(this.gFoley); this.rPan.disconnect(this.gFoley); this.aPan.disconnect(this.gFoley);
+    var land = keep(G(1)), glass = keep(G(1)), rush = keep(G(this.gFoley.gain.value)), pour = keep(G(this.gFoley.gain.value));
+    this.gTicks.connect(land); this.gBeds.connect(land);
+    this.gModal.connect(glass); this.gBody.connect(glass); this.gFoley.connect(glass);
+    this.rPan.connect(rush); this.aPan.connect(rush); this.pEnv.connect(pour);
+    S.bars = { neck: bar(this.gWhisper, STAGE.bars.neck), pour: bar(pour, STAGE.bars.pour), land: bar(land, STAGE.bars.land),
+               glass: bar(glass, STAGE.bars.glass), rush: bar(rush, STAGE.bars.rush) };
+    S.order = ['neck', 'pour', 'land', 'glass', 'rush'];
+    this._spatial = true;
+    this._stageAt(0, this._fill, 0, -1, 0, 0);
+    // the room: the desk's stays for the bowl and the ambience; the sand's is this one, once made
+    S.room = stageRoom(ctx.sampleRate).then(function (ir) {
+      if (self._stage !== S || !ir) return !!ir && self._stage === S;
+      var buf = ctx.createBuffer(2, ir[0].length, ctx.sampleRate);
+      buf.getChannelData(0).set(ir[0]); buf.getChannelData(1).set(ir[1]);
+      var cv = S.conv = keep(ctx.createConvolver());
+      cv.normalize = false; cv.channelCount = 1; cv.channelCountMode = 'explicit';
+      cv.buffer = buf;
+      self.wet.disconnect(self.conv); self.wet.connect(cv); cv.connect(self.rumble);
+      return true;
+    });
+  };
+
+  /** The character's own correction (STAGE.tone), gliding over tau s (0: at once). */
+  HourglassAudio.prototype._stageTone = function (tau) {
+    var S = this._stage, c = STAGE.tone[this.character] || [0, 0, 0, 0, 0, 0, 0], t = this.ctx.currentTime;
+    var v = STAGE.trim * Math.pow(10, c[0] / 20);
+    if (tau) S.trim.gain.setTargetAtTime(v, t, tau); else S.trim.gain.value = v;
+    for (var i = 0; i < S.tone.length; i++) {
+      if (tau) S.tone[i].gain.setTargetAtTime(c[i + 1], t, tau); else S.tone[i].gain.value = c[i + 1];
+    }
+  };
+
+  /** Take the stage down: every connection back as _build made it, in its order, and the stage's nodes let go. */
+  HourglassAudio.prototype._stageOff = function () {
+    var S = this._stage, i;
+    if (!S) return;
+    this._stage = null;
+    this._spatial = false;
+    S.nodes.forEach(function (n) { try { n.disconnect(); } catch (e) {} });
+    var faders = [this.gWhisper, this.gTicks, this.gBeds, this.gModal, this.gBody, this.gFoley];
+    for (i = 0; i < faders.length; i++) { faders[i].disconnect(); faders[i].connect(this.gSand); }
+    this.spillBus.disconnect();
+    this.pEnv.disconnect(); this.pEnv.connect(this.gFoley); this.pEnv.connect(this.sP);
+    this.rPan.disconnect(); this.rPan.connect(this.gFoley);
+    this.aPan.disconnect(); this.aPan.connect(this.gFoley);
+    this.spillBus.connect(this.gFoley);
+    if (S.conv) {
+      this.wet.disconnect(); this.chimeWet.disconnect(this.conv); this._ambWet.disconnect();
+      this.wet.connect(this.conv); this.chimeWet.connect(this.conv); this._ambWet.connect(this.conv);
+    }
+  };
+
+  /**
+   * Place the five bars for a glass turned by `th` (rad, its angle with gravity, clockwise as
+   * drawn), its lower bulb `fill` full and its upper `fillTop`, its sliding sand in the bulb
+   * `slide` (+1 the upper, −1 the lower, between while it crosses), `flat` 0 or 1 (the phone
+   * laid on its back), gliding over `tau` s (0: at once). The bars stay in the glass: across it
+   * from −w to w, at their place along it. Where sand falls (the stream's hush, the landings) is
+   * the bulb below in the room, so those bars cross through the neck as the glass passes level.
+   */
+  HourglassAudio.prototype._stageAt = function (th, fill, fillTop, slide, flat, tau) {
+    var S = this._stage, B = S.bars, c = Math.cos(th), sn = Math.sin(th), GW = STAGE.gw;
+    var lv = 2 * c;
+    lv = lv < -1 ? -1 : (lv > 1 ? 1 : lv);                    // +1: the lower bulb below; −1: above; between: crossing
+    var y = { neck: B.neck.y * lv, pour: B.pour.y * lv, glass: B.glass.y, rush: -B.rush.y * slide,
+              land: -lv * (0.95 - 0.6 * (lv >= 0 ? fill : fillTop)) };
+    var now = this.ctx.currentTime, g = S.tmp, s = S.s;
+    for (var b = 0; b < S.order.length; b++) {
+      var key = S.order[b], br = B[key];
+      for (var side = 0; side < 2; side++) {
+        // the channel's end of the bar, in the glass (s: −1 while the glass's ends are swapped since the stage was built)
+        var gx = (side ? br.w : -br.w) * s, gy = y[key];
+        var sx = (GW * gx * c + gy * sn) * STAGE.wide, sy = -GW * gx * sn + gy * c;
+        if (flat) sy = (1 - flat) * sy + flat * (-0.6 + 0.3 * sy);   // laid on the desk: lower, flatter
+        stageGains(sx, sy, g);
+        var e = side ? br.R : br.L;
+        for (var j = 0; j < 10; j++) {
+          if (g[j] > 0 && !e.on[j]) { e.g[j].gain.value = 0; e.inp.connect(e.g[j]); e.on[j] = true; }
+          if (!e.on[j]) continue;
+          if (tau) e.g[j].gain.setTargetAtTime(g[j], now, tau);
+          else { e.g[j].gain.cancelScheduledValues(now); e.g[j].gain.value = g[j]; }
+          if (g[j] > 0) e.zero[j] = 0;
+          else if (!e.zero[j]) e.zero[j] = now + 10 * (tau || 0.01);
+          else if (now > e.zero[j]) { e.inp.disconnect(e.g[j]); e.on[j] = false; e.zero[j] = 0; }
+        }
+      }
+    }
+    S.at = [th + S.p * Math.PI, fill, fillTop, slide, flat];
+  };
+
+  /**
+   * update()'s share of the stage: what the app tells it of the glass (st.turn, st.fill,
+   * st.fillTop, st.slide, st.pose), and the bars placed again only when that has changed enough
+   * to hear: a still glass schedules nothing. The end of a turn snaps the angle back by half a
+   * turn as the glass's ends swap; the stage swaps its own with it (s), so nothing jumps.
+   */
+  HourglassAudio.prototype._stagePlace = function (st, t) {
+    var S = this._stage, th = typeof st.turn === 'number' && st.turn === st.turn ? st.turn : (st.angle || 0), d;
+    if (S.th === S.th) {
+      d = th - S.th;
+      d -= TAU * Math.round(d / TAU);
+      if (d > 2.2 || d < -2.2) { S.s = -S.s; S.p ^= 1; }
+    }
+    S.th = th;
+    var fill = st.fill > 0 ? (st.fill < 1 ? st.fill : 1) : 0;
+    var top = st.fillTop > 0 ? (st.fillTop < 1 ? st.fillTop : 1) : 0;
+    var slide = st.slide >= -1 && st.slide <= 1 ? st.slide : -1;
+    // the phone laid on its back (or face down) for a second: the glass lies on the desk
+    var pz = st.pose > 0 ? st.pose : -(st.pose || 0);
+    var want = pz >= 0.85 ? 1 : (pz <= 0.6 ? 0 : S.flat);
+    if (want !== S.flat) { if (!S.flatAt) S.flatAt = t; if (t - S.flatAt >= 1) { S.flat = want; S.flatAt = 0; } }
+    else S.flatAt = 0;
+    var a = S.at;
+    d = th + S.p * Math.PI - a[0];
+    d -= TAU * Math.round(d / TAU);
+    if (d < STAGE_D && d > -STAGE_D && Math.abs(fill - a[1]) < 0.02 && Math.abs(top - a[2]) < 0.02 &&
+        Math.abs(slide - a[3]) < 0.05 && S.flat === a[4]) return;
+    this._stageAt(th, fill, top, slide, S.flat, STAGE.tau);
+  };
+  /** A one-shot's place for the stage: `gx`, across the glass in its own frame, if the app gave it, else `pan`. */
+  HourglassAudio.prototype._stageX = function (pan, gx) {
+    return typeof gx === 'number' && gx === gx ? gx * this._stage.s : pan;
   };
 
   /** Material is made: wrap it for playing and hand it on (a bed to its shufflers, the pink noise to the air). */
@@ -2538,6 +2903,7 @@
     this._grain = c.grain || 1;
     this._shake = c.shake && c.beds ? c.shake / c.beds : 1;
     this._bedRate = c.bed || 1;
+    if (this._spatial) this._stageTone(tau);
   };
 
   /**
@@ -2773,6 +3139,17 @@
    *    slam      Float32Array(2) [E, x]: sand slamming the far end, or null
    *    leak      grains / s escaping through a chip;  leakPan  −1 … 1
    *    spillPats grains / s landing on the desk below
+   *
+   *    — for the stage (setSpatial), read only while it is on; the values above stay as they
+   *      are, places as heard, and the stage reads these instead, in the glass's own frame —
+   *    turn      the glass's angle with gravity (sim.angle + sim.tilt), clockwise as drawn
+   *    fillTop   0 … 1 how full the upper bulb is
+   *    slide     −1 … 1 the bulb the sliding sand is in: +1 the upper, −1 the lower
+   *    evG       Float32Array: this frame's single landings across the glass (sim.evX before
+   *              they are turned to the ears)
+   *    thumpG, slamG, leakG, rushPanG   thump, slam, leakPan and rushPan, in the glass
+   *    pose      the phone's down along its screen's normal (motion.pose()): about 0 held
+   *              up, ±1 lying on its back or on its face
    *  }
    * ---------------------------------------------------------------- */
 
@@ -2852,6 +3229,8 @@
     // A slow glass is heard grain by grain; a fast one keeps fewer of them,
     // each a little softer, and lets the hush carry the rest.
     var sim = st.sim, n = sim && sim.nev ? sim.nev : 0;
+    // (the stage: places in the glass's own frame, its ends as the stage has them; 0 without it)
+    var sg = this._spatial ? this._stage.s : 0, evG = sg ? st.evG : null;
     this._evRate += (n / dt - this._evRate) * Math.min(1, dt * 3);
     // where they land wanders slowly (a random walk, 4 s memory, σ 0.06 of the pan)
     var kd = dt / 4;
@@ -2862,7 +3241,7 @@
       for (var k = 0; k < take; k++) {
         if (rnd() > keep) continue;
         var e = n <= 16 ? k : (rnd() * n) | 0;
-        var kind = sim.evK[e], v = sim.evV[e], x = sim.evX[e];
+        var kind = sim.evK[e], v = sim.evV[e], x = evG ? evG[e] * sg : sim.evX[e];
         var top = (kind & 2) !== 0;
         var glass = !top && ((kind & 1) === 0 || rnd() < Math.pow(1 - cushion, 1.5));
         var ln = softTop(0.55 * gauss(rnd), 0.55, 0.5);   // every grain its own size: log-normal
@@ -2876,15 +3255,15 @@
     }
 
     // ---- Layer 5: shaken, the bed lands and slams the far end -----------
-    var th = st.thump;
+    var th = st.thump, thx = sg && st.thumpG ? st.thumpG : null;
     if (th) {
-      if (th[0] > 0) this.thump(th[0], th[1], 0);
-      if (th[2] > 0) this.thump(th[2], th[3], 1);
+      if (th[0] > 0) this.thump(th[0], thx ? thx[1] * sg : th[1], 0);
+      if (th[2] > 0) this.thump(th[2], thx ? thx[3] * sg : th[3], 1);
     }
     var slm = st.slam;
-    if (slm && slm[0] > 0) this.clack(slm[0], slm[1]);
+    if (slm && slm[0] > 0) this.clack(slm[0], sg && st.slamG ? st.slamG[1] * sg : slm[1]);
     // ---- Layer 5: grains trickling out of a chip, and landing on the desk ---
-    var lp = st.leakPan;
+    var lp = sg && st.leakG >= -1 ? st.leakG * sg : st.leakPan;
     this._leakPan = lp > -1 ? (lp < 1 ? lp : 1) : (lp <= -1 ? -1 : 0);
     this._stream(this._leakS, st.leak > 0 ? (st.leak < 40 ? st.leak : 40) : 0, t + 0.004, dt);
     this._stream(this._spillS, st.spillPats > 0 ? (st.spillPats < 20 ? st.spillPats : 20) : 0, t + 0.004, dt);
@@ -2946,6 +3325,9 @@
       // the slosh moves between the ears with the sand it is made of
       panTo = st.rushPan < -0.65 ? -0.65 : (st.rushPan > 0.65 ? 0.65 : st.rushPan);
     }
+    // (the stage: the slide is placed by its bar, in the bulb it runs in; across that bulb, where
+    // its field pulls it in the glass, and in the middle while the glass turns)
+    if (sg) panTo = st.flipping || !(st.rushPanG > -2 && st.rushPanG < 2) ? 0 : (st.rushPanG < -0.65 ? -0.65 : (st.rushPanG > 0.65 ? 0.65 : st.rushPanG)) * sg;
     this._set('rush', this.rEnv.gain, rush * 0.5, rush > (this._last.rush || 0) ? 0.06 : 0.22);
     this._tg.R = rush > 0.002 ? 1 : 0; this._td.R = 1.4;
     this._pump(t, 1.0, RUSH_KEYS);
@@ -2956,12 +3338,13 @@
     this._set('air', this.aEnv.gain, air * sweep * 0.16, 0.035);
     if (air > 0.01) {
       this._set('airf', this.aBP.frequency, 360 + 1100 * air, 0.08);
-      if (this.aPan.pan) this._set('airp', this.aPan.pan, Math.sin(ang) * 0.4, 0.05);
+      if (this.aPan.pan) this._set('airp', this.aPan.pan, sg ? 0 : Math.sin(ang) * 0.4, 0.05);
     }
     if (rush > 0.01) {
       this._set('rbp', this.rBP.frequency, 1100 + 2300 * rush, 0.12);
       if (this.rPan.pan) this._set('rpan', this.rPan.pan, panTo, 0.12);
     }
+    if (sg) this._stagePlace(st, t);
   };
 
   var BED_KEYS = ['S', 'G'], POUR_KEYS = ['P'], RUSH_KEYS = ['R'];
@@ -3122,7 +3505,8 @@
     if (ctx.createStereoPanner) {
       var pn = ctx.createStereoPanner();
       pn.pan.value = p;
-      g.connect(pn); pn.connect(this.itdBus[p < -0.12 ? 0 : (p > 0.12 ? 2 : 1)]);
+      // (the stage: one lane, no delay between the ears; it is the speakers' to make)
+      g.connect(pn); pn.connect(this.itdBus[this._spatial ? 1 : (p < -0.12 ? 0 : (p > 0.12 ? 2 : 1))]);
     } else g.connect(this.itdBus[1]);
     s.start(when);
   };
@@ -3246,8 +3630,9 @@
    * dimensionless energy (≈ 0.1 normal, 0.3 vigorous, 1 violent), pan −1 … 1,
    * bulb 0 upper, 1 lower: at most one per bulb every 60 ms.
    */
-  HourglassAudio.prototype.thump = function (E, pan, bulb) {
+  HourglassAudio.prototype.thump = function (E, pan, bulb, gx) {
     if (!this._live()) return;
+    if (this._spatial) pan = this._stageX(pan, gx);
     var s = E > 0 ? 1.3 * Math.sqrt(E) : 0;
     if (s > 1) s = 1;
     if (s < 0.05) return;
@@ -3280,8 +3665,9 @@
    * Sand slamming the far end of the glass: glassier than a landing, a
    * cluster of tinks and a hard ring of the vessel. ≤ 12 a second, ≥ 70 ms apart.
    */
-  HourglassAudio.prototype.clack = function (E, pan) {
+  HourglassAudio.prototype.clack = function (E, pan, gx) {
     if (!this._live()) return;
+    if (this._spatial) pan = this._stageX(pan, gx);
     var s = E > 0 ? 1.3 * Math.sqrt(E) : 0;
     if (s > 1) s = 1;
     if (s < 0.05) return;
@@ -3305,8 +3691,9 @@
    * are meant to be heard: about as loud as a grain on glass, louder and
    * higher with each level (3.2, 4, 5 and 6.3 kHz). One call per 300 ms.
    */
-  HourglassAudio.prototype.creak = function (level, pan) {
+  HourglassAudio.prototype.creak = function (level, pan, gx) {
     if (!this._live() || !this._spaced('creak', 0.3)) return;
+    if (this._spatial) pan = this._stageX(pan, gx);
     var n = level | 0;
     n = n < 1 ? 1 : (n > 4 ? 4 : n);
     var when = this.ctx.currentTime + 0.004;
@@ -3326,8 +3713,9 @@
    * of its body, then the small ticks of the glass settling round the new
    * crack. Surprising, never alarming: well below the bowl.
    */
-  HourglassAudio.prototype.crack = function (pan) {
+  HourglassAudio.prototype.crack = function (pan, gx) {
     if (!this._live() || !this._spaced('crack', 0.25)) return;
+    if (this._spatial) pan = this._stageX(pan, gx);
     var t = this.ctx.currentTime + 0.004;
     pan = (pan === pan && pan ? pan : 0) * 0.6;
     this._click(t, 0.003, 2000, LEVEL.snap, pan, 0, 0.05);          // the snap: it tops the creaks before it
@@ -3342,8 +3730,9 @@
   };
 
   /** The crack grows: 2–5 tiny clicks in 40 ms, like ice settling. ≤ 4 a second. */
-  HourglassAudio.prototype.crackGrow = function (pan) {
+  HourglassAudio.prototype.crackGrow = function (pan, gx) {
     if (!this._live()) return;
+    if (this._spatial) pan = this._stageX(pan, gx);
     var t = this.ctx.currentTime;
     if (t - this._growT[this._growHead] < 1) return;
     this._growT[this._growHead] = t;
@@ -3355,8 +3744,9 @@
   };
 
   /** A chip breaks out (a breach, or one that widens): a tink and a little rattle. */
-  HourglassAudio.prototype.chip = function (pan) {
+  HourglassAudio.prototype.chip = function (pan, gx) {
     if (!this._live() || !this._spaced('chip', 0.08)) return;
+    if (this._spatial) pan = this._stageX(pan, gx);
     var t = this.ctx.currentTime + 0.004;
     pan = pan === pan && pan ? pan : 0;
     this._tick(t, true, 0.6, pan);

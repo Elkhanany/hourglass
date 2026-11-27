@@ -605,6 +605,26 @@ run the same 30-minute glass with Real sand on and then off, at a fixed
 brightness (Auto-Brightness off), not charging, and note the battery before
 and after each.
 
+## Headphones: Spatial
+
+The sound engine can place the glass in front of you on headphones or
+earbuds: the sand lands low in the glass, the neck hushes above it, the glass
+rings across its whole width, and when you lean the phone or turn the glass
+the sounds move with what you see. A clockwise turn of a glass whose sand is
+below is heard on the left, where its sand slides; an anticlockwise one on
+the right. It is built and tested, and **not yet switched on anywhere in the
+app**: a row in Tune's Sound tab, *Headphones: Spatial*, off as the app
+comes, arrives with a later release. The app never turns it on by itself.
+
+- It is for headphones and earbuds, **both in**. On a speaker, or with one
+  earbud, the sound keeps its level but is coloured and narrower.
+- **With AirPods**: set Spatial Audio to **Off** for the app in Control
+  Centre while this is on. Otherwise iOS may place the sound a second time
+  and it turns boomy and smeared. (Whether iOS does this for a home-screen
+  app has still to be tried on an iPhone.) On Windows the same goes for
+  Windows Sonic or Dolby Atmos for Headphones.
+- The completion bowl and the water ambiences sound as they do now.
+
 ## Browser notes
 
 - iOS Safari only starts audio from a user gesture. The app creates and resumes

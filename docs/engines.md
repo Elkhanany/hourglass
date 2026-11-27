@@ -629,6 +629,109 @@ tuned by ear (the brook was matched to measurements, not by listening), so
 treat the numbers in `audio.js` (the characters' records, `BEDS`, the `MODES_*`
 sets, `WATER`, `SURF`, `FALLS`, `DRIPS`, the ambiences' records, `LEVEL`) as a starting point.
 
+## The stage: headphones, spatial (`setSpatial`)
+
+Built and tested, and off: nothing in the page switches it on yet (a Tune row
+comes with a later release). With it off, the engine is the graph described
+above, node for node and sample for sample.
+
+**What it does.** On headphones the glass is heard as an object about an
+arm's length in front of the listener instead of a stereo picture between the
+ears. The sand's own faders (the hush, the grains and crackle, the vessel and
+the body, the foley, the slide and the air, the pour) stop at five **bars**: a
+bar is a line across the glass whose two ends are a fader's left and right
+channels, so every pan the engine already makes (each grain's place, the
+beds' cone, the slide's side) is kept, now as a place along that line. Each
+end is placed between **ten still virtual loudspeakers**: PannerNodes with the
+browser's own head-related filters (`panningModel = 'HRTF'`), set once when
+the stage is built and never moved. Moving the glass changes only the gains
+into them.
+
+| bar | carries | along the glass |
+|---|---|---|
+| neck | the hush (`gWhisper`) | just under the neck, in the bulb below |
+| land | the grains and the crackle (`gTicks`, `gBeds`) | the top of the pile in the bulb below |
+| glass | the vessel, the body and the foley (`gModal`, `gBody`, `gFoley`) | the neck, across the whole glass |
+| rush | the slide and the air (`rPan`, `aPan`) | the bulb the sliding sand is in |
+| pour | fresh sand poured in (`pEnv`) | the top |
+
+**The speakers.** A ring of eight round the neck (above at elevation +15°,
+at the sides at ±40° azimuth, the four between at ±28° azimuth and ±15° elevation) and an inner
+pair at ±10°, every elevation on one of the 15° rows the browsers' data has
+(they round anything else down to a row). There is no speaker dead ahead: one
+there gives both ears the same signal, which sits inside the head, so the
+neck is a phantom between the inner pair. A point of the glass, seen, is fed
+to the two ring speakers either side of its angle, to the inner pair by its
+side, and between the two by its distance from the neck, each pair at
+constant power (the squares of the gains add up to 1). Seen, the glass is
+magnified (±40° wide, ±15° tall, its across-axis 1.3 times wider again):
+a real glass on a phone at 40 cm spans a few degrees, which the generic head
+hears as one point.
+
+**What moves it.** The glass's angle with gravity (`turn`, `sim.angle +
+sim.tilt`, clockwise as drawn) turns every bar about the neck; the fill moves
+the landings up the pile; where sand falls (the hush, the landings) is the
+bulb below in the room, so those bars cross through the neck as the glass
+passes level; the slide's bar is in the bulb the app says its sand is in
+(`slideBulb()` in `app.js`); a phone lying flat on its back or face for a
+second (`motion.pose()`) lowers the whole glass toward the desk. Placing is
+done only when one of these has moved enough to hear (a degree, 2 % of a
+bulb): a still glass schedules nothing. At the end of a turn the angle snaps
+from half a turn back to nothing while the glass's ends swap; the stage swaps
+its own with them, so nothing is heard to jump.
+
+**Where a sound is.** As since 1.16.0, on the side where its sand is seen. The
+app gives the stage every place in the glass's own frame (the single
+landings, the thumps, a slam, a leak, the slide's side, a creak, a crack and
+its growth, a chip, a blow on the glass) beside the same places turned to the
+ears, which the engine without the stage keeps using; the stage turns the
+glass itself. The slide in a turn is put where the classic sand's moving
+grains are seen, measured in the simulation: until the glass is level they
+are in the fuller bulb, which rides up the wall and slides; past level, in
+the bulb now above, which empties through the neck (unless it holds under a
+quarter of the other's sand). So a clockwise turn of a glass whose sand is
+below is heard on the left, an anticlockwise one on the right, which is the
+other way from the engine without the stage (its slide pans by the sine of
+the angle).
+
+**Level and tone.** The ten speakers together colour the sound (about +7 dB
+round 200 Hz and -8 dB round 8 kHz against a plain panner), and each ear now
+hears both channels of every bar, which adds low end where they are alike.
+A correction EQ (five filters) takes the average back, a trim sets the level,
+a balance of 0.5 dB evens out the data's own left/right difference, and each
+character has its own trim and six octave bands from 250 Hz to 8 kHz
+(`STAGE.tone`): how much of it is in which bar, and how alike its channels
+are, colour it differently. All six characters at 60 and 300 grains a second
+are within 1 dB of their level without the stage and every octave from 250 Hz
+to 8 kHz within 2.5 dB; L+R folded to one channel (one earbud, a speaker) is
+within 1 dB of the same fold without the stage, and nothing goes nearer the
+end of the soft clipper's curve than 3 dB.
+
+**The room.** For the sand, the desk's small room gives way to one computed
+when the stage is built (`stageRoom()`): a furnished room 3.6 × 2.6 × 4.4 m,
+the head off centre so its walls differ, the glass 0.4 m ahead and a little
+below the eyes, a desk under it. Every image source up to the second bounce
+and the desk's own reflection, each delayed, scaled and darkened by its
+walls, is rendered offline through the same head-related filters from where
+it arrives; then a noise tail whose two ears agree below about 500 Hz and not
+above, darkening as it dies (0.3 s to -60 dB). Each ear is brought to unit
+energy, as the desk room's is, so a character's room level means what it
+meant. Rendering it also loads the browser's HRTF data (an offline context
+waits for it). Nothing is recorded or downloaded. The bowl and the ambience
+keep the desk's room and their stereo for now.
+
+**Cost.** Nothing while it is off: one test of a flag where the engine
+branches for it, no node made or connected. On: ten panners, five bars of
+twenty gains each (only those reaching a speaker are linked), eleven filters,
+a second convolver; nothing per grain and no panner ever moved.
+
+**Not known without a phone.** Whether iOS spatialises a home-screen app's
+sound a second time when the listener has Spatial Audio on for AirPods (if it
+does, every sound is filtered by a head twice: boomy, smeared, wider than the
+room); what the stage costs on an iPhone; and how it sounds. Front against
+behind and height are weak cues with a generic head: some listeners will
+hear the glass inside the head, above, or behind.
+
 ## Real sand: the switch in Tune
 
 **Real sand**, in Tune's Material group after Grain, is on by default from

@@ -330,6 +330,41 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   nothing (the glass taken, moved and let go) the context runs and the same
   feeds thump, rush and shimmer, with sound at the output; the same events
   made by a script leave the context suspended (the control).
+- `audio-spatial`: the stage (`setSpatial`, headphones, spatial; off as the
+  app comes), offline renders as `audio-levels` makes them, fed frame by
+  frame as `app.js` feeds the engine. OFF: with the switch untouched, and
+  switched on and then off before anything plays, the sand mix at Sand level
+  100 is the base engine's (`HOURGLASS_SPATIAL_BASE`, default 73528e7) to
+  within what a render here differs from itself (two renders of the same
+  engine differ by about -92 dB; the controls, a gain of 0.99 and the stage
+  left on, fail). LEVEL, MONO, CLIP: every character of the registry at 60 and
+  300 grains a second within 1 dB of itself without the stage, every octave
+  from 250 Hz to 8 kHz within 2.5 dB, L+R folded to one channel within 1 dB of
+  the same fold, and at full volume nothing into the end of the soft
+  clipper's curve (the control: the stage without its correction EQ is out of
+  the octaves). IMAGE: the default character's ears correlate between 0.15
+  and 0.6 (the control: every bar into one speaker dead ahead, over 0.6).
+  PLACE: a lone grain at +0.6 across the glass is right, at -0.6 left, the two
+  mirrors within 1 dB; with the glass turned almost half round the same grain
+  is left, where it is seen (the control: fed its place as heard rather than
+  its place in the glass, it is turned twice and heard right); the glass
+  leaned -0.6 and +0.6 rad moves the landings by over 80 µs and 4 dB. TURN: in
+  the classic Sim (in Node), where the moving grains of a clockwise and an
+  anticlockwise turn are seen, with the sand below and above, and that
+  `app.js`'s `slideBulb()` (read from the file) puts the slide on their side
+  in each (the control: the engine's rush pan without the stage, by the sine
+  of the angle, is on the other side); and the slide a quarter turn either way
+  heard on that side (the control: the slide put in the other bulb). STILL:
+  ten seconds of a steady glass schedule no gain of the stage and set no
+  panner after it is built (the control: placing every frame), and the end of
+  a turn (half a turn back to nothing, the glass's ends swapped) moves neither
+  ear's level by a decibel (the control: a stage that does not swap its ends
+  with the glass swaps the sides). Headless Chromium now and then never
+  finishes an offline render that has HRTF panners in it; each render has a
+  90 s watchdog and is done once more on a fresh page, and the suite prints
+  how many hung. `HOURGLASS_SPATIAL_PRINT=1` prints every measure and the
+  residuals `STAGE.tone` is set from; `HOURGLASS_SPATIAL_ONLY=<regexp>` runs
+  only those groups (off, level, place, turn, image, still).
 - `app-*`: the app's own acceptance tests (permission, gestures, motion,
   re-timing, session, the existing flow), on the app as it ships
   (`app-motion` also has the classic sand heard before the start: nothing at
