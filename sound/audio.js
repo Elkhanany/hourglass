@@ -2480,7 +2480,7 @@
     if (this.ambience !== 'none') this._loadAmbience(this.ambience);
     this._applyCharacter(0.01);
     this._applyMaster();
-    if (this._spatialWant) this._stageBuild();
+    if (this._spatialWant) this.setSpatial(true);
   };
 
   /* ----------------------------------------------------------------------
@@ -2857,8 +2857,11 @@
   HourglassAudio.prototype.setSpatial = function (on) {
     on = !!on;
     this._spatialWant = on;
-    var S = this._stage;
+    var S = this._stage, ctx = this.ctx;
     if (!this.ready) return Promise.resolve(false);
+    // (an older browser's audio, without what the stage is made of, keeps the sound as it is)
+    if (on && !S && !(ctx.createStereoPanner && ctx.createPanner && ctx.createConvolver && ctx.createChannelSplitter &&
+                      (root.OfflineAudioContext || root.webkitOfflineAudioContext))) return Promise.resolve(false);
     if (on) return (S || this._stageBuild()).ready;       // (one that is leaving comes back once it has left)
     if (S && S.x === 0) this._stageDown(S);
     else if (S && S.x === 2) this._stageOut(S);
@@ -2880,7 +2883,9 @@
     // gain (the level, the character's trim and the balance); then one gain that is the crossfade and,
     // while the stage is on, the Sand level; then the output chain, and from there its own send to its
     // room. (The bus, and the desk's room after it, keep what they had: the Sand level's old gain, shut,
-    // and a bowl that was ringing when the switch was thrown.) As few nodes as will do: each costs.
+    // and a bowl that was ringing when the switch was thrown.) As few nodes as will do, and none in the
+    // mix that has nothing to say: every node that is reached costs, silent or not. So a speaker joins
+    // its correction with the first link into it, and a link is made at both ends only while it carries.
     var chain = [], last = null;
     STAGE.eq.forEach(function (e) {
       var b = keep(ctx.createBiquadFilter());
@@ -2895,11 +2900,10 @@
     });
     for (i = 1; i < chain.length; i++) chain[i - 1].connect(chain[i]);
     last = chain[chain.length - 1];
-    S.spk = [];
+    S.spk = []; S.used = []; S.to = chain[0];
     for (i = 0; i < n; i++) {
-      var a = i < n - 2 ? STAGE.ring[i] : STAGE.inner[i - n + 2], p = keep(stagePanner(ctx, a[0], a[1]));
-      p.connect(chain[0]);
-      S.spk.push(p);
+      var a = i < n - 2 ? STAGE.ring[i] : STAGE.inner[i - n + 2];
+      S.spk.push(keep(stagePanner(ctx, a[0], a[1]))); S.used.push(0);
     }
     var sp = keep(ctx.createChannelSplitter(2)), mg = keep(ctx.createChannelMerger(2));
     S.ear = [keep(G(1)), keep(G(1))];
@@ -2907,10 +2911,10 @@
     last.connect(sp); sp.connect(S.ear[0], 0); sp.connect(S.ear[1], 1);
     S.ear[0].connect(mg, 0, 0); S.ear[1].connect(mg, 0, 1); mg.connect(S.lvl); S.lvl.connect(this.rumble); S.lvl.connect(S.wet);
     this._stageTone(0);
-    // one end of a bar: one channel of its splitter, with a gain into each speaker, linked only while it reaches it
+    // one end of a bar: one channel of its splitter, with a gain for each speaker, linked (to both) only while it reaches it
     var end = function () {
       var e = { g: [], on: [], zero: [] };
-      for (var j = 0; j < n; j++) { var gj = keep(G(0)); gj.connect(S.spk[j]); e.g.push(gj); e.on.push(false); e.zero.push(0); }
+      for (var j = 0; j < n; j++) { e.g.push(keep(G(0))); e.on.push(false); e.zero.push(0); }
       return e;
     };
     // (a bar takes its faders as they are, left and right: every one of them is a stereo bus)
@@ -2922,16 +2926,19 @@
     // it goes: the hush to the neck, the grains and the crackle to the landings, the glass's ring,
     // its body and the foley to the glass. The foley fader also carries the pour, the slide and the
     // air, which have places of their own (the neck, the rush's bar): they are taken out of the
-    // glass's bar again by adding them once more, turned over, at the foley's own gain.
+    // glass's bar again by adding them once more, turned over, at the foley's own gain. (Those three
+    // are silent most of the time: their ways in are joined on only while one of them sounds, S.loud.)
     var fol = this.gFoley.gain.value, neg = keep(G(-fol)), rush = keep(G(fol)), pour = keep(G(fol));
     [neg, rush, pour].forEach(function (x) { x.channelCount = 2; x.channelCountMode = 'explicit'; });
     var feed = function (from, to) { S.src.push([from, to]); };
     feed(this.gWhisper, B.neck.inp);
-    feed(this.pEnv, pour); pour.connect((B.pour || B.neck).inp);
+    feed(this.pEnv, pour);
     feed(this.gTicks, B.land.inp); feed(this.gBeds, B.land.inp);
     feed(this.gModal, B.glass.inp); feed(this.gBody, B.glass.inp); feed(this.gFoley, B.glass.inp);
-    feed(this.pEnv, neg); feed(this.rPan, neg); feed(this.aPan, neg); neg.connect(B.glass.inp);
+    feed(this.pEnv, neg); feed(this.rPan, neg); feed(this.aPan, neg);
     feed(this.rPan, rush); feed(this.aPan, rush); rush.connect(B.rush.inp);
+    S.loud = false; S.loudAt = -1e9;
+    S.fol = [[neg, B.glass.inp], [pour, (B.pour || B.neck).inp]];
     // the bowl's place: the left of its beating pairs (each ear of the bowl beats as the whole does),
     // one signal into both its speakers and into its own room; joined to the output chain (past the
     // bus: the desk's room has no part in it) only while a bowl rings
@@ -3004,7 +3011,7 @@
     var self = this, ctx = this.ctx, t = ctx.currentTime + 0.01, d = STAGE.xf, g = this.gSand.gain, v = g.value, i;
     for (i = 0; i < S.src.length; i++) S.src[i][0].connect(S.src[i][1]);
     this._spatial = true;
-    this._stageAt(0, this._fill, 0, -1, 0, 0);
+    this._stageAt(0, this._fill, 0, -1, 0, 0, false);
     try { g.cancelScheduledValues(t); } catch (e) {}
     xfade(g, t, d, v, true);
     xfade(S.lvl.gain, t, d, this._sandGain(), false);
@@ -3038,7 +3045,8 @@
       var f = this._stageFaders();
       for (var i = 0; i < f.length; i++) f[i].disconnect(this.gSand);
       S.x = 2;
-      S.lvl.gain.setTargetAtTime(this._sandGain(), this.ctx.currentTime, 0.05);    // (the Sand level, if it was set while it crossed)
+      // (the Sand level, if it was set while it crossed: only then, a gain with nothing scheduled is the cheaper)
+      if (Math.abs(S.lvl.gain.value - this._sandGain()) > 1e-4) S.lvl.gain.setTargetAtTime(this._sandGain(), this.ctx.currentTime, 0.05);
       if (!this._spatialWant) this._stageOut(S);
     } else if (S.x === 3) {
       this._stageDown(S);
@@ -3057,8 +3065,8 @@
     if (!B.on) B.nodes.forEach(function (n) { try { n.disconnect(); } catch (e) {} });
     if (this._stage === S) { this._stage = null; this._spatial = false; }
     this._ambBake = {};
-    // (the Sand level may have been set while the stage had the sand)
-    if (was) this.gSand.gain.setTargetAtTime(this._sandGain(), t, 0.05);
+    // (the Sand level may have been set while the stage crossed out)
+    if (was && Math.abs(this.gSand.gain.value - this._sandGain()) > 1e-4) this.gSand.gain.setTargetAtTime(this._sandGain(), t, 0.05);
   };
 
   /**
@@ -3147,16 +3155,21 @@
    * from −w to w, at their place along it. Where sand falls (the stream's hush, the landings) is
    * the bulb below in the room, so those bars cross through the neck as the glass passes level.
    */
-  HourglassAudio.prototype._stageAt = function (th, fill, fillTop, slide, flat, tau) {
+  HourglassAudio.prototype._stageAt = function (th, fill, fillTop, slide, flat, tau, loud) {
     var S = this._stage, B = S.bars, c = Math.cos(th), sn = Math.sin(th), GW = STAGE.gw, n = S.spk.length;
     var lv = 2 * c;
     lv = lv < -1 ? -1 : (lv > 1 ? 1 : lv);                    // +1: the lower bulb below; −1: above; between: crossing
     var y = { neck: B.neck.y * lv, glass: B.glass.y, rush: -B.rush.y * slide,
               land: -lv * (0.95 - 0.6 * (lv >= 0 ? fill : fillTop)) };
     if (B.pour) y.pour = B.pour.y * lv;
-    var now = this.ctx.currentTime, g = S.tmp, s = S.s;
+    var now = this.ctx.currentTime, g = S.tmp, s = S.s, k;
+    // the pour, the slide and the air sound, or have just: their ways into the bars are there (else not)
+    if (loud !== S.loud) {
+      S.loud = loud;
+      for (k = 0; k < S.fol.length; k++) { if (loud) S.fol[k][0].connect(S.fol[k][1]); else S.fol[k][0].disconnect(S.fol[k][1]); }
+    }
     for (var b = 0; b < S.order.length; b++) {
-      var key = S.order[b], br = B[key];
+      var key = S.order[b], br = B[key], mute = key === 'rush' && !loud;
       for (var side = 0; side < 2; side++) {
         // the channel's end of the bar, in the glass (s: −1 while the glass's ends are swapped since the stage was built)
         var gx = (side ? br.w : -br.w) * s, gy = y[key];
@@ -3165,18 +3178,33 @@
         stageGains(sx, sy, g);
         var e = side ? br.R : br.L;
         for (var j = 0; j < n; j++) {
-          var gj = g[j] > 1e-3 ? g[j] : 0;                      // (60 dB down is none: no link kept for it)
-          if (gj > 0 && !e.on[j]) { e.g[j].gain.value = 0; br.inp.connect(e.g[j], side); e.on[j] = true; }
+          var gj = g[j] > 1e-3 && !mute ? g[j] : 0, lk = e.g[j];      // (60 dB down is none: no link kept for it)
+          if (gj > 0 && !e.on[j]) {
+            lk.gain.value = 0;
+            if (!S.used[j]++) S.spk[j].connect(S.to);
+            lk.connect(S.spk[j]); br.inp.connect(lk, side);
+            e.on[j] = true;
+          }
           if (!e.on[j]) continue;
-          if (tau) e.g[j].gain.setTargetAtTime(gj, now, tau);
-          else { e.g[j].gain.cancelScheduledValues(now); e.g[j].gain.value = gj; }
+          if (tau) lk.gain.setTargetAtTime(gj, now, tau);
+          else { lk.gain.cancelScheduledValues(now); lk.gain.value = gj; }
           if (gj > 0) e.zero[j] = 0;
           else if (!e.zero[j]) e.zero[j] = now + 10 * (tau || 0.01);
-          else if (now > e.zero[j]) { br.inp.disconnect(e.g[j], side); e.on[j] = false; e.zero[j] = 0; }
+          else if (now > e.zero[j]) {
+            br.inp.disconnect(lk, side); lk.disconnect();
+            if (!--S.used[j]) S.spk[j].disconnect();
+            e.on[j] = false; e.zero[j] = 0;
+          }
         }
       }
     }
-    S.at = [th + S.p * Math.PI, fill, fillTop, slide, flat];
+    S.at = [th + S.p * Math.PI, fill, fillTop, slide, flat, loud];
+    // (a link shut but not yet let go: looked at once more when its time is up, moved or not)
+    S.due = 0;
+    for (b = 0; b < S.order.length; b++) for (side = 0; side < 2; side++) {
+      e = side ? B[S.order[b]].R : B[S.order[b]].L;
+      for (j = 0; j < n; j++) if (e.zero[j] && (!S.due || e.zero[j] < S.due)) S.due = e.zero[j];
+    }
   };
 
   /**
@@ -3201,12 +3229,15 @@
     var want = pz >= 0.85 ? 1 : (pz <= 0.6 ? 0 : S.flat);
     if (want !== S.flat) { if (!S.flatAt) S.flatAt = t; if (t - S.flatAt >= 1) { S.flat = want; S.flatAt = 0; } }
     else S.flatAt = 0;
+    // the pour, the slide or the air sounds (update() has just set them), or did within the last two seconds
+    if (this._last.rush > 2e-4 || this._last.air > 2e-4 || this._last.pour) S.loudAt = t;
+    var loud = t - S.loudAt < 2;
     var a = S.at;
     d = th + S.p * Math.PI - a[0];
     d -= TAU * Math.round(d / TAU);
     if (d < STAGE_D && d > -STAGE_D && Math.abs(fill - a[1]) < 0.02 && Math.abs(top - a[2]) < 0.02 &&
-        Math.abs(slide - a[3]) < 0.05 && S.flat === a[4]) return;
-    this._stageAt(th, fill, top, slide, S.flat, STAGE.tau);
+        Math.abs(slide - a[3]) < 0.05 && S.flat === a[4] && loud === a[5] && !(S.due && t > S.due)) return;
+    this._stageAt(th, fill, top, slide, S.flat, STAGE.tau, loud);
   };
   /** A one-shot's place for the stage: `gx`, across the glass in its own frame, if the app gave it, else `pan`. */
   HourglassAudio.prototype._stageX = function (pan, gx) {
