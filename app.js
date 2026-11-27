@@ -2075,7 +2075,9 @@
       lookShown = look;
       renderer.setPaper(light);
       dirty = true;
-      if (fade) lookFadeTo(from);
+      // (fading, the renderer is put at the start look at once: the next frame's sand, drawn before the fade's
+      // own first step, is lit as the page and the glass are, not as the end look)
+      if (fade) { renderer._paperMix(from); lookFadeTo(from); }
       else lookFadeEnd();
     } else if (!lookFade.anim) lookMetas(0, look);
     if (btnLook) btnLook.setAttribute('aria-pressed', light ? 'true' : 'false');
