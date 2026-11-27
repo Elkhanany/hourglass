@@ -81,7 +81,7 @@
     this.mix = 0;         // how much of the light look is drawn: 0 or 1 at rest, between while the look fades (_paperMix)
     this.layers = false;  // layered sand: two tones (setLayers)
     this.sunlit = false;  // the sand lit by one key light (setSandLight); off, it is drawn as it always was
-    this._sun = null;     // the sunlit sand's tables, made when it is first drawn (_drawSunlit)
+    this._sun = null;     // the sunlit sand's tables, made by prepareSun or when it is first drawn (_drawSunlit)
     this._sunRev = 0;     // counts the colour table's rebuilds: the sunlit tables follow it
     this.lightRot = 0;    // the glass against the room, as drawSand or drawGlass was last told (the key light stays in the room)
     this.glass = null;    // [far wall, near wall] WebGL layers, or null → drawn glass
@@ -746,8 +746,9 @@
     }
   };
 
-  Renderer.prototype._drawSunlit = function () {
-    var sim = this.sim, W = sim.W, H = sim.H, BW = this.BW, S = this._sun, i, s, d;
+  /** The sunlit sand's tables, made once for this renderer (their contents are filled by _sunCells, _sunLook and _sunLight). */
+  Renderer.prototype._sunState = function () {
+    var W = this.sim.W, S = this._sun, s;
     if (!S) {
       S = this._sun = {
         geo: null, c16: null, k: null, lut: new Uint32Array(LEVELS * 256), J: new Float32Array(768), gs: new Float32Array(256),
@@ -762,6 +763,23 @@
         S.J[3 * s] = mg * Math.sin(bb) * Math.cos(a); S.J[3 * s + 1] = mg * Math.sin(bb) * Math.sin(a); S.J[3 * s + 2] = mg * Math.cos(bb);
       }
     }
+    return S;
+  };
+
+  /**
+   * The sunlit sand's shape and look tables made now, before a frame needs them (the app calls this
+   * as it boots, once the look and the sand are set), so that the first frames draw and do not build.
+   * Under the soft light, nothing. What a frame would build is the same either way.
+   */
+  Renderer.prototype.prepareSun = function () {
+    if (!this.sunlit) return;
+    var S = this._sunState();
+    if (S.geo !== this.sim.geo) this._sunCells(S);
+    if (S.rev !== this._sunRev || S.mix !== this.mix) this._sunLook(S);
+  };
+
+  Renderer.prototype._drawSunlit = function () {
+    var sim = this.sim, W = sim.W, H = sim.H, BW = this.BW, S = this._sunState(), i, s, d;
     if (S.geo !== sim.geo) this._sunCells(S);
     if (S.rev !== this._sunRev || S.mix !== this.mix) this._sunLook(S);
     var rot = this.lightRot;

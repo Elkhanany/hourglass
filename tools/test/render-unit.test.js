@@ -811,7 +811,19 @@ test('the sunlit sand\'s tables: the cells once per shape, the look\'s on a chan
   rc.setSandLight('sunlit');
   for (k = 0; k < 30; k++) { rc._sunRev++; rc.drawSand(); }
   ok(rc._sun.builds.look === 30, 'control: ' + JSON.stringify(rc._sun.builds));
-  return 'still: ' + JSON.stringify({ cells: 1, look: 1, light: 1 }) + ' over 30 frames; control: rebuilt each frame, 30 counted';
+  // made before the first frame (prepareSun, as the app boots): that frame builds only the light's tables,
+  // and draws what it would have drawn; control: without it, the first frame builds the cells and the look
+  var rp = realRenderer(P, runningGlass(P, 4242, false)), rq = realRenderer(P, runningGlass(P, 4242, false));
+  rp.setSandLight('sunlit'); rq.setSandLight('sunlit');
+  rp.prepareSun();
+  var pre = JSON.stringify(rp._sun.builds);
+  rp.drawSand(); rq.drawSand();
+  ok(pre === JSON.stringify({ cells: 1, look: 1, light: 0 }) && rp._sun.builds.cells === 1 && rp._sun.builds.look === 1, 'prepareSun built ' + pre + ', then the first frame ' + JSON.stringify(rp._sun.builds));
+  ok(fnv(rp.buf) === fnv(rq.buf), 'the first frame after prepareSun differs from one without it');
+  ok(rq._sun.builds.cells === 1 && rq._sun.builds.look === 1 && pre !== '{"cells":0,"look":0,"light":0}', 'control: the first frame without prepareSun built ' + JSON.stringify(rq._sun.builds));
+  var rs0 = realRenderer(P, runningGlass(P, 4242, false)); rs0.prepareSun();
+  ok(rs0._sun === null, 'under the soft light prepareSun made tables');
+  return 'still: ' + JSON.stringify({ cells: 1, look: 1, light: 1 }) + ' over 30 frames; control: rebuilt each frame, 30 counted; made before the first frame by prepareSun, the same picture';
 });
 
 test('the sunlit sand draws no grain outside the glass\'s edge, in both looks, upright, turned over and leaned, on every shape', function () {

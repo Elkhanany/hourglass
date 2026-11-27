@@ -160,7 +160,10 @@ lookups and multiply-adds; nothing is allocated per frame. Measured in Node
 on a filled phone-size glass (207 × 453 cells, 24,165 grains), `drawSand`
 takes about the same time under Sunlit as Soft does (about 1 ms on a
 desktop JIT for either). The timer, the physics and the sound read nothing
-of it: the light only reads the bed.
+of it: the light only reads the bed. The shape's and the look's tables (some
+8 ms in a browser) are made as the app boots (`renderer.prepareSun()`, after
+the look and the sand are set), so the first frames only draw; the dark
+opening that lifts at once ("Use this shape") is not held by them.
 
 #### Real sand under the same light
 

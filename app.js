@@ -4718,6 +4718,7 @@
   hapticMountAll();
   showLook(true);                                     // the background (index.html has put it on the page already): never faded
   renderer._prepareLooks();                           // (both looks' glass made now, so that a change of look compiles nothing)
+  renderer.prepareSun();                              // (the sunlit sand's tables made now, not in the first frames)
   zoom.style.transition = 'none';                     // arrive in place, not shrinking from the Zen size
   layout();
   void zoom.offsetWidth;
