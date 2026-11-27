@@ -374,9 +374,9 @@ async function testOff(s, env) {
         material: row.parentNode.classList.contains('rows-single'),
         rows: document.querySelectorAll('#sheet-settings .row').length };
     });
-    s.check('OFF: the row "Real sand", a labelled switch, sits in the Sand tab\'s rows right after Layered sand, then Grain and its choices; Tune has 15 rows (the Sound tab\'s two, the Time tab\'s Show when it ends and the Glass tab\'s Background among them)',
+    s.check('OFF: the row "Real sand", a labelled switch, sits in the Sand tab\'s rows right after Layered sand, then Grain and its choices; Tune has 16 rows (the Sound tab\'s three, the Time tab\'s Show when it ends and the Glass tab\'s Background among them)',
             ui.tag === 'LABEL' && ui.for === 'opt-realsand' && ui.title === 'Real sand' && ui.role === 'switch' && ui.type === 'checkbox' &&
-            ui.cls === 'switch' && ui.tab === 'Sand' && ui.afterLayers && ui.beforeGrain && ui.material && ui.rows === 15, JSON.stringify(ui));
+            ui.cls === 'switch' && ui.tab === 'Sand' && ui.afterLayers && ui.beforeGrain && ui.material && ui.rows === 16, JSON.stringify(ui));
     s.check('OFF: off ("Off: the classic sand", data-state off); Grain shown with its note, and Real motion\'s crack sentence; no "Copy a report" link',
             !st.checked && !st.disabled && st.dstate === 'off' && st.note === 'Off: the classic sand' && st.grainShown && st.crackShown &&
             st.grainNote === 'Finer sand is more grains, and more work for the phone' && st.report === null,
