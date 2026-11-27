@@ -730,7 +730,13 @@ keep the desk's room and their stereo for now.
 **Cost.** Nothing while it is off: one test of a flag where the engine
 branches for it, no node made or connected. On: ten panners, five bars of
 twenty gains each (only those reaching a speaker are linked), eleven filters,
-a second convolver; nothing per grain and no panner ever moved.
+a second convolver; nothing per grain and no panner ever moved. Ten seconds of
+a steady glass (60 grains a second) rendered offline in headless Chromium on
+the shared four-core test machine: 915 ms without the stage, 1254 ms with it
+(median of five each, alternating): 1.37 times, about 34 ms more audio-thread
+work per second of sound. Building it the first time renders the room,
+which also loads the HRTF data; until that resolves the sand keeps the desk's
+room.
 
 **Not known without a phone.** Whether iOS spatialises a home-screen app's
 sound a second time when the listener has Spatial Audio on for AirPods (if it
