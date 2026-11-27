@@ -369,7 +369,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   under its level at 6 s and within 1 dB at 10.8 s; a pause and a tap tell
   it of a resume; the Flip button on the running glass and a sequence's own
   turn tell it nothing, and the bus holds at its level through them;
-  another duration picked while it runs, a finished glass flipped to start
+  another duration picked while it runs, a finished glass turned over by Start to run
   again, and a finished glass given new sand (paused, but not run since)
   are starts. Its controls are copies of `app.js` handed to a fresh page:
   one that never tells the engine, one that tells it whenever the glass is
