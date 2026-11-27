@@ -31,7 +31,7 @@
  *            10 minute glass starts at 14:24:40; the same after a minute boundary, and nothing
  *            written to the page meanwhile; later after sand is added; right after a turn; gone
  *            while paused ("Paused" exactly) and back later by the pause; gone at the end ("Time
- *            · flip to begin again" exactly); across midnight; in a work and rest sequence the
+ *            · tap to begin again" exactly); across midnight; in a work and rest sequence the
  *            end of the phase now running; the switch off: today's words exactly, and none of
  *            the page's markup added; the end hidden from a screen reader in the live state line
  *            and given in the time's label instead; in Zen dimmed with the state line, and on a
@@ -475,7 +475,7 @@ function endsOk(m, place) {
              detail: r('paused') + ', ' + r('resumed') + ': the end ' + Math.round((m.resumed.at - m.paused.at) / 1000) + ' s later for a pause of 180 s' },
     zen: { ok: !!m.zen && m.zen.zen && reads(m.zen, 'Flowing') && m.zen.ends.display === 'inline' && m.zen.ends.op === 1 && m.zen.ends.vis === 'visible' && m.zen.hud < 0.2,
            detail: m.zen ? 'in Zen the line\'s controls at ' + m.zen.hud + ', the end itself ' + JSON.stringify(m.zen.ends) : 'not read' },
-    end: { ok: plain(m.end, 'Time · flip to begin again') && m.end.state === 'done', detail: r('end') + ' (' + (m.end && m.end.state) + ')' },
+    end: { ok: plain(m.end, 'Time · tap to begin again') && m.end.state === 'done', detail: r('end') + ' (' + (m.end && m.end.state) + ')' },
     errors: { ok: m.errors.length === 0, detail: m.errors.slice(0, 2).join(' | ') }
   };
 }
@@ -576,7 +576,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       s.check('ENDS: during a turn "Turning" exactly; turned, the end of the glass the other way up', e1.flip.ok, e1.flip.detail);
       s.check('ENDS: paused, "Paused" exactly (also three minutes later); resumed, the end three minutes later', e1.pause.ok, e1.pause.detail);
       s.check('ENDS: in Zen the end dims with the state line (nothing of its own shows it)', e1.zen.ok, e1.zen.detail);
-      s.check('ENDS: at the end "Time · flip to begin again" exactly', e1.end.ok, e1.end.detail);
+      s.check('ENDS: at the end "Time · tap to begin again" exactly', e1.end.ok, e1.end.detail);
       s.check('ENDS: no page or console errors', e1.errors.ok, e1.errors.detail);
       var e2 = endsOk(await ends(env, NEW_YORK), NEW_YORK);
       s.check('ENDS (en-US, America/New_York, 12 hours): "Flowing · ends 2:34 PM" at the start, and right ' + Object.keys(LBL).filter(function (x) { return x !== 'start'; }).map(function (x) { return LBL[x]; }).join(', '),
@@ -593,7 +593,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       // the switch off: today's words, and the page as it was
       var off = await ends(env, BERLIN, { save: { endsAt: false } }), offOk = ['idle', 'start', 'minute', 'sand', 'flipped', 'resumed'].every(function (k2) {
         return plain(off[k2], k2 === 'idle' ? 'Tap the glass to begin' : 'Flowing');
-      }) && plain(off.paused, 'Paused') && plain(off.end, 'Time · flip to begin again');
+      }) && plain(off.paused, 'Paused') && plain(off.end, 'Time · tap to begin again');
       s.check('ENDS: with the switch off (the default) the state line is today\'s, word for word, with nothing added to the page, at every step', offOk,
               ['start', 'paused', 'resumed', 'end'].map(function (k2) { return k2 + ' "' + off[k2].text + '" (' + off[k2].kids + ' node)'; }).join(', '));
       // the switch in Tune, while the glass runs

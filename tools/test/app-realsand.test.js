@@ -2352,8 +2352,39 @@ async function testWaits(s, env) {
     await H.invariants(s, t, 'WAITS finished');
   } finally { await t.close(); }
 
-  // the control: stateAfterSwap as it was before the rule
-  var old = appWithout(env, [['if (byPhone && was !== \'running\') return was === \'paused\' ? \'paused\' : \'idle\';', '']]);
+  // no turn by hand starts it either (1.20.2): a finished glass turned over by the Flip button waits, every point
+  // above and the valve shut; F turns it back to wait below; Start turns it over on the screen and runs it
+  t = await waitsOpen(env, 10000);
+  try {
+    var home = function () { return t.page.waitForFunction(function () { var Hg = window.Hourglass; return !Hg.flip.active && Hg.body.mode === 'rest' && Hg.sim.angle === 0; }, null, { timeout: 8000, polling: 'raf' }); };
+    await t.eval(function () { window.Hourglass.start(); });
+    await waitFor(t, function () { return window.Hourglass.timer.state === 'done' && window.Hourglass.sim.nTop === 0; }, 20000);
+    await sleep(1600);
+    await t.page.tap('#btn-flip');
+    await sleep(300); await home(); await sleep(300);
+    var h1 = await waitsRead(t);
+    await sleep(1200);
+    var h1b = await waitsRead(t);
+    await t.eval(function () { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });   // (F on the page, not on the button)
+    await t.page.keyboard.press('f');
+    await sleep(300); await home(); await sleep(300);
+    var h2 = await waitsRead(t);
+    s.check('WAITS: a finished glass turned over by the Flip button waits with its sand above (every point, the valve shut, 10 s, the Start button) and 1.2 s later still; F turns it back and it waits below (00:00.0); no point crossed the neck',
+            h1.live && h1.state === 'idle' && Math.abs(h1.rem - 10000) < 0.5 && h1.ptsTop === h1.pts && h1.shut === true && h1.label === 'Start' &&
+            h1b.state === 'idle' && h1b.rem === h1.rem && h1b.ptsTop === h1b.pts && h2.state === 'idle' && h2.rem === 0 && h2.ptsTop === 0 && h2.shut === true && h2.shown === '00:00.0' &&
+            h2.plantShut === 0 && h2.crossedShut === 0 && h2.bowls === 1, waitsShow(h1) + '; later ' + waitsShow(h1b) + '; F ' + waitsShow(h2));
+    await t.page.tap('#btn-play');
+    await sleep(300); await home(); await sleep(600);
+    var h3 = await waitsRead(t);
+    s.check('WAITS: ... and Start there turns it over on the screen and runs it, its points crossing the neck', h3.state === 'running' && h3.rem < 10000 && h3.ptsTop < h3.pts && h3.shut === false,
+            waitsShow(h3));
+    await t.eval(function () { window.Hourglass.pause(); });
+    await sleep(600);
+    await H.invariants(s, t, 'WAITS turned by hand');
+  } finally { await t.close(); }
+
+  // the control: stateAfterSwap without its rule (a glass that was not running runs after any turn)
+  var old = appWithout(env, [['if (!auto && was !== \'running\') return was === \'paused\' ? \'paused\' : \'idle\';', '']]);
   t = await waitsOpen(env, 300000, [old.route]);
   try {
     await t.page.tap('#btn-reset');
@@ -2363,7 +2394,7 @@ async function testWaits(s, env) {
     var c1 = await waitsRead(t);
     await phoneTo(t, 0);
     var c2 = await waitsRead(t);
-    s.check('WAITS (control): app.js without the phone\'s rule: the same turn ends the waiting glass ("Time") and the turn back runs it, its points crossing the neck',
+    s.check('WAITS (control): app.js without the rule: the same turn ends the waiting glass ("Time") and the turn back runs it, its points crossing the neck',
             old.found && c0.state === 'idle' && c1.state === 'done' && c1.label === 'Flip and start again' && c2.state === 'running' && c2.ptsTop < c0.pts && c2.rem < 300000,
             (old.found ? '' : 'the text to undo is not in app.js; ') + waitsShow(c1) + '; ' + waitsShow(c2));
   } finally { await t.close(); }

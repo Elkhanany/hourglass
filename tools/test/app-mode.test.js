@@ -393,14 +393,14 @@ async function first(s, env) {
     await t.reload();
     var f = await t.eval(function () { return window.__first; });
     await t.close();
-    var bg = want === 'light' ? 'rgb(243, 240, 234)' : 'rgb(11, 12, 14)';
-    var good = !!f && f.html === bg && (f.body === null || f.body === bg) && (f.veil === null || f.veil === 'rgba(0, 0, 0, 0)' || f.veil === bg) &&
+    var bg = want === 'light' ? 'rgb(243, 240, 234)' : 'rgb(11, 12, 14)', edge = want === 'light' ? 'rgb(236, 233, 226)' : 'rgb(9, 10, 12)';   // (the canvas is the room's edge: GROUND)
+    var good = !!f && f.html === edge && (f.body === null || f.body === bg) && (f.veil === null || f.veil === 'rgba(0, 0, 0, 0)' || f.veil === bg) &&
       (want === 'light' ? f.look === 'light' && f.theme === PAPER : f.look === null && f.theme === NIGHT);
     return { good: good, said: choice + (scheme ? ' (' + scheme + ')' : '') + (choice === 'hours' ? ' at ' + hour + ':00' : '') + ' → ' + JSON.stringify(f) };
   }
   var cases = [['dark', null, 12, 'dark'], ['light', null, 12, 'light'], ['system', 'light', 12, 'light'], ['system', 'dark', 12, 'dark'], ['hours', null, 12, 'light'], ['hours', null, 22, 'dark']];
   for (var c of cases) { var r = await one(c[0], c[1], c[2], c[3]); rows.push(r.said); ok = ok && r.good; }
-  s.check('FIRST: the first frame painted is in the look of each choice (dark; light; Device in a light and a dark browser; Daytime at noon and at 22:00): the page, the veil and the theme-color', ok, rows.join(' | '));
+  s.check('FIRST: the first frame painted is in the look of each choice (dark; light; Device in a light and a dark browser; Daytime at noon and at 22:00): the canvas (the room\'s edge), the page, the veil and the theme-color', ok, rows.join(' | '));
   var noEarly = routed(env, 'index.html', function (src) { return src.replace(/<script>\s*\(function \(\) \{\s*try \{\s*var s = JSON\.parse[\s\S]*?<\/script>/, ''); });
   var ctl = await one('light', null, 12, 'light', [noEarly]);
   s.check('... and the page without its early script opens a light choice on a dark first frame (control)', !ctl.good, ctl.said);
@@ -833,17 +833,57 @@ async function seams(t) {
     return { steps: steps, box: box, app: info.app.map(Math.round) };
   });
 }
-async function groundCase(env, look, size, how, routes, tag) {
+async function groundCase(env, look, size, how, routes, tag, mid) {
   var t = await opn(env, { storage: { background: look }, viewport: { width: size[0], height: size[1] }, routes: routes });
   await sleep(700);
   await t.eval(INSETS);
   await sleep(300);
+  var held;
   if (how === 'zen') { await t.page.tap('#btn-zen'); await sleep(1900); }
   if (how === 'tune') { await tune.open(t); await sleep(900); }
+  if (how === 'fade') { await t.page.tap('#btn-look'); held = await holdFade(t, 0.5); }
   var r = await seams(t);
-  if (SHOTS && size[0] === 390) await t.page.screenshot({ path: path.join(SHOTS, 'mode-ground-' + look + '-' + how + (tag ? '-' + tag : '') + '.png') });
+  if (how === 'fade') r.lk = held ? held.lk : null;
+  if (SHOTS && (size[0] === 390 || mid)) await t.page.screenshot({ path: path.join(SHOTS, 'mode-ground-' + look + '-' + how + '-' + size.join('x') + (tag ? '-' + tag : '') + '.png') });
   await t.close();
   return r;
+}
+/**
+ * The page as a home-screen app on an iPhone can lay it out: its layout viewport shorter than the
+ * window by about the status bar's height (59 px), at the bottom or at the top. The body and the
+ * app's box end there; under them the window shows the canvas (the root's colour).
+ */
+var SHORT = 59;
+function shortView(env, end, change) {
+  return routed(env, 'styles.css', function (src) {
+    return (change ? change(src) : src) + '\nbody, #app { ' + end + ': ' + SHORT + 'px !important; ' + (end === 'top' ? 'bottom: 0 !important; ' : '') + 'height: auto !important; }\n';
+  });
+}
+/** The ground as it was before 1.20.2: no flat edge to the room, the canvas the page's own colour, the scrim to the edges. */
+function oldGround(src) {
+  return src.split('var(--rim), ').join('').replace('html { background: var(--edge); }', '').replace('html.look-fade { background: var(--edge); }', '')
+    .replace(/\n  -webkit-mask-image: linear-gradient\(transparent, #000 96px[^\n]*\n  mask-image: [^\n]*/, '');
+}
+/** index.html's colours before the first paint as they were before 1.20.2 (the canvas the page's own colour). */
+function oldPage(env) {
+  return routed(env, 'index.html', function (src) {
+    return src.replace('<style>html{background:#090a0c}body{background:#0b0c0e}html[data-look="light"]{background:#ece9e2}html[data-look="light"] body{background:#f3f0ea}</style>',
+      '<style>html,body{background:#0b0c0e}html[data-look="light"],html[data-look="light"] body{background:#f3f0ea}</style>');
+  });
+}
+async function shortGround(s, env, change) {
+  var rows = [], ok = true, look, size, how, end, r, more = change ? [oldPage(env)] : [];
+  for (look of ['light', 'dark']) for (size of [[393, 852], [375, 667]]) for (how of ['plain', 'zen', 'tune']) for (end of ['bottom', 'top']) {
+    r = await groundCase(env, look, size, how, [shortView(env, end, change)].concat(more), 'short-' + end + (change ? '-old' : ''), 'shot');
+    ok = ok && r.steps.length === 0;
+    rows.push(look + ' ' + size.join('x') + ' ' + how + ' ' + end + (r.steps.length ? ' ' + JSON.stringify(r.steps.slice(0, 2)) : ' one'));
+  }
+  for (end of ['bottom', 'top']) for (look of ['dark', 'light']) {
+    r = await groundCase(env, look, [393, 852], 'fade', [shortView(env, end, change)].concat(more), 'short-' + end + (change ? '-old' : ''), 'shot');
+    ok = ok && r.steps.length === 0 && r.lk > 0.3 && r.lk < 0.7;
+    rows.push(look + ' faded half way (' + r.lk + ') ' + end + (r.steps.length ? ' ' + JSON.stringify(r.steps.slice(0, 2)) : ' one'));
+  }
+  return { ok: ok, rows: rows };
 }
 async function ground(s, env) {
   var rows = [], ok = true, look, size, r;
@@ -862,11 +902,20 @@ async function ground(s, env) {
   }
   s.check('GROUND: as the home-screen app has it (the insets, a dynamic viewport short of the screen), the ground is one from the top edge to the bottom at 390 x 844, 393 x 852, 430 x 932, 375 x 667 and 320 x 568, in Zen and with Tune open, in both looks: the app\'s box is the window\'s, and no column near either side steps outside a control',
     ok, rows.join('; '));
-  // control: the app's box a viewport unit tall again (as before 1.20.1): the page's own ground shows as a band under it
-  var old = shortDvh(env, function (src) { return src.replace('#app {\n  position: fixed; inset: 0;\n', '#app {\n  position: fixed; inset: 0;\n  height: 100vh; height: 100dvh;\n'); });
-  var c1 = await groundCase(env, 'light', [390, 844], 'plain', [old], 'old'), c2 = await groundCase(env, 'dark', [390, 844], 'plain', [old], 'old');
-  s.check('... and with the app\'s box 100dvh tall again a band of another ground shows along the bottom, in the light look (' + (c1.steps[0] ? c1.steps[0].above.join('.') + ' over ' + c1.steps[0].below.join('.') : 'none') + ') and the dark (control)',
+  // control: the app's box a viewport unit tall again (as before 1.20.1), and the ground as it was before 1.20.2: the page's own ground shows as a band under it
+  var old = shortDvh(env, function (src) { return oldGround(src).replace('#app {\n  position: fixed; inset: 0;\n', '#app {\n  position: fixed; inset: 0;\n  height: 100vh; height: 100dvh;\n'); });
+  var c1 = await groundCase(env, 'light', [390, 844], 'plain', [old, oldPage(env)], 'old'), c2 = await groundCase(env, 'dark', [390, 844], 'plain', [old, oldPage(env)], 'old');
+  s.check('... and with the app\'s box 100dvh tall again, on the ground as it was, a band of another ground shows along the bottom, in the light look (' + (c1.steps[0] ? c1.steps[0].above.join('.') + ' over ' + c1.steps[0].below.join('.') : 'none') + ') and the dark (control)',
     c1.steps.length > 0 && c2.steps.length > 0 && !c1.box, JSON.stringify(c1.steps.slice(0, 2)) + ' | ' + JSON.stringify(c2.steps.slice(0, 2)));
+
+  // whatever the box: a layout viewport 59 px short of the window, below or above (1.20.2)
+  var sh = await shortGround(s, env);
+  s.check('GROUND: with the layout viewport ' + SHORT + ' px shorter than the window, at the bottom and at the top, the canvas shown there meets the room with no step, in both looks, at 393 x 852 and 375 x 667, in Zen and with Tune open, and half way through a fade either way',
+    sh.ok, sh.rows.join('; '));
+  var shOld = await shortGround(s, env, oldGround);
+  var stepped = shOld.rows.filter(function (x) { return !/ one$/.test(x); }), must = shOld.rows.filter(function (x) { return /^light \d+x\d+ plain|tune top|faded/.test(x); });
+  s.check('... and with the ground as it was (the room\'s edge shaded, the canvas the page\'s own colour, the scrim to the edges) the band shows as a step: in the light look at both ends at both sizes, with Tune open at the top in both looks, half way through a fade, ' + stepped.length + ' of ' + shOld.rows.length + ' in all (control)',
+    must.length === 12 && must.every(function (x) { return !/ one$/.test(x); }), shOld.rows.join('; '));
 }
 
 /* ---- the fade between the looks (1.20.1) ------------------------------------------------- */
@@ -1122,6 +1171,68 @@ async function pillsAt(env, w, look, quick, routes) {
   await t.close();
   return r;
 }
+/* ---- a home-screen app: the app's box as tall as the larger of the window and 100vh (1.20.2) ---- */
+// A test browser cannot be a home-screen app (display-mode cannot be emulated in it), so the
+// rule is read as a tab (it does not apply) and with its media query made true: in a window
+// whose viewport is the window, as Android's home-screen app and the PC's installed window
+// are, the app's box is the window's either way, in both looks and in Zen and with Tune open.
+async function standaloneCase(s, env) {
+  var on = routed(env, 'styles.css', function (src) { return src.replace('@media (display-mode: standalone) {\n  #app {', '@media all {\n  #app { --on: 1;'); });
+  var rows = [], ok = true, tab = {};
+  for (var look of ['light', 'dark']) for (var size of [[393, 852], [1280, 800], [412, 915]]) for (var how of ['tab', 'standalone']) {
+    var t = await opn(env, { storage: { background: look }, viewport: { width: size[0], height: size[1] }, routes: how === 'standalone' ? [on] : null });
+    await sleep(700);
+    var b = await t.eval(function () {
+      var r = document.getElementById('app').getBoundingClientRect(), p = document.querySelector('.panel').getBoundingClientRect();
+      return { app: [r.left, r.top, r.width, r.height].map(Math.round), w: innerWidth, h: innerHeight, panel: Math.round(p.bottom), rule: getComputedStyle(document.getElementById('app')).getPropertyValue('--on').trim() === '1' };
+    });
+    await tune.open(t); await sleep(700);
+    var sheet = await t.eval(function () { var r = document.getElementById('sheet-settings').getBoundingClientRect(); return Math.round(r.bottom); });
+    await t.close();
+    var key = look + size.join('x'), was = tab[key];
+    if (how === 'tab') tab[key] = { panel: b.panel, sheet: sheet };
+    var same = b.app[0] === 0 && b.app[1] === 0 && b.app[2] === b.w && b.app[3] === b.h && b.rule === (how === 'standalone') &&
+      (how === 'tab' || (was && was.panel === b.panel && was.sheet === sheet));
+    ok = ok && same;
+    rows.push(look + ' ' + size.join('x') + ' ' + how + ': app ' + b.app.join(',') + ' of ' + b.w + 'x' + b.h + ', bar to ' + b.panel + ', Tune to ' + sheet + (b.rule ? ' (the rule on)' : ''));
+  }
+  s.check('STANDALONE: the home-screen app\'s rule (the box as tall as the larger of the window and 100vh) changes nothing where the viewport is the window: as a tab (the rule off) and with it on, at a phone\'s size, a PC window\'s and an Android phone\'s, in both looks, the app\'s box is the window\'s and the bar and Tune end where they do in the tab',
+    ok, rows.join('; '));
+  // control: a rule that sized the box past the window would be seen
+  var past = routed(env, 'styles.css', function (src) { return src.replace('@media (display-mode: standalone) {', '@media all {').replace('height: max(100%, 100vh, 100lvh); }', 'height: calc(100vh + 34px); }'); });
+  var t2 = await opn(env, { storage: { background: 'light' }, viewport: { width: 393, height: 852 }, routes: [past] });
+  await sleep(700);
+  var c = await t2.eval(function () { var r = document.getElementById('app').getBoundingClientRect(); return [Math.round(r.height), innerHeight]; });
+  await t2.close();
+  s.check('... and with the box sized 34 px past the window instead, the same measure sees it (control: ' + c.join(' of ') + ')', c[0] !== c[1], c.join(' of '));
+}
+
+/* ---- the readout under the version line (1.20.2) -------------------------------------------- */
+async function measuresCase(s, env) {
+  var t = await opn(env, { storage: { background: 'light' }, viewport: { width: 393, height: 852 } });
+  try {
+    await sleep(700);
+    await tune.open(t);
+    var before = await t.eval(function () { return !!document.getElementById('measures-line'); });
+    await tune.tap(t, '#version-line');
+    await sleep(200);
+    var m = await t.eval(function () {
+      var l = document.getElementById('measures-line'), v = document.getElementById('version-line'), r = document.getElementById('app').getBoundingClientRect();
+      var want = 'screen ' + screen.width + '×' + screen.height + ' · window ' + innerWidth + '×' + innerHeight + ' · root ' + document.documentElement.clientHeight +
+        ' · visual ' + Math.round(visualViewport.height * 10) / 10 + ' · insets 0 0 0 0 · standalone no · bar default · dpr ' + Math.round(devicePixelRatio * 10) / 10 +
+        ' · app 0,0 ' + r.width + '×' + r.height;
+      return { text: l && l.textContent, want: want, shown: !!l && !l.hidden && l.getBoundingClientRect().height > 0, after: !!l && v.nextElementSibling === l,
+               size: l ? parseFloat(getComputedStyle(l).fontSize) : 0, stored: Object.keys(localStorage).join(',') };
+    });
+    await sleep(5000);
+    var mid = await t.eval(function () { var l = document.getElementById('measures-line'); return !!l && !l.hidden; });
+    await sleep(3500);
+    var gone = await t.eval(function () { var l = document.getElementById('measures-line'); return !l || l.hidden; });
+    s.check('MEASURES: a tap on the version line shows one small line under it, the page\'s measures exactly (' + m.text + '), still there 5 s later and gone by 8.7 s; nothing more is stored',
+      !before && m.shown && m.after && m.text === m.want && m.size <= 11 && mid && gone && m.stored === 'hourglass.settings.v1', JSON.stringify(m) + ' mid ' + mid + ' gone ' + gone);
+  } finally { await t.close(); }
+}
+
 async function pillsCase(s, env) {
   var rows = [], ok = true, phone = true;
   for (var quick of [null, '99,99,99,99,99,99']) for (var w of [320, 360, 390, 430, 440, 441, 480, 560, 600, 768, 1024, 1280, 1600, 2560]) {
@@ -1201,6 +1312,8 @@ async function pictures(env) {
     await run('TWICE', twiceCase);
     await run('PACE', paceCase);
     await run('PILLS', pillsCase);
+    await run('STANDALONE', standaloneCase);
+    await run('MEASURES', measuresCase);
     await pictures(env);
   } catch (e) {
     s.check('the suite ran to its end', false, e && e.stack ? e.stack.split('\n').slice(0, 3).join(' ') : String(e));

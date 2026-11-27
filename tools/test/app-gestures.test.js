@@ -246,8 +246,9 @@ async function testFree(s, env) {
     var maxW = 0;
     r.rows.forEach(function (q) { if (Math.abs(q[R_W]) > maxW) maxW = Math.abs(q[R_W]); });
     var odd = r.flips % 2 === 1;
-    // turning a full glass over leaves its sand below: the readout runs out, so it is 'done'; back again, as it was
-    var expect = odd ? (was === 'idle' ? 'done' : (was === 'done' ? 'running' : was)) : was;
+    // no turn starts a glass (1.20.2): one that waits, or has run out, waits after any turn (its sand below
+    // after an odd number of them, at 00:00.0); a running one runs on and a paused one stays paused
+    var expect = r.flips > 0 && (was === 'idle' || was === 'done') ? 'idle' : was;
     s.check('FREE: flick at ' + wf + ' rad/s gives ' + (cases[c][2] === 1 ? '1' : '≥ ' + cases[c][1]) + ' half-turn' + (cases[c][2] === 1 ? '' : 's'),
             r.flips >= cases[c][1] && r.flips <= cases[c][2], 'released at ' + rel.w.toFixed(2) + ' rad/s → ' + r.flips + ' half-turns');
     s.check('FREE: (' + wf + ' rad/s) settles on a multiple of π within 4 s', restAt > 0 && restAt - rel.t <= 4000 && r.angle === 0,

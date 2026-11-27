@@ -44,8 +44,8 @@
  *     counts above would have seen).
  *     FINISHED: a 10 s glass run to its end (one bowl), the phone turned over: its sand is above
  *     and it waits as after Reset, with the time it would run and no session; turned back and over
- *     again, the same. A tap runs it, to its end. The Flip button starts a finished glass as it
- *     always did, and so does a finger that turns it over.
+ *     again, the same. A tap runs it, to its end. Turned over by the Flip button, or by a finger,
+ *     a finished glass waits the same way (1.20.2: no turn starts a glass); Start runs it.
  *     SEQUENCE: a work and rest sequence run to its end, the phone turned over: it waits at its
  *     first glass, the work time on the clock; a tap begins Work.
  *     RUNNING, in TILTSWAP: turned over by the phone a running glass runs on, its clock swapped.
@@ -540,7 +540,7 @@ async function startWaiting(s, env) {
   } finally { await t.close(); }
 }
 
-/* FINISHED: a glass that has run out, turned over by the phone, waits; a tap, the Flip button and a finger start it */
+/* FINISHED: a glass that has run out, turned over by the phone, the Flip button or a finger, waits; a tap or Start runs it */
 async function startFinished(s, env) {
   var t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: 10000 } } });
   try {
@@ -550,8 +550,8 @@ async function startFinished(s, env) {
     await ranOut(t, 16000);
     await sleep(1600);
     var done = await startRead(t);
-    s.check('START FINISHED: a 10 s glass run to its end: finished, one bowl, "Time · flip to begin again"',
-            done.state === 'done' && done.chime === 1 && done.status === 'Time · flip to begin again' && done.label === 'Flip and start again' && !!done.saved, startShow(done) + ', bowls ' + done.chime);
+    s.check('START FINISHED: a 10 s glass run to its end: finished, one bowl, "Time · tap to begin again"',
+            done.state === 'done' && done.chime === 1 && done.status === 'Time · tap to begin again' && done.label === 'Flip and start again' && !!done.saved, startShow(done) + ', bowls ' + done.chime);
     await startWatch(t);
     await phoneTo(t, Math.PI);
     var f1 = await startRead(t);
@@ -575,14 +575,17 @@ async function startFinished(s, env) {
     var f5 = await startRead(t);
     s.check('START FINISHED: a tap starts it, and it runs to its end with its bowl', f4.state === 'running' && f4.rem < 10000 && f5.state === 'done' && f5.chime === 1 && f5.relSteps > 0,
             startShow(f4) + '; then ' + startShow(f5) + ', bowls ' + f5.chime);
-    // the Flip button starts a finished glass, as it always did
+    // no turn by hand starts it either (1.20.2): the Flip button turns a finished glass over and it waits
     await t.page.tap('#btn-flip');
     await sleep(300);
     await turnOver(t);
     await sleep(500);
     var f6 = await startRead(t);
-    s.check('START FINISHED: the Flip button starts a finished glass (a touch): it runs', f6.state === 'running' && f6.rem > 8000 && f6.rem < 10000 && f6.label === 'Pause', startShow(f6));
-    await runIt(t);
+    await sleep(1200);
+    var f6b = await startRead(t);
+    s.check('START FINISHED: the Flip button turns a finished glass over and it waits, with the time it would run (10 s); it does not start',
+            waitsFull(f6, 10000, '00:10.0') && waitsFull(f6b, 10000, '00:10.0') && f6.label === 'Start', startShow(f6) + '; 1.2 s later ' + startShow(f6b));
+    await t.eval(function () { window.Hourglass.start(); });
     await ranOut(t, 16000);
     await sleep(1200);
     // ... and so does a finger that turns it over
@@ -590,7 +593,14 @@ async function startFinished(s, env) {
     await turnOver(t);
     await sleep(500);
     var f7 = await startRead(t);
-    s.check('START FINISHED: a finger turning a finished glass over starts it (a touch): it runs', f7.state === 'running' && f7.rem > 7500 && f7.rem < 10000 && f7.label === 'Pause', startShow(f7));
+    await sleep(1200);
+    var f7b = await startRead(t);
+    s.check('START FINISHED: a finger turning a finished glass over leaves it waiting (10 s): it does not start',
+            waitsFull(f7, 10000, '00:10.0') && waitsFull(f7b, 10000, '00:10.0') && f7.label === 'Start', startShow(f7) + '; 1.2 s later ' + startShow(f7b));
+    await t.page.tap('#btn-play');
+    await sleep(400);
+    var f8 = await startRead(t);
+    s.check('START FINISHED: ... and Start then runs it', f8.state === 'running' && f8.rem < 10000 && f8.label === 'Pause', startShow(f8));
     await t.eval(function () { window.Hourglass.pause(); window.__motion.heading = 0; });
     await sleep(1500);
     await H.invariants(s, t, 'START FINISHED');
@@ -678,6 +688,117 @@ async function testStart(s, env) {
   }
 }
 
+/* ---- TURNS: no turn of the glass by hand starts it (1.20.2) ---------------------------------- */
+// A finger's drag-turn, a flick, the Flip button and F, each on a glass that waits, one that has
+// run out, one that is paused and one that runs (the classic sand), twice over and back: only a
+// glass that was running runs after a turn. Then Start, or a tap on the glass, starts it from
+// there. The phone's turn is START's.
+var TURN_MS = 10000;
+/** The glass brought to `state` (idle: as after Reset; done: run out; paused: 1.5 s in; running) with its sand upright. */
+async function turnsTo(t, state) {
+  await t.eval(function () { var H = window.Hourglass; if (H.timer.state === 'running') H.pause(); });
+  await resetGlass(t);
+  if (state === 'idle') return;
+  await t.eval(function () { window.Hourglass.start(); });
+  if (state === 'done') { await ranOut(t, TURN_MS + 8000); await sleep(1400); return; }
+  await sleep(1500);
+  if (state === 'paused') { await t.eval(function () { window.Hourglass.pause(); }); await sleep(300); }
+}
+/** One turn over by `way`, and the glass at rest again. */
+async function turnBy(t, way) {
+  if (way === 'drag') await fingerTurn(t, 200 * Math.PI / 180, 1100);
+  else if (way === 'flick') {
+    var g = await t.glass(), R = 0.2 * g.h, R1 = R + 22, a0 = -Math.PI / 2, sweep = 4 * 0.26;
+    await t.touch.down(g.cx + R * Math.cos(a0), g.cy + R * Math.sin(a0));
+    await sleep(30);
+    await t.touch.move(g.cx + R1 * Math.cos(a0), g.cy + R1 * Math.sin(a0));
+    await sleep(50);
+    await t.touch.path(function (u) { var a = a0 + sweep * u; return { x: g.cx + R1 * Math.cos(a), y: g.cy + R1 * Math.sin(a) }; }, 260, true);
+  }
+  else if (way === 'flip') await t.page.tap('#btn-flip');
+  else { await t.eval(function () { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }); await t.page.keyboard.press('f'); }   // (as on the page, not on a button)
+  await sleep(300);
+  await turnOver(t);
+  await sleep(400);
+}
+function turnShow(r) { return r.state + ' ' + r.shown + ' ' + r.top + '/' + r.total + ' "' + r.status + '" [' + r.label + '] turns ' + r.flips; }
+async function testTurns(s, env) {
+  var t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: TURN_MS } } });
+  try {
+    await sleep(800);
+    for (var state of ['idle', 'done', 'paused', 'running']) {
+      for (var way of ['drag', 'flick', 'flip', 'key']) {
+        await turnsTo(t, state);
+        await startWatch(t);
+        var r0 = await startRead(t);
+        await turnBy(t, way);
+        var r1 = await startRead(t);
+        await sleep(900);
+        var r1b = await startRead(t);
+        await turnBy(t, way);
+        var r2 = await startRead(t);
+        await sleep(900);
+        var r2b = await startRead(t);
+        var odd = r1.flips % 2 === 1, even = r2.flips % 2 === 0, ok;
+        if (state === 'running') ok = r1.state === 'running' && r2b.state === 'running' && r1b.rem < r1.rem && r2b.rem < r2.rem;
+        else if (state === 'paused') ok = r1.state === 'paused' && r1b.rem === r1.rem && r2.state === 'paused' && r2b.rem === r2.rem && Math.abs(r2.rem - r0.rem) < 1000;
+        else if (state === 'idle') ok = waitsBelow(r1) && waitsBelow(r1b) && waitsFull(r2, TURN_MS, '00:10.0') && waitsFull(r2b, TURN_MS, '00:10.0') && nothingEnded(r2b);
+        else ok = waitsFull(r1, TURN_MS, '00:10.0') && waitsFull(r1b, TURN_MS, '00:10.0') && waitsBelow(r2) && waitsBelow(r2b) && r2b.chime === 0 && r2b.relSteps === 0;
+        s.check('TURNS: ' + ({ drag: 'a finger\'s drag-turn', flick: 'a flick', flip: 'the Flip button', key: 'F' })[way] + ' on a glass that ' +
+                ({ idle: 'waits', done: 'has run out', paused: 'is paused', running: 'runs' })[state] + ', over and back: ' +
+                ({ idle: 'it waits, its sand below (00:00.0), then above', done: 'it waits, its sand above (its full time), then below', paused: 'it stays paused, its time swapped and back', running: 'it runs on' })[state],
+                ok && odd && even && r1.flips === 1 && r2.flips === 2, turnShow(r0) + ' → ' + turnShow(r1) + ' → ' + turnShow(r1b) + ' → ' + turnShow(r2) + ' → ' + turnShow(r2b));
+        if (state === 'running') continue;
+        // from there, after one more turn (the sand below for a glass that waited, above for one that had run out): a press of Start or a tap starts it
+        await turnBy(t, way);
+        var how = way === 'drag' || way === 'flick' ? 'tap' : 'start';
+        if (how === 'tap') { var g = await t.glass(); await t.touch.tap(g.cx, g.cy, 60); } else await t.page.tap('#btn-play');
+        await sleep(400);
+        try { await turnOver(t); } catch (e) { /* (no turn) */ }
+        await sleep(500);
+        var r3 = await startRead(t);
+        s.check('TURNS: ... and then ' + (how === 'tap' ? 'a tap on the glass' : 'Start') + ' starts it' + (state === 'idle' ? ' (its sand below: turned over on the screen, then running)' : ''),
+                r3.state === 'running' && r3.label === 'Pause' && r3.rem < TURN_MS && r3.rem > 0, turnShow(r3));
+      }
+    }
+    await t.eval(function () { var H = window.Hourglass; if (H.timer.state === 'running') H.pause(); });
+    await sleep(600);
+    await H.invariants(s, t, 'TURNS');
+  } finally { await t.close(); }
+
+}
+async function testTurnSeq(s, env) {
+  var t;
+  // a work and rest sequence, end to end: its own turns run it; turned over by the Flip button
+  // once it has ended, it waits at its first glass; a tap begins Work
+  t = await env.open({ motionStub: true, storage: { 'hourglass.settings.v1': { tilt: true, durationMs: 10000, restMs: 10000, rounds: 1 } } });
+  try {
+    await sleep(800);
+    await t.eval(function () { window.Hourglass.start(); });
+    await t.page.waitForFunction(function () { var H = window.Hourglass; return H.seq.phase === 1 && H.timer.state === 'running' && !H.flip.active; }, null, { timeout: 25000, polling: 100 });
+    await sleep(500);
+    var q1 = await startRead(t);
+    await ranOut(t, 40000);
+    await sleep(1600);
+    var q2 = await startRead(t);
+    await startWatch(t);
+    await turnBy(t, 'flip');
+    var q3 = await startRead(t);
+    await sleep(1200);
+    var q4 = await startRead(t);
+    var g = await t.glass();
+    await t.touch.tap(g.cx, g.cy, 60);
+    await sleep(700);
+    var q5 = await startRead(t);
+    s.check('TURNS: a sequence (work 10 s, rest 10 s) runs through its own turn into Rest and ends; the Flip button then turns it to wait at its first glass (the work time, phase 0) and it stays so; a tap begins Work',
+            q1.state === 'running' && /^Rest/.test(q1.status) && q1.phase === 1 && q2.state === 'done' && q2.phase === 2 && waitsFull(q3, 10000, '00:10.0') && q3.phase === 0 &&
+            waitsFull(q4, 10000, '00:10.0') && q4.chime === 0 && q4.relSteps === 0 && q4.saves.length === 0 && q5.state === 'running' && /^Work/.test(q5.status) && q5.phase === 0,
+            [q1, q2, q3, q4, q5].map(function (q) { return turnShow(q) + ' phase ' + q.phase; }).join(' → ') + '; ' + endedShow(q4) + '; saved ' + q4.saved);
+    await t.eval(function () { window.Hourglass.pause(); });
+    await sleep(600);
+  } finally { await t.close(); }
+}
+
 (async function main() {
   var s = new H.Suite('app-motion');
   var env = await H.start();
@@ -688,6 +809,8 @@ async function testStart(s, env) {
     if (!only || only === 'slosh') await testSlosh(s, env);
     if (!only || only === 'sides') await testSides(s, env);
     if (!only || only === 'start') await testStart(s, env);
+    if (!only || only === 'turns') await testTurns(s, env);
+    if (!only || only === 'turns' || only === 'turnseq') await testTurnSeq(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {
