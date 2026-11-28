@@ -256,9 +256,8 @@ function dial(sel, v) { return { dial: sel, value: v }; }
 // kept apart (reaches), so a control's entry holds what the control did and nothing of how it
 // was got to; app-tune-trace holds every reach to the kept entry of the line that drives the
 // same element (a tab's, or "open Tune"). The tabs have lines of their own at the start. The
-// reset link's two taps come after every control that changes the look and the sound, just
-// before Real sand (which must be last: what Real sand does once it has started is another
-// suite's): there it has a sand, a volume, an ambience level, the sand's and the bowl's levels,
+// reset link's two taps come last, after every control that changes the look and the sound
+// (until 1.22.0 Real sand's switch came after them): there it has a sand, a volume, an ambience level, the sand's and the bowl's levels,
 // the rings and the fade before the end to put back, so its
 // save, its cross-fade and what it tells the sound engine are in the trace (what it does with every
 // setting changed is app-tune's). The second tap is
@@ -377,8 +376,7 @@ var DRIVE = [
   ['light: soft', click('#lights [data-light="soft"]')],
   ['light: sunlit', click('#lights [data-light="sunlit"]')],
   ['the look and sound put back: the first tap', click('#tune-reset')],
-  ['the look and sound put back: the second tap', click('#tune-reset'), 'slow'],
-  ['Real sand: on', click('#opt-realsand'), 'reload']
+  ['the look and sound put back: the second tap', click('#tune-reset'), 'slow']
 ];
 var CONTROLS = DRIVE.map(function (d) { return d[0]; });
 // what holds or changes a setting in Tune's sheet: every switch, every choice of a group, every
@@ -486,7 +484,7 @@ async function tune(env, only) {
       if (d[2] === 'reload') {
         await until(page, function (s) { return s.id !== before.id && s.booted; }, 20000, 'the reload after "' + d[0] + '"');
         cur.later = cur.later.concat([['(the page is loaded again)']], await page.evaluate(function () { return window.__trace.boot; }));
-        if (i === DRIVE.length - 1) break;             // (what Real sand does once it has started is another suite's)
+        if (i === DRIVE.length - 1) break;             // (a last line that reloads: what follows is another suite's)
       } else {
         if (d[2] === 'motion') await until(page, function (s) { return s.starts > before.starts; }, 5000, 'the answer to the motion question');
         await rest(before, '"' + d[0] + '"');

@@ -14,8 +14,8 @@
  * test makes to the engine, on the instance.) Readbacks still come 1-3 frames late, as on the
  * phone. 10 s glasses (1,952 points), layered sand on.
  *
- *  BOOT    the switch on: the engine starts (pipelines, self-test), adopts the CPU sand and
- *          takes over: the row on (data-state), the canvas drawn, the GPU's points the ledger's, the audit
+ *  BOOT    Real sand on: the engine starts (pipelines, self-test), adopts the CPU sand and
+ *          takes over: state on (#fallback-line's data-state) and no line shown, the canvas drawn, the GPU's points the ledger's, the audit
  *          passes, the start-up times logged, the tone pass there;
  *  SOUND   before the start, the glass asleep: nothing of the bed is fed. Flicked along the glass
  *          (the classic Sim stepped in Node on the same motion beside it): it wakes, the bed
@@ -543,8 +543,8 @@ async function installRelief(a) {
             for (var k = 3; k < d.length; k += 4 * 13) if (d[k] > 0) px++;
           } catch (e) { px = -2; }
         }
-        return { live: !!rs && H.sim === rs, note: document.getElementById('realsand-note').textContent,
-          rstate: document.getElementById('realsand-row').getAttribute('data-state'), state: H.timer.state,
+        return { live: !!rs && H.sim === rs, note: document.getElementById('fallback-why').textContent,
+          rstate: document.getElementById('fallback-line').getAttribute('data-state'), state: H.timer.state,
           rem: H.timer.rem, nTop: H.sim.nTop, total: H.sim.total, want: H.grainsFor(H.timer.durationMs),
           pts: rs ? rs.valve.Pts(H.sim.total) : 0, points: rs ? rs.points : 0, gpuCount: rs && rs.solver ? rs.solver.count : 0,
           tally: st && st.tally, audit: a, px: px, times: st && st.times, n: st && st.n, mode: st && st.mode,
@@ -579,13 +579,13 @@ async function installRelief(a) {
     /* ---- BOOT ------------------------------------------------------------ */
     await page.waitForFunction(function () {
       var H = window.Hourglass;
-      return !!H && ((!!H.realSand && H.sim === H.realSand) || /Could not|Needs|Did not|updating/.test(document.getElementById('realsand-note').textContent));
+      return !!H && ((!!H.realSand && H.sim === H.realSand) || /^(na|failed|gaveup|updating)$/.test(document.getElementById('fallback-line').getAttribute('data-state')));
     }, null, { timeout: 180000, polling: 200 });
     await page.evaluate(function () { window.__vt.freeze(); });
     await page.evaluate(installWatch);
     if (doCase('BOOT')) {
     var b = await fresh();
-    check(b.live && b.rstate === 'on' && /^On/.test(b.note) && b.real, 'BOOT: the engine starts on WebGPU, adopts the CPU sand and takes over (Hourglass.sim is it, the row on, "On")', b.rstate + ': ' + b.note);
+    check(b.live && b.rstate === 'on' && b.note === '' && b.real, 'BOOT: the engine starts on WebGPU, adopts the CPU sand and takes over (Hourglass.sim is it, state on, and no line at the Sand tab\'s foot)', b.rstate + ': ' + b.note);
     check(b.px > 100, 'BOOT: its canvas holds the drawn sand', b.px + ' sampled pixels drawn');
     check(!!b.tally && b.tally.points === b.points && b.points === b.pts && b.gpuCount === b.pts && b.tally.nan === 0 && b.tally.outside === 0 && b.total === b.want,
           'BOOT: the GPU holds exactly the ledger\'s points for the glass, none lost or outside', JSON.stringify({ tally: b.tally, points: b.points, total: b.total }));
@@ -1281,7 +1281,7 @@ async function installRelief(a) {
       await page.reload();
       await page.waitForFunction(function () {
         var H = window.Hourglass;
-        return !!H && ((!!H.realSand && H.sim === H.realSand) || /Could not|Needs|Did not|updating/.test(document.getElementById('realsand-note').textContent));
+        return !!H && ((!!H.realSand && H.sim === H.realSand) || /^(na|failed|gaveup|updating)$/.test(document.getElementById('fallback-line').getAttribute('data-state')));
       }, null, { timeout: 180000, polling: 200 });
       await page.evaluate(function () { window.__vt.freeze(); });
       await page.evaluate(installWatch);

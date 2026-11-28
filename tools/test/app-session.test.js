@@ -10,7 +10,8 @@
  *    a plain launch before it, the control, picks the running glass up.
  *  - Launched at "./?t=300", the preset is applied once and ?t= leaves the
  *    address: a running glass is kept, with its time, through the browser's
- *    reload and the app's own for "Use this shape", Grain and Real sand, and
+ *    reload and the app's own for "Use this shape" and Grain (Real sand's switch,
+ *    whose reload was a third, went in 1.22.0), and
  *    a duration picked after the launch is kept (a pill, then a reload). The
  *    control: a copy of app.js that leaves ?t= in the address loses them.
  *
@@ -171,7 +172,6 @@ var KEPT = [
         for (var i = 0; i < bs.length; i++) if (bs[i].getAttribute('aria-checked') !== 'true') { bs[i].click(); return; }
       });
     } },
-  { name: 'the Real sand switch', how: function (t) { return t.page.$eval('#opt-realsand', function (el) { el.click(); }); } },
   { name: 'the 15-minute pill after the launch, then the browser\'s reload', pick: 15, how: function (t) { return t.page.reload(); } }
 ];
 async function shortcutKept(s, env, opts) {

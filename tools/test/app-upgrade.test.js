@@ -941,7 +941,9 @@ function oldSaveWrong(r) {
       why.push('the look: ' + JSON.stringify({ id: n.id, bundle: n.bundle, cap: n.cap === old.cap, lut: [old.lut, n.lut], layers: n.layers === n.bundleLayers, data: n.data, accent: [old.accent, n.accent, n.accentOwn] }));
     if (saved.sand !== r.m || saved.finish !== r.MATERIAL_FINISH || saved.sandColor !== '') why.push('saved as ' + [saved.sand, saved.finish, JSON.stringify(saved.sandColor)].join(' / '));
     // (what the app keeps of its Real sand engine, not a setting: a new engine build starts it afresh)
-    var lost = Object.keys(oldSaved).filter(function (key) { return !/^realSand(Build|Fails|Why|Na|NaAt)$/.test(key) && JSON.stringify(oldSaved[key]) !== JSON.stringify(saved[key]); });
+    // (and the settings' version, which this tree's store writes as 3 from 1.22.0)
+    var lost = Object.keys(oldSaved).filter(function (key) { return !/^realSand(Build|Fails|Why|Na|NaAt)$/.test(key) && key !== 'v' && JSON.stringify(oldSaved[key]) !== JSON.stringify(saved[key]); });
+    if (saved.v !== 3) why.push('the version saved as ' + JSON.stringify(saved.v) + ', not 3');
     if (lost.length) why.push('changed: ' + lost.map(function (key) { return key + ' ' + JSON.stringify(oldSaved[key]) + ' → ' + JSON.stringify(saved[key]); }).join(', '));
     if (why.length) out.push(k + ': ' + why.join('; '));
   });
