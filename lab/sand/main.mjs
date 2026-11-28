@@ -36,7 +36,7 @@ const OFFSCREEN = QUERY.has('offscreen');
 // the Rotor probe (?rotor=1): the grains' canvas in a turning div between two WebGL canvases
 const ROTOR = QUERY.get('rotor') === '1';
 // the engine's build stamp this page was written for (realsand/build.mjs; Copy results prints both)
-const BUILD_EXPECTED = '9';
+const BUILD_EXPECTED = '10';
 // the lifecycle log: visibility, device loss, start-up times (ms since the page began)
 const lifeLog = [];
 let lastVisibleAt = 0;

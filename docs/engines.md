@@ -258,22 +258,43 @@ classic sand has a glow over its dark sands, Real sand none).
   faces the key's mirror direction,
   mica from further off than a glossy grain, and only a share of the grains
   can (the sand's `glints`).
-- **The free surface** (`realsand/shaders/relief.wgsl`, two small compute
-  passes encoded before the grains are drawn). The first finds, per column of
-  the grid and per bulb, the highest point that lies in a bed: crowded, slow
-  (under 2 % of a free fall over the glass), and not within a cell under the
-  counting line, where the stream leaves the neck from rest. (The tally's own
-  `surface` is the highest point slower than 2 cells a second, for the heap's
-  angle: on a bed that still creeps it lies up to ten cells under the top.)
-  The second makes each column's light as the classic sand's column pass
-  does: the slope over three spans, a horizon test toward the key at 1, 2,
-  3, 5, 8 and 11 columns, the ambient and the key on the surface's normal.
-  A column's height is half the last frame's and half the new, so the crest
-  does not flicker by a grain; a column with no bed point keeps its height
-  for 20 frames; a gap between two columns takes the height between them.
-  After a fill or a swap nothing is kept from before. Both passes only read
-  the solver's points; they write two buffers of their own (read and
-  written in turn, so no thread reads what another writes).
+- **The free surface** (`realsand/shaders/relief.wgsl`, three small compute
+  passes encoded before the grains are drawn; from build 10). The first
+  counts, per cell of the grid, the points that lie in a bed (crowded; not
+  within a cell under the counting line, where the stream leaves the neck
+  from rest), and again those that move (over three times the displacement
+  under which a bed lies still). The second finds, per column and per bulb,
+  the bed: from the bulb's floor up, the first run of cells that hold bed
+  points (one empty cell in it is not its end) and holds at least four. Its
+  top is the column's surface: where the bed is, not its highest grain. (Up
+  to build 9 the surface was the highest bed point of the column, held 20
+  frames when none was seen: a few grains stuck high on the wall, or a shelf
+  thrown up the wall over air, set a column's surface far too high, every
+  grain under it was darkened as deep in the bed and lit as under the shelf's
+  shadow, and the next column was not: straight dark bars from the surface
+  down and blocks with hard edges, while the sand was thrown about.) Sand
+  above the run's end (on the wall, in the air) is counted as sand above the
+  bed, and the share of moving points in the bed's top six cells is kept.
+  The third makes each column's light as the classic sand's column pass
+  does, on the surface evened over seven columns (a Gaussian, sigma 1.5
+  columns), half the last frame's and half the new: the slope over three
+  spans, a horizon test toward the key at 1, 2, 3, 5, 8 and 11 columns, the
+  ambient and the key on the surface's normal. It also says how far the
+  surface is to be trusted (0 to 1): less with sand above the bed, with a
+  top layer that moves, with a surface far from its neighbours' evened one,
+  and with a surface that changes fast; evened over the same seven columns,
+  falling by at most 0.15 a frame and coming back by at most 0.04. In the
+  grains every term taken from the surface (its light, its glints, the
+  darkening with depth under it, a pale sand's deeper top, now taken inside
+  the level's floor so that it dithers where the trust fades) is weighed by
+  that trust, and a grain more than a cell above its column's surface takes
+  none of them: where the bed is thrown about the grains keep the body's
+  light, which needs no surface, and the light varies smoothly from column to
+  column. A settled bed is trusted whole and lit as before, on a surface
+  evened by the Gaussian (a crest rounded by under a cell). After a fill or a
+  swap nothing is kept from before. All three passes only read the solver's
+  points; they write buffers of their own (the last two read and written in
+  turn, so no thread reads what another writes).
   The surface's smoothing and the crest of the classic sand are not drawn
   here; the relief's own easing does the smoothing's work.
 - **The light look, in either light.** The look carries `paper`, the light
@@ -298,7 +319,10 @@ classic sand has a glow over its dark sands, Real sand none).
   buffers (two half-width rows, one relief entry, three colours); the
   fragment stage about 45 operations a fragment on top of the soft bead's
   15. Per frame: one dispatch over the points (six loads and at most one
-  atomic maximum a point), one of five workgroups over the columns, and a
+  atomic add a point; from build 10 into a cleared count of the grid's
+  cells, 165 kB), two of five workgroups over the columns (from build 10: a
+  scan of the column's cells, then about 1,300 loads a column for the evened
+  surface, its trust and its light), and a
   49 kB table when the look or the sand changes. Measured on this project's
   test machine, WebGPU in software (a 10 s glass, 1,952 points, the engine
   of the commit before beside this one, each twice, alone on the machine): a
@@ -1183,7 +1207,7 @@ imports the same files.
 | `solver.mjs`, `shaders/` | the PB-MPM solver on WebGPU and its WGSL: the neck's throttle and membrane, the tally (with each bulb's bed, for the sound), each bed's fastest fall between readbacks while a fall is possible (`spreadShift.wgsl` `csBeds`, `prepare.wgsl` `csKeep`, the `bedPeak` buffer; from build 8), the flip pass, appends, readbacks, the tone pass |
 | `glass.mjs` | the glass on the solver's grid, built from the app's own geometry (`makeGeometry`, `profile` of `glass/shapes.js`), with the neck's warp; the neck is widened for the solver only up to the bulb's widest row (from build 7), so that in every shape the bulb's far end, where the sand lies, is the glass the app draws |
 | `fill.mjs` | fills: the lattice, and `fromLattice`, the GPU bed laid where the CPU sand's grains are, each with its grain's colour seed |
-| `grains.mjs`, `shaders/grains.wgsl`, `shaders/relief.wgsl` | the grains drawn: the palette from the Renderer's colour table, the warp, the room's light, the sweep; under Tune's Sunlit each grain lit by the classic sand's key and colour table, the free surface from the beds' relief (two read-only passes over the points; from build 9) |
+| `grains.mjs`, `shaders/grains.wgsl`, `shaders/relief.wgsl` | the grains drawn: the palette from the Renderer's colour table, the warp, the room's light, the sweep; under Tune's Sunlit each grain lit by the classic sand's key and colour table, the free surface from the beds' relief (read-only passes over the points: two from build 9, three from build 10, the surface where the bed is and weighed by how far it is trusted) |
 | `layers.mjs`, `shaders/tone.wgsl` | layered sand on the GPU: the layer schedule, fresh tones as grains come to rest, the pattern after a turn |
 | `modes.mjs` | the power modes: asleep, full, calm and the heat guard |
 | `rate.mjs`, `pace.mjs` | auto Hz (480 to 1,440 substeps a second), and the GPU's pace (two frames in flight at most, the budget) |
