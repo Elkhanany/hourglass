@@ -49,13 +49,17 @@
  *             tap) and at once when switched; without one the row says the browser decides by
  *             itself, and switching it throws nothing; a session whose type cannot be set throws
  *             nothing either
+ *   RESTORED  a running glass (2 minutes, with an ambience) found running at a launch (the page
+ *             reloaded): once a key unlocks the sound, the sand and the ambience come in gently as
+ *             at a Start (the engine's rise and the sand's coming in are set: sound/audio.js
+ *             "Coming in"), not at once (1.22.0)
  *
  * Every check has its control: the same measurements on a copy of the app with that one thing
  * undone (a line taken out of app.js or audio.js, a rule more in the style sheet), which must
  * fail it. The copy is handed to the page in place of the file it stands for; the tree served is
  * the app as it ships.
  *
- *   node tools/test/app-sound.test.js [--port <n>] [--root <dir>] [--only layout,levels,rings,tap,twice,two,quiet,away,rounds,awake,asleep,back,fade,silent]
+ *   node tools/test/app-sound.test.js [--port <n>] [--root <dir>] [--only layout,levels,rings,tap,twice,two,quiet,away,rounds,awake,asleep,back,fade,silent,restored]
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -805,6 +809,29 @@ function silentOk(m) {
   };
 }
 
+/* ---- RESTORED: a running glass found at a launch comes in gently ---------------------------- */
+async function restored(env, routes) {
+  var t = await env.open({ routes: routes || [], storage: { 'hourglass.settings.v1': { durationMs: 120000, ambience: 'brook' } } }), m = {};
+  try {
+    await sleep(600);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(1500);
+    await t.reload();
+    await sleep(800);
+    m.launch = await t.eval(function () { var H = window.Hourglass; return { state: H.timer.state, ctx: H.audio.ctx ? H.audio.ctx.state : 'none' }; });
+    await t.eval(function () { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
+    await t.page.keyboard.press('m'); await t.page.keyboard.press('m');   // (a key, muted and back: the sound unlocks)
+    await sleep(300);
+    m.heard = await t.eval(function () { var H = window.Hourglass, a = H.audio; return { state: H.timer.state, ctx: a.ctx ? a.ctx.state : 'none', rise: !!a._rise, sandIn: !!a._sandIn, muted: !!a.muted }; });
+  } finally { await t.close(); }
+  return m;
+}
+function restoredOk(m) {
+  var j = JSON.stringify;
+  return { gentle: { ok: m.launch.state === 'running' && m.heard.state === 'running' && m.heard.ctx === 'running' && m.heard.rise && m.heard.sandIn && !m.heard.muted,
+                     detail: 'at the launch ' + j(m.launch) + '; once heard ' + j(m.heard) } };
+}
+
 /* ---- the run ------------------------------------------------------------------------------ */
 (async function main() {
   var s = new H.Suite('app-sound');
@@ -971,6 +998,11 @@ function silentOk(m) {
       s.check('SILENT: a browser without an audio session: the row says it decides by itself, the switch still saves, and nothing throws (nor with a session whose type cannot be set)', si.none.ok, si.none.detail);
       await control('SILENT: a copy of audio.js that always asks for \'playback\'', 'off', function () { return silent(env, copyOf(paths.script('audio.js', env.root), /if \(s\) s\.type = this\.silentRing === false \? 'ambient' : 'playback';/, "if (s) s.type = 'playback';")); }, silentOk);
       await control('SILENT: a copy of app.js that leaves the session alone at the launch', 'off', function () { return silent(env, copyOf('app.js', /  if \(!settings\.silentRing\) audio\.setSilentRing\(false\);[^\n]*\n/, '')); }, silentOk);
+    }
+    if (wanted('restored')) {
+      var rr = restoredOk(await restored(env));
+      s.check('RESTORED: a running glass found running at a launch: once a key unlocks the sound, the sand and the ambience come in gently, as at a Start (the rise and the sand\'s coming in set)', rr.gentle.ok, rr.gentle.detail);
+      await control('RESTORED: a copy of app.js whose launch does not begin the sound of a glass it finds running', 'gentle', function () { return restored(env, copyOf('app.js', /  if \(restored && T\.state === 'running'\) soundBegins\(false\);\n/, '')); }, restoredOk);
     }
   } catch (e) {
     s.check('the suite ran to its end', false, String(e && e.stack || e).split('\n').slice(0, 3).join(' | '));

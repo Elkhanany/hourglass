@@ -1125,8 +1125,10 @@ html.look-fade #btn-look .ic-moon { opacity: calc(1 - var(--lk)); }
 html.look-fade #btn-look .ic-sun { opacity: var(--lk); }
 html.look-fade .panel {
   box-shadow: inset 0 0 0 1px var(--hair), inset 0 1px 0 rgba(255, 255, 255, calc(0.07 + 0.63 * var(--lk))),
-    0 calc(18px - 4px * var(--lk)) calc(50px - 10px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.55), rgba(60, 46, 28, 0.14) var(--lp));
+    0 calc(18px - 4px * var(--lk)) calc(50px - 10px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.55), rgba(60, 46, 28, 0.14) min(100%, 4 * var(--lp)));
 }
+/* (the bar's shadow is the paper's from a quarter of the way: the dark look's deep one on a ground half way to
+   the paper would show where the app's box cuts it, as a home-screen app's box can end above the screen's foot) */
 html.look-fade .chip .swatch { box-shadow: 0 0 10px rgba(var(--glow), calc(0.5 * (1 - var(--lk)))), 0 0 0 1px rgba(40, 32, 20, calc(0.18 * var(--lk))); }
 html.look-fade #scrim { background: color-mix(in srgb, rgba(4, 5, 6, 0.5), rgba(40, 34, 26, 0.28) var(--lp)); }
 html.look-fade #scrim.light { background: color-mix(in srgb, rgba(4, 5, 6, 0.2), rgba(40, 34, 26, 0.08) var(--lp)); }

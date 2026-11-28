@@ -905,26 +905,22 @@ function shortDvh(env, change) {
   return routed(env, 'styles.css', function (src) { return (change ? change(src) : src).split('100dvh').join('calc(100dvh - 34px)'); });
 }
 /**
- * A step in the ground: each of four columns near the screen's two sides scanned from the top edge
- * to the bottom, the mean of the 5 pixels above each point against the 5 below it, outside every
- * control (the bars, the chip, the buttons, the time, a sheet, the glass and its shadow). A
- * gradient of the room changes by a few levels over that span; a seam by more than 12.
- * The bottom bar's own shadow is taken out of the picture, as the bar is out of the scan: it is
- * the bar's, not the ground's, and it reaches past the app's box, which cuts it at its foot. Half
- * way through a fade, with the box 59 px short, it read 11 there at x = W - 7 in one run and 14 in
- * the next, the computed colours the same to the last digit and only the browser's raster of the
- * box a level apart (release 1.21.1); without it the ground meets the canvas at 5 to 8.
+ * A step in the ground: each of four columns near the screen's two sides, and three under the bottom
+ * bar (a quarter, half and three quarters across; from 30 px below it, where its shadow's own fall has
+ * eased), scanned from the top edge to the bottom, the mean
+ * of the 5 pixels above each point against the 5 below it, outside every control (the bars, the chip,
+ * the buttons, the time, a sheet, the glass and its shadow). A gradient of the room changes by a few
+ * levels over that span; a seam by more than 12. The bottom bar's shadow is in the picture: it reaches
+ * past the app's box, which cuts it at its foot where the box ends above the screen's (1.22.0: in a
+ * fade it is the paper's from a quarter of the way; the dark one half way to the paper stepped by up
+ * to 20 there, and from 1.21.1 to 1.22.0 this scan left the shadow out).
  * -> { steps: [{ x, y, above, below }], box: whether the app's own box is the window's }
  */
 async function seams(t) {
   var size = await t.eval(function () {
-    var st = document.createElement('style');
-    st.id = 'seams-no-bar-shadow'; st.textContent = '#hud-bottom .panel { box-shadow: none !important; }';
-    document.head.appendChild(st);
     return new Promise(function (done) { requestAnimationFrame(function () { requestAnimationFrame(function () { done({ w: innerWidth, h: innerHeight }); }); }); });
   });
   await pixels(t, { x: 0, y: 0, width: size.w, height: size.h }, 'screen');
-  await t.eval(function () { var st = document.getElementById('seams-no-bar-shadow'); if (st) st.remove(); });
   // (the columns are scanned in the page, where the screen's pixels are kept; a column steps at most once in 9 pixels)
   return t.eval(function () {
     var px = window.__px.screen, info = (function () {
@@ -933,15 +929,17 @@ async function seams(t) {
         var r = e.getBoundingClientRect(), cs = getComputedStyle(e);
         if (r.width && r.height && cs.visibility !== 'hidden' && +cs.opacity > 0) boxes.push([r.left - 2, r.top - (e.classList.contains('sheet') ? 90 : 4), r.right + 2, r.bottom + 4]);
       });
-      var a = document.getElementById('app').getBoundingClientRect();
-      return { boxes: boxes, app: [a.left, a.top, a.right, a.bottom] };
+      var a = document.getElementById('app').getBoundingClientRect(), p = document.querySelector('#hud-bottom .panel'), pb = p ? p.getBoundingClientRect() : null;
+      return { boxes: boxes, app: [a.left, a.top, a.right, a.bottom], bar: pb && pb.height ? [pb.left, pb.top, pb.right, pb.bottom] : null };
     })();
     var W = px.w, Hh = px.h, d = px.d, steps = [];
     function inside(x, y) { return info.boxes.some(function (b) { return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; }); }
     function mean(x, y0, y1) { var r = [0, 0, 0]; for (var y = y0; y < y1; y++) { var i = (y * W + x) * 4; r[0] += d[i]; r[1] += d[i + 1]; r[2] += d[i + 2]; } return r.map(function (v) { return Math.round(v / (y1 - y0)); }); }
-    [3, 6, W - 7, W - 4].forEach(function (x) {
+    // (under the bar the scan begins 30 px below it: nearer, the shadow's own fall is steeper than a seam's 12 in 10 px)
+    function nearBar(x, y) { var b = info.bar; return !!b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3] + 30; }
+    [3, 6, W - 7, W - 4, Math.round(W / 4), Math.round(W / 2), Math.round(3 * W / 4)].forEach(function (x) {
       for (var y = 6; y < Hh - 6; y++) {
-        if (inside(x, y - 6) || inside(x, y + 6)) continue;
+        if (inside(x, y - 6) || inside(x, y + 6) || nearBar(x, y - 6)) continue;
         var a = mean(x, y - 6, y - 1), b = mean(x, y + 1, y + 6);
         if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 12) { steps.push({ x: x, y: y, above: a, below: b }); y += 8; }
       }
@@ -1029,6 +1027,12 @@ async function ground(s, env) {
   var sh = await shortGround(s, env);
   s.check('GROUND: with the layout viewport ' + SHORT + ' px shorter than the window, at the bottom and at the top, the canvas shown there meets the room with no step, in both looks, at 393 x 852 and 375 x 667, in Zen and with Tune open, and half way through a fade either way',
     sh.ok, sh.rows.join('; '));
+  // control: the bar's shadow in a fade as it was before 1.22.0 (the dark one half way to the paper), half way through a fade
+  var oldShadow = function (src) { var o = src.replace('rgba(60, 46, 28, 0.14) min(100%, 4 * var(--lp)))', 'rgba(60, 46, 28, 0.14) var(--lp))'); if (o === src) throw new Error('app-mode: the fade\'s bar shadow is not in styles.css'); return o; };
+  var shSh = [];
+  for (look of ['dark', 'light']) { r = await groundCase(env, look, [393, 852], 'fade', [shortView(env, 'bottom', oldShadow)], 'short-bottom-oldshadow', 'shot'); shSh.push(look + ' faded half way (' + r.lk + ')' + (r.steps.length ? ' ' + JSON.stringify(r.steps.slice(0, 2)) : ' one')); }
+  s.check('... and with the bar\'s shadow in a fade as it was before 1.22.0 (the dark look\'s half way to the paper), half way through a fade either way the shadow steps where the app\'s box ends above the screen\'s foot (control)',
+    shSh.every(function (x) { return !/ one$/.test(x); }), shSh.join('; '));
   var shOld = await shortGround(s, env, oldGround);
   var stepped = shOld.rows.filter(function (x) { return !/ one$/.test(x); }), must = shOld.rows.filter(function (x) { return /^light \d+x\d+ plain|tune top|faded/.test(x); });
   s.check('... and with the ground as it was (the room\'s edge shaded, the canvas the page\'s own colour, the scrim to the edges) the band shows as a step: in the light look at both ends at both sizes, with Tune open at the top in both looks, half way through a fade, ' + stepped.length + ' of ' + shOld.rows.length + ' in all (control)',
@@ -1365,6 +1369,38 @@ async function measuresCase(s, env) {
     var gone = await t.eval(function () { var l = document.getElementById('measures-line'); return !l || l.hidden; });
     s.check('MEASURES: a tap on the version line shows one small line under it, the page\'s measures exactly (' + m.text + '), still there 5 s later and gone by 8.7 s; nothing more is stored',
       !before && m.shown && m.after && m.text === m.want && m.size <= 11 && mid && gone && m.stored === 'hourglass.settings.v1', JSON.stringify(m) + ' mid ' + mid + ' gone ' + gone);
+  } finally { await t.close(); }
+  // in sight (1.22.0): on a small phone (a home-screen app's, its layout viewport 59 px short at the bottom: GROUND)
+  // the version line is reached with Tune scrolled to its foot, and the line
+  // shown under it is brought into the scroller's view (control: app.js without that, where it shows below the foot)
+  var seen = await measuresSeen(env), unseen = await measuresSeen(env, [routed(env, 'app.js', function (src) {
+    var o = src.replace("    if (m.scrollIntoView) m.scrollIntoView({ block: 'nearest' });", ''); if (o === src) throw new Error('app-mode: the readout\'s scroll is not in app.js'); return o; })]);
+  s.check('MEASURES: at 375 x 667, the layout viewport ' + SHORT + ' px short, Tune scrolled to its foot, the line shown under the version line is in sight in the sheet\'s scroller, whole',
+    seen.whole, JSON.stringify(seen));
+  s.check('... and with app.js not bringing it into view it is below the scroller\'s foot (control)', unseen.shown && !unseen.whole, JSON.stringify(unseen));
+}
+/** Tune open on a small phone, scrolled to its foot, the version line tapped: where the readout is against its scroller. */
+async function measuresSeen(env, routes) {
+  var t = await opn(env, { storage: { background: 'light' }, viewport: { width: 375, height: 667 }, routes: [shortView(env, 'bottom')].concat(routes || []) });
+  try {
+    await sleep(700);
+    await tune.open(t);
+    await sleep(300);
+    await t.eval(function () {
+      var v = document.getElementById('version-line'), e = v.parentNode;
+      while (e && e !== document.body && !(e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY))) e = e.parentNode;
+      window.__scroller = e;
+      if (e) e.scrollTop = e.scrollHeight;
+    });
+    await sleep(300);
+    await t.eval(function () { document.getElementById('version-line').click(); });
+    await sleep(900);
+    return await t.eval(function () {
+      var l = document.getElementById('measures-line'), e = window.__scroller;
+      if (!l || !e) return { shown: false, scroller: !!e };
+      var r = l.getBoundingClientRect(), b = e.getBoundingClientRect();
+      return { shown: !l.hidden, line: [Math.round(r.top), Math.round(r.bottom)], view: [Math.round(b.top), Math.round(b.bottom)], whole: !l.hidden && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5 };
+    });
   } finally { await t.close(); }
 }
 

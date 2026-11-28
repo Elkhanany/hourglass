@@ -392,7 +392,7 @@
     ringsStop();                                        // a new start ends a bowl that rings again
     if (resetting) { pendingStart = true; return; }     // mid cross-fade: start as soon as it lands
     if (seq.gap) { seq.gap = Date.now(); setState('running'); return; }   // paused between two phases: on with the turn
-    if (flip.active) return;
+    if (flip.active) { flip.startDue = true; return; }  // mid-turn: start as soon as it lands (endTurn)
     if (T.state === 'done' || T.rem <= 0) {
       if (sim.nTop === 0) { startFlip(true); return; }
       T.rem = remAt(sim.nTop);
@@ -400,12 +400,14 @@
     setState('running');
   }
   function pause() {
+    if (flip.active) flip.startDue = false;              // (a start asked for in this turn is taken back)
     if (T.state !== 'running') return;
     setState('paused');
     audio.hush();
+    if (flip.active) { flip.was = 'paused'; flip.auto = false; }   // mid-turn: it lands paused
   }
   function toggle() {
-    if (T.state === 'running') pause(); else start();
+    if (T.state === 'running' || (flip.active && flip.startDue)) pause(); else start();
     buzz(10);
   }
   /** The glass has run out (`over` ms ago: found late, after a sleep or while hidden). */
@@ -802,7 +804,7 @@
    *  the lattice is re-indexed and elapsed ⇄ remaining swap.
    * ==================================================================== */
   var flip = {
-    active: false, dragging: false, was: 'idle', auto: false, swapped: false,
+    active: false, dragging: false, was: 'idle', auto: false, swapped: false, startDue: false,
     from: 0, to: 0, prog: 0, dur: 0, easeOut: false,
     grabAngle: 0, spin: 0, shown: 0,
     mode: 'rest'                     // the body's mode: 'script' for the Flip button's turn
@@ -814,6 +816,7 @@
     flip.was = T.state;
     flip.auto = !!autoRun;
     flip.swapped = false;
+    flip.startDue = false;
     flip.shown = T.rem;
     sim.flipping = true;
     sim.wakeAll();
@@ -868,6 +871,21 @@
     applyBody(0);
     buzz(22);
     setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was);
+    if (flip.startDue) { flip.startDue = false; start(); }   // Start (or Space) pressed while it turned
+  }
+  /**
+   * The page is hidden: nobody sees a turn under way, and frames, which alone carry it on, stop with
+   * it; the clock stands still while a glass turns. So it is set down at once on the end it was
+   * heading for, as endSweep finishes a sweep. (A sequence's own turn goes on by the clock: tickClock.)
+   */
+  function finishTurn() {
+    if (!flip.active || seq.gap) return;
+    var a = sim.angle, to;
+    if (rot === 'script' || rot === 'ease') to = flip.to;
+    else if (rot === 'detent') to = body.td;
+    else to = a > Math.PI / 2 ? Math.PI : (a < -Math.PI / 2 ? -Math.PI : 0);
+    if (to > 1 || to < -1) swapEnds();
+    endTurn();
   }
   /**
    * What a glass does once it has been turned over; `was`: its state as the turn began.
@@ -4146,6 +4164,7 @@
       backgroundHold();
       pourEnd();
       cancelGesture();                 // a hand on the glass lets go
+      finishTurn();                    // and a turn under way is set down at once
       saveSession();
     } else {
       lastFrame = performance.now(); acc = 0; dirty = true;
@@ -4360,7 +4379,7 @@
       state === 'gaveup' ? 'It did not start 3 times: ' + why :
       state === 'updating' ? 'It is being updated, and will be back at the next launch' :
       state === 'lost' ? 'Paused: ' + (why || REAL_WHY.lost) :
-      state === 'paused' ? why : '';
+      state === 'paused' ? (why || '').replace(/^Real sand paused: /, 'Paused: ').replace(/^Real sand could not/, 'It could not') : '';
     fallLine.setAttribute('data-state', state);
     fallWhy.textContent = said ? 'The sand is drawn without the graphics chip on this device. ' + said + '.' : '';
     fallLine.hidden = !said;
@@ -4729,6 +4748,7 @@
     }
     m.textContent = measures();
     m.hidden = false;
+    if (m.scrollIntoView) m.scrollIntoView({ block: 'nearest' });   // (the version line is the tab's last: below it is out of sight)
     clearTimeout(measuresTimer);
     measuresTimer = setTimeout(function () { m.hidden = true; }, 8000);
   }
@@ -4827,6 +4847,8 @@
   layout();
   void zoom.offsetWidth;
   lookChosen(false);                                  // (saved once, as the boot always has)
+  // (a glass restored running has started: its sound comes in gently once it is heard, as at a Start)
+  if (restored && T.state === 'running') soundBegins(false);
   setState(restored ? T.state : 'idle');
   // Back from "Use this shape" (its 'hourglass.openNow' names the tab): Tune is open again on the
   // Glass tab at once, with no slide.

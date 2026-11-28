@@ -510,7 +510,14 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   more turn Start (for the Flip button and `F`) or a tap on the glass (for
   the finger's turns) starts each of the first three. Its control is the
   tree at f7e10b9 (`git archive`, given as `--root`), where a turned
-  finished glass runs. Every script `index.html` loads
+  finished glass runs. MIDTURN, `--only midturn` (1.22.0): while the Flip
+  button turns the glass, Space on a running glass lands it paused and it
+  stays so, Start on it turned again lands it running, Start while a
+  waiting glass turns runs it as it lands (turned over again, its sand
+  below), and the page hidden 0.4 s into a running glass's turn (its frames
+  held, as a phone's are) for 3 s sets the turn down at once, the clock
+  swapped, and counts the 3 s. Its control is `bc25789` (`git archive`,
+  `--root`), where all four fail. Every script `index.html` loads
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
   then served at `motion.js`'s path. Real sand is the app's only sand, and

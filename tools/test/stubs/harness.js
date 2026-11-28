@@ -10,7 +10,7 @@
  *   ... t.page, t.touch, t.errors ...
  *   await env.close();
  *
- * Every page starts from a version-2 save with Real sand off, merged under what
+ * Every page starts from a version-3 save with Real sand off, merged under what
  * the test seeds (lib/seed.js): Real sand is the app's default, and a page
  * seeds realSand: true to have it. opts.rawStorage seeds exactly what it is
  * given ({}: nothing saved, a first launch on a new phone).

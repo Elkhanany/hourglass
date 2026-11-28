@@ -43,7 +43,7 @@ var SHELL = [
   './icons/icon-maskable-192.png',
   './icons/icon-maskable-512.png',
   './icons/apple-touch-icon.png',
-  // Real sand (Tune): the sand engine the app loads when the switch is on, installed with the
+  // Real sand: the sand engine the app loads (the classic sand stands in where it cannot run), installed with the
   // rest so that it works offline; a Node test (realsand-shell) checks that every path here
   // exists and that every module and shader the engine loads is here
   './realsand/boot.mjs',

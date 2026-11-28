@@ -1235,7 +1235,8 @@ async function testNoRebuild(s, env) {
     await sleep(1500);
     await t.eval(function () { window.__mockEnv.failDevice = true; });
     var L = await loseNow(t, 'mock: reset');
-    var MSG = 'Real sand could not restart after the graphics chip was reset; it will try again next launch';
+    // (the line in its own words, without "Real sand" (from 1.22.0; the engine's message, the toast, keeps them)
+    var MSG = 'It could not restart after the graphics chip was reset; it will try again next launch';
     await waitFor(t, function (m) { return document.getElementById('fallback-why').textContent === m; }, 8000, line(MSG)).catch(function () {});
     var st = await state(t), n = await t.eval(function () { var Hg = window.Hourglass; return { rebuilds: Hg.realSand.stats().n.rebuilds, run: Hg.timer.state }; });
     s.check('NOREBUILD: the rebuild finds no device: the CPU sand stays (taken over in the frame of the loss), the note says it will try again next launch',
@@ -1838,6 +1839,7 @@ function hangOk(h) {
 }
 var HANG_MSG = 'Real sand paused: the graphics chip stopped answering';
 var HANG_FINAL = 'Real sand paused: the graphics chip stopped answering three times; it will try again next launch';
+var HANG_FINAL_LINE = 'Paused: the graphics chip stopped answering three times; it will try again next launch';   // (the line's words from 1.22.0)
 
 async function testHang(s, env) {
   var t = await openMock(env, { seed: 61 }, { durationMs: 60000 });
@@ -1873,8 +1875,8 @@ async function testHang(s, env) {
     await t.eval(function () { window.__mockEnv.hold = false; });
     await sleep(3500);
     var b3 = await rowState(t), st3 = await state(t);
-    s.check('HANG: a third time within ten minutes is final: the CPU sand for the session, the note and toast say so, no new engine; the stopped engine\'s device lost 200 ms later changes nothing',
-            hangOk(h3) && h3.dstate === 'paused' && h3.note === line(HANG_FINAL) && h3.toasts.indexOf(HANG_FINAL) >= 0 &&
+    s.check('HANG: a third time within ten minutes is final: the CPU sand for the session, the note and toast say so (the note without "Real sand"), no new engine; the stopped engine\'s device lost 200 ms later changes nothing',
+            hangOk(h3) && h3.dstate === 'paused' && h3.note === line(HANG_FINAL_LINE) && h3.toasts.indexOf(HANG_FINAL) >= 0 &&
             b3.cpu && !b3.engine && b3.gpus === 0 && b3.creates === c0.creates + 2 && b3.dstate === 'paused' && b3.run === 'running' && b3.grainShown,
             JSON.stringify({ h: h3 && { ms: h3.ms, dstate: h3.dstate, note: h3.note }, b: b3 }));
     s.check('HANG: ... the setting kept, nothing counted; the report says the watchdog fired 3 times',

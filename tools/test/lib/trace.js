@@ -409,7 +409,7 @@ async function until(page, ok, ms, what) {
 }
 
 /**
- * Every control in turn (or those named in `only`, in order), from a version-2 save with Real
+ * Every control in turn (or those named in `only`, in order), from a version-3 save with Real
  * sand off: what its own tap did (now), and what followed until the next one (later: the
  * cross-fade's calls, an answer to the motion question, the boot after a reload).
  */

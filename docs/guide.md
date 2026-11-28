@@ -422,7 +422,11 @@ is as it is after Reset: *Tap the glass to begin*, the Start button, and the
 time it will run. With its sand below it waits the same way and reads
 `00:00.0`; Start or a tap there turns the glass over on the screen and runs
 it, and another turn sets it back to wait with its sand above. While it waits no sand passes the neck, no bowl rings and the
-screen is not kept awake.
+screen is not kept awake. Start or a pause pressed while the glass turns
+holds for when the turn lands (from 1.22.0): a glass paused in the turn
+lands paused, one started lands running. If the app is put away while the
+glass turns (the phone locked), the turn is set down at once on the end it
+was heading for, and the glass's time goes on counting.
 
 What you hear. Sand that moves is heard, whether the glass is running or
 not: before it is started, while it is paused and after it has run out, as
@@ -636,9 +640,9 @@ sand is drawn without the graphics chip on this device.* and goes on:
 | *It is being updated, and will be back at the next launch.* | old and new files of an update met; the next launch has the new ones |
 | *Paused: the graphics chip was reset.* | the classic sand took over at once, at the same time and with the same sand above; Real sand comes back by itself |
 | *Paused: the graphics chip stopped answering.* | the same, when Real sand sent nothing back for 4 s; it starts again 2 s later |
-| *Real sand paused: the graphics chip stopped answering three times; it will try again next launch.* | the classic sand until the app is opened again |
+| *Paused: the graphics chip stopped answering three times; it will try again next launch.* | the classic sand until the app is opened again |
 | *Paused after the graphics chip was reset twice; it will try again next launch.* | the classic sand until the app is opened again |
-| *Real sand could not restart after the graphics chip was reset; it will try again next launch.* | the same, when the chip could not be opened again |
+| *It could not restart after the graphics chip was reset; it will try again next launch.* | the same, when the chip could not be opened again |
 | *It could not restart; it will try again next launch.* | the same, when no graphics adapter was found right after the chip was reset or stopped answering: nothing is remembered or counted, and the next launch tries again |
 
 After a failure (all but the first two and the update) the line ends with
