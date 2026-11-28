@@ -42,7 +42,7 @@ async function fresh(env, o) {
   o = o || {};
   var t = await env.open(o);
   if (!o.idle) { await t.page.tap('#btn-play'); await sleep(1200); }
-  if (o.zen) { await t.page.tap('#btn-zen'); await sleep(2200); }      // (Zen comes by the moon button or a pinch, never by itself)
+  if (o.zen) { await t.page.tap('#btn-zen'); await sleep(2200); }      // (Zen comes by the Zen button or a pinch, never by itself)
   if (o.sandBelow) {
     // two minutes into its run and paused: sand in the lower bulb, and the controls stay up
     await t.eval(function () { window.Hourglass.timer.rem -= 120000; });

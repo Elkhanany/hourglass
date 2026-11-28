@@ -1951,6 +1951,7 @@
   function isBackground(e) {
     if (sheetOpen) return false;
     var el = e.target;
+    if (el && el._host) el = el._host;    // a haptic label (hapticMount) is what it lies over: the glass's stage, or a control
     if (el && el.closest && el.closest('button, input, label, a, [role], .panel, .top-row, #readout, .sheet, #scrim')) return false;
     if (!stage.contains(el) && !(el && el.closest && el.closest('.hud'))) return false;
     var r = assembly.getBoundingClientRect(), padX = r.width * 0.04, padY = r.height * 0.01;
@@ -1985,7 +1986,8 @@
    *  the device's own light or dark setting, followed while the app is open;
    *  'hours', light from 7:00 to 19:00 by the device's clock and dark at
    *  night, changed at the hour and looked at again whenever the app comes
-   *  back to the front. index.html puts the saved choice on the page before
+   *  back to the front, and every 10 s while it stays there (a clock set by
+   *  hand, a new time zone after a flight). index.html puts the saved choice on the page before
    *  its first paint, by the same rule (lookIn); from then on this keeps it.
    *  A look is the page's colours (styles.css, html[data-look]), the glass's
    *  own shading (renderer.setPaper) and the page's theme-color and
@@ -2008,7 +2010,7 @@
   var DAY = [7, 19];                 // the hours of the light look, by the device's clock: from 7:00 to 19:00
   var LOOK_PAGE = { dark: ['#0b0c0e', 'dark', 'black-translucent'], light: ['#f3f0ea', 'light', 'default'] };   // theme-color, color-scheme, the status bar
   var schemeQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
-  var btnLook = $('btn-look'), lookTimer = 0;
+  var btnLook = $('btn-look'), lookTimer = 0, lookDue = 0, lookClockTimer = 0;
   var lookShown = document.documentElement.getAttribute('data-look') === 'light' ? 'light' : 'dark';
   var LOOK_FADE_MS = 340;            // the whole way from one look to the other (a part of the way takes its part of this)
   var lookFade = { anim: null, raf: 0, to: 0 };
@@ -2107,13 +2109,28 @@
     } else if (!lookFade.anim) lookMetas(0, look);
     if (btnLook) btnLook.setAttribute('aria-pressed', light ? 'true' : 'false');
     checkOne('#looks [data-look]', 'look', settings.background);
-    // Daytime: again at the next 7:00 or 19:00 (and whenever the app comes back to the front, below)
+    // Daytime: again at the next 7:00 or 19:00 (and whenever the app comes back to the front, below),
+    // and every 10 s while it is open: a timer counts the time gone by, not the clock, so a clock set by
+    // hand or a new time zone (after a flight) would leave it hours early or late
     clearTimeout(lookTimer);
     if (settings.background === 'hours') {
-      var next = new Date(now.getTime()), h = now.getHours();
-      next.setHours(h < DAY[0] ? DAY[0] : (h < DAY[1] ? DAY[1] : DAY[0] + 24), 0, 0, 0);
-      lookTimer = setTimeout(showLook, Math.max(1000, next.getTime() - now.getTime() + 250));
-    }
+      var wait = Math.max(1000, toNextHour(now) + 250);
+      lookDue = performance.now() + wait;
+      lookTimer = setTimeout(showLook, wait);
+      if (!lookClockTimer) lookClockTimer = setInterval(lookClock, 10000);
+    } else if (lookClockTimer) { clearInterval(lookClockTimer); lookClockTimer = 0; }
+  }
+  /** How long from `now` to the next 7:00 or 19:00 by the device's clock, in ms. */
+  function toNextHour(now) {
+    var next = new Date(now.getTime()), h = now.getHours();
+    next.setHours(h < DAY[0] ? DAY[0] : (h < DAY[1] ? DAY[1] : DAY[0] + 24), 0, 0, 0);
+    return next.getTime() - now.getTime();
+  }
+  /** Daytime, every 10 s: the look again, and the timer set again, when the clock or the zone has moved. */
+  function lookClock() {
+    if (settings.background !== 'hours') return;
+    var now = new Date();
+    if (lookIn('hours', now) !== lookShown || Math.abs(performance.now() + Math.max(1000, toNextHour(now) + 250) - lookDue) > 2000) showLook();
   }
   /** Choose the background: 'dark', 'light', 'system' or 'hours'. Saved, and shown at once. */
   function setBackground(v) {
@@ -2130,6 +2147,13 @@
     var b = e.target.closest('[data-look]');
     if (b) { setBackground(b.dataset.look); buzz(8); }
   });
+  // Daytime's hours under the row, in the device's own 12 or 24 hour clock, as the state line's end says them
+  (function () {
+    var note = $('look-note'), b = document.querySelector('#looks [data-look="hours"]'), f, a, z;
+    try { f = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }); a = f.format(new Date(2000, 0, 1, DAY[0])); z = f.format(new Date(2000, 0, 1, DAY[1])); } catch (e) { return; }
+    if (note) note.textContent = note.textContent.replace('7:00 to 19:00', a + ' to ' + z);
+    if (b) b.setAttribute('aria-label', 'Daytime: light from ' + a + ' to ' + z + ', dark at night');
+  })();
   if (schemeQ) {
     var onScheme = function () { if (settings.background === 'system') showLook(); };
     if (schemeQ.addEventListener) schemeQ.addEventListener('change', onScheme); else if (schemeQ.addListener) schemeQ.addListener(onScheme);

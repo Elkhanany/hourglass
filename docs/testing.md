@@ -780,7 +780,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   canvas; on the ground as it was (`oldGround()`: no flat edge to the room,
   the canvas the page's own colour, the scrim to the edges) they must find
   one in the light look at both ends and sizes, with Tune open at the top in
-  both looks and half way through a fade. FIRST reads the canvas as the
+  both looks and half way through a fade. The bottom bar's own shadow is
+  taken out of the picture before the scan, as the bar is out of the scan:
+  it reaches past the app's box, which cuts it at its foot, and half way
+  through a fade it read 11 there at x = W - 7 in one run and 14 in the
+  next (the computed colours the same, the browser's raster of the box a
+  level apart); without it the ground meets the canvas at 5 to 8. FIRST
+  reads the canvas as the
   room's edge (`#ece9e2` light, `#090a0c` dark) and the body as the page's
   colour. STANDALONE (1.21.1): in a home-screen app the app's box is exactly the
   layout viewport's, never taller, and the bar and Tune end where they do in
