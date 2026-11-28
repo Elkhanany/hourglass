@@ -23,7 +23,7 @@ sand/                       the classic sand (pieces of HourglassPhysics, below)
 sound/audio.js              the procedural sound engine
 motion/motion.js            the phone's motion sensors
 sw.js  manifest.json        offline cache and install metadata
-realsand/                   the GPU sand engine: the sand lab's, and the app's with Real sand on
+realsand/                   the GPU sand engine: the sand lab's, and the app's sand
   boot.mjs  app-sand.mjs    what the app loads, and RealSand, the GPU sand as the app's sim
   valve.mjs                 the ledger of the sand above the neck, and the neck's meter
   solver.mjs  shaders/      the solver on WebGPU and its WGSL
@@ -104,14 +104,19 @@ The look, light or dark ("Light and dark" in `app.js`). The setting
 `background` gives it: 'dark' and 'light' as they are, 'system' by the media
 query `prefers-color-scheme: light` (followed by its change event), 'hours'
 light from 7:00 to 19:00 by `new Date().getHours()`, looked at again by a
-timer set for the next 7:00 or 19:00 and whenever the page comes back to the
-front (`visibilitychange`, `pageshow`, `focus`: a phone's timers sleep in the
-background). The page is in the light look while `html` carries
+timer set for the next 7:00 or 19:00, every 10 s while the page is open
+(`lookClock`: a clock set by hand or a new time zone moves the hour, and a
+timer counts the time gone by, not the clock) and whenever the page comes back
+to the front (`visibilitychange`, `pageshow`, `focus`: a phone's timers sleep
+in the background). The note under Tune's row says the hours in the device's
+own clock (`Intl.DateTimeFormat`, as the state line's end). The page is in the light look while `html` carries
 `data-look="light"`; the dark look is the page with nothing set, so it is
 pixel for pixel what it was. index.html applies the saved choice by the same
 rule in a small script in its head, before the stylesheet and the first paint
 (and sets the `theme-color`, `color-scheme` and the iPhone's status-bar
-metas), so a launch never shows the other look first; app.js keeps it from
+metas), so the page never shows the other look first (the launch screen
+before it, icons/splash and the manifest's colours, is dark in either look: it
+cannot read a saved choice); app.js keeps it from
 then on (`showLook`), with the metas and the moon button (`#btn-look`,
 `aria-pressed`). In styles.css the light look is its own tokens
 (`html[data-look="light"]`: paper `--bg` #f3f0ea, the inks, panels and sheet,
@@ -334,8 +339,8 @@ a save from before it, is 'sunlit', and the reset link puts it back to that.
 
 `HourglassSettings.load(storage, search, reg)` gives the values: the
 defaults; over them the saved values of the right type; the version step
-(the settings carry `v`; a save of no version, or of version 1, comes up with
-Real sand on, once, and the values then say version 2); the checks; and the
+(the settings carry `v`; a save of no version, or of version 1 or 2, comes up
+with Real sand on, once, and the values then say version 3); the checks; and the
 repairs that read two keys (`?t=300` sets the duration and ends a saved
 sequence; once it has been applied, `app.js` takes `t=` out of the address
 with `history.replaceState`, every other item kept (`unpreset(search)`), so
@@ -478,7 +483,10 @@ page that meets an engine of another build says so, with both stamps.
 `tools/icons.html` regenerates all of them in the browser from one SVG
 template; it is not part of the installed app. `icons/splash/` holds dark
 launch screens for current iPhone sizes, so an app opened from the home screen
-never flashes white before its first frame.
+never flashes white before its first frame. They are dark in the light look
+too, as are the manifest's `background_color` and `theme_color` (a PC
+window's splash): a launch screen cannot follow a saved choice, so a light
+look's launch shows the dark screen and then the page in paper.
 
 ## Running locally
 
@@ -556,8 +564,8 @@ These hold until a change says otherwise, with its reason.
   syntax error stops a whole file, and an old parser rejects a file that
   holds `import()`, so
   `app.js` stays classic and appends `realsand/boot.mjs`, the only module
-  the app loads, and only with the Real sand switch on where `navigator.gpu`
-  exists. `check-shell` checks every classic script for module syntax,
+  the app loads, and only where `navigator.gpu` exists (and the hidden
+  setting `realSand`, which only the tests turn off, is on). `check-shell` checks every classic script for module syntax,
   `import()` and the kinds of syntax newer than ES5 that it lists
   ([Tests](testing.md)). The
   Node suites load the pieces, joined, as one classic script into isolated
@@ -593,13 +601,17 @@ These hold until a change says otherwise, with its reason.
   leaves nothing behind, and a hole is filled only from the same release.
   The cost: a change shipped without a new `VERSION` never reaches a phone,
   which is why `check-release` runs on every pull request.
-- **Real sand is the default, and its switch is the person's alone** (1.10.0,
-  [settings design 5](design/settings.md)): the app never writes it off. A
-  browser that cannot have it is remembered by its user agent and tried
-  again after seven days, an iOS update that changes the user agent, a new
-  engine build or a tap; the classic sand
-  is always there to run instead. The test harness seeds every page with
-  Real sand off (`tools/test/lib/seed.js`) unless the test asks for it.
+- **Real sand is the only sand** (the default from 1.10.0, [settings design
+  5](design/settings.md); from 1.22.0 Tune has no switch for it): the app
+  never writes it off, and the classic sand is the fallback, always there to
+  run instead, with one quiet line at the foot of Tune's Sand tab while it
+  does. A browser that cannot have it is remembered by its user agent and
+  tried again after seven days, an iOS update that changes the user agent or
+  a new engine build. The setting `realSand` stays as a hidden switch: the
+  settings' version 3 turned it on once for everyone (a save of 1.21.1 could
+  hold the old switch's off), and the test harness seeds every page with a
+  version-3 save with it off (`tools/test/lib/seed.js`), the classic sand,
+  unless the test asks for Real sand.
 - **What an iPhone allows a web app** decides a good deal: motion
   permission is forgotten when the app is closed, so it is asked for by a
   tap at each launch; there is no vibration API, so a tap is felt through a

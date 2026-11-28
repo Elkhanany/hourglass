@@ -1,11 +1,13 @@
 /*
  * The settings a test page starts from. Development only, never shipped.
  *
- * Real sand is the app's default (settings design 5.1): a page with nothing saved loads the
+ * Real sand is the app's only sand (settings design 5.1): a page with nothing saved loads the
  * sand engine, and this Chromium has navigator.gpu but no adapter. So every page a suite opens
- * gets { v: 2, realSand: false } merged UNDER whatever the test seeds in
- * 'hourglass.settings.v1', and the suites go on measuring the classic sand, as before. A test
- * that seeds realSand: true itself gets Real sand. o.rawStorage is written exactly as given,
+ * gets { v: 3, realSand: false } merged UNDER whatever the test seeds in
+ * 'hourglass.settings.v1', and the suites go on measuring the classic sand, as before: the
+ * hidden switch, which no control of the app sets, in a save of the settings' version 3, which
+ * the version step that turns Real sand on (app/settings.js) leaves as it is. A test that seeds
+ * realSand: true itself gets Real sand; one that seeds an older version gets the step. o.rawStorage is written exactly as given,
  * with nothing merged ({} writes nothing: a first launch on a new phone).
  *
  *   var seed = require('./lib/seed.js');
@@ -14,8 +16,8 @@
 'use strict';
 
 var KEY = 'hourglass.settings.v1';
-/** What every test page has saved unless it says otherwise: a version-2 save with Real sand off. */
-var CLASSIC = { v: 2, realSand: false };
+/** What every test page has saved unless it says otherwise: a version-3 save with Real sand off. */
+var CLASSIC = { v: 3, realSand: false };
 
 /** The localStorage to seed for a page opened with o ({ storage, rawStorage }): { key: value }. */
 function storageFor(o) {

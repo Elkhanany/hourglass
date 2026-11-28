@@ -241,7 +241,7 @@ async function testUi(s, env) {
   s.check('UI: the Custom pill says it, shown and spoken; no preset is selected', m.label === '5·3 ×2' && m.pressed === 'true' && m.checked === 0 &&
           m.aria === 'Custom duration: 5 minutes, then rest 3 minutes, 2 rounds', '"' + m.label + '" / "' + m.aria + '"');
   s.check('UI: the sequence is kept in the settings', m.saved.join() === '300000,180000,2', m.saved.join());
-  s.check('UI: no new buttons on the main screen (5 top, one of them hidden, the background\'s moon among them; 12 bottom), and no Tune row of its own (16, with Layered sand, Grain, Light, Real sand, Breathing pace, the custom sand\'s colour, Fade out before the end, Sound in silent mode, Show when it ends and Background)', m.top === 5 && m.bottom === 12 && m.rows === 16,
+  s.check('UI: no new buttons on the main screen (5 top, one of them hidden, the background\'s moon among them; 12 bottom), and no Tune row of its own (15, with Layered sand, Grain, Light, Breathing pace, the custom sand\'s colour, Fade out before the end, Sound in silent mode, Show when it ends and Background)', m.top === 5 && m.bottom === 12 && m.rows === 15,
           JSON.stringify({ top: m.top, bottom: m.bottom, rows: m.rows }));
 
   // it fits at 360 px: the usual sequence and the longest one
@@ -322,7 +322,7 @@ async function testRun(s, env) {
   await sleep(600);
   var first = await snap(t);
   s.check('RUN: a tap starts the first glass: "Work · 1 of 2"', first.state === 'running' && first.phase === 0 && first.status === 'Work · 1 of 2', first.state + ' / ' + first.status);
-  await t.page.tap('#btn-zen');                              // (Zen comes by the moon button or a pinch, never by itself)
+  await t.page.tap('#btn-zen');                              // (Zen comes by the Zen button or a pinch, never by itself)
   await waitFor(t, function () { return window.Hourglass.timer.state === 'done'; }, 70000);
   await sleep(400);
   var w = await seen(t), end = await snap(t);
@@ -375,7 +375,7 @@ async function testRun(s, env) {
   s.check('RUN: the status line names each phase, quietly', said.join('|') === want.join('|'), said.join(' | '));
   var live = await t.eval(function () { return document.getElementById('status').getAttribute('aria-live'); });
   s.check('RUN: ... in the polite live region screen readers already follow', live === 'polite', live);
-  s.check('RUN: in Zen (the moon button) the controls stay dim through every turn (Full Zen: gone)',
+  s.check('RUN: in Zen (the Zen button) the controls stay dim through every turn (Full Zen: gone)',
           w.zenAt > 0 && w.zenLost === 0 && w.gaps.every(function (q) { return q.zen && q.hud >= 0 && q.hud < 0.02; }),
           'zen lost on ' + w.zenLost + ' frames; controls\' opacity after each turn ' + w.gaps.map(function (q) { return q.hud; }).join(', '));
   s.check('RUN: the last phase ends as any glass does: 00:00, "Time", done', end.state === 'done' && end.main === '00:00' && /^Time/.test(end.status) &&
@@ -708,7 +708,7 @@ async function testCalm(s, env) {
   var g = await t.glass();
   await t.touch.tap(g.cx, g.cy, 60);
   await sleep(500);
-  await t.page.tap('#btn-zen');                              // (Zen comes by the moon button or a pinch, never by itself)
+  await t.page.tap('#btn-zen');                              // (Zen comes by the Zen button or a pinch, never by itself)
   var a = await snap(t);
   var rm = await t.eval(function () { return window.Hourglass.reduceMotion; });
   s.check('CALM: Reduce Motion is on; one round reads "Work", without a count', rm === true && a.status === 'Work' && a.state === 'running', rm + ' / ' + a.status);

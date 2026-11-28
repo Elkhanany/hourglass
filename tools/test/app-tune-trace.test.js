@@ -12,8 +12,8 @@
  *
  * For each: what its own tap does before it returns (now: the save, the calls on the sound
  * engine, the Sim, the Renderer and the sensors, the buzz), and what follows (later: what the
- * cross-fade sets, the answer to the motion question, the boot after the reload a grain and
- * Real sand make). It must be as the kept trace has it: tools/test/base/tune-trace.json, the
+ * cross-fade sets, the answer to the motion question, the boot after the reload a grain or a
+ * shape makes). It must be as the kept trace has it: tools/test/base/tune-trace.json, the
  * reviewed record of the tree named in its "from" (lib/base.js). It was first made from the
  * last release before the settings store, and made again, each time in a commit of its own
  * that says what changed and nothing else, when a setting or a control was added on purpose.
@@ -106,7 +106,7 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
     // what the trace sees: the places where the order matters most
     var vol = byName(kept, 'volume: 30'), muted = byName(kept, 'volume: 55, while muted'), hOn = byName(kept, 'haptics: on'), hOff = byName(kept, 'haptics: off');
     var chime = byName(kept, 'completion bowl: on'), tiltOn = byName(kept, 'real motion: on'), mat = byName(kept, 'sand: lapis'), fin = byName(kept, 'finish: gold'), walnut = byName(kept, 'finish: walnut'), well = byName(kept, 'sand: custom, a colour of its own (the well, let go)'), grain = byName(kept, 'grain: fine');
-    var real = byName(kept, 'Real sand: on'), lay = byName(kept, 'layered sand: on');
+    var lay = byName(kept, 'layered sand: on');
     s.check('the kept trace sees: the volume told to the sound engine before it is saved, and un-muting inside it',
             names(vol.now).join() === 'audio.setVolume,save' && first(vol.now, 'save')[1].volume === 0.3 &&
             names(muted.now).join() === 'audio.setVolume,save,audio.setMuted,save' && muted.now[1][1].muted === false && muted.now[1][1].volume === 0.55,
@@ -124,10 +124,11 @@ function first(list, name) { return (list || []).filter(function (e) { return e[
             names(well.now).join() === 'save,renderer.setLook' && typeof first(well.now, 'renderer.setLook')[1].sand === 'object' && /^\d/.test(first(well.now, 'save')[1].sandColor) &&
             names(lay.later).join() === 'sim.setLayers,renderer.setLayers',
             JSON.stringify(tiltOn) + ' ' + JSON.stringify(mat) + ' ' + JSON.stringify(fin) + ' ' + JSON.stringify(walnut) + ' ' + JSON.stringify(well) + ' ' + JSON.stringify(lay));
-    s.check('... a grain and Real sand: saved, the session put away, and the page loaded again with the setting (Sim.setPace before the Sim)',
+    // (and, until 1.22.0, Real sand's switch, the same way; it has no control since)
+    s.check('... a grain: saved, the session put away, and the page loaded again with the setting (Sim.setPace before the Sim); and no control of Tune is Real sand\'s',
             names(grain.now).join() === 'audio.unlock,save,buzz,remove' && first(grain.later, 'Sim.setPace') && names(grain.later).indexOf('Sim.setPace') < names(grain.later).indexOf('new Sim') &&
-            names(real.now).join() === 'audio.unlock,save,remove,buzz' && first(real.now, 'save')[1].realSand === true && names(real.later).indexOf('new Sim') > 0,
-            JSON.stringify(grain.now) + ' ' + JSON.stringify(real.now));
+            trace.CONTROLS.every(function (n) { return !/real sand/i.test(n); }),
+            JSON.stringify(grain.now) + ' ' + trace.CONTROLS.filter(function (n) { return /real sand/i.test(n); }).join());
 
     // the reset link, tapped where the sand, the volume, the ambience level, the Sound tab's four (the Sand level, the Bowl level, Rings and the fade) and the background
     // (light, by the moon button: 1.19.0) differ from the defaults: one save of what it put back, the renderer and the sound engine told, the look behind the cross-fade

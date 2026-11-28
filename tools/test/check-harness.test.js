@@ -19,6 +19,12 @@
  *    Node suites by name. Every suite that needs no browser (none of the files it requires asks
  *    for Playwright) is either in that list or in LEFT_OUT below, with its reason, and every name
  *    in the two lists is such a suite: a new suite cannot be left out by forgetting it.
+ * And every question a suite asks a page through the harness (t.eval, of stubs/harness.js and of
+ * lib/replay-iphone.js) has an end and a small answer (lib/ask.js): it ends after 30 s with an
+ * error that names it, and an answer of more than 20,000 values is refused in the page, with a
+ * message that says so, unless that one question raises the count (o.max).
+ * And the steps for a new setting (docs/engines.md, "The row count") name every suite that
+ * counts Tune's rows (`.rows === N`), so one who adds a row changes them all.
  * Each rule has its control: a tree or a suite that breaks it must fail.
  *
  *   node tools/test/check-harness.test.js
@@ -27,6 +33,7 @@
 var fs = require('fs'), os = require('os'), path = require('path'), vm = require('vm'), cp = require('child_process');
 var paths = require('./lib/paths.js');
 var H = require('./stubs/harness.js');
+var ASK = require('./lib/ask.js');
 var count = 0, failures = 0;
 function check(ok, what, detail) {
   count++; if (!ok) failures++;
@@ -193,6 +200,41 @@ function page(tags) { return '<!doctype html><html><head><meta charset="utf-8"><
           w3.length === wp.length + 1 && /realsand-felt/.test(w3.join()) && w4.length === wp.length + 1 && /sim-perf.*both/.test(w4.join()),
       '... and that check finds a new suite in neither list, realsand-felt left out of the workflow, a listed name with no file, a listed browser suite, and a name in both lists (control)',
       [w1, w2, w3, w4].map(function (w) { return w.join('; '); }).join(' | '));
+
+    /* ---- every question to a page has an end and a small answer (lib/ask.js) ---- */
+    // a page stood in for by Node: the function the harness hands to page.evaluate, called here
+    var inNode = function (fn, arg) { return Promise.resolve().then(function () { return typeof fn === 'function' ? fn(arg) : fn; }); };
+    var outcome = function (p) { return p.then(function (v) { return { ok: true, v: v }; }, function (e) { return { ok: false, said: String(e && e.message || e) }; }); };
+    var numbers = function (n) { var a = []; for (var i = 0; i < n; i++) a.push(i); return a; };
+    var src = String(numbers);
+    var listOf = new Function('n', 'return (' + src + ')(n);');
+    var small = await outcome(ASK.ask(inNode, listOf, 100)), big = await outcome(ASK.ask(inNode, listOf, 20001));
+    var deep = await outcome(ASK.ask(inNode, new Function('n', 'var f = (' + src + '); return { a: f(15000), b: { c: f(6000) } };'), 0));
+    var raised = await outcome(ASK.ask(inNode, listOf, 20001, { max: 30000 })), typed = await outcome(ASK.ask(inNode, function () { return new Float64Array(100000); }));
+    var never = await outcome(ASK.ask(inNode, function waitsForever() { return new Promise(function () {}); }, null, { ms: 60 }));
+    check(ASK.ASK_MS === 30000 && ASK.ANSWER_MAX === 20000 && small.ok && small.v.length === 100 && typed.ok && typed.v.length === 100000 &&
+          !big.ok && /^a page was asked \(function anonymous\(n/.test(big.said) && /more than 20000 values/.test(big.said) && !deep.ok && /more than 20000 values/.test(deep.said) &&
+          raised.ok && raised.v.length === 20001 && !never.ok && /^a page was asked \(function waitsForever\(\).*: nothing after 0\.06 s$/.test(never.said),
+      'a question to a page ends after 30 s with an error that names it; an answer of more than 20,000 values (an array of 20,001, or 21,000 in an object) is refused in the page, ' +
+      'with a message that names the question and says to measure in the page; one question may raise the count (o.max); a typed array is one value',
+      JSON.stringify({ small: small.ok, big: big.said, deep: deep.said, raised: raised.ok, typed: typed.ok, never: never.said }).slice(0, 600));
+    var BOUNDED = /eval: function \(fn, arg, o\) \{ return ASK\.ask\(evaluate, fn, arg, o\); \}/;
+    var bare = function (text) { return BOUNDED.test(text) && !/eval: function \(fn, arg\) \{ return page\.evaluate\(fn, arg\); \}/.test(text); };
+    var hs = fs.readFileSync(path.join(__dirname, 'stubs', 'harness.js'), 'utf8'), rs = fs.readFileSync(path.join(__dirname, 'lib', 'replay-iphone.js'), 'utf8');
+    check(bare(hs) && bare(rs) && /evaluate = page\.evaluate\.bind\(page\)/.test(hs) && /evaluate = page\.evaluate\.bind\(page\)/.test(rs),
+      'the harness\'s t.eval asks through it, in stubs/harness.js and in lib/replay-iphone.js');
+    var unbounded = hs.replace(BOUNDED, 'eval: function (fn, arg) { return page.evaluate(fn, arg); }');
+    check(unbounded !== hs && !bare(unbounded), '... and a harness whose t.eval asks the page as before (no end, any answer) is found out (control)');
+    /* ---- the suites that count Tune's rows, named in the steps for a new setting ---- */
+    var counting = tests.filter(function (f) { return /\.rows === \d+/.test(fs.readFileSync(path.join(__dirname, f), 'utf8')); }).map(function (f) { return f.replace('.test.js', ''); });
+    var engines = fs.readFileSync(path.join(paths.ROOT, 'docs', 'engines.md'), 'utf8');
+    var step = (/\n7\. The row count:([\s\S]*?)\n\n/.exec(engines) || [])[1] || '';
+    var unnamed = function (text) { return counting.filter(function (n) { return text.indexOf('`' + n + '`') < 0; }); };
+    check(counting.length >= 6 && step && unnamed(step).length === 0,
+      'the steps for a new setting name every suite that counts Tune\'s rows (' + counting.join(', ') + ')', unnamed(step).join(', '));
+    var asShipped = " five suites count Tune's rows (`app-regression`,\n   `e2e-calm`, `app-breath`, `app-sequence`, `app-realsand`), so a new row\n   changes those on purpose.";
+    check(unnamed(asShipped).length > 0 && unnamed(asShipped).indexOf('app-tune') >= 0,
+      '... and that check finds app-tune missing from the step as release 1.21.1 had it (control)', unnamed(asShipped).join(', '));
   } catch (e) {
     check(false, 'no exception', e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

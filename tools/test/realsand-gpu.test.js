@@ -14,8 +14,8 @@
  * test makes to the engine, on the instance.) Readbacks still come 1-3 frames late, as on the
  * phone. 10 s glasses (1,952 points), layered sand on.
  *
- *  BOOT    the switch on: the engine starts (pipelines, self-test), adopts the CPU sand and
- *          takes over: the row on (data-state), the canvas drawn, the GPU's points the ledger's, the audit
+ *  BOOT    Real sand on: the engine starts (pipelines, self-test), adopts the CPU sand and
+ *          takes over: state on (#fallback-line's data-state) and no line shown, the canvas drawn, the GPU's points the ledger's, the audit
  *          passes, the start-up times logged, the tone pass there;
  *  SOUND   before the start, the glass asleep: nothing of the bed is fed. Flicked along the glass
  *          (the classic Sim stepped in Node on the same motion beside it): it wakes, the bed
@@ -58,7 +58,12 @@
  *          base (LIT_BASE, its grains.mjs and grains.wgsl taken from git) draws the same points
  *          with the same look in the same commands on a canvas of its own, and the two canvases
  *          are equal byte for byte at rest, with the stream running, at every sampled frame of a
- *          turn, and after it; under Sunlit they differ (the control). After that turn (the
+ *          turn, and after it, the streaks set aside (from build 11 both draw every grain sharp);
+ *          under Sunlit they differ (the control). The streak (build 11): grains in free flight
+ *          drawn alone for a 60 Hz and a 30 Hz display are as long at both, a comet (the third
+ *          behind the grain under 0.6 of the alpha at it), in the light look as dark on the page at
+ *          the head and paler in the tail than TURN_BASE's, whose streak (one display frame) is
+ *          half as long again at 30 Hz and even (the controls). After that turn (the
  *          engine's points now lie turned end for end) a new glass is lit from the screen's left
  *          as before. Through a second full turn, under Sunlit, the key the grains are drawn with,
  *          as the screen shows the canvas, stays the room's (KEY_LIGHT) in every frame, the
@@ -80,6 +85,15 @@
  *          bed is lit from the screen's left by LIT's margin. About 13 minutes with the engine's start.
  *          With --shots: each canvas of each frame measured (relief-<sand>-<look>-<moment>-<eng|old|soft>.png),
  *          sand poured in and a flip under way besides; HOURGLASS_RELIEF_SANDS=rosequartz,sahara for more sands;
+ *  TURNED  the sunlit sand's relief with gravity not down the grid: a glass held turned past the level (by
+ *          a finger, or a phone that holds it so), or on its side. A bed of points laid in the upper bulb
+ *          and drawn by a grain renderer of this tree and one of TURN_BASE (release 1.21.1, engine build 10),
+ *          each with its own relief pass, three frames, the relief read back: upright the two agree to the
+ *          bit (the bed's surface its top, trusted); turned over (gravity up the grid, the bed against the
+ *          cap) this tree finds the bed's free face, trusted and lit as the same face upright is (it faces
+ *          the room's up), while TURN_BASE takes the bed's end against the cap for its surface and shades it
+ *          (the control); on its side (gravity across the grid) this tree trusts no column (the bed lies
+ *          against a wall: the columns stand for no surface), while TURN_BASE trusts them (the control);
  *  SHAPES  each glass shape Tune offers, the page loaded in it (release 1.15.0): a 60-minute glass
  *          filled to its cap (the clock's full glass for that shape) with exactly the ledger's
  *          points on the GPU, none outside, the GPU's glass the shape's own; then a 10 s glass
@@ -96,7 +110,7 @@
  * browsers at once.
  *
  * --only <case>[,<case>...] runs those cases alone (the names above, any letter case; they run
- * in the order the log prints them: BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, RELIEF, SHAPES,
+ * in the order the log prints them: BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, RELIEF, TURNED, SHAPES,
  * whatever the order named), and the last line names them, so the run is never read as the
  * whole suite; a name that is not a case is an error that lists the cases. The page is always
  * loaded and the engine started (BOOT's checks only when BOOT is named), and a case sets up
@@ -123,11 +137,13 @@ for (var i = 2; i < process.argv.length; i++) {
   else if (process.argv[i] === '--shapes') shapesArg = process.argv[++i] || '';
 }
 // the cases, in the order they run (whatever the order --only names them in)
-var CASES = ['BOOT', 'SOUND', 'RUN', 'RESET', 'FLIP', 'POUR', 'HIDDEN', 'LOSS', 'LIT', 'RELIEF', 'SHAPES'];
+var CASES = ['BOOT', 'SOUND', 'RUN', 'RESET', 'FLIP', 'POUR', 'HIDDEN', 'LOSS', 'LIT', 'RELIEF', 'TURNED', 'SHAPES'];
 // LIT: the commit whose grain renderer draws "the picture of before" (HOURGLASS_SOFT_BASE names another; render-unit's too)
 var LIT_BASE = process.env.HOURGLASS_SOFT_BASE || '19c84db';
 // RELIEF: the commit whose sunlit sand is "the light of before" (release 1.21.0, engine build 9: the beds' tops from the highest point)
 var RELIEF_BASE = process.env.HOURGLASS_RELIEF_BASE || '2aba504';
+// TURNED: the commit whose relief scans every bed from its bulb's floor up, whichever way gravity holds it (release 1.21.1, engine build 10)
+var TURN_BASE = process.env.HOURGLASS_TURN_BASE || 'bc25789';
 // LIT, RELIEF: the sunlit sand's side toward the screen's left is the brighter by at least this much
 var SUN_LIT = 1.2;
 var ONLY = null;
@@ -324,6 +340,7 @@ async function installLit(a) {
   var enc = g.encode.bind(g), pres = g.present.bind(g);
   g.encode = function (e, n, look) {
     var both = !g.copyPending && !g0.copyPending;
+    if (L.noStreak) look = Object.assign({}, look, { exposure: 0 });
     enc(e, n, look); g0.encode(e, n, look);
     L.draws++; L.look = look;
     if (both) L.pair = L.draws;             // (this frame's picture reaches both canvases)
@@ -396,6 +413,170 @@ async function installLit(a) {
     return { lit: look.lit ? off(look.lit.key[0], look.lit.key[1]) : null, old: off(ca * K0[0] - sa * K0[1], sa * K0[0] + ca * K0[1]),
       theta: th, parity: rs.valve.parity, fresh: !!(look.lit && look.lit.fresh) };
   };
+}
+
+/**
+ * LIT, the streak, in the page: nine grains in free flight (no sand round them, two cells apart across the lower
+ * bulb), falling at 360 cells/s, drawn alone by a grain renderer of the tree served and by one of `a` (TURN_BASE's
+ * grains.mjs, grains.wgsl and relief.wgsl), each on a canvas of its own, with the engine's look as it is, for a display
+ * of 60 Hz and one of 30 Hz (the engine's frames that far apart: rs._rafLog). This tree takes the engine's own
+ * exposure at each; TURN_BASE takes its own rule, one display frame (exposure(1, the display's frame, hz)). Each
+ * grain's streak, in the pixel column through it: its length (alpha over 8), the mean alpha of its third at the
+ * grain (the head) and of its third behind it (the tail), and the darkest pixel of each on the page's own ground.
+ * -> { now: { 60, 30 }, old: { 60, 30 } }, each { len, head, tail, headY, tailY, n } (medians over the grains).
+ */
+async function streaks(a) {
+  var H = window.Hourglass, rs = H.realSand, dev = rs.device, gl = rs.glass, hz = rs.rate.hz;
+  var bg = getComputedStyle(document.body).backgroundColor.match(/[0-9.]+/g).map(Number);
+  var pal = null, sp = rs.grains.setPalette;
+  rs.grains.setPalette = function (p) { pal = p; sp(p); };
+  rs.setPalette();
+  rs.grains.setPalette = sp;
+  async function renderer(mjs, wgsl, relief) {
+    var mod = await import(URL.createObjectURL(new Blob([mjs], { type: 'text/javascript' })));
+    var c = document.createElement('canvas'); c.width = rs.canvas.width; c.height = rs.canvas.height;
+    var g = new mod.GrainRenderer(dev, c, { offscreen: true });
+    await g.init({ module: function (d, name) { return Promise.resolve(d.createShaderModule({ code: name === 'relief' ? relief : wgsl })); } });
+    g.setWarp(gl.warp, gl.cx, gl.cy, rs._halfRows(), gl.W);
+    if (rs._toneTable) g.setTones(rs._toneTable);
+    if (pal) g.setPalette(pal);
+    return g;
+  }
+  async function text(u) { return (await fetch(u)).text(); }
+  var now = await renderer(await text('realsand/grains.mjs'), await text('realsand/shaders/grains.wgsl'), await text('realsand/shaders/relief.wgsl'));
+  var old = await renderer(a.mjs, a.wgsl, a.relief);
+  /** The engine's look for a display whose frames come ms apart, and that display's frame as the engine reads it. */
+  function lookAt(ms) {
+    var log0 = rs._rafLog, L = [];
+    for (var i = 60; i >= 0; i--) L.push(1e6 - i * ms);
+    rs._rafLog = L;
+    var look = Object.assign({}, rs._look(hz), { sweep: null }), d = rs._displayMs();
+    rs._rafLog = log0;
+    return { look: look, display: d };
+  }
+  var N = 9, y = Math.round(gl.cy * 0.5), v = 360, pts = [], d = new Float32Array(N * 24);
+  for (var k = 0; k < N; k++) {
+    var x = Math.round(gl.cx) + 2 * (k - 4) + 0.5;
+    pts.push([x, y + 0.5]);
+    d[k * 24] = x; d[k * 24 + 1] = y + 0.5; d[k * 24 + 3] = -v / hz; d[k * 24 + 15] = 1; d[k * 24 + 20] = (k * 37) & 255; d[k * 24 + 21] = 0;
+  }
+  var buf = dev.createBuffer({ size: d.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  dev.queue.writeBuffer(buf, 0, d);
+  function lin(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  function med(xs) { xs = xs.slice().sort(function (p, q) { return p - q; }); return xs.length ? xs[xs.length >> 1] : NaN; }
+  async function draw(g, look) {
+    g.bind(buf);
+    for (var f = 0; f < 2; f++) {
+      var lk = look.lit ? Object.assign({}, look, { lit: Object.assign({}, look.lit, { fresh: f === 0, frame: f }) }) : look;
+      var enc = dev.createCommandEncoder();
+      g.encode(enc, N, lk);
+      dev.queue.submit([enc.finish()]);
+      await g.present();
+    }
+    var c = g.canvas, w = c.width, h = c.height, px = c.getContext('2d').getImageData(0, 0, w, h).data, out = [];
+    function A(xx, yy) { return xx < 0 || yy < 0 || xx >= w || yy >= h ? 0 : px[(yy * w + xx) * 4 + 3]; }
+    /** The pixel on the page's ground, its relative luminance. */
+    function onPage(i) { var al = px[i + 3] / 255, s = 0, wt = [0.2126, 0.7152, 0.0722]; for (var j = 0; j < 3; j++) s += wt[j] * lin(px[i + j] * al + bg[j] * (1 - al)); return s; }
+    pts.forEach(function (p) {
+      var cx = ((look.m[0] * p[0] + look.m[1] * p[1] + look.o[0]) + 1) / 2 * w, cy = (1 - (look.m[2] * p[0] + look.m[3] * p[1] + look.o[1])) / 2 * h;
+      var best = null;
+      for (var xx = Math.round(cx) - 3; xx <= Math.round(cx) + 3; xx++) {
+        var y0 = Math.round(cy);
+        for (var dy = 0; dy <= 3 && A(xx, y0) <= 8; dy++) y0 = A(xx, Math.round(cy) - dy) > 8 ? Math.round(cy) - dy : Math.round(cy) + dy;
+        if (A(xx, y0) <= 8) continue;
+        var top = y0, bot = y0;
+        while (A(xx, top - 1) > 8) top--;
+        while (A(xx, bot + 1) > 8) bot++;
+        if (!best || bot - top > best.bot - best.top) best = { x: xx, top: top, bot: bot };
+      }
+      if (!best) return;
+      // the head is the end at the grain (where it is now), the tail the end it came from
+      var n = best.bot - best.top + 1, t3 = Math.max(1, Math.floor(n / 3)), headAtBot = Math.abs(best.bot - cy) < Math.abs(best.top - cy);
+      var hs = 0, ts = 0, hY = 1, tY = 1;
+      for (var j = 0; j < t3; j++) {
+        var yh = headAtBot ? best.bot - j : best.top + j, yt = headAtBot ? best.top + j : best.bot - j;
+        var ih = (yh * w + best.x) * 4, it = (yt * w + best.x) * 4;
+        hs += px[ih + 3]; ts += px[it + 3]; hY = Math.min(hY, onPage(ih)); tY = Math.min(tY, onPage(it));
+      }
+      out.push({ len: n, head: hs / t3 / 255, tail: ts / t3 / 255, headY: hY, tailY: tY });
+    });
+    function m(k) { return med(out.map(function (o) { return o[k]; })); }
+    return { len: m('len'), head: m('head'), tail: m('tail'), headY: m('headY'), tailY: m('tailY'), n: out.length };
+  }
+  var r = { now: {}, old: {}, page: bg, hz: hz };
+  var rates = { 60: 1000 / 60, 30: 1000 / 30 };
+  for (var key in rates) {
+    var at = lookAt(rates[key]);
+    r.display = r.display || {}; r.display[key] = at.display;
+    r.exposure = r.exposure || {}; r.exposure[key] = at.look.exposure;
+    r.now[key] = await draw(now, at.look);
+    r.old[key] = await draw(old, Object.assign({}, at.look, { exposure: at.display / 1000 * hz }));
+  }
+  buf.destroy();
+  return r;
+}
+
+/**
+ * TURNED, in the page: a bed of points (four to a cell, crowded and still) in the upper bulb, given to a grain
+ * renderer of the tree served and to one of `a` (TURN_BASE's grains.mjs, grains.wgsl and relief.wgsl), each bound
+ * to it alone and drawn three frames with the engine's own sunlit look, turned by th (the glass's angle against the
+ * room: gravity and the key turned together, as RealSand._litLook turns them); then each one's relief read back.
+ * -> { upright, turned, side: { now, old: [the upper bulb's relief, 4 floats a column] , bed }, grid } or { error }
+ */
+async function turnedRelief(a) {
+  var H = window.Hourglass, rs = H.realSand, dev = rs.device, gl = rs.glass, K0 = rs.P && rs.P.KEY_LIGHT;
+  var base = rs._look(rs.rate.hz);
+  if (!base || !base.lit || !K0 || !rs._toneTable) return { error: 'no sunlit look to start from (lit ' + !!(base && base.lit) + ', tones ' + !!rs._toneTable + ')' };
+  var W = gl.W, Rn = gl.warp.length, cl = Math.floor(gl.cy), cx = Math.round(gl.cx), Gg = rs.Gg;
+  async function renderer(mjs, wgsl, relief) {
+    var mod = await import(URL.createObjectURL(new Blob([mjs], { type: 'text/javascript' })));
+    var c = document.createElement('canvas'); c.width = rs.canvas.width; c.height = rs.canvas.height;
+    var g = new mod.GrainRenderer(dev, c, { offscreen: true });
+    await g.init({ module: function (d, name) { return Promise.resolve(d.createShaderModule({ code: name === 'relief' ? relief : wgsl })); } });
+    g.setWarp(gl.warp, gl.cx, gl.cy, rs._halfRows(), W);
+    g.setTones(rs._toneTable);
+    return g;
+  }
+  async function text(u) { return (await fetch(u)).text(); }
+  var now = await renderer(await text('realsand/grains.mjs'), await text('realsand/shaders/grains.wgsl'), await text('realsand/shaders/relief.wgsl'));
+  var old = await renderer(a.mjs, a.wgsl, a.relief);
+  /** The cells [x0, x1] x [y0, y1], four points a cell. */
+  function bed(x0, x1, y0, y1) {
+    var n = (x1 - x0 + 1) * (y1 - y0 + 1) * 4, d = new Float32Array(n * 24), k = 0;
+    for (var x = x0; x <= x1; x++) for (var y = y0; y <= y1; y++) for (var i = 0; i < 4; i++, k++) {
+      d[k * 24] = x + 0.25 + 0.5 * (i & 1); d[k * 24 + 1] = y + 0.25 + 0.5 * (i >> 1); d[k * 24 + 15] = 1; d[k * 24 + 21] = 1;
+    }
+    var b = dev.createBuffer({ size: d.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    dev.queue.writeBuffer(b, 0, d);
+    return { buf: b, n: n, x0: x0, x1: x1, y0: y0, y1: y1 };
+  }
+  async function draw(g, b, th) {
+    var c = Math.cos(th), s = Math.sin(th), L = [c * K0[0] - s * K0[1], s * K0[0] + c * K0[1], K0[2]];
+    var hl = Math.hypot(L[0], L[1], L[2] + 1), Hh = [L[0] / hl, L[1] / hl, (L[2] + 1) / hl], down = [Gg * s, -Gg * c];
+    g.bind(b.buf);
+    for (var f = 0; f < 3; f++) {
+      var look = Object.assign({}, base, { sweep: null, lit: Object.assign({}, base.lit, { key: L, half: Hh, down: down, g: Gg, side: down[1] > 1e-6 ? -1 : 1, fresh: f === 0, frame: f }) });
+      var enc = dev.createCommandEncoder();
+      g.encode(enc, b.n, look);
+      dev.queue.submit([enc.finish()]);
+    }
+    var src = g.reliefBufs[g.reliefAt], st = dev.createBuffer({ size: src.size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    var e2 = dev.createCommandEncoder(); e2.copyBufferToBuffer(src, 0, st, 0, src.size); dev.queue.submit([e2.finish()]);
+    await st.mapAsync(GPUMapMode.READ);
+    var out = Array.prototype.slice.call(new Float32Array(st.getMappedRange().slice(0)), 0, 4 * W);   // (the upper bulb's columns)
+    st.unmap(); st.destroy();
+    return out;
+  }
+  var r = { grid: { W: W, rows: Rn, cl: cl, cx: cx } };
+  // upright: the bed from the bulb's floor (the neck) up 12 cells; turned over: against the cap, its free face 14 over the neck;
+  // on its side: against the right wall
+  var cases = { upright: [0, bed(cx - 8, cx + 8, cl + 1, cl + 12)], turned: [Math.PI, bed(cx - 8, cx + 8, cl + 14, Rn - 3)], side: [Math.PI / 2, bed(cx + 2, cx + 10, cl + 1, Rn - 3)] };
+  for (var k in cases) {
+    var th = cases[k][0], b = cases[k][1];
+    r[k] = { now: await draw(now, b, th), old: await draw(old, b, th), bed: { x0: b.x0, x1: b.x1, y0: b.y0, y1: b.y1 } };
+    b.buf.destroy();
+  }
+  return r;
 }
 
 /**
@@ -543,8 +724,8 @@ async function installRelief(a) {
             for (var k = 3; k < d.length; k += 4 * 13) if (d[k] > 0) px++;
           } catch (e) { px = -2; }
         }
-        return { live: !!rs && H.sim === rs, note: document.getElementById('realsand-note').textContent,
-          rstate: document.getElementById('realsand-row').getAttribute('data-state'), state: H.timer.state,
+        return { live: !!rs && H.sim === rs, note: document.getElementById('fallback-why').textContent,
+          rstate: document.getElementById('fallback-line').getAttribute('data-state'), state: H.timer.state,
           rem: H.timer.rem, nTop: H.sim.nTop, total: H.sim.total, want: H.grainsFor(H.timer.durationMs),
           pts: rs ? rs.valve.Pts(H.sim.total) : 0, points: rs ? rs.points : 0, gpuCount: rs && rs.solver ? rs.solver.count : 0,
           tally: st && st.tally, audit: a, px: px, times: st && st.times, n: st && st.n, mode: st && st.mode,
@@ -579,13 +760,13 @@ async function installRelief(a) {
     /* ---- BOOT ------------------------------------------------------------ */
     await page.waitForFunction(function () {
       var H = window.Hourglass;
-      return !!H && ((!!H.realSand && H.sim === H.realSand) || /Could not|Needs|Did not|updating/.test(document.getElementById('realsand-note').textContent));
+      return !!H && ((!!H.realSand && H.sim === H.realSand) || /^(na|failed|gaveup|updating)$/.test(document.getElementById('fallback-line').getAttribute('data-state')));
     }, null, { timeout: 180000, polling: 200 });
     await page.evaluate(function () { window.__vt.freeze(); });
     await page.evaluate(installWatch);
     if (doCase('BOOT')) {
     var b = await fresh();
-    check(b.live && b.rstate === 'on' && /^On/.test(b.note) && b.real, 'BOOT: the engine starts on WebGPU, adopts the CPU sand and takes over (Hourglass.sim is it, the row on, "On")', b.rstate + ': ' + b.note);
+    check(b.live && b.rstate === 'on' && b.note === '' && b.real, 'BOOT: the engine starts on WebGPU, adopts the CPU sand and takes over (Hourglass.sim is it, state on, and no line at the Sand tab\'s foot)', b.rstate + ': ' + b.note);
     check(b.px > 100, 'BOOT: its canvas holds the drawn sand', b.px + ' sampled pixels drawn');
     check(!!b.tally && b.tally.points === b.points && b.points === b.pts && b.gpuCount === b.pts && b.tally.nan === 0 && b.tally.outside === 0 && b.total === b.want,
           'BOOT: the GPU holds exactly the ledger\'s points for the glass, none lost or outside', JSON.stringify({ tally: b.tally, points: b.points, total: b.total }));
@@ -1061,6 +1242,25 @@ async function installRelief(a) {
     var uD = await litFrame();
     await setLit('sunlit', 'light');
     var uL = await litFrame();
+    // the streak (release 1.22.0, engine build 11): grains in free flight drawn alone, for a 60 Hz display and a 30 Hz
+    // one, by this tree and by TURN_BASE (its renderer and its rule: one display frame), in the light look
+    var stB = null;
+    try { stB = { mjs: baseLib.show(TURN_BASE, 'realsand/grains.mjs'), wgsl: baseLib.show(TURN_BASE, 'realsand/shaders/grains.wgsl'), relief: baseLib.show(TURN_BASE, 'realsand/shaders/relief.wgsl') }; } catch (eS) { /* (checked below) */ }
+    var st = stB ? await page.evaluate(streaks, stB) : null, sn = st && st.now, so = st && st.old;
+    var stLog = function (o) { return o ? o.len + ' px, alpha head ' + f2(o.head) + ' tail ' + f2(o.tail) + ', on the page head ' + o.headY.toFixed(3) + ' tail ' + o.tailY.toFixed(3) + ' (' + o.n + ' grains)' : '?'; };
+    if (st) console.log('  streaks (' + st.hz + ' substeps/s; display ' + f2(st.display[60]) + ' and ' + f2(st.display[30]) + ' ms): this tree 60 Hz ' + stLog(sn[60]) + '; 30 Hz ' + stLog(sn[30]) + '; ' + TURN_BASE + ' 60 Hz ' + stLog(so[60]) + '; 30 Hz ' + stLog(so[30]));
+    check(!!st && sn[60].n >= 7 && sn[30].n >= 7 && so[30].n >= 7 && Math.abs(st.display[30] - 1000 / 30) < 0.5 && sn[30].len <= sn[60].len + 1 && so[30].len >= 1.5 * so[60].len,
+      'LIT: on a display of 30 Hz (Low Power Mode) a falling grain\'s streak is no longer than on one of 60 Hz (one 60 Hz frame at most), while ' + TURN_BASE + '\'s, one display frame, is at least half as long again (control)',
+      st ? 'this tree ' + sn[60].len + ' and ' + sn[30].len + ' px, ' + TURN_BASE + ' ' + so[60].len + ' and ' + so[30].len + ' px' : 'no streaks drawn (TURN_BASE not had from git?)');
+    check(!!st && sn[60].tail <= 0.6 * sn[60].head && sn[30].tail <= 0.6 * sn[30].head && so[30].tail >= 0.85 * so[30].head && so[30].tail <= 1.15 * so[30].head,
+      'LIT: ... and a comet: the third of the streak behind the grain under 0.6 of the alpha of the third at it, at 60 Hz and 30 Hz, while ' + TURN_BASE + '\'s is even along its length (control: 0.85 to 1.15)',
+      st ? 'tail over head: this tree ' + f2(sn[60].tail / sn[60].head) + ', ' + f2(sn[30].tail / sn[30].head) + '; ' + TURN_BASE + ' ' + f2(so[30].tail / so[30].head) : '');
+    check(!!st && sn[30].headY <= so[30].headY + 0.01 && sn[30].tailY >= so[30].tailY + 0.05,
+      'LIT: ... in the light look a falling grain reads on the page at its head as it did (its darkest pixel there no lighter than ' + TURN_BASE + '\'s, + 0.01), while its tail is paler than ' + TURN_BASE + '\'s by at least 0.05 (no dark stick)',
+      st ? 'darkest at the head ' + sn[30].headY.toFixed(3) + ' against ' + so[30].headY.toFixed(3) + ', in the tail ' + sn[30].tailY.toFixed(3) + ' against ' + so[30].tailY.toFixed(3) : '');
+    // Soft is the picture of before with the streaks set aside: both renderers draw every grain sharp (exposure 0) until
+    // after the turn below (from build 11 a streak is a comet, whose shape the checks above hold)
+    await page.evaluate(function () { window.__lit.noStreak = true; });
     await setLit('soft', 'dark');
     var sA = await litFrame();
     check(uD.ok && uL.ok && uD.light.on && uD.light.m === 0 && uL.light.m === 1 && uD.flanks.ratio >= SUN && uL.flanks.ratio >= SUN,
@@ -1071,7 +1271,7 @@ async function installRelief(a) {
     check(sA.ok && uD.ok && uL.ok && !sA.light.on && sA.flanks.rel > 0.9 && sA.flanks.rel < 1.1 && uD.flanks.rel >= SUN && uL.flanks.rel >= SUN,
       'LIT: ... and under Soft the two sides are alike: the flank ratio over the light-free picture of the same grains in the same frame (the base\'s) is 1 under Soft (0.9 to 1.1), while Sunlit\'s is at least ' + SUN + ' in both looks (control)',
       'soft ' + f2(sA.flanks.rel) + ', sunlit dark ' + f2(uD.flanks.rel) + ', light ' + f2(uL.flanks.rel) + ' (the bed itself: ' + f2(sA.flanks.base) + ', ' + f2(uD.flanks.base) + ', ' + f2(uL.flanks.base) + ' : 1)');
-    check(sA.ok && sA.same.differ === 0 && sA.same.drawn > 5000, 'LIT: Soft is the picture of ' + LIT_BASE + ', byte for byte: at rest', JSON.stringify(sA.same));
+    check(sA.ok && sA.same.differ === 0 && sA.same.drawn > 5000, 'LIT: Soft is the picture of ' + LIT_BASE + ', byte for byte (the streaks set aside: every grain drawn sharp in both): at rest', JSON.stringify(sA.same));
     check(uD.same.differ > 0.2 * uD.same.drawn && uL.same.differ > 0.2 * uL.same.drawn, 'LIT: ... while Sunlit is another picture (control)',
       'dark ' + uD.same.differ + ' of ' + uD.same.drawn + ' pixels differ, light ' + uL.same.differ + ' of ' + uL.same.drawn);
     // the stream running, soft
@@ -1098,6 +1298,7 @@ async function installRelief(a) {
     await frames(120);
     var sD = await litFrame();
     check(sD.ok && sD.same.differ === 0 && sD.same.drawn > 5000, 'LIT: Soft is the picture of ' + LIT_BASE + ': after the turn', JSON.stringify(sD.same));
+    await page.evaluate(function () { window.__lit.noStreak = false; });
     // after that full turn the engine's points lie turned end for end; a new glass (a Reset: the bed even again) is lit from the screen's left as before
     await page.evaluate(function () { window.Hourglass.reset(); });
     await frames(150, sweeping);
@@ -1268,6 +1469,43 @@ async function installRelief(a) {
     }
     }
 
+    /* ---- TURNED ---------------------------------------------------------- */
+    if (doCase('TURNED')) {
+    var tOld = {};
+    try { var tb = require('./lib/base.js'); tOld = { mjs: tb.show(TURN_BASE, 'realsand/grains.mjs'), wgsl: tb.show(TURN_BASE, 'realsand/shaders/grains.wgsl'), relief: tb.show(TURN_BASE, 'realsand/shaders/relief.wgsl') }; }
+    catch (et) { /* (checked below) */ }
+    check(!!tOld.relief, 'TURNED: the grain renderer and relief of ' + TURN_BASE + ' are had from git', tOld.relief ? '' : 'git show failed: the commit is not in this clone');
+    if (tOld.relief) {
+    await page.evaluate(function () { var b = document.querySelector('#lights [data-light="sunlit"]'); if (b.getAttribute('aria-checked') !== 'true') b.click(); });
+    await frames(12);
+    var tr = await page.evaluate(turnedRelief, tOld);
+    check(!tr.error, 'TURNED: the beds were drawn', tr.error || JSON.stringify(tr.grid));
+    if (!tr.error) {
+      /** The inner columns of a case's bed (two in from each side): [x, height, light, glint, trust] for this tree (now) or the base (old). */
+      var inner = function (c, who) { var o = []; for (var x = c.bed.x0 + 2; x <= c.bed.x1 - 2; x++) o.push([x].concat(c[who].slice(4 * x, 4 * x + 4).map(function (v) { return +v.toFixed(3); }))); return o; };
+      var u = tr.upright, tu = tr.turned, sd = tr.side, uN = inner(u, 'now'), tN = inner(tu, 'now'), tO = inner(tu, 'old'), sN = inner(sd, 'now'), sO = inner(sd, 'old');
+      var same = u.now.length === u.old.length && u.now.every(function (v, i) { return v === u.old[i]; });
+      check(same && uN.every(function (c) { return Math.abs(c[1] - (u.bed.y1 + 1)) <= 1 && c[4] > 0.5; }),
+        'TURNED: upright, the relief of this tree and of ' + TURN_BASE + ' are alike to the bit: the bed\'s top (row ' + (u.bed.y1 + 1) + '), trusted',
+        JSON.stringify(uN.slice(0, 3)));
+      check(tN.every(function (c) { return Math.abs(c[1] - tu.bed.y0) <= 1 && c[4] > 0.5; }),
+        'TURNED: turned over (gravity up the grid, the bed against the cap from row ' + tu.bed.y0 + ' to ' + tu.bed.y1 + '), the surface found is the bed\'s free face, trusted',
+        JSON.stringify(tN.slice(0, 3)));
+      var lightUp = uN.reduce(function (s, c) { return s + c[2]; }, 0) / uN.length, lightTurned = tN.reduce(function (s, c) { return s + c[2]; }, 0) / tN.length;
+      check(Math.abs(lightTurned - lightUp) <= 0.02 * lightUp,
+        'TURNED: ... lit as the same face upright is: it faces the room\'s up (the light ' + lightTurned.toFixed(3) + ' against ' + lightUp.toFixed(3) + ' upright)', '');
+      var oldLight = tO.reduce(function (s, c) { return s + c[2]; }, 0) / tO.length;
+      check(tO.every(function (c) { return c[1] - tu.bed.y0 > 5; }) && tO.some(function (c) { return c[4] > 0.5; }) && oldLight < 0.9 * lightUp,
+        'TURNED: ... while ' + TURN_BASE + ' takes the bed\'s end against the cap for its surface (row ' + (tO[0] && tO[0][1]) + '), trusts it and shades it (' + oldLight.toFixed(3) + ') (control)',
+        JSON.stringify(tO.slice(0, 3)));
+      check(sd.now.every(function (v, i) { return i % 4 !== 3 || v === 0; }),
+        'TURNED: on its side (gravity across the grid, the bed against the right wall), no column is trusted: the columns stand for no surface', JSON.stringify(sN.slice(0, 3)));
+      check(sO.some(function (c) { return c[4] > 0.5; }),
+        'TURNED: ... while ' + TURN_BASE + ' trusts the bed\'s columns, their tops the bulb\'s roof (control)', JSON.stringify(sO.slice(0, 3)));
+    }
+    }
+    }
+
     /* ---- SHAPES ---------------------------------------------------------- */
     if (doCase('SHAPES')) {
     var SHAPE_IDS = SHAPE_LIST || await page.evaluate(function () { var P = window.HourglassPhysics; return P.SHAPE_ORDER.filter(function (id) { return P.SHAPES[id].offered; }); });
@@ -1281,7 +1519,7 @@ async function installRelief(a) {
       await page.reload();
       await page.waitForFunction(function () {
         var H = window.Hourglass;
-        return !!H && ((!!H.realSand && H.sim === H.realSand) || /Could not|Needs|Did not|updating/.test(document.getElementById('realsand-note').textContent));
+        return !!H && ((!!H.realSand && H.sim === H.realSand) || /^(na|failed|gaveup|updating)$/.test(document.getElementById('fallback-line').getAttribute('data-state')));
       }, null, { timeout: 180000, polling: 200 });
       await page.evaluate(function () { window.__vt.freeze(); });
       await page.evaluate(installWatch);

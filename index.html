@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Hourglass</title>
   <!-- this page's release: sw.js's VERSION names the same (check-release); Tune's last line shows it -->
-  <meta name="hourglass-version" content="1.21.1">
+  <meta name="hourglass-version" content="1.22.0">
   <meta name="description" content="A hyper-realistic sand hourglass timer. Every grain is simulated; every sound is synthesised live.">
   <meta name="theme-color" content="#0b0c0e">
   <meta name="color-scheme" content="dark">
@@ -18,7 +18,8 @@
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
   <link rel="icon" href="./icons/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
-  <!-- iPhone launch screens: dark, so a home-screen launch never flashes white -->
+  <!-- iPhone launch screens: dark, so a home-screen launch never flashes white (dark in the light
+       look too: a launch screen cannot read the saved choice; the page below is in its look) -->
   <link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./icons/splash/splash-1320x2868.png">
   <link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./icons/splash/splash-1290x2796.png">
   <link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="./icons/splash/splash-1206x2622.png">
@@ -30,8 +31,8 @@
   <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="./icons/splash/splash-828x1792.png">
   <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="./icons/splash/splash-750x1334.png">
   <!-- The background, before the first paint: the saved choice (app/settings.js, 'background') read
-       here as app.js reads it ("Light and dark"), so a light look never opens on a dark frame and
-       the dark one never on a light frame. Dark is the page as it has always been: nothing is set. -->
+       here as app.js reads it ("Light and dark"), so the page's first frame is never in the other
+       look (the launch screens above and the manifest's colours stay dark). Dark is the page as it has always been: nothing is set. -->
   <script>
     (function () {
       try {
@@ -204,10 +205,6 @@
             <span><b>Layered sand</b><small>Two tones that settle into strata as they fall</small></span>
             <input id="opt-layers" class="switch" type="checkbox" role="switch">
           </label>
-          <label class="row" for="opt-realsand" id="realsand-row">
-            <span><b>Real sand</b><small id="realsand-note">On: every grain simulated on the graphics chip</small></span>
-            <input id="opt-realsand" class="switch" type="checkbox" role="switch">
-          </label>
           <div class="row" id="grain-row">
             <span><b>Grain</b><small id="grain-note">Finer sand is more grains, and more work for the phone</small></span>
           </div>
@@ -239,6 +236,8 @@
         </div>
 
         <p class="colophon"><span id="grain-count">—</span> grains<span id="spilled"></span>, each one simulated<span id="sim-where"></span>. Every sound is synthesised live.</p>
+        <!-- only where the sand cannot be simulated on the graphics chip (app.js, showReal): why, and a report after a failure -->
+        <p class="colophon fallback" id="fallback-line" data-state="starting" hidden><span id="fallback-why"></span></p>
       </div>
 
       <!-- Glass: its shape, and the frame round it -->

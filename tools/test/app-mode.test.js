@@ -47,40 +47,16 @@ var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 
 /* ---- every wait has an end, and what comes back from a page is small ---------------------- */
-// A question to a page (page.evaluate) has no time limit of its own: a frame that is never drawn,
-// a picture that is never read back, would hang the run. Here each one ends after ASK_MS with an
-// error that says which question it was, and the case fails by name (run(), in main).
-//
-// And every value of an answer costs Playwright's protocol about 5 µs and 200 bytes of this
-// process's memory while it crosses (measured with 1.63: an array of a million numbers takes
-// 5.6 s and 190 MB; the glass's two drawn canvases, 19 million numbers, 100 s and over 3 GB a
-// time, ten times in FADE). So pixels are kept and measured in the page (pixels(), below), and an
-// answer of more than ANSWER_MAX values is refused in the page, before it crosses: the case fails
-// and says which question gave it.
-var ASK_MS = 30000, ANSWER_MAX = 20000, RSS_MAX_MB = 1000;
-/** What `p` gives or, after `ms`, an error that says what did not come. */
-function within(ms, what, p) {
-  var timer, late = new Promise(function (_, fail) { timer = setTimeout(function () { fail(new Error(what + ': nothing after ' + ms / 1000 + ' s')); }, ms); });
-  return Promise.race([p, late]).finally(function () { clearTimeout(timer); });
-}
-/**
- * In the page: fn(arg), awaited, and its answer counted there (every number, string, array and
- * object of it; a typed array is one): over `max` values it is not sent.
- */
-function smallAnswer(fn, arg, max) {
-  return Promise.resolve(fn(arg)).then(function (v) {
-    var n = 0, todo = [v], seen = new Set(), x, k;
-    while (todo.length && n + todo.length <= max) {
-      x = todo.pop(); n++;
-      if (!x || typeof x !== 'object' || ArrayBuffer.isView(x) || seen.has(x)) continue;
-      seen.add(x);
-      if (Array.isArray(x)) { if (n + todo.length + x.length > max) { n += x.length; break; } for (k = 0; k < x.length; k++) todo.push(x[k]); }
-      else for (k in x) todo.push(x[k]);
-    }
-    if (n + todo.length > max) throw new Error('the answer holds more than ' + max + ' values (' + (n + todo.length) + ' at the least): measure in the page and send the measure');
-    return v;
-  });
-}
+// A question to a page (page.evaluate) has no time limit of its own, and every value of an answer
+// costs Playwright's protocol about 5 µs and 200 bytes of this process's memory while it crosses
+// (the glass's two drawn canvases, 19 million numbers, 100 s and over 3 GB a time, ten times in
+// FADE). Here each question ends after ASK_MS with an error that says which it was, and an answer
+// of more than ANSWER_MAX values is refused in the page (lib/ask.js, which the harness's t.eval
+// uses too); pixels are kept and measured in the page (pixels(), below). The case fails by name
+// (run(), in main).
+var ASK = require('./lib/ask.js');
+var ASK_MS = ASK.ASK_MS, ANSWER_MAX = ASK.ANSWER_MAX, RSS_MAX_MB = 1000;
+var within = ASK.within, smallAnswer = ASK.smallAnswer;
 var OPEN = [];                      // the pages a case has open (closed for it if it fails)
 /** A page whose every question has an end and a small answer. */
 function bounded(t) {
@@ -102,7 +78,7 @@ function bounded(t) {
   OPEN.push(t);
   return t;
 }
-/** env.open with `storage` the settings to save (under the app's key, over a version-2 save with Real sand off). */
+/** env.open with `storage` the settings to save (under the app's key, over a version-3 save with Real sand off). */
 function opn(env, o) {
   o = Object.assign({}, o || {});
   if (o.storage) { var st = {}; st[KEY] = o.storage; o.storage = st; }
@@ -110,6 +86,9 @@ function opn(env, o) {
 }
 
 var KEY = 'hourglass.settings.v1';
+// Daytime is by the device's own clock, never UTC's: its cases open in a zone nine hours from UTC
+// (no summer time), where the UTC hour is on the other side of 7:00 and 19:00 at noon and at 18:00
+var ZONE = 'Asia/Tokyo';
 var SHOTS = process.env.HOURGLASS_SHOTS || '';
 var PAPER = '#f3f0ea', NIGHT = '#0b0c0e';
 
@@ -300,7 +279,7 @@ async function outline(t) {
 async function choices(s, env) {
   var rows = [];
   for (var c of ['dark', 'light', 'system', 'hours']) {
-    var t = await opn(env, { storage: { background: c }, timezoneId: 'UTC', init: fakeClock, initArg: [12, 0, 0] });
+    var t = await opn(env, { storage: { background: c }, timezoneId: ZONE, init: fakeClock, initArg: [12, 0, 0] });
     await sleep(500);
     var l = await lookOf(t);
     var want = c === 'dark' ? 'dark' : 'light';          // (system: the browser's scheme, light here; hours: noon)
@@ -387,7 +366,7 @@ async function reset(s, env) {
 async function first(s, env) {
   var rows = [], ok = true;
   async function one(choice, scheme, hour, want, routes) {
-    var t = await opn(env, { storage: { background: choice }, timezoneId: 'UTC', init: fakeClock, initArg: [hour, 0, 0], routes: routes });
+    var t = await opn(env, { storage: { background: choice }, timezoneId: ZONE, init: fakeClock, initArg: [hour, 0, 0], routes: routes });
     if (scheme) await t.page.emulateMedia({ colorScheme: scheme });
     await t.context.addInitScript(firstFrame);
     await t.reload();
@@ -404,6 +383,15 @@ async function first(s, env) {
   var noEarly = routed(env, 'index.html', function (src) { return src.replace(/<script>\s*\(function \(\) \{\s*try \{\s*var s = JSON\.parse[\s\S]*?<\/script>/, ''); });
   var ctl = await one('light', null, 12, 'light', [noEarly]);
   s.check('... and the page without its early script opens a light choice on a dark first frame (control)', !ctl.good, ctl.said);
+  var utc = await one('hours', null, 12, 'light', [utcPage(env)]);
+  s.check('... and a page whose early script reads the UTC hour opens Daytime at noon in ' + ZONE + ' on a dark first frame (control)', !utc.good, utc.said);
+}
+/** Copies that read the UTC hour for Daytime, not the device's (the app, and the page's early script). */
+function utcApp(env) {
+  return routed(env, 'app.js', function (src) { return src.replace("var h = date.getHours(); return h >= DAY[0]", "var h = date.getUTCHours(); return h >= DAY[0]").replace('h = now.getHours();\n    next.setHours(', 'h = now.getUTCHours();\n    next.setUTCHours('); });
+}
+function utcPage(env) {
+  return routed(env, 'index.html', function (src) { return src.replace("h = new Date().getHours(), light = false;", "h = new Date().getUTCHours(), light = false;"); });
 }
 
 async function system(s, env, routes) {
@@ -423,7 +411,7 @@ async function systemCase(s, env) {
 }
 
 async function hoursAt(env, h, m, sec, routes) {
-  var t = await opn(env, { storage: { background: 'hours' }, timezoneId: 'UTC', init: fakeClock, initArg: [h, m, sec], routes: routes });
+  var t = await opn(env, { storage: { background: 'hours' }, timezoneId: ZONE, init: fakeClock, initArg: [h, m, sec], routes: routes });
   await sleep(300);
   return t;
 }
@@ -435,7 +423,10 @@ async function hoursCase(s, env) {
     a = await lookOf(t); await t.close();
     rows.push(c[0] + ':' + String(c[1]).padStart(2, '0') + ' ' + a.look); ok = ok && a.look === c[3] && lookIs(a, c[3], 'hours');
   }
-  s.check('HOURS: Daytime by the device\'s clock: dark at 6:59 and 19:00:30 and 0:30, light at 7:00:30, 18:59 and noon', ok, rows.join(', '));
+  s.check('HOURS: Daytime by the device\'s clock (in ' + ZONE + '): dark at 6:59 and 19:00:30 and 0:30, light at 7:00:30, 18:59 and noon', ok, rows.join(', '));
+  t = await hoursAt(env, 12, 0, 0, [utcApp(env), utcPage(env)]);
+  a = await lookOf(t); await t.close();
+  s.check('... and an app that reads the UTC hour is dark at noon there (control)', a.look === 'dark', said(a));
   // carried across each boundary while open
   async function across(h, m, sec, routes) {
     var u = await hoursAt(env, h, m, sec, routes), x = (await lookOf(u)).look;
@@ -473,6 +464,52 @@ async function hoursCase(s, env) {
   });
   var ctl2 = await back(18, 19, [noReturn]);
   s.check('... and an app that does not look again on its return stays light (control)', ctl2 !== 'light→dark', ctl2);
+
+  // the clock set by hand, or the time zone changed (after a flight), with the app open and in front:
+  // no event comes, and the timer for 19:00 counts the time gone by, not the clock
+  async function moved(how, routes) {
+    var u = await opn(env, { storage: { background: 'hours' }, timezoneId: how === 'zone' ? undefined : ZONE, init: fakeClock, initArg: [18, 0, 0], routes: routes });
+    if (how === 'zone') {          // (the zone set by this page's own session, which alone can change it again: then the page opened in it)
+      await u.cdp.send('Emulation.setTimezoneOverride', { timezoneId: 'Europe/London' });
+      await u.reload();
+    }
+    await sleep(300);
+    var x = (await lookOf(u)).look;
+    if (how === 'clock') await u.eval(function () { window.__setClock(19, 30, 0); });
+    else await u.cdp.send('Emulation.setTimezoneOverride', { timezoneId: 'Asia/Tokyo' });   // (18:00 in London is 3:00 there)
+    await sleep(12500);
+    var y = await lookOf(u), h = await u.eval(function () { return new Date().getHours(); });
+    await u.close();
+    return { said: x + '→' + y.look + ' (' + h + ':xx)', ok: x === 'light' && y.look === (h >= 7 && h < 19 ? 'light' : 'dark') && lookIs(y, y.look, 'hours'), look: y.look };
+  }
+  var clock = await moved('clock'), zone = await moved('zone');
+  s.check('HOURS: the clock set from 18:00 to 19:30 with the app open and in front, no event: dark within 12.5 s; the zone changed from London (18:00) to Tokyo: the look of the hour there, dark',
+    clock.ok && clock.look === 'dark' && zone.ok && zone.look === 'dark', clock.said + ', zone ' + zone.said);
+  var noClock = routed(env, 'app.js', function (src) { return src.replace('if (!lookClockTimer) lookClockTimer = setInterval(lookClock, 10000);', ''); });
+  var ctl3 = await moved('clock', [noClock]);
+  s.check('... and an app that does not look at the clock while open stays light after the clock is set (control)', ctl3.look === 'light', ctl3.said);
+
+  // the note under the row in the device's own clock, as the state line's end
+  async function note(locale, routes) {
+    var u = await opn(env, { storage: { background: 'hours', endsAt: true }, locale: locale, timezoneId: ZONE, init: fakeClock, initArg: [12, 0, 0], routes: routes });
+    await sleep(500);
+    await u.eval(function () { window.Hourglass.setDuration(60000); });
+    await sleep(2600);
+    await u.eval(function () { window.Hourglass.start(); });
+    await sleep(1200);
+    var r = await u.eval(function () {
+      var b = document.querySelector('#looks [data-look="hours"]');
+      return { note: document.getElementById('look-note').textContent, label: b.getAttribute('aria-label'), ends: (document.getElementById('ends') || {}).textContent || '' };
+    });
+    await u.close();
+    return r;
+  }
+  var us = await note('en-US'), gb = await note('en-GB'), twelve = /7:00\s?AM to 7:00\s?PM/;
+  s.check('HOURS: the note under Background says Daytime\'s hours in the device\'s clock, as the state line\'s end does: en-US "' + us.note.replace(/[\s\S]*Daytime is /, '').trim() + '" and "' + us.ends.trim() + '"; en-GB "' + gb.note.replace(/[\s\S]*Daytime is /, '').trim() + '"',
+    twelve.test(us.note) && twelve.test(us.label) && /\d:\d\d\s?[AP]M/.test(us.ends) && /07:00 to 19:00/.test(gb.note) && !/[AP]M/.test(gb.ends) && /\d\d:\d\d/.test(gb.ends), JSON.stringify([us, gb]));
+  var fixed = routed(env, 'app.js', function (src) { return src.replace("if (note) note.textContent = note.textContent.replace('7:00 to 19:00', a + ' to ' + z);", ''); });
+  var ctl4 = await note('en-US', [fixed]);
+  s.check('... and an app that leaves the note as written says 19:00 beside a 12-hour end (control)', !twelve.test(ctl4.note) && /19:00/.test(ctl4.note), ctl4.note);
 }
 
 async function running(s, env) {
@@ -536,6 +573,35 @@ async function contrast(s, env) {
   var ctl = await measure('light', [pale]);
   s.check('... and a light look with a paler third ink falls under 4.5 to 1 (control)', ctl.some(function (x) { return x.ratio < 4.5; }),
     ctl.filter(function (x) { return x.ratio < 4.5; }).length + ' texts under');
+
+  // the Sand button held (a pour): its word in each of the nine sands and a very pale custom one
+  async function held(look, routes) {
+    var t = await opn(env, { storage: { background: look, sandColor: '45,0.2,0.97' }, routes: routes }), out = [];
+    await sleep(700);
+    for (var id of ['sahara', 'volcanic', 'moonstone', 'lapis', 'rosequartz', 'seaglass', 'garnet', 'olivine', 'amethyst', 'custom']) {
+      await t.eval(function (id) { window.Hourglass.setSand(id); }, id);
+      await sleep(300);
+      var b = await t.page.$eval('#btn-sand', function (e) { var q = e.getBoundingClientRect(); return { x: q.left + q.width / 2, y: q.top + q.height / 2 }; });
+      await t.page.mouse.move(b.x, b.y); await t.page.mouse.down();
+      await sleep(450);                                 // (the button's colour eases over 0.2 s)
+      var m = (await contrasts(t, '#btn-sand'))[0], on = await t.eval(function () { return document.getElementById('btn-sand').classList.contains('held'); });
+      await t.page.mouse.up();
+      out.push({ sand: id, held: on, ratio: m ? m.ratio : 0, color: m ? m.color : null });
+      await sleep(200);
+    }
+    await t.close();
+    return out;
+  }
+  var hl = await held('light'), hd = await held('dark');
+  var hlow = hl.filter(function (x) { return !x.held || x.ratio < 4.5; });
+  s.check('CONTRAST: the Sand button held (a pour) in the light look wears the deeper accent: its word 4.5 to 1 or more against its ground in each of the nine sands and a very pale custom one (the lowest ' +
+    Math.min.apply(null, hl.map(function (x) { return x.ratio; })) + '); in the dark look the sand\'s own accent as before',
+    hlow.length === 0 && hd.every(function (x) { return x.held; }) && hd.some(function (x, k) { return x.color !== hl[k].color; }),
+    hlow.map(function (x) { return x.sand + ' ' + x.ratio + (x.held ? '' : ' (not held)'); }).join(', ') || hd.map(function (x) { return x.sand + ' ' + x.color; }).join(', '));
+  var noHeld = routed(env, 'styles.css', function (src) { return src.replace('html[data-look="light"] .act.held { color: var(--accent-text); }', ''); });
+  var hc = await held('light', [noHeld]), hcl = hc.filter(function (x) { return x.ratio < 4.5; });
+  s.check('... and a style sheet whose held Sand button wears the sand\'s own accent on paper falls under 4.5 to 1 (control: ' + hcl.map(function (x) { return x.sand + ' ' + x.ratio; }).join(', ') + ')',
+    hcl.length > 0, JSON.stringify(hc.slice(0, 3)));
 }
 
 async function outlineCase(s, env, label, opts) {
@@ -767,6 +833,42 @@ async function dbl(s, env) {
   var slowOk = routed(env, 'app.js', function (src) { return src.replace('var DBL = { ms: 500, px: 8 };', 'var DBL = { ms: 2000, px: 8 };'); });
   var c3 = await dblRun(env, { routes: [slowOk] }, async function (t) { var p = await bg(t); await t.page.mouse.click(p.x, p.y); await sleep(750); await t.page.mouse.click(p.x, p.y); await sleep(300); return zenOf(t); });
   s.check('... and an app that waits 2 s for the second click takes the slow pair for a double-click (control)', c3.zen, JSON.stringify(c3));
+
+  // a touch screen whose browser has no vibration (an iPad with a mouse, a trackpad or a Pencil; Firefox
+  // on a touch-screen PC): the app lays its haptic labels over every control and over the glass's stage
+  // (hapticMount), and a click lands on a label, which is what it lies over
+  function noVibrate() { delete Navigator.prototype.vibrate; }
+  async function labelled(routes) {
+    return dblRun(env, { init: noVibrate, routes: routes }, async function (t) {
+      var p = await bg(t), out = { labels: await t.eval(function () { return document.querySelectorAll('label.haptic').length; }) };
+      out.hit = await t.eval(function (p) { var e = document.elementFromPoint(p.x, p.y); return e ? e.tagName + (e.className ? '.' + e.className : '') : null; }, p);
+      await t.page.mouse.dblclick(p.x, p.y); await sleep(300);
+      out.mouse = (await zenOf(t)).zen;
+      await sleep(1800);
+      await t.page.mouse.dblclick(p.x, p.y); await sleep(300);
+      out.mouseOut = (await zenOf(t)).zen;
+      await sleep(600);
+      for (var n = 1; n <= 2; n++) {                       // a pen's double-click (the Input domain's own pen)
+        await t.cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', clickCount: n, pointerType: 'pen' });
+        await t.cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', clickCount: n, pointerType: 'pen' });
+      }
+      await sleep(300);
+      out.pen = (await zenOf(t)).zen;
+      await sleep(1800);
+      var m = await t.page.$eval('#btn-mute', function (e) { var r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      await t.page.mouse.dblclick(p.x, p.y); await sleep(1800);          // (out of Zen again, then a control)
+      await t.page.mouse.dblclick(m.x, m.y); await sleep(300);
+      out.onMute = (await zenOf(t)).zen;
+      out.errors = t.errors.slice(0, 2);
+      return out;
+    });
+  }
+  var r5 = await labelled();
+  s.check('DBL: on a touch screen without vibration (haptic labels over the controls and the glass: ' + r5.labels + '; the click lands on ' + r5.hit + ') a double-click of the mouse brings Zen and another takes it away, a pen\'s brings it too, and one on the mute button\'s label does not',
+    r5.labels > 10 && /^LABEL/.test(r5.hit || '') && r5.mouse && !r5.mouseOut && r5.pen && !r5.onMute && r5.errors.length === 0, JSON.stringify(r5));
+  var asControl = routed(env, 'app.js', function (src) { return src.replace('if (el && el._host) el = el._host;', ''); });
+  var c5 = await labelled([asControl]);
+  s.check('... and an app that takes a haptic label for a control brings no Zen there, by the mouse or the pen (control)', !c5.mouse && !c5.pen, JSON.stringify(c5));
 }
 
 async function keys(s, env) {
@@ -803,14 +905,21 @@ function shortDvh(env, change) {
   return routed(env, 'styles.css', function (src) { return (change ? change(src) : src).split('100dvh').join('calc(100dvh - 34px)'); });
 }
 /**
- * A step in the ground: each of four columns near the screen's two sides scanned from the top edge
- * to the bottom, the mean of the 5 pixels above each point against the 5 below it, outside every
- * control (the bars, the chip, the buttons, the time, a sheet, the glass and its shadow). A
- * gradient of the room changes by a few levels over that span; a seam by more than 12.
+ * A step in the ground: each of four columns near the screen's two sides, and three under the bottom
+ * bar (a quarter, half and three quarters across; from 30 px below it, where its shadow's own fall has
+ * eased), scanned from the top edge to the bottom, the mean
+ * of the 5 pixels above each point against the 5 below it, outside every control (the bars, the chip,
+ * the buttons, the time, a sheet, the glass and its shadow). A gradient of the room changes by a few
+ * levels over that span; a seam by more than 12. The bottom bar's shadow is in the picture: it reaches
+ * past the app's box, which cuts it at its foot where the box ends above the screen's (1.22.0: in a
+ * fade it is the paper's from a quarter of the way; the dark one half way to the paper stepped by up
+ * to 20 there, and from 1.21.1 to 1.22.0 this scan left the shadow out).
  * -> { steps: [{ x, y, above, below }], box: whether the app's own box is the window's }
  */
 async function seams(t) {
-  var size = await t.eval(function () { return { w: innerWidth, h: innerHeight }; });
+  var size = await t.eval(function () {
+    return new Promise(function (done) { requestAnimationFrame(function () { requestAnimationFrame(function () { done({ w: innerWidth, h: innerHeight }); }); }); });
+  });
   await pixels(t, { x: 0, y: 0, width: size.w, height: size.h }, 'screen');
   // (the columns are scanned in the page, where the screen's pixels are kept; a column steps at most once in 9 pixels)
   return t.eval(function () {
@@ -820,15 +929,17 @@ async function seams(t) {
         var r = e.getBoundingClientRect(), cs = getComputedStyle(e);
         if (r.width && r.height && cs.visibility !== 'hidden' && +cs.opacity > 0) boxes.push([r.left - 2, r.top - (e.classList.contains('sheet') ? 90 : 4), r.right + 2, r.bottom + 4]);
       });
-      var a = document.getElementById('app').getBoundingClientRect();
-      return { boxes: boxes, app: [a.left, a.top, a.right, a.bottom] };
+      var a = document.getElementById('app').getBoundingClientRect(), p = document.querySelector('#hud-bottom .panel'), pb = p ? p.getBoundingClientRect() : null;
+      return { boxes: boxes, app: [a.left, a.top, a.right, a.bottom], bar: pb && pb.height ? [pb.left, pb.top, pb.right, pb.bottom] : null };
     })();
     var W = px.w, Hh = px.h, d = px.d, steps = [];
     function inside(x, y) { return info.boxes.some(function (b) { return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; }); }
     function mean(x, y0, y1) { var r = [0, 0, 0]; for (var y = y0; y < y1; y++) { var i = (y * W + x) * 4; r[0] += d[i]; r[1] += d[i + 1]; r[2] += d[i + 2]; } return r.map(function (v) { return Math.round(v / (y1 - y0)); }); }
-    [3, 6, W - 7, W - 4].forEach(function (x) {
+    // (under the bar the scan begins 30 px below it: nearer, the shadow's own fall is steeper than a seam's 12 in 10 px)
+    function nearBar(x, y) { var b = info.bar; return !!b && x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3] + 30; }
+    [3, 6, W - 7, W - 4, Math.round(W / 4), Math.round(W / 2), Math.round(3 * W / 4)].forEach(function (x) {
       for (var y = 6; y < Hh - 6; y++) {
-        if (inside(x, y - 6) || inside(x, y + 6)) continue;
+        if (inside(x, y - 6) || inside(x, y + 6) || nearBar(x, y - 6)) continue;
         var a = mean(x, y - 6, y - 1), b = mean(x, y + 1, y + 6);
         if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) > 12) { steps.push({ x: x, y: y, above: a, below: b }); y += 8; }
       }
@@ -916,6 +1027,12 @@ async function ground(s, env) {
   var sh = await shortGround(s, env);
   s.check('GROUND: with the layout viewport ' + SHORT + ' px shorter than the window, at the bottom and at the top, the canvas shown there meets the room with no step, in both looks, at 393 x 852 and 375 x 667, in Zen and with Tune open, and half way through a fade either way',
     sh.ok, sh.rows.join('; '));
+  // control: the bar's shadow in a fade as it was before 1.22.0 (the dark one half way to the paper), half way through a fade
+  var oldShadow = function (src) { var o = src.replace('rgba(60, 46, 28, 0.14) min(100%, 4 * var(--lp)))', 'rgba(60, 46, 28, 0.14) var(--lp))'); if (o === src) throw new Error('app-mode: the fade\'s bar shadow is not in styles.css'); return o; };
+  var shSh = [];
+  for (look of ['dark', 'light']) { r = await groundCase(env, look, [393, 852], 'fade', [shortView(env, 'bottom', oldShadow)], 'short-bottom-oldshadow', 'shot'); shSh.push(look + ' faded half way (' + r.lk + ')' + (r.steps.length ? ' ' + JSON.stringify(r.steps.slice(0, 2)) : ' one')); }
+  s.check('... and with the bar\'s shadow in a fade as it was before 1.22.0 (the dark look\'s half way to the paper), half way through a fade either way the shadow steps where the app\'s box ends above the screen\'s foot (control)',
+    shSh.every(function (x) { return !/ one$/.test(x); }), shSh.join('; '));
   var shOld = await shortGround(s, env, oldGround);
   var stepped = shOld.rows.filter(function (x) { return !/ one$/.test(x); }), must = shOld.rows.filter(function (x) { return /^light \d+x\d+ plain|tune top|faded/.test(x); });
   s.check('... and with the ground as it was (the room\'s edge shaded, the canvas the page\'s own colour, the scrim to the edges) the band shows as a step: in the light look at both ends at both sizes, with Tune open at the top in both looks, half way through a fade, ' + stepped.length + ' of ' + shOld.rows.length + ' in all (control)',
@@ -1252,6 +1369,38 @@ async function measuresCase(s, env) {
     var gone = await t.eval(function () { var l = document.getElementById('measures-line'); return !l || l.hidden; });
     s.check('MEASURES: a tap on the version line shows one small line under it, the page\'s measures exactly (' + m.text + '), still there 5 s later and gone by 8.7 s; nothing more is stored',
       !before && m.shown && m.after && m.text === m.want && m.size <= 11 && mid && gone && m.stored === 'hourglass.settings.v1', JSON.stringify(m) + ' mid ' + mid + ' gone ' + gone);
+  } finally { await t.close(); }
+  // in sight (1.22.0): on a small phone (a home-screen app's, its layout viewport 59 px short at the bottom: GROUND)
+  // the version line is reached with Tune scrolled to its foot, and the line
+  // shown under it is brought into the scroller's view (control: app.js without that, where it shows below the foot)
+  var seen = await measuresSeen(env), unseen = await measuresSeen(env, [routed(env, 'app.js', function (src) {
+    var o = src.replace("    if (m.scrollIntoView) m.scrollIntoView({ block: 'nearest' });", ''); if (o === src) throw new Error('app-mode: the readout\'s scroll is not in app.js'); return o; })]);
+  s.check('MEASURES: at 375 x 667, the layout viewport ' + SHORT + ' px short, Tune scrolled to its foot, the line shown under the version line is in sight in the sheet\'s scroller, whole',
+    seen.whole, JSON.stringify(seen));
+  s.check('... and with app.js not bringing it into view it is below the scroller\'s foot (control)', unseen.shown && !unseen.whole, JSON.stringify(unseen));
+}
+/** Tune open on a small phone, scrolled to its foot, the version line tapped: where the readout is against its scroller. */
+async function measuresSeen(env, routes) {
+  var t = await opn(env, { storage: { background: 'light' }, viewport: { width: 375, height: 667 }, routes: [shortView(env, 'bottom')].concat(routes || []) });
+  try {
+    await sleep(700);
+    await tune.open(t);
+    await sleep(300);
+    await t.eval(function () {
+      var v = document.getElementById('version-line'), e = v.parentNode;
+      while (e && e !== document.body && !(e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY))) e = e.parentNode;
+      window.__scroller = e;
+      if (e) e.scrollTop = e.scrollHeight;
+    });
+    await sleep(300);
+    await t.eval(function () { document.getElementById('version-line').click(); });
+    await sleep(900);
+    return await t.eval(function () {
+      var l = document.getElementById('measures-line'), e = window.__scroller;
+      if (!l || !e) return { shown: false, scroller: !!e };
+      var r = l.getBoundingClientRect(), b = e.getBoundingClientRect();
+      return { shown: !l.hidden, line: [Math.round(r.top), Math.round(r.bottom)], view: [Math.round(b.top), Math.round(b.bottom)], whole: !l.hidden && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5 };
+    });
   } finally { await t.close(); }
 }
 

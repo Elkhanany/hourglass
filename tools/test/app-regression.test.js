@@ -2,7 +2,7 @@
  * Controller acceptance 13 (REGRESSION SMOKE): the existing flow still
  * works, and integration E1/E11 checks of the shell.
  *   - duration pills and a custom duration; start; the Flip button (2.6 s,
- *     swaps the time); no Zen by itself, Zen by the moon button; the end
+ *     swaps the time); no Zen by itself, Zen by the Zen button; the end
  *     leaves Zen as it is; pour adds exactly the time its sand is worth
  *   - the main screen is as lean as before: the same buttons, the same Tune
  *     rows, the switch now reads 'Real motion'
@@ -39,8 +39,8 @@ async function testFlow(s, env) {
       spill: !!document.querySelector('#zoom > #c-spill')
     };
   });
-  s.check('UI: the main screen has the same buttons (5 top, the tilt button hidden, the background\'s moon among them; 12 bottom: six duration pills); Tune has 16 rows (with Layered sand, Grain, Light, Real sand, Breathing pace, the custom sand\'s colour, the Sound tab\'s Fade out before the end and Sound in silent mode, the Time tab\'s Show when it ends and the Glass tab\'s Background)',
-          ui.top === 5 && ui.tiltHidden && ui.bottom === 12 && ui.rows === 16, JSON.stringify(ui));
+  s.check('UI: the main screen has the same buttons (5 top, the tilt button hidden, the background\'s moon among them; 12 bottom: six duration pills); Tune has 15 rows (with Layered sand, Grain, Light, Breathing pace, the custom sand\'s colour, the Sound tab\'s Fade out before the end and Sound in silent mode, the Time tab\'s Show when it ends and the Glass tab\'s Background)',
+          ui.top === 5 && ui.tiltHidden && ui.bottom === 12 && ui.rows === 15, JSON.stringify(ui));
   s.check('UI: the Tune switch reads "Real motion"', ui.tilt === 'Real motion', '"' + ui.tilt + '"');
   s.check('UI: the stage says how to play with the glass', ui.aria === 'Hourglass. Tap to start or pause. Drag to move or turn it. Spread two fingers for Zen, pinch them to come back.');
   s.check('UI: #c-spill sits in the zoom, outside the glass', ui.spill);
@@ -107,7 +107,7 @@ async function testFlow(s, env) {
   s.check('FLOW: pour adds time: T.rem → remAt(topAt(rem) + made)', p.made > 50 && Math.abs(p.got - p.want) < 1e-6,
           p.made + ' grains: ' + (p.rem0 / 1000).toFixed(2) + ' → ' + (p.got / 1000).toFixed(2) + ' s (expected ' + (p.want / 1000).toFixed(2) + ')');
 
-  // Zen and the end: only the moon button and a pinch change the view
+  // Zen and the end: only the Zen button and a pinch change the view
   await t.eval(function () { window.Hourglass.setDuration(10000); });
   await sleep(1400);
   var g = await t.glass();
@@ -117,7 +117,7 @@ async function testFlow(s, env) {
   s.check('FLOW: running brings no Zen by itself (5 s after starting)', !(await zenOn()));
   await t.page.tap('#btn-zen');
   await sleep(300);
-  s.check('FLOW: the moon button brings Zen', await zenOn());
+  s.check('FLOW: the Zen button brings Zen', await zenOn());
   await t.page.waitForFunction(function () { return window.Hourglass.timer.state === 'done'; }, null, { timeout: 15000 });
   var e = await t.eval(function () {
     var H = window.Hourglass;

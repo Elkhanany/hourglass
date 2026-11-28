@@ -70,11 +70,11 @@ async function run(s, env) {
       var tab = panel ? document.getElementById(panel.getAttribute('aria-labelledby')) : null;
       return { role: g.getAttribute('role'), n: bs.length, names: Array.prototype.map.call(bs, function (b) { return b.textContent.replace(/\s+/g, ' ').trim(); }),
                head: row.querySelector('b').textContent, tab: tab ? tab.textContent.trim() : null,
-               after: rows.contains(g) && row.previousElementSibling === document.getElementById('realsand-row') && row.nextElementSibling === g.parentNode,
+               after: rows.contains(g) && row.previousElementSibling === document.getElementById('opt-layers').closest('.row') && row.nextElementSibling === g.parentNode,
                shown: !row.hidden && !g.parentNode.hidden };
     });
     var a = await snap(t);
-    s.check('TUNE: a Grain row with three choices sits in the Sand tab, in Layered sand\'s rows right after Real sand, and is shown while Real sand is off',
+    s.check('TUNE: a Grain row with three choices sits in the Sand tab, in Layered sand\'s rows right after Layered sand (Real sand\'s row went in 1.22.0), and is shown while the classic sand runs',
             ui.role === 'radiogroup' && ui.n === 3 && ui.head === 'Grain' && ui.tab === 'Sand' && ui.after && ui.shown &&
             ui.names.join(' / ') === 'Classic / Fine ×2 / Finest ×4', ui.names.join(' / ') + ' ' + JSON.stringify([ui.tab, ui.after, ui.shown]));
     s.check('TUNE: Classic is chosen at first, and the sand is as it has been', a.shown === '0' && a.q === 1.08 && a.pace === 1 && (a.saved === undefined || a.saved === 0),

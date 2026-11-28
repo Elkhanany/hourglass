@@ -32,6 +32,11 @@
     ['Sim', 'Renderer', 'Spill'].forEach(function (k) {
       if (typeof P0[k] !== 'function') out.push('HourglassPhysics.' + k);
     });
+    // the renderer's parts that came after it (an older renderer has the name, not these: 1.18.0's
+    // met this script's first call to setSandLight, threw, and the page's last lines said it was updating)
+    if (typeof P0.Renderer === 'function') ['setPaper', '_paperMix', '_prepareLooks', 'setSandLight', 'prepareSun'].forEach(function (k) {
+      if (typeof P0.Renderer.prototype[k] !== 'function') out.push('HourglassPhysics.Renderer.' + k);
+    });
     if (typeof w.HourglassAudio !== 'function') out.push('HourglassAudio');
     if (typeof w.HourglassMotion !== 'function') out.push('HourglassMotion');
     if (!w.HourglassSettings || typeof w.HourglassSettings.load !== 'function') out.push('HourglassSettings');
@@ -87,7 +92,7 @@
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts (a saved session gives way to it)
   var qt = Store.preset(location.search);
   // Applied once: ?t= then leaves the address, every other item of the query kept. A reload (the
-  // app's own for a shape, a grain or Real sand, or the browser's) is then a plain launch, which
+  // app's own for a shape or a grain, or the browser's) is then a plain launch, which
   // picks the running glass up and keeps the duration chosen since (the boot's saves hold it).
   if (qt) try { history.replaceState(history.state, '', location.pathname + Store.unpreset(location.search) + location.hash); } catch (e) {}
   function save() { Store.save(settings); }
@@ -116,10 +121,10 @@
     if (id !== 'classic' && P.SHAPES && P.SHAPES[id] && !(P.checkShape && P.checkShape(id, scale, fine).length)) o.shape = id;
     return o;
   }
-  // Real sand (Tune, on by default; see "Real sand" below): while it runs, `sim` is the GPU sand
-  // (`real`), which has the CPU Sim's members; the CPU Sim stays alive as the glass's model and the
-  // fallback. With the switch off, or where it cannot run, `real` stays null and the CPU Sim is the
-  // classic sand; with the switch off nothing of it is loaded.
+  // Real sand (the sand wherever it can run; see "Real sand" below): while it runs, `sim` is the GPU
+  // sand (`real`), which has the CPU Sim's members; the CPU Sim stays alive as the glass's model and
+  // the fallback. Where it cannot run `real` stays null and the CPU Sim is the classic sand; with the
+  // hidden setting off (the tests) nothing of it is loaded.
   var cpuSim = sim, real = null;
   var renderer = new P.Renderer(sim, {
     back: $('c-back'), sand: $('c-sand'), bloom: $('c-bloom'), front: $('c-front'), light: lightCanvas,
@@ -320,7 +325,7 @@
     if (min !== endsMin) {                             // (worked out again only when its minute changes, or the zone)
       endsMin = min;
       try {
-        if (!endsFmt) endsFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
+        if (!endsFmt) endsFmt = shortTime();
         endsWords = 'ends ' + endsFmt.format(new Date(at));
       } catch (e) {
         var d = new Date(at);
@@ -329,6 +334,8 @@
     }
     return endsWords;
   }
+  /** The device's own short time of day (12 or 24 hour, as its locale has it): the end's, and Daytime's hours in Tune. */
+  function shortTime() { return new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }); }
   /** The end on the state line, and in the time's label: written only when it changes. */
   function showEnds() {
     var text = endsText();
@@ -385,7 +392,7 @@
     ringsStop();                                        // a new start ends a bowl that rings again
     if (resetting) { pendingStart = true; return; }     // mid cross-fade: start as soon as it lands
     if (seq.gap) { seq.gap = Date.now(); setState('running'); return; }   // paused between two phases: on with the turn
-    if (flip.active) return;
+    if (flip.active) { flip.startDue = true; return; }  // mid-turn: start as soon as it lands (endTurn)
     if (T.state === 'done' || T.rem <= 0) {
       if (sim.nTop === 0) { startFlip(true); return; }
       T.rem = remAt(sim.nTop);
@@ -393,12 +400,14 @@
     setState('running');
   }
   function pause() {
+    if (flip.active) flip.startDue = false;              // (a start asked for in this turn is taken back)
     if (T.state !== 'running') return;
     setState('paused');
     audio.hush();
+    if (flip.active) { flip.was = 'paused'; flip.auto = false; }   // mid-turn: it lands paused
   }
   function toggle() {
-    if (T.state === 'running') pause(); else start();
+    if (T.state === 'running' || (flip.active && flip.startDue)) pause(); else start();
     buzz(10);
   }
   /** The glass has run out (`over` ms ago: found late, after a sleep or while hidden). */
@@ -492,25 +501,34 @@
   // The tap that stops the bowl is used up: seen first (on the window, capturing), it goes no
   // further, nor does the rest of that one gesture: its pointer's moves and lift, its touch's
   // events, and the mouse events and the click that follow its lift, or the key's own repeats,
-  // lift and click. The next gesture is never eaten: a new pointer down (a finger, a mouse
-  // button), a new touch or another key gets through as always, however soon it comes.
-  var ringEat = null;                // { id: the pointer, touch: its touch's identifier, up: when it lifted (0: still down) } or { key, up }
+  // lift and click. A finger that comes down while the stopping one is still down (two fingers
+  // landing together: the phone picked up, a pinch begun) is of that gesture too, eaten with it
+  // until every finger has lifted; else the app would see the second finger alone, as a tap on
+  // the glass, and turn it. The next gesture is never eaten: a new pointer down (a finger, a
+  // mouse button), a new touch or another key once the gesture has lifted gets through as always,
+  // however soon it comes.
+  var ringEat = null;                // { ids: its pointers still down, touches: their touches' identifiers, up: when the last lifted (0: not yet) } or { key, up }
   function ringEaten(e) {
     onGesture();                     // (what every gesture does still happens: the sound unlocked, the wake lock asked for)
     e.stopImmediatePropagation();
     if (e.cancelable) e.preventDefault();
   }
-  /** The touch event is the eaten gesture's own touch (a new finger's is not). */
+  /** The touch event is one of the eaten gesture's own touches (a new finger's, after it, is not). */
   function ringTouch(e, q) {
     var c = e.changedTouches || [];
-    for (var i = 0; i < c.length; i++) if (c[i].identifier === q.touch) return true;
+    for (var i = 0; i < c.length; i++) if (q.touches.indexOf(c[i].identifier) >= 0) return true;
     return false;
   }
   window.addEventListener('pointerdown', function (e) {
-    if (ringEat && (ringEat.up || ringEat.key !== undefined || e.pointerId !== ringEat.id)) ringEat = null;   // (a new gesture: never eaten)
+    if (ringEat && ringEat.ids && !ringEat.up) {             // (another finger while the stopping one is down: the same gesture)
+      if (ringEat.ids.indexOf(e.pointerId) < 0) ringEat.ids.push(e.pointerId);
+      ringEaten(e);
+      return;
+    }
+    if (ringEat) ringEat = null;                             // (a new gesture: never eaten)
     if (!ringsDue()) return;
     ringsStop(true);
-    ringEat = { id: e.pointerId, touch: null, up: 0 };
+    ringEat = { ids: [e.pointerId], touches: [], up: 0 };
     ringEaten(e);
     buzz(10);
   }, true);
@@ -532,13 +550,19 @@
         if (type === 'click' && (!q.up || performance.now() - q.up < 50)) ringEaten(e);
         return;
       }
-      if (type.indexOf('pointer') === 0) {                                       // (its own pointer only, until it lifts)
-        if (e.pointerId !== q.id || q.up) return;
-        if (type !== 'pointermove') q.up = performance.now();
-      } else if (type.indexOf('touch') === 0) {                                  // (its own touch only: the first to start after its pointer went down)
-        if (q.touch === null && type === 'touchstart' && !q.up) q.touch = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].identifier : -1;
+      if (type.indexOf('pointer') === 0) {                                       // (its own pointers only, each until it lifts)
+        var k = q.ids.indexOf(e.pointerId);
+        if (k < 0) return;
+        if (type !== 'pointermove') { q.ids.splice(k, 1); if (!q.ids.length) q.up = performance.now(); }
+      } else if (type.indexOf('touch') === 0) {                                  // (its own touches only: those that start while a pointer of it is down)
+        if (type === 'touchstart' && !q.up) for (var c = e.changedTouches || [], i = 0; i < c.length; i++) q.touches.push(c[i].identifier);
         else if (!ringTouch(e, q)) return;
-        if (type === 'touchend' || type === 'touchcancel') { ringEaten(e); ringEat = null; return; }   // (a touch's lift cancelled: no mouse events, no click follow it)
+        if (type === 'touchend' || type === 'touchcancel') {                     // (a touch's lift cancelled: no mouse events, no click follow it)
+          ringEaten(e);
+          for (var j = 0, d = e.changedTouches || []; j < d.length; j++) if (q.touches.indexOf(d[j].identifier) >= 0) q.touches.splice(q.touches.indexOf(d[j].identifier), 1);
+          if (!q.touches.length && q.up) ringEat = null;
+          return;
+        }
       }
       ringEaten(e);
       if (type === 'click') ringEat = null;
@@ -780,7 +804,7 @@
    *  the lattice is re-indexed and elapsed ⇄ remaining swap.
    * ==================================================================== */
   var flip = {
-    active: false, dragging: false, was: 'idle', auto: false, swapped: false,
+    active: false, dragging: false, was: 'idle', auto: false, swapped: false, startDue: false,
     from: 0, to: 0, prog: 0, dur: 0, easeOut: false,
     grabAngle: 0, spin: 0, shown: 0,
     mode: 'rest'                     // the body's mode: 'script' for the Flip button's turn
@@ -792,6 +816,7 @@
     flip.was = T.state;
     flip.auto = !!autoRun;
     flip.swapped = false;
+    flip.startDue = false;
     flip.shown = T.rem;
     sim.flipping = true;
     sim.wakeAll();
@@ -846,6 +871,21 @@
     applyBody(0);
     buzz(22);
     setState(flip.swapped ? seqSwapped(stateAfterSwap(flip.was, flip.auto)) : flip.was);
+    if (flip.startDue) { flip.startDue = false; start(); }   // Start (or Space) pressed while it turned
+  }
+  /**
+   * The page is hidden: nobody sees a turn under way, and frames, which alone carry it on, stop with
+   * it; the clock stands still while a glass turns. So it is set down at once on the end it was
+   * heading for, as endSweep finishes a sweep. (A sequence's own turn goes on by the clock: tickClock.)
+   */
+  function finishTurn() {
+    if (!flip.active || seq.gap) return;
+    var a = sim.angle, to;
+    if (rot === 'script' || rot === 'ease') to = flip.to;
+    else if (rot === 'detent') to = body.td;
+    else to = a > Math.PI / 2 ? Math.PI : (a < -Math.PI / 2 ? -Math.PI : 0);
+    if (to > 1 || to < -1) swapEnds();
+    endTurn();
   }
   /**
    * What a glass does once it has been turned over; `was`: its state as the turn began.
@@ -1951,6 +1991,7 @@
   function isBackground(e) {
     if (sheetOpen) return false;
     var el = e.target;
+    if (el && el._host) el = el._host;    // a haptic label (hapticMount) is what it lies over: the glass's stage, or a control
     if (el && el.closest && el.closest('button, input, label, a, [role], .panel, .top-row, #readout, .sheet, #scrim')) return false;
     if (!stage.contains(el) && !(el && el.closest && el.closest('.hud'))) return false;
     var r = assembly.getBoundingClientRect(), padX = r.width * 0.04, padY = r.height * 0.01;
@@ -1985,7 +2026,8 @@
    *  the device's own light or dark setting, followed while the app is open;
    *  'hours', light from 7:00 to 19:00 by the device's clock and dark at
    *  night, changed at the hour and looked at again whenever the app comes
-   *  back to the front. index.html puts the saved choice on the page before
+   *  back to the front, and every 10 s while it stays there (a clock set by
+   *  hand, a new time zone after a flight). index.html puts the saved choice on the page before
    *  its first paint, by the same rule (lookIn); from then on this keeps it.
    *  A look is the page's colours (styles.css, html[data-look]), the glass's
    *  own shading (renderer.setPaper) and the page's theme-color and
@@ -2008,7 +2050,7 @@
   var DAY = [7, 19];                 // the hours of the light look, by the device's clock: from 7:00 to 19:00
   var LOOK_PAGE = { dark: ['#0b0c0e', 'dark', 'black-translucent'], light: ['#f3f0ea', 'light', 'default'] };   // theme-color, color-scheme, the status bar
   var schemeQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
-  var btnLook = $('btn-look'), lookTimer = 0;
+  var btnLook = $('btn-look'), lookTimer = 0, lookDue = 0, lookClockTimer = 0;
   var lookShown = document.documentElement.getAttribute('data-look') === 'light' ? 'light' : 'dark';
   var LOOK_FADE_MS = 340;            // the whole way from one look to the other (a part of the way takes its part of this)
   var lookFade = { anim: null, raf: 0, to: 0 };
@@ -2107,13 +2149,28 @@
     } else if (!lookFade.anim) lookMetas(0, look);
     if (btnLook) btnLook.setAttribute('aria-pressed', light ? 'true' : 'false');
     checkOne('#looks [data-look]', 'look', settings.background);
-    // Daytime: again at the next 7:00 or 19:00 (and whenever the app comes back to the front, below)
+    // Daytime: again at the next 7:00 or 19:00 (and whenever the app comes back to the front, below),
+    // and every 10 s while it is open: a timer counts the time gone by, not the clock, so a clock set by
+    // hand or a new time zone (after a flight) would leave it hours early or late
     clearTimeout(lookTimer);
     if (settings.background === 'hours') {
-      var next = new Date(now.getTime()), h = now.getHours();
-      next.setHours(h < DAY[0] ? DAY[0] : (h < DAY[1] ? DAY[1] : DAY[0] + 24), 0, 0, 0);
-      lookTimer = setTimeout(showLook, Math.max(1000, next.getTime() - now.getTime() + 250));
-    }
+      var wait = Math.max(1000, toNextHour(now) + 250);
+      lookDue = performance.now() + wait;
+      lookTimer = setTimeout(showLook, wait);
+      if (!lookClockTimer) lookClockTimer = setInterval(lookClock, 10000);
+    } else if (lookClockTimer) { clearInterval(lookClockTimer); lookClockTimer = 0; }
+  }
+  /** How long from `now` to the next 7:00 or 19:00 by the device's clock, in ms. */
+  function toNextHour(now) {
+    var next = new Date(now.getTime()), h = now.getHours();
+    next.setHours(h < DAY[0] ? DAY[0] : (h < DAY[1] ? DAY[1] : DAY[0] + 24), 0, 0, 0);
+    return next.getTime() - now.getTime();
+  }
+  /** Daytime, every 10 s: the look again, and the timer set again, when the clock or the zone has moved. */
+  function lookClock() {
+    if (settings.background !== 'hours') return;
+    var now = new Date();
+    if (lookIn('hours', now) !== lookShown || Math.abs(performance.now() + Math.max(1000, toNextHour(now) + 250) - lookDue) > 2000) showLook();
   }
   /** Choose the background: 'dark', 'light', 'system' or 'hours'. Saved, and shown at once. */
   function setBackground(v) {
@@ -2130,6 +2187,13 @@
     var b = e.target.closest('[data-look]');
     if (b) { setBackground(b.dataset.look); buzz(8); }
   });
+  // Daytime's hours under the row, in the device's own 12 or 24 hour clock, as the state line's end says them
+  (function () {
+    var note = $('look-note'), b = document.querySelector('#looks [data-look="hours"]'), f, a, z;
+    try { f = shortTime(); a = f.format(new Date(2000, 0, 1, DAY[0])); z = f.format(new Date(2000, 0, 1, DAY[1])); } catch (e) { return; }
+    if (note) note.textContent = note.textContent.replace('7:00 to 19:00', a + ' to ' + z);
+    if (b) b.setAttribute('aria-label', 'Daytime: light from ' + a + ' to ' + z + ', dark at night');
+  })();
   if (schemeQ) {
     var onScheme = function () { if (settings.background === 'system') showLook(); };
     if (schemeQ.addEventListener) schemeQ.addEventListener('change', onScheme); else if (schemeQ.addListener) schemeQ.addListener(onScheme);
@@ -3317,8 +3381,8 @@
    * the sheet); once it is scrolled from its top, its rows fade out under the tab row
    * ('scrolled'). Within EDGE_SLACK px of either end counts as the end. Read again on a scroll, a
    * tab shown and an opening; and, through a ResizeObserver, whenever the scroller changes size
-   * (a resize, a rotation) or a panel does (rows that appear or go: Grain with Real sand, "Copy a
-   * report", the breathing choice), which moves no scroll. A closed sheet has nothing to scroll
+   * (a resize, a rotation) or a panel does (rows that appear or go: Grain with Real sand, the line
+   * that says the sand is drawn without the graphics chip, the breathing choice), which moves no scroll. A closed sheet has nothing to scroll
    * and shows neither.
    */
   var EDGE_SLACK = 2;
@@ -3768,7 +3832,7 @@
   // second one within three seconds; the second puts the look and the sound back as a new
   // install has them: the sand, the frame and its finish, layered sand, the sand's light (Sunlit), the background (dark), the volume, the sand's sound
   // and its level, the ambience, its level and its fade before the end, the bowl, its rings and its
-  // level. Everything else is kept: Real sand and the grain, the durations and a sequence,
+  // level. Everything else is kept: the grain, the durations and a sequence,
   // breathing, Zen, the screen kept awake, haptics, Real motion, sound in silent mode (how the
   // phone treats the app: put back on, it could ring in a quiet room), the mute button, what the
   // app has learned and hinted. Nothing is loaded again, and the running
@@ -4100,6 +4164,7 @@
       backgroundHold();
       pourEnd();
       cancelGesture();                 // a hand on the glass lets go
+      finishTurn();                    // and a turn under way is set down at once
       saveSession();
     } else {
       lastFrame = performance.now(); acc = 0; dirty = true;
@@ -4215,13 +4280,13 @@
   }
 
   /* ======================================================================
-   *  Real sand (Tune: on by default)
+   *  Real sand (the sand, wherever it can run)
    *
    *  The sand simulated on the graphics chip, the sand lab's engine
-   *  (realsand/), with an exact neck. It is the default from 1.10.0
-   *  (settings design 5); with the switch off nothing of it is loaded and
-   *  the app runs the classic sand, as it was. With it on, and where WebGPU
-   *  exists, the page loads realsand/boot.mjs, which hands this script the
+   *  (realsand/), with an exact neck. From 1.22.0 it is the only sand Tune
+   *  speaks of: there is no switch, and the classic sand (sand/) is the
+   *  fallback where it cannot run. Where WebGPU exists, the page loads
+   *  realsand/boot.mjs, which hands this script the
    *  engine's class and build stamp (attachRealSand). The CPU sand runs,
    *  and shows, while the engine starts (a cold start in a home-screen web
    *  app took 3.4 s on an iPhone), and a slow start is never a
@@ -4230,23 +4295,28 @@
    *  takes over between two frames (handover): `sim` becomes the GPU sand,
    *  which has every member of the CPU Sim this script uses, and the two
    *  canvases cross-fade. Any failure gives the CPU sand back in the same
-   *  frame, the clock untouched. The switch is the person's alone: this
-   *  script never turns it off, and never disables it.
+   *  frame, the clock untouched. While the classic sand stands in, one
+   *  quiet line at the foot of Tune's Sand tab says so and why
+   *  (#fallback-line); while Real sand runs, or starts, nothing shows.
+   *  The setting realSand stays, as a hidden switch: false (set only by
+   *  the tests, which run the classic sand, or by an edit of the storage)
+   *  loads nothing and says nothing; version 3 of the settings turned it
+   *  on for everyone once (app/settings.js).
    *    - no WebGPU at all: "Needs WebGPU", found at every launch for
    *      nothing; nothing is stored;
    *    - WebGPU, but no adapter or only a software one (found by loading
    *      the engine): "Needs WebGPU" (or too slow), and this browser's user
    *      agent is kept (realSandNa); while it is the same, a launch says so
    *      without loading anything. Another user agent (an iOS update, if it
-   *      changes it), seven days gone by, or a tap on the row: tried again.
+   *      changes it) or seven days gone by: tried again.
    *      One that came while the page was put away is not believed: it is
    *      tried again once the page is in view. One that comes after the
    *      chip was reset, lost or stopped answering in this session is not
    *      kept either (the chip may only be on its way back): the CPU sand
    *      for the session, and the next launch tries again;
-   *    - anything else at start: the CPU sand this session, the setting
-   *      kept, the note says why; the next launch tries again, and after
-   *      three launches in a row that failed it stops trying;
+   *    - anything else at start: the CPU sand this session, the line
+   *      says why; the next launch tries again, and after three launches
+   *      in a row that failed it stops trying until another engine build;
    *    - hidden, or the graphics chip reset, while it started: again once
    *      the page is in view (iOS keeps a home-screen app alive for days,
    *      so "the next launch" can be far off);
@@ -4266,7 +4336,7 @@
    *  browser's WebGPU canvas cannot be read back). ?debug=sand shows the
    *  engine's figures for a report.
    * ==================================================================== */
-  var REALSAND_BUILD = '10';          // the engine's stamp this script was written for (realsand/build.mjs)
+  var REALSAND_BUILD = '11';          // the engine's stamp this script was written for (realsand/build.mjs)
   var REAL_TEST = /[?&]offscreen=1(?:&|$)/.test(location.search);
   var realEng = null;                // the engine: starting, live (then real === realEng), lost or rebuilding
   var realCls = null, realAttached = false, realDue = false, realRetries = 0, realState = 'off';
@@ -4275,11 +4345,11 @@
   var realStopped = null;            // the engine the watchdog stopped, kept 600 ms for the cross-fade: nothing it still says is heard
   var REAL_NA_MS = 7 * 86400000;     // how long "this browser cannot have it" is believed without another try
   var realLogLines = [];
-  var optReal = $('opt-realsand'), realNote = $('realsand-note'), realRow = $('realsand-row');
+  var fallLine = $('fallback-line'), fallWhy = $('fallback-why');
   var grainRow = $('grain-row'), grainChoice = $('grains') && $('grains').parentNode, tiltCrack = $('tilt-crack');
   var REAL_WHY = {
     nogpu: 'Needs WebGPU (iOS 26 or later)', noadapter: 'Needs WebGPU (iOS 26 or later)',
-    fallback: 'This device\'s graphics are too slow for Real sand',
+    fallback: 'Its graphics are too slow',
     device: 'the graphics chip could not be opened', load: 'the sand engine could not be loaded',
     compile: 'the sand engine could not be built on this device', selftest: 'its self-test failed',
     lost: 'the graphics chip was reset', hidden: 'the app was put away as it started',
@@ -4294,35 +4364,33 @@
     return REAL_WHY[e && e.code] || 'an error (' + String(e && e.message || e).slice(0, 80) + ')';
   }
   /**
-   * The switch, its note and the row's state (design 11; settings design 5.2, 5.5). The row's
-   * data-state is the bare state ('on', 'starting', 'off', 'na', 'failed', 'gaveup', 'updating',
-   * 'lost', 'paused'). In 'na' the switch shows off and stays live: a tap tries again. Grain and
-   * the crack sentence of Real motion are the classic sand's: shown only while it is the sand
-   * that runs, or will run for the session.
+   * The line at the foot of the Sand tab (design 11; settings design 5.2, 5.5), shown only while
+   * the classic sand stands in for Real sand: in 'na', 'failed', 'gaveup', 'updating', 'lost' and
+   * 'paused' it says that the sand is drawn without the graphics chip, and why. In 'on' and
+   * 'starting', and in 'off' (the hidden switch), it is hidden and empty. Its data-state is the
+   * bare state, whether shown or not. Grain and the crack sentence of Real motion are the classic
+   * sand's: shown only while it is the sand that runs, or will run for the session.
    */
   function showReal(state, why) {
     realState = state;
-    var na = state === 'na';
-    optReal.checked = !na && settings.realSand;
-    realRow.setAttribute('data-state', state);
-    realNote.textContent =
-      na ? why + '. Tap to try again' :
-      state === 'starting' ? 'Starting…' :
-      state === 'on' ? 'On: every grain simulated on the graphics chip' :
-      state === 'failed' ? 'Could not start this time: ' + why + '. It will try again next launch' :
-      state === 'gaveup' ? 'Did not start 3 times: ' + why + '. Turn it off and on to try again' :
-      state === 'updating' ? 'Real sand is updating; it will be back at the next launch' :
-      state === 'lost' ? 'Real sand paused: ' + (why || REAL_WHY.lost) :
-      state === 'paused' ? why :
-      'Off: the classic sand';
+    var said =
+      state === 'na' ? why :
+      state === 'failed' ? 'It could not start this time: ' + why + '; it will try again next launch' :
+      state === 'gaveup' ? 'It did not start 3 times: ' + why :
+      state === 'updating' ? 'It is being updated, and will be back at the next launch' :
+      state === 'lost' ? 'Paused: ' + (why || REAL_WHY.lost) :
+      state === 'paused' ? (why || '').replace(/^Real sand paused: /, 'Paused: ').replace(/^Real sand could not/, 'It could not') : '';
+    fallLine.setAttribute('data-state', state);
+    fallWhy.textContent = said ? 'The sand is drawn without the graphics chip on this device. ' + said + '.' : '';
+    fallLine.hidden = !said;
     var gpu = settings.realSand && (state === 'on' || state === 'starting' || state === 'lost');
     if (grainRow) grainRow.hidden = gpu;
     if (grainChoice) grainChoice.hidden = gpu;
     if (tiltCrack) tiltCrack.hidden = gpu;
-    showReportLink(settings.realSand && !na);
+    showReportLink(!!said && state !== 'na' && state !== 'updating');
   }
   /**
-   * With the switch on, the row has a link that copies the report (realReport). A web app on the
+   * After a failure the line has a link that copies the report (realReport). A web app on the
    * home screen keeps its own storage and opens at its own address, so ?debug=sand never reaches
    * it, and that is where a home-screen app is used (and where Gate A found the slow start).
    */
@@ -4334,9 +4402,8 @@
       realReportEl.id = 'realsand-report';
       realReportEl.href = '#';
       realReportEl.textContent = 'Copy a report';
-      // (inside the switch's label: the link copies, it does not turn the switch)
       realReportEl.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); copyReport(); });
-      realNote.parentNode.insertBefore(realReportEl, realNote.nextSibling);
+      fallLine.appendChild(realReportEl);
     }
     realReportEl.hidden = false;
   }
@@ -4467,11 +4534,11 @@
       // (found after the chip was reset, lost or stopped answering in this session, or in a page
       // put away with its retries used up: the chip may only be on its way back, so it is neither
       // remembered nor counted; the CPU sand for the session, and the next launch tries again)
-      showReal('paused', 'Real sand could not restart; it will try again next launch');
+      showReal('paused', 'It could not restart; it will try again next launch');
       return;
     }
     else if (e && e.capability) {
-      // this browser cannot have it: remembered by its user agent, the switch left on (settings design 5.2)
+      // this browser cannot have it: remembered by its user agent, the setting left on (settings design 5.2)
       settings.realSandNa = navigator.userAgent; settings.realSandNaAt = Date.now();
       settings.realSandWhy = why; settings.realSandFails = 0;
       save();
@@ -4582,16 +4649,6 @@
     }, 600);
     if (!final) setTimeout(function () { whenVisible(startAgain); }, 2000);
   }
-  optReal.addEventListener('change', function (e) {
-    // on or off, the page is built afresh, as for another grain; the running time is kept. Not
-    // available ('na', the switch shown off): a tap is a try again, what was remembered forgotten.
-    settings.realSand = e.target.checked;
-    settings.realSandFails = 0; settings.realSandWhy = ''; settings.realSandNa = ''; settings.realSandNaAt = 0;
-    save();
-    saveSession();
-    app.classList.add('regrain');
-    setTimeout(function () { location.reload(); }, 320);
-  });
   /* ---- ?debug=sand: the engine's figures, for a report ---------------- */
   var dbgSand = /[?&]debug=sand(?:&|$)/.test(location.search) ? { el: null, text: null, at: 0 } : null;
   if (dbgSand) {
@@ -4612,14 +4669,14 @@
     dbgSand.el.appendChild(copy);
     app.appendChild(dbgSand.el);
   }
-  /** Everything a report needs: the device, the switch, the engine's figures and its log. */
+  /** Everything a report needs: the device, the setting, the engine's figures and its log. */
   function realReport() {
     var st = null;
     try { st = realEng ? realEng.stats() : null; } catch (e) { st = String(e); }
     return JSON.stringify({
       at: new Date().toISOString(), ua: navigator.userAgent, standalone: !!navigator.standalone ||
         !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches),
-      build: REALSAND_BUILD, setting: settings.realSand, state: realState, note: realNote.textContent, live: !!real,
+      build: REALSAND_BUILD, setting: settings.realSand, state: realState, note: fallWhy.textContent, live: !!real,
       watchdog: realHangs.length, na: !!settings.realSandNa,
       timer: { state: T.state, rem: Math.round(T.rem), durationMs: T.durationMs, total: sim.total, top: sim.nTop },
       stats: st, log: realLogLines
@@ -4691,6 +4748,7 @@
     }
     m.textContent = measures();
     m.hidden = false;
+    if (m.scrollIntoView) m.scrollIntoView({ block: 'nearest' });   // (the version line is the tab's last: below it is out of sight)
     clearTimeout(measuresTimer);
     measuresTimer = setTimeout(function () { m.hidden = true; }, 8000);
   }
@@ -4789,6 +4847,8 @@
   layout();
   void zoom.offsetWidth;
   lookChosen(false);                                  // (saved once, as the boot always has)
+  // (a glass restored running has started: its sound comes in gently once it is heard, as at a Start)
+  if (restored && T.state === 'running') soundBegins(false);
   setState(restored ? T.state : 'idle');
   // Back from "Use this shape" (its 'hourglass.openNow' names the tab): Tune is open again on the
   // Glass tab at once, with no slide.
@@ -4865,7 +4925,7 @@
   Object.defineProperty(window.Hourglass, 'sim', {
     get: function () { return sim; }, enumerable: true
   });
-  // Real sand: its engine (starting, live, lost; null with the switch off), and the hook boot.mjs calls
+  // Real sand: its engine (starting, live, lost; null where it is not loaded), and the hook boot.mjs calls
   Object.defineProperty(window.Hourglass, 'realSand', {
     get: function () { return realEng; }, enumerable: true
   });

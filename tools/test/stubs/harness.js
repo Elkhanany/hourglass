@@ -10,7 +10,7 @@
  *   ... t.page, t.touch, t.errors ...
  *   await env.close();
  *
- * Every page starts from a version-2 save with Real sand off, merged under what
+ * Every page starts from a version-3 save with Real sand off, merged under what
  * the test seeds (lib/seed.js): Real sand is the app's default, and a page
  * seeds realSand: true to have it. opts.rawStorage seeds exactly what it is
  * given ({}: nothing saved, a first launch on a new phone).
@@ -41,6 +41,7 @@ var staticServer = require('../lib/static-server.js');
 var paths = require('../lib/paths.js');
 var seed = require('../lib/seed.js');
 var tune = require('../lib/tune.js');
+var ASK = require('../lib/ask.js');
 
 var REPO = paths.ROOT;
 var PROFILES = path.join(REPO, 'tools', 'test', 'lib', 'profiles.js');
@@ -236,7 +237,7 @@ async function open(env, o) {
   await context.addInitScript({ path: PROFILES });
   await context.addInitScript({ path: PAGE_INIT });
   await context.addInitScript(tune.pageSide, tune.SHEET);     // the page's side of lib/tune.js: where a control of Tune is
-  // every page: { v: 2, realSand: false } under what the test seeds (Real sand only when it asks
+  // every page: { v: 3, realSand: false } under what the test seeds (Real sand only when it asks
   // for it), or o.rawStorage as it is; once per test page, so a reload sees what the app saved
   await context.addInitScript(seed.seedOnce, seed.storageFor(o));
   if (o.init) await context.addInitScript(o.init, o.initArg);
@@ -257,11 +258,13 @@ async function open(env, o) {
   page.on('console', function (m) { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(env.url + (o.query || ''));
   await page.waitForFunction(function () { return window.Hourglass && window.__mon && window.__mon.hooked; }, null, { timeout: 15000 });
-  var cdp = await context.newCDPSession(page);
+  var cdp = await context.newCDPSession(page), evaluate = page.evaluate.bind(page);
   var t = {
     context: context, page: page, cdp: cdp, errors: errors, motionStub: useMotionStub,
     touch: makeTouch(cdp),
-    eval: function (fn, arg) { return page.evaluate(fn, arg); },
+    // a question to the page: it ends after 30 s, and an answer of more than 20,000 values is
+    // refused in the page (lib/ask.js); o.max raises that for one question that truly needs it
+    eval: function (fn, arg, o) { return ASK.ask(evaluate, fn, arg, o); },
     glass: function () {
       return page.evaluate(function () {
         var r = document.getElementById('assembly').getBoundingClientRect();
