@@ -339,6 +339,7 @@ export class RealSand {
     // what they were made for, the frames drawn sunlit, and the fill and the way up its relief was last made for
     this._light = { on: false, m: 0 };
     this._lit = null; this._toneTable = null; this._litKey = null; this._litTheme = null; this._litFrame = 0; this._reliefKey = null;
+    this._litSide = 1; this._litSideAt = 0;              // (the beds' floor for the sunlit sand's relief: _litLook)
     this.n.litTables = 0;
   }
 
@@ -1028,12 +1029,18 @@ export class RealSand {
     const hl = Math.hypot(L[0], L[1], L[2] + 1), H = [L[0] / hl, L[1] / hl, (L[2] + 1) / hl];
     const bed = this._gen * 2 + this.valve.parity, fresh = bed !== this._reliefKey;
     this._reliefKey = bed;
+    // (the field the sand feels in this run, the grid's axes; at rest, gravity turned by angle + tilt. The beds'
+    // floor is the end it holds them to, once it has held them there a quarter of a second: a jolt turns nothing)
+    const fd = (this._toneField || this._uprightField()).gravity, side = fd[1] > 0 ? -1 : 1, at = this.clock.perf();
+    if (side === this._litSide) this._litSideAt = at;
+    else if (at - this._litSideAt >= 250) { this._litSide = side; this._litSideAt = at; }
     const g = (R.theme && R.theme.glint) || [255, 255, 255];
     return { key: L, half: H, A: k.A, K: k.K, X: k.X, wrap: k.wrap, C: k.C, kw: k.kw, kd: k.kd, wd: k.wd, cells: this.s, deep: this._lit.deep || 0,
       share: k.sun.glints, mica: k.sun.mica, glint: [g[0] / 255, g[1] / 255, g[2] / 255],
       // (a grain moves when it is faster than 2 cells/s, as the tally's point at rest is slower; a crowded point
       // lies in a bed up to 2 % of a free fall over the glass, as the tally's bed is what does not move)
-      still: 2 / hz, slow: 0.02 * Math.sqrt(2 * Math.max(this.Gg, 1) * this.glass.H) / hz, frame: this._litFrame++, fresh };
+      still: 2 / hz, slow: 0.02 * Math.sqrt(2 * Math.max(this.Gg, 1) * this.glass.H) / hz, frame: this._litFrame++, fresh,
+      down: [fd[0], fd[1]], g: this.Gg, side: this._litSide };
   }
 
   /** A few of the table's colours at the palette's light level: when they change, so has the sand's colour. */

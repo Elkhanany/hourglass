@@ -1113,13 +1113,22 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   screen's left (1.2 : 1 and over, in both looks). RELIEF takes about 13
   minutes with the engine's start (`--only relief`); with `--shots` it saves each canvas of each frame
   it measures, and sand poured in and a flip under way besides
-  (`HOURGLASS_RELIEF_SANDS=rosequartz,sahara` for more sands). Then each shape Tune
+  (`HOURGLASS_RELIEF_SANDS=rosequartz,sahara` for more sands). TURNED: a bed
+  of points laid in the upper bulb is drawn by a grain renderer of this tree
+  and one of bc25789 (release 1.21.1, engine build 10; `HOURGLASS_TURN_BASE`
+  names another), each with its relief pass, and the relief read back:
+  upright the two agree to the bit; with the glass turned over (gravity up
+  the grid, the bed against the cap) this tree finds the bed's free face,
+  trusted and lit as the same face upright, while the base takes the bed's
+  end against the cap, trusts it and shades it (the control); on its side
+  no column is trusted, while the base trusts the bulb's roof (the control).
+  A minute or so with the engine's start (`--only turned`). Then each shape Tune
   offers, the page loaded in
   it: a 60-minute glass filled to its cap with exactly the ledger's points
   on the chip, and a 10 s glass whose last grain crosses within one frame
   after 00:00.0. With `--shots <dir>` it saves pictures of the app with
   Real sand on, each shape mid-run among them. `--only <case>[,<case>...]`
-  (BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, RELIEF, SHAPES, as its log
+  (BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, RELIEF, TURNED, SHAPES, as its log
   names them, any letter case) runs those cases alone, in that order: the
   engine is always started, a case sets up what it needs from the one
   before it, a name that is no case is an error that lists them, and the

@@ -297,6 +297,22 @@ classic sand has a glow over its dark sands, Real sand none).
   turn, so no thread reads what another writes).
   The surface's smoothing and the crest of the classic sand are not drawn
   here; the relief's own easing does the smoothing's work.
+  The bulb's floor is the end the field the sand feels holds it to (the
+  run's last field, in the grid's axes: gravity turned by the glass's angle
+  and tilt, and what a phone adds), once it has held the beds there a
+  quarter of a second (a jolt turns nothing): with gravity up the grid (a
+  glass held past the level by a finger, or a phone that holds it so) the
+  bed is scanned from the bulb's far end, its surface is the run's lowest
+  cell, its normal points down the grid, and depth, "above", the horizon
+  test and the ambient (from the room's up) are measured from that end; the
+  grains read the same floor. The grid's columns stand for a surface only
+  while that field is near their axis: the trust is weighed by how near
+  (whole within about 45 degrees, none past 65, where a bed lies against a
+  wall) and by the field's strength against gravity's. A change of floor
+  starts the relief afresh. (Up to build 10 every bed was scanned from its
+  bulb's floor up: a glass held turned over took the bed's end against the
+  cap for its surface, trusted it and shaded it, and darkened the free face
+  as deep in the bed; a glass on its side took the bulb's roof.)
 - **The light look, in either light.** The look carries `paper`, the light
   look's share (`view.still.y`): a grain in the air (little sand round it,
   or the sweep's thread) is taken most of the way (0.7) to its colour under

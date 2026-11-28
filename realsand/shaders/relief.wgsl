@@ -20,6 +20,13 @@
 // stuck high on the wall, a clump in the air, a shelf thrown up the wall over
 // air all lie above the run's end, and are counted as sand above the bed).
 // And the share of the points in the bed's top six cells that move.
+// The floor is the end gravity holds the sand to: with gravity up the grid (a
+// glass held turned past the level, or a phone that holds it so) it is the
+// bulb's far end, and the bed is scanned from there down, its surface the
+// run's lowest cell; "up", "top" and "above" below mean away from that floor.
+// The grid's columns stand for a surface only while gravity is near their
+// axis: turned toward the level the bed lies against a wall, and its surface
+// is no height over the columns, so it is trusted less (grav.w), to nothing.
 //
 // csMain, one thread a column and bulb: what the grains' vertex stage reads
 // for a grain near the top of its bed (grains.wgsl), as the classic sand's
@@ -55,6 +62,8 @@ struct Relief {
     amb: vec4f,    // x: the ambient; y: the key; z: the wrap round the terminator; w: the counting line (grid y): a point above it is of the upper bed
     pts: vec4f,    // x: the points in the glass; y: the crowding at and above which a point lies in a bed;
                    // z: the displacement in a substep under which it lies still (cells); w: the grid's rows
+    grav: vec4f,   // xy: the room's up in the grid's axes (against gravity); z: the floor: 1 gravity down the grid, -1 up it;
+                   // w: how far the columns stand for the surface, 1 with gravity near their axis, 0 toward the level
 };
 
 @group(0) @binding(0) var<uniform> u: Relief;
@@ -78,7 +87,8 @@ fn csCount(@builtin(global_invocation_id) id: vec3u) {
     // (a point that is not finite fails every comparison)
     if (particles[o + 15u] == 0.0 || !(x >= 0.0 && y >= 0.0 && y < u.pts.w)) { return; }
     if (!(particles[o + 21u] >= u.pts.y)) { return; }
-    if (y <= u.amb.w && y > u.amb.w - 1.0) { return; }
+    // (the cell the stream leaves the neck into: under the line, or over it with gravity up the grid)
+    if (select(y >= u.amb.w && y < u.amb.w + 1.0, y <= u.amb.w && y > u.amb.w - 1.0, u.grav.z > 0.0)) { return; }
     let W = u32(u.key.w);
     let moving = dot(d, d) > 9.0 * u.pts.z * u.pts.z;
     atomicAdd(&cells[min(u32(y), u32(u.pts.w) - 1u) * W + min(u32(x), W - 1u)], select(1u, 65537u, moving));
@@ -94,8 +104,10 @@ fn csScan(@builtin(global_invocation_id) id: vec3u) {
     let cl = u32(max(floor(u.amb.w), 0.0));
     let r0 = select(0u, cl, upper);
     let r1 = select(cl, u32(u.pts.w), upper);
+    let down = u.grav.z > 0.0;
     var start = -1; var top = -1; var gap = 0; var n = 0u; var topN = 0u; var ended = false; var above = 0u;
-    for (var r = r0; r < r1; r++) {
+    for (var i = 0u; i < r1 - r0; i++) {
+        let r = select(r1 - 1u - i, r0 + i, down);           // (from the floor gravity holds the sand to)
         let k = atomicLoad(&cells[r * W + x]) & 0xffffu;
         if (ended) { above += k; continue; }
         if (k > 0u) {
@@ -113,11 +125,12 @@ fn csScan(@builtin(global_invocation_id) id: vec3u) {
     if (top < 0) { cols[id.x] = vec4f(0.0, f32(above), 0.0, 0.0); return; }
     // the share of the top six cells' points that move
     var mv = 0u; var t = 0u;
-    for (var r = max(top - 5, start); r <= top; r++) {
+    for (var r = select(top, max(top - 5, start), down); r <= select(min(top + 5, start), top, down); r++) {
         let c = atomicLoad(&cells[u32(r) * W + x]);
         t += c & 0xffffu; mv += c >> 16u;
     }
-    let h = f32(top) + clamp(0.25 + 0.25 * f32(topN), 0.5, 1.0);
+    let f = clamp(0.25 + 0.25 * f32(topN), 0.5, 1.0);         // (how far into its top cell the surface lies)
+    let h = select(max(f32(top) + 1.0 - f, 1e-3), f32(top) + f, down);
     cols[id.x] = vec4f(h, f32(above), f32(mv) / f32(max(t, 1u)), f32(n));
 }
 
@@ -173,7 +186,7 @@ fn trust(b: u32, x: i32) -> f32 {
     let air = 1.0 - smoothstep(0.5, 6.0, c.y);                       // sand above the bed (thrown, in flight, on the wall)
     let still = 1.0 - smoothstep(0.1, 0.4, c.z);                     // a top layer that moves
     let near = 1.0 - smoothstep(1.5, 5.0, abs(c.x - even(b, x)));    // a surface far from its neighbours'
-    return air * still * near;
+    return air * still * near * u.grav.w;                            // (gravity toward the level: the columns stand for no surface)
 }
 
 @compute @workgroup_size(64)
@@ -196,25 +209,28 @@ fn csMain(@builtin(global_invocation_id) id: vec3u) {
     c = clamp(c, 0.0, 1.0);
     if (h0 <= 0.0 || c <= 0.001) { relief[id.x] = vec4f(0.0); return; }
     // the slope, central differences over three spans (the nearer the heavier), and the surface's normal:
-    // up, tipped against the slope, and a little toward the eye (a cone's near flank is seen from above)
+    // away from the floor (up), tipped against the slope, and a little toward the eye (a cone's near flank is
+    // seen from above)
+    let up = u.grav.z;
     var sum = 0.0; var ws = 0.0;
     for (var o = 1; o <= 3; o++) {
         let a = height(b, x + o); let e = height(b, x - o);
         if (a > 0.0 && e > 0.0) { sum += (a - e) / f32(2 * o * o); ws += 1.0 / f32(o); }
     }
     let m = select(0.0, sum / max(ws, 1e-6), ws > 0.0);
-    let nt = normalize(vec3f(-m, 1.0, 0.5));
-    // the bed's own soft shadow: how high the bed stands toward the key, against the key's elevation
+    let nt = normalize(vec3f(-m * up, up, 0.5));
+    // the bed's own soft shadow: how high the bed stands toward the key, against the key's elevation (both
+    // measured away from the floor)
     let L = u.key.xyz;
-    let tanA = L.y / max(abs(L.x), 1e-3);
+    let tanA = up * L.y / max(abs(L.x), 1e-3);
     let sg = select(1, -1, L.x < 0.0);
     var reach = array<i32, 6>(1, 2, 3, 5, 8, 11);
     var tau = -9.0;
     for (var k = 0; k < 6; k++) {
         let hk = height(b, x + sg * reach[k]);
-        if (hk > 0.0) { tau = max(tau, (hk - h0) / f32(reach[k])); }
+        if (hk > 0.0) { tau = max(tau, up * (hk - h0) / f32(reach[k])); }
     }
-    let vis = select(0.2, 1.0 - 0.8 * smoothstep(tanA - 0.25, tanA + 0.35, tau), L.y > 0.0);
+    let vis = select(0.2, 1.0 - 0.8 * smoothstep(tanA - 0.25, tanA + 0.35, tau), up * L.y > 0.0);
     let D = max(0.0, (dot(nt, L) + u.amb.z) / (1.0 + u.amb.z));
-    relief[id.x] = vec4f(h0, u.amb.x * (0.85 + 0.15 * nt.y) + 0.88 * u.amb.y * vis * D, dot(nt, u.half.xyz), c);
+    relief[id.x] = vec4f(h0, u.amb.x * (0.85 + 0.15 * dot(nt.xy, u.grav.xy)) + 0.88 * u.amb.y * vis * D, dot(nt, u.half.xyz), c);
 }
