@@ -67,6 +67,19 @@
  *          drawn, the rule the bead's light of before goes by, is a frame behind the turn (the
  *          control). (Once turned over the bed lies to one side of the glass, all of it on the
  *          lit side or the shaded one: no flanks to compare, so the new glass is.)
+ *  RELIEF  the sunlit sand's beds thrown about (release 1.21.1, engine build 10): a full 60-minute glass
+ *          of layered Rose Quartz, drawn three times in each frame from the same points: by the engine,
+ *          by the grain renderer of LIT_BASE (the soft picture: no light of the engine's) and by the
+ *          sunlit grain renderer of RELIEF_BASE (release 1.21.0, the beds' tops their highest points). On
+ *          each canvas the light's own share, in 6 x 6 px blocks the log of the luminance over the soft
+ *          picture's: settled, in both looks, its largest step between neighbouring columns across the
+ *          bed's top 50 pt gives the bound (twice it); sloshed (the glass leaned 43 degrees for half a
+ *          second and back) and shaken (1.5 g from side to side, 5 Hz), in both looks, the engine's light
+ *          has no step over the bound and no straight vertical edge over 6 blocks (36 px), while RELIEF_BASE's,
+ *          on the same grains in the same frames, has (the control: its bars and blocks); and the settled
+ *          bed is lit from the screen's left by LIT's margin. About 13 minutes with the engine's start.
+ *          With --shots: each canvas of each frame measured (relief-<sand>-<look>-<moment>-<eng|old|soft>.png),
+ *          sand poured in and a flip under way besides; HOURGLASS_RELIEF_SANDS=rosequartz,sahara for more sands;
  *  SHAPES  each glass shape Tune offers, the page loaded in it (release 1.15.0): a 60-minute glass
  *          filled to its cap (the clock's full glass for that shape) with exactly the ledger's
  *          points on the GPU, none outside, the GPU's glass the shape's own; then a 10 s glass
@@ -83,7 +96,7 @@
  * browsers at once.
  *
  * --only <case>[,<case>...] runs those cases alone (the names above, any letter case; they run
- * in the order the log prints them: BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, SHAPES,
+ * in the order the log prints them: BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, RELIEF, SHAPES,
  * whatever the order named), and the last line names them, so the run is never read as the
  * whole suite; a name that is not a case is an error that lists the cases. The page is always
  * loaded and the engine started (BOOT's checks only when BOOT is named), and a case sets up
@@ -110,9 +123,13 @@ for (var i = 2; i < process.argv.length; i++) {
   else if (process.argv[i] === '--shapes') shapesArg = process.argv[++i] || '';
 }
 // the cases, in the order they run (whatever the order --only names them in)
-var CASES = ['BOOT', 'SOUND', 'RUN', 'RESET', 'FLIP', 'POUR', 'HIDDEN', 'LOSS', 'LIT', 'SHAPES'];
+var CASES = ['BOOT', 'SOUND', 'RUN', 'RESET', 'FLIP', 'POUR', 'HIDDEN', 'LOSS', 'LIT', 'RELIEF', 'SHAPES'];
 // LIT: the commit whose grain renderer draws "the picture of before" (HOURGLASS_SOFT_BASE names another; render-unit's too)
 var LIT_BASE = process.env.HOURGLASS_SOFT_BASE || '19c84db';
+// RELIEF: the commit whose sunlit sand is "the light of before" (release 1.21.0, engine build 9: the beds' tops from the highest point)
+var RELIEF_BASE = process.env.HOURGLASS_RELIEF_BASE || '2aba504';
+// LIT, RELIEF: the sunlit sand's side toward the screen's left is the brighter by at least this much
+var SUN_LIT = 1.2;
 var ONLY = null;
 if (onlyArg !== null) {
   ONLY = onlyArg.split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean);
@@ -379,6 +396,96 @@ async function installLit(a) {
     return { lit: look.lit ? off(look.lit.key[0], look.lit.key[1]) : null, old: off(ca * K0[0] - sa * K0[1], sa * K0[0] + ca * K0[1]),
       theta: th, parity: rs.valve.parity, fresh: !!(look.lit && look.lit.fresh) };
   };
+}
+
+/**
+ * RELIEF, in the page (after installLit): the sunlit sand of RELIEF_BASE (its grains.mjs, grains.wgsl and relief.wgsl
+ * taken from git) drawn beside the engine's own and the soft picture, on a canvas of its own, from the same points with
+ * the same look in the same commands. window.__lit.bars(which) measures a canvas's light against the soft picture's.
+ */
+async function installRelief(a) {
+  var H = window.Hourglass, rs = H.realSand, g = rs.grains, L = window.__lit, c0 = L.g0.canvas;
+  var url = URL.createObjectURL(new Blob([a.mjs], { type: 'text/javascript' }));
+  var mod = await import(url);
+  var c1 = document.createElement('canvas');
+  c1.width = rs.canvas.width; c1.height = rs.canvas.height;
+  var g1 = new mod.GrainRenderer(rs.device, c1, { offscreen: true });
+  await g1.init({ module: function (device, name) { return Promise.resolve(device.createShaderModule({ code: name === 'relief' ? a.relief : a.wgsl })); } });
+  g1.bind(rs.solver.buffers.particles);
+  g1.setWarp(rs.glass.warp, rs.glass.cx, rs.glass.cy, rs._halfRows(), rs.glass.W);
+  L.g1 = g1; L.oldPair = 0;
+  var enc = g.encode, pres = g.present, settle = L.settle, V = window.__vt;
+  g.encode = function (e, n, look) {
+    var free = !g1.copyPending;
+    if (rs._toneTable) g1.setTones(rs._toneTable);
+    enc(e, n, look); g1.encode(e, n, look);
+    if (free) L.oldPair = L.draws;
+  };
+  g.present = function () { return Promise.all([pres(), g1.present()]); };
+  L.settle = async function () {
+    await settle();
+    for (var k = 0; k < 400 && (g1.copyPending || g1.copyQueued); k++) await V.realSleep(5);
+  };
+  function lin(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  /**
+   * A canvas's light against the soft picture of the same grains (the base's canvas, the same frame), upright: the
+   * canvas in blocks of 6 x 6 pixels, each the log of its mean relative luminance over the soft picture's (the pixels
+   * both hold; a block whose pixels are under three fifths drawn in either is left out). Per column of blocks and per
+   * bulb (the canvas's halves), the bed's top band: the first 18 drawn blocks down from its top (108 px, about 50 pt):
+   * cols, their means. step: the largest difference between neighbouring columns (both with at least 9 blocks, and
+   * two more drawn columns beyond each); run: the longest straight vertical edge in that band, in blocks: neighbouring blocks across
+   * a column boundary differing by more than EDGE in the same direction, block under block (with two drawn blocks
+   * beyond each of the pair). (The columns at the bed's sides are left out: the contact shade at the glass is the
+   * light's own edge there, along the wall.)
+   */
+  L.bars = function (which, EDGE) {
+    var src = which === 'old' ? c1 : rs.canvas, w = src.width, h = src.height;
+    var d = src.getContext('2d').getImageData(0, 0, w, h).data, e = c0.getContext('2d').getImageData(0, 0, w, h).data;
+    var B = 6, nx = Math.floor(w / B), ny = Math.floor(h / B), r = new Float32Array(nx * ny).fill(NaN), bx, by, x, y, i;
+    for (by = 0; by < ny; by++) for (bx = 0; bx < nx; bx++) {
+      var sa = 0, sb = 0, n = 0;
+      for (y = by * B; y < by * B + B; y++) for (x = bx * B; x < bx * B + B; x++) {
+        i = (y * w + x) * 4;
+        if (d[i + 3] < 200 || e[i + 3] < 200) continue;
+        n++;
+        sa += 0.2126 * lin(d[i]) + 0.7152 * lin(d[i + 1]) + 0.0722 * lin(d[i + 2]);
+        sb += 0.2126 * lin(e[i]) + 0.7152 * lin(e[i + 1]) + 0.0722 * lin(e[i + 2]);
+      }
+      if (n >= 0.6 * B * B && sa > 0 && sb > 0) r[by * nx + bx] = Math.log(sa / sb);
+    }
+    var out = { step: 0, stepAt: null, run: 0, runAt: null, cols: [], blocks: 0 }, half = Math.floor(ny / 2);
+    [[0, half], [half, ny]].forEach(function (span, bulb) {
+      var col = [], band = [];
+      for (bx = 0; bx < nx; bx++) {
+        var s = 0, k = 0, b0 = -1, b1 = -1;
+        for (by = span[0]; by < span[1] && k < 18; by++) { var v = r[by * nx + bx]; if (v === v) { if (!k) b0 = by; s += v; k++; b1 = by; } else if (k) break; }
+        col.push(k >= 9 ? s / k : NaN);
+        band.push([b0, b1]);
+      }
+      // (the two columns at each side of the bed left out: the contact shade at the glass is the light's own edge there)
+      var inner = col.map(function (v, k) { return k >= 2 && k + 2 < col.length && col[k - 2] === col[k - 2] && col[k + 2] === col[k + 2] ? v : NaN; });
+      for (bx = 0; bx + 1 < nx; bx++) {
+        var q = Math.abs(inner[bx + 1] - inner[bx]);
+        if (q === q && q > out.step) { out.step = q; out.stepAt = [bulb, bx]; }
+      }
+      out.cols.push(col.map(function (v) { return v === v ? Math.round(v * 1000) / 1000 : null; }));
+      for (bx = 0; bx + 1 < nx; bx++) {
+        var run = 0, sign = 0, lo = Math.max(band[bx][0], band[bx + 1][0]), hi = Math.min(band[bx][1], band[bx + 1][1]);
+        for (by = lo; lo >= 0 && by <= hi; by++) {
+          var p = r[by * nx + bx], t = r[by * nx + bx + 1], dd = t - p;
+          // (inside the bed: two drawn blocks beyond each of the pair, the glass's contact shade left out)
+          if (bx < 2 || bx + 3 >= nx || !(r[by * nx + bx - 2] === r[by * nx + bx - 2]) || !(r[by * nx + bx + 3] === r[by * nx + bx + 3])) dd = NaN;
+          if (dd === dd) out.blocks++;
+          var sg = !(dd === dd) || Math.abs(dd) <= EDGE ? 0 : (dd > 0 ? 1 : -1);
+          if (sg && sg === sign) run++; else { run = sg ? 1 : 0; sign = sg; }
+          if (run > out.run) { out.run = run; out.runAt = [bulb, bx, by]; }
+        }
+      }
+    });
+    return out;
+  };
+  /** A canvas as a PNG (data URL): 'eng', 'old' or 'soft'. */
+  L.png = function (which) { return (which === 'old' ? c1 : which === 'soft' ? c0 : rs.canvas).toDataURL('image/png'); };
 }
 
 (async function main() {
@@ -947,7 +1054,7 @@ async function installLit(a) {
         return { ok: ok, same: L.same(), flanks: L.flanks(), key: L.keyOff(), light: rs._light, relief: rs.grains.n.relief, mode: rs.stats().mode };
       });
     }
-    var SUN = 1.2, f2 = function (v) { return v === v ? v.toFixed(2) : String(v); };
+    var SUN = SUN_LIT, f2 = function (v) { return v === v ? v.toFixed(2) : String(v); };
     var look0 = await page.evaluate(function () { return document.documentElement.getAttribute('data-look') === 'light' ? 'light' : 'dark'; });
     // upright, at rest: sunlit in the dark look and in the light, then soft
     await setLit('sunlit', 'dark');
@@ -1027,6 +1134,137 @@ async function installLit(a) {
     await frames(30);
     // as it was found: the look, the light of the app (sunlit), the engine's own renderer alone
     await setLit('sunlit', look0);
+    }
+    }
+
+    /* ---- RELIEF ---------------------------------------------------------- */
+    if (doCase('RELIEF')) {
+    var rb = require('./lib/base.js'), rSoft = {}, rOld = {};
+    try {
+      rSoft = { mjs: rb.show(LIT_BASE, 'realsand/grains.mjs'), wgsl: rb.show(LIT_BASE, 'realsand/shaders/grains.wgsl') };
+      rOld = { mjs: rb.show(RELIEF_BASE, 'realsand/grains.mjs'), wgsl: rb.show(RELIEF_BASE, 'realsand/shaders/grains.wgsl'), relief: rb.show(RELIEF_BASE, 'realsand/shaders/relief.wgsl') };
+    } catch (eb) { /* (checked below) */ }
+    check(!!rSoft.wgsl && !!rOld.relief, 'RELIEF: the soft grain renderer of ' + LIT_BASE + ' and the sunlit one of ' + RELIEF_BASE + ' are had from git', rOld.relief ? '' : 'git show failed: a commit is not in this clone');
+    if (rSoft.wgsl && rOld.relief) {
+    // a full 60-minute glass, as a phone's is (the bed deep enough to slosh)
+    await page.evaluate(function () { window.Hourglass.setDuration(3600000); });
+    await frames(12);
+    await frames(240, sweeping);
+    await frames(30);
+    if (!(await page.evaluate(function () { return !!window.__lit; }))) await page.evaluate(installLit, rSoft);
+    await page.evaluate(installRelief, rOld);
+    var EDGE = 0.2, rShots = [];
+    async function rLit(look) {
+      await page.evaluate(function (a) {
+        var b = document.querySelector('#lights [data-light="sunlit"]');
+        if (b.getAttribute('aria-checked') !== 'true') b.click();
+        var l = document.querySelector('[data-look="' + a + '"]'); if (l.getAttribute('aria-checked') !== 'true') l.click();
+      }, look);
+      await page.waitForTimeout(450);
+      await frames(3);
+    }
+    /** One frame all three canvases hold: the engine's light and the base's, each against the soft picture. */
+    async function rCap(tag) {
+      var c = await page.evaluate(async function (a) {
+        var L = window.__lit, rs = window.Hourglass.realSand, ok = false;
+        for (var k = 0; k < 3 && !ok; k++) ok = (await L.frame()) && L.oldPair === L.draws;
+        var o = { ok: ok, theta: L.shown(), mode: rs.stats().mode, eng: L.bars('eng', a.edge), old: L.bars('old', a.edge), flanks: L.flanks() };
+        if (a.png) o.png = { eng: L.png('eng'), old: L.png('old'), soft: L.png('soft') };
+        return o;
+      }, { edge: EDGE, png: !!shots });
+      if (c.png) {
+        ['eng', 'old', 'soft'].forEach(function (k) { fs.writeFileSync(path.join(shots, 'relief-' + tag + '-' + k + '.png'), Buffer.from(c.png[k].split(',')[1], 'base64')); });
+        delete c.png;
+      }
+      c.tag = tag;
+      rShots.push(c);
+      console.log('  relief ' + tag + ': ' + c.mode + ', engine step ' + c.eng.step.toFixed(3) + ' at ' + c.eng.stepAt + ', run ' + c.eng.run + ' at ' + c.eng.runAt +
+        '; ' + RELIEF_BASE + ' step ' + c.old.step.toFixed(3) + ', run ' + c.old.run + ' (' + c.eng.blocks + ' block pairs)' + (c.ok ? '' : ' (not held)'));
+      return c;
+    }
+    async function rShake(on) {
+      await page.evaluate(function (on) {
+        var H = window.Hourglass, mo = H.motion, V = window.__vt, W = window.__watch;
+        var keys = ['seenMotion', 'live', 'armed', 'sample', 'takeSwings'];
+        if (W.rWas) keys.forEach(function (k) { if (W.rWas[k]) Object.defineProperty(mo, k, W.rWas[k]); else delete mo[k]; });
+        W.rWas = null; H.grav.on = false; H.grav.target = 0;
+        if (!on) return;
+        W.rWas = {}; keys.forEach(function (k) { W.rWas[k] = Object.getOwnPropertyDescriptor(mo, k) || null; });
+        var t0 = V.now;
+        ['seenMotion', 'live'].forEach(function (k) { Object.defineProperty(mo, k, { configurable: true, get: function () { return true; } }); });
+        Object.defineProperty(mo, 'armed', { configurable: true, get: function () { return false; } });
+        mo.takeSwings = function () { return 0; };
+        // shaken from side to side at 1.5 g, 5 Hz
+        mo.sample = function (tMs, o) { o = o || {}; o.x = 1.5 * Math.sin(2 * Math.PI * 5 * (tMs - t0) / 1000); o.y = 0; o.z = 0; o.w = 0; o.wf = 0; o.rms = 0; o.armed = false; o.live = true; return o; };
+        H.grav.on = true; H.grav.target = 0;
+      }, on);
+    }
+    var rest = 'rs.stats().mode === "asleep" && rs.stats().inflight === 0';
+    /** Sloshed: the glass leaned 43 degrees for half a second (gravity turned in the glass), and back; 10 frames on. */
+    async function rSlosh(tag) {
+      await page.evaluate(function () { var H = window.Hourglass; H.grav.on = true; H.grav.target = 0.75; });
+      await frames(30);
+      await page.evaluate(function () { window.Hourglass.grav.target = 0; });
+      await frames(10);
+      var c = await rCap(tag);
+      await page.evaluate(function () { var H = window.Hourglass; H.grav.on = false; H.grav.target = 0; });
+      return c;
+    }
+    /** Shaken from side to side at 1.5 g, 5 Hz, for 0.4 s. */
+    async function rShaken(tag) {
+      await rShake(true);
+      await frames(24);
+      var c = await rCap(tag);
+      await rShake(false);
+      return c;
+    }
+    // the sands (HOURGLASS_RELIEF_SANDS, ids, for pictures of more: Rose Quartz by default, layered, as the app comes)
+    var rSands = (process.env.HOURGLASS_RELIEF_SANDS || 'rosequartz').split(',').map(function (x) { return x.trim(); }).filter(Boolean), R = {};
+    for (var rsI = 0; rsI < rSands.length; rsI++) {
+      var sd = rSands[rsI];
+      await page.evaluate(function (id) { window.Hourglass.setSand(id); }, sd);
+      await rLit('dark');
+      await frames(60, rest);
+      R[sd + '-dark-rest'] = await rCap(sd + '-dark-rest');
+      await rLit('light');
+      R[sd + '-light-rest'] = await rCap(sd + '-light-rest');
+      R[sd + '-light-slosh'] = await rSlosh(sd + '-light-slosh');
+      R[sd + '-light-shake'] = await rShaken(sd + '-light-shake');
+      await rLit('dark');
+      R[sd + '-dark-slosh'] = await rSlosh(sd + '-dark-slosh');
+      R[sd + '-dark-shake'] = await rShaken(sd + '-dark-shake');
+      if (shots) {
+        // pictures only: sand poured in (the Sand button), and a flip under way
+        await page.evaluate(function () { document.getElementById('btn-sand').dispatchEvent(new KeyboardEvent('keydown', { key: ' ' })); });
+        await frames(30);
+        await rCap(sd + '-dark-pour');
+        await page.evaluate(function () { document.getElementById('btn-sand').dispatchEvent(new KeyboardEvent('keyup', { key: ' ' })); });
+        await page.evaluate(function () { window.Hourglass.flipNow(); });
+        await frames(30);
+        await rCap(sd + '-dark-flip');
+        await frames(300, '!H.flip.active');
+      }
+    }
+    var r0 = rSands[0], RL = ['dark', 'light'], f3 = function (v) { return v.toFixed(3); };
+    // the bound, from the settled bed's own smooth variation: twice its largest step between neighbouring columns, in either look
+    var STEP = 2 * Math.max(R[r0 + '-dark-rest'].eng.step, R[r0 + '-light-rest'].eng.step), RUN = 6;
+    var dist = [];
+    RL.forEach(function (lk) { ['slosh', 'shake'].forEach(function (m) { dist.push(R[r0 + '-' + lk + '-' + m]); }); });
+    var held = Object.keys(R).every(function (k) { return R[k].ok && Math.abs(Math.sin(R[k].theta)) < 0.01; });
+    check(held && R[r0 + '-dark-rest'].eng.run <= RUN && R[r0 + '-light-rest'].eng.run <= RUN,
+      'RELIEF: a settled bed (a full 60-minute glass, layered ' + r0 + '), Sunlit over Soft on the same grains, column by column across the bed\'s top 50 pt: its largest step between neighbouring columns, ' +
+      f3(R[r0 + '-dark-rest'].eng.step) + ' dark and ' + f3(R[r0 + '-light-rest'].eng.step) + ' light (log of the ratio), gives the bound for a bed thrown about, twice the larger (' + f3(STEP) + '); and no straight vertical edge (6 px blocks differing by over ' + EDGE + ' across a column, block under block) longer than ' + RUN + ' blocks (36 px, 18 pt)',
+      'runs ' + R[r0 + '-dark-rest'].eng.run + ', ' + R[r0 + '-light-rest'].eng.run + (held ? '' : ' (a frame not held by all three canvases, or the glass not upright)'));
+    check(held && dist.every(function (c) { return c.eng.step <= STEP && c.eng.run <= RUN; }),
+      'RELIEF: sloshed (leaned 43 degrees and back) and shaken (1.5 g from side to side), in both looks, the light varies smoothly across the bed: no step between neighbouring columns over ' + f3(STEP) + ', no straight vertical edge over ' + RUN + ' blocks',
+      dist.map(function (c) { return c.tag + ' ' + f3(c.eng.step) + ' / ' + c.eng.run; }).join(', '));
+    check(held && dist.every(function (c) { return c.old.step > STEP || c.old.run > RUN; }),
+      'RELIEF: ... while the sunlit sand of ' + RELIEF_BASE + ' (its beds\' tops the highest point), drawing the very same grains in the very same frames, makes bars and blocks in every one of them (control)',
+      dist.map(function (c) { return c.tag + ' ' + f3(c.old.step) + ' / ' + c.old.run; }).join(', '));
+    check(held && RL.every(function (lk) { var f = R[r0 + '-' + lk + '-rest'].flanks; return f.ratio >= SUN_LIT && f.rel >= SUN_LIT; }),
+      'RELIEF: ... and the settled bed is still lit from the screen\'s left as LIT holds it: its flank ratio, and that over the soft picture\'s, at least ' + SUN_LIT + ' : 1 in both looks',
+      RL.map(function (lk) { var f = R[r0 + '-' + lk + '-rest'].flanks; return lk + ' ' + f.ratio.toFixed(2) + ' (' + f.rel.toFixed(2) + ')'; }).join(', '));
+    if (shots) fs.writeFileSync(path.join(shots, 'relief.json'), JSON.stringify(rShots));
     }
     }
 

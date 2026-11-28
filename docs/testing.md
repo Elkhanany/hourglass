@@ -782,10 +782,17 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   one in the light look at both ends and sizes, with Tune open at the top in
   both looks and half way through a fade. FIRST reads the canvas as the
   room's edge (`#ece9e2` light, `#090a0c` dark) and the body as the page's
-  colour. STANDALONE: the home-screen app's rule (`@media (display-mode:
-  standalone)`, which a test browser cannot emulate, so read with its query
-  made true, and as a tab) leaves the app's box the window's and Tune at its
-  foot at 393 x 852, 1280 x 800 and 412 x 915 in both looks. MEASURES: a tap
+  colour. STANDALONE (1.21.1): in a home-screen app the app's box is exactly the
+  layout viewport's, never taller, and the bar and Tune end where they do in
+  a tab, at 393 x 852, 1280 x 800 and 412 x 915 in both looks. A test browser
+  cannot be a home-screen app and its vh is its window, so the home-screen
+  app is played: every `@media (display-mode: standalone)` made true and
+  every 100vh and 100lvh 56 px more than the window shows, as on an iPhone
+  whose web view showed about 796 of its 852 pt while vh measured the whole
+  screen. The control is the stylesheet of 2aba504 (release 1.21.0, whose
+  home-screen rule, from 1.20.2, made the box as tall as the larger of the
+  window, 100vh and 100lvh) played the same way: its box and bar run past
+  the window, and the bar's foot is lost. MEASURES: a tap
   on Tune's version line shows one small line of the page's measures under
   it, exactly what the page reads, for 8 s, and stores nothing.
   The screen's pixels (a screenshot, read back in the page) and the glass's
@@ -1024,7 +1031,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   hundredths of real time, so once the engine has started the page's clock
   is made virtual (its time, frames and timers driven by the test, a frame
   at a time, each once the chip has done the last), and the sand runs at
-  real time in it. Ten cases, the first nine on 10 s glasses: the start and the handover;
+  real time in it. Eleven cases, the first nine on 10 s glasses: the start and the handover;
   the bed's sounds before the start (nothing while asleep; flicked along the
   glass as `motion.js` reports a flick, a thump of the energy of the bed's
   fastest fall, fed within 6 frames of that fall and as loud as the classic
@@ -1072,13 +1079,35 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   frame was drawn, which the soft bead goes by, is a frame behind the turn
   (the control). A bed that has turned over lies to one side of the glass,
   so there the new glass is measured, not the bed. LIT takes about four
-  minutes with the engine's start (`--only boot,lit`). Then each shape Tune
+  minutes with the engine's start (`--only boot,lit`). RELIEF (1.21.1,
+  engine build 10) throws the sunlit sand's beds about: a full 60-minute
+  glass of layered Rose Quartz, each frame drawn three times from the same
+  points, by the engine, by 19c84db's grain renderer (the soft picture, no
+  light of the engine's) and by 2aba504's sunlit one (release 1.21.0, whose
+  beds' tops were their highest points). On each canvas the light's own
+  share is the log of its luminance over the soft picture's, in 6 x 6 px
+  blocks. The settled bed, in both looks, gives the bound: twice its largest
+  step between neighbouring columns across the bed's top 50 pt (the columns
+  at the bed's sides left out, where the contact shade at the glass is the
+  light's own edge). Sloshed (the glass leaned 43 degrees for half a second
+  and back) and shaken (1.5 g from side to side at 5 Hz), in both looks, the
+  engine's light has no step over that bound and no straight vertical edge
+  in that band over 6 blocks (36 px, 18 pt: neighbouring blocks differing by
+  over 0.2 in the same direction, block under block); 2aba504's, on the very
+  same grains in the very same frames, has both (the control: its bars and
+  blocks: steps of 0.89 to 1.39 and edges of 18 blocks, the whole band,
+  against a bound of 0.24, where the engine's steps are 0.08 to 0.16 and its
+  edges 2 or 3 blocks). And the settled bed keeps LIT's margin, lit from the
+  screen's left (1.2 : 1 and over, in both looks). RELIEF takes about 13
+  minutes with the engine's start (`--only relief`); with `--shots` it saves each canvas of each frame
+  it measures, and sand poured in and a flip under way besides
+  (`HOURGLASS_RELIEF_SANDS=rosequartz,sahara` for more sands). Then each shape Tune
   offers, the page loaded in
   it: a 60-minute glass filled to its cap with exactly the ledger's points
   on the chip, and a 10 s glass whose last grain crosses within one frame
   after 00:00.0. With `--shots <dir>` it saves pictures of the app with
   Real sand on, each shape mid-run among them. `--only <case>[,<case>...]`
-  (BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, SHAPES, as its log
+  (BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, RELIEF, SHAPES, as its log
   names them, any letter case) runs those cases alone, in that order: the
   engine is always started, a case sets up what it needs from the one
   before it, a name that is no case is an error that lists them, and the
