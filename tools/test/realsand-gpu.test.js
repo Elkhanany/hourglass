@@ -58,7 +58,12 @@
  *          base (LIT_BASE, its grains.mjs and grains.wgsl taken from git) draws the same points
  *          with the same look in the same commands on a canvas of its own, and the two canvases
  *          are equal byte for byte at rest, with the stream running, at every sampled frame of a
- *          turn, and after it; under Sunlit they differ (the control). After that turn (the
+ *          turn, and after it, the streaks set aside (from build 11 both draw every grain sharp);
+ *          under Sunlit they differ (the control). The streak (build 11): grains in free flight
+ *          drawn alone for a 60 Hz and a 30 Hz display are as long at both, a comet (the third
+ *          behind the grain under 0.6 of the alpha at it), in the light look as dark on the page at
+ *          the head and paler in the tail than TURN_BASE's, whose streak (one display frame) is
+ *          half as long again at 30 Hz and even (the controls). After that turn (the
  *          engine's points now lie turned end for end) a new glass is lit from the screen's left
  *          as before. Through a second full turn, under Sunlit, the key the grains are drawn with,
  *          as the screen shows the canvas, stays the room's (KEY_LIGHT) in every frame, the
@@ -335,6 +340,7 @@ async function installLit(a) {
   var enc = g.encode.bind(g), pres = g.present.bind(g);
   g.encode = function (e, n, look) {
     var both = !g.copyPending && !g0.copyPending;
+    if (L.noStreak) look = Object.assign({}, look, { exposure: 0 });
     enc(e, n, look); g0.encode(e, n, look);
     L.draws++; L.look = look;
     if (both) L.pair = L.draws;             // (this frame's picture reaches both canvases)
@@ -407,6 +413,107 @@ async function installLit(a) {
     return { lit: look.lit ? off(look.lit.key[0], look.lit.key[1]) : null, old: off(ca * K0[0] - sa * K0[1], sa * K0[0] + ca * K0[1]),
       theta: th, parity: rs.valve.parity, fresh: !!(look.lit && look.lit.fresh) };
   };
+}
+
+/**
+ * LIT, the streak, in the page: nine grains in free flight (no sand round them, two cells apart across the lower
+ * bulb), falling at 360 cells/s, drawn alone by a grain renderer of the tree served and by one of `a` (TURN_BASE's
+ * grains.mjs, grains.wgsl and relief.wgsl), each on a canvas of its own, with the engine's look as it is, for a display
+ * of 60 Hz and one of 30 Hz (the engine's frames that far apart: rs._rafLog). This tree takes the engine's own
+ * exposure at each; TURN_BASE takes its own rule, one display frame (exposure(1, the display's frame, hz)). Each
+ * grain's streak, in the pixel column through it: its length (alpha over 8), the mean alpha of its third at the
+ * grain (the head) and of its third behind it (the tail), and the darkest pixel of each on the page's own ground.
+ * -> { now: { 60, 30 }, old: { 60, 30 } }, each { len, head, tail, headY, tailY, n } (medians over the grains).
+ */
+async function streaks(a) {
+  var H = window.Hourglass, rs = H.realSand, dev = rs.device, gl = rs.glass, hz = rs.rate.hz;
+  var bg = getComputedStyle(document.body).backgroundColor.match(/[0-9.]+/g).map(Number);
+  var pal = null, sp = rs.grains.setPalette;
+  rs.grains.setPalette = function (p) { pal = p; sp(p); };
+  rs.setPalette();
+  rs.grains.setPalette = sp;
+  async function renderer(mjs, wgsl, relief) {
+    var mod = await import(URL.createObjectURL(new Blob([mjs], { type: 'text/javascript' })));
+    var c = document.createElement('canvas'); c.width = rs.canvas.width; c.height = rs.canvas.height;
+    var g = new mod.GrainRenderer(dev, c, { offscreen: true });
+    await g.init({ module: function (d, name) { return Promise.resolve(d.createShaderModule({ code: name === 'relief' ? relief : wgsl })); } });
+    g.setWarp(gl.warp, gl.cx, gl.cy, rs._halfRows(), gl.W);
+    if (rs._toneTable) g.setTones(rs._toneTable);
+    if (pal) g.setPalette(pal);
+    return g;
+  }
+  async function text(u) { return (await fetch(u)).text(); }
+  var now = await renderer(await text('realsand/grains.mjs'), await text('realsand/shaders/grains.wgsl'), await text('realsand/shaders/relief.wgsl'));
+  var old = await renderer(a.mjs, a.wgsl, a.relief);
+  /** The engine's look for a display whose frames come ms apart, and that display's frame as the engine reads it. */
+  function lookAt(ms) {
+    var log0 = rs._rafLog, L = [];
+    for (var i = 60; i >= 0; i--) L.push(1e6 - i * ms);
+    rs._rafLog = L;
+    var look = Object.assign({}, rs._look(hz), { sweep: null }), d = rs._displayMs();
+    rs._rafLog = log0;
+    return { look: look, display: d };
+  }
+  var N = 9, y = Math.round(gl.cy * 0.5), v = 360, pts = [], d = new Float32Array(N * 24);
+  for (var k = 0; k < N; k++) {
+    var x = Math.round(gl.cx) + 2 * (k - 4) + 0.5;
+    pts.push([x, y + 0.5]);
+    d[k * 24] = x; d[k * 24 + 1] = y + 0.5; d[k * 24 + 3] = -v / hz; d[k * 24 + 15] = 1; d[k * 24 + 20] = (k * 37) & 255; d[k * 24 + 21] = 0;
+  }
+  var buf = dev.createBuffer({ size: d.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  dev.queue.writeBuffer(buf, 0, d);
+  function lin(c) { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  function med(xs) { xs = xs.slice().sort(function (p, q) { return p - q; }); return xs.length ? xs[xs.length >> 1] : NaN; }
+  async function draw(g, look) {
+    g.bind(buf);
+    for (var f = 0; f < 2; f++) {
+      var lk = look.lit ? Object.assign({}, look, { lit: Object.assign({}, look.lit, { fresh: f === 0, frame: f }) }) : look;
+      var enc = dev.createCommandEncoder();
+      g.encode(enc, N, lk);
+      dev.queue.submit([enc.finish()]);
+      await g.present();
+    }
+    var c = g.canvas, w = c.width, h = c.height, px = c.getContext('2d').getImageData(0, 0, w, h).data, out = [];
+    function A(xx, yy) { return xx < 0 || yy < 0 || xx >= w || yy >= h ? 0 : px[(yy * w + xx) * 4 + 3]; }
+    /** The pixel on the page's ground, its relative luminance. */
+    function onPage(i) { var al = px[i + 3] / 255, s = 0, wt = [0.2126, 0.7152, 0.0722]; for (var j = 0; j < 3; j++) s += wt[j] * lin(px[i + j] * al + bg[j] * (1 - al)); return s; }
+    pts.forEach(function (p) {
+      var cx = ((look.m[0] * p[0] + look.m[1] * p[1] + look.o[0]) + 1) / 2 * w, cy = (1 - (look.m[2] * p[0] + look.m[3] * p[1] + look.o[1])) / 2 * h;
+      var best = null;
+      for (var xx = Math.round(cx) - 3; xx <= Math.round(cx) + 3; xx++) {
+        var y0 = Math.round(cy);
+        for (var dy = 0; dy <= 3 && A(xx, y0) <= 8; dy++) y0 = A(xx, Math.round(cy) - dy) > 8 ? Math.round(cy) - dy : Math.round(cy) + dy;
+        if (A(xx, y0) <= 8) continue;
+        var top = y0, bot = y0;
+        while (A(xx, top - 1) > 8) top--;
+        while (A(xx, bot + 1) > 8) bot++;
+        if (!best || bot - top > best.bot - best.top) best = { x: xx, top: top, bot: bot };
+      }
+      if (!best) return;
+      // the head is the end at the grain (where it is now), the tail the end it came from
+      var n = best.bot - best.top + 1, t3 = Math.max(1, Math.floor(n / 3)), headAtBot = Math.abs(best.bot - cy) < Math.abs(best.top - cy);
+      var hs = 0, ts = 0, hY = 1, tY = 1;
+      for (var j = 0; j < t3; j++) {
+        var yh = headAtBot ? best.bot - j : best.top + j, yt = headAtBot ? best.top + j : best.bot - j;
+        var ih = (yh * w + best.x) * 4, it = (yt * w + best.x) * 4;
+        hs += px[ih + 3]; ts += px[it + 3]; hY = Math.min(hY, onPage(ih)); tY = Math.min(tY, onPage(it));
+      }
+      out.push({ len: n, head: hs / t3 / 255, tail: ts / t3 / 255, headY: hY, tailY: tY });
+    });
+    function m(k) { return med(out.map(function (o) { return o[k]; })); }
+    return { len: m('len'), head: m('head'), tail: m('tail'), headY: m('headY'), tailY: m('tailY'), n: out.length };
+  }
+  var r = { now: {}, old: {}, page: bg, hz: hz };
+  var rates = { 60: 1000 / 60, 30: 1000 / 30 };
+  for (var key in rates) {
+    var at = lookAt(rates[key]);
+    r.display = r.display || {}; r.display[key] = at.display;
+    r.exposure = r.exposure || {}; r.exposure[key] = at.look.exposure;
+    r.now[key] = await draw(now, at.look);
+    r.old[key] = await draw(old, Object.assign({}, at.look, { exposure: at.display / 1000 * hz }));
+  }
+  buf.destroy();
+  return r;
 }
 
 /**
@@ -1135,6 +1242,25 @@ async function installRelief(a) {
     var uD = await litFrame();
     await setLit('sunlit', 'light');
     var uL = await litFrame();
+    // the streak (release 1.22.0, engine build 11): grains in free flight drawn alone, for a 60 Hz display and a 30 Hz
+    // one, by this tree and by TURN_BASE (its renderer and its rule: one display frame), in the light look
+    var stB = null;
+    try { stB = { mjs: baseLib.show(TURN_BASE, 'realsand/grains.mjs'), wgsl: baseLib.show(TURN_BASE, 'realsand/shaders/grains.wgsl'), relief: baseLib.show(TURN_BASE, 'realsand/shaders/relief.wgsl') }; } catch (eS) { /* (checked below) */ }
+    var st = stB ? await page.evaluate(streaks, stB) : null, sn = st && st.now, so = st && st.old;
+    var stLog = function (o) { return o ? o.len + ' px, alpha head ' + f2(o.head) + ' tail ' + f2(o.tail) + ', on the page head ' + o.headY.toFixed(3) + ' tail ' + o.tailY.toFixed(3) + ' (' + o.n + ' grains)' : '?'; };
+    if (st) console.log('  streaks (' + st.hz + ' substeps/s; display ' + f2(st.display[60]) + ' and ' + f2(st.display[30]) + ' ms): this tree 60 Hz ' + stLog(sn[60]) + '; 30 Hz ' + stLog(sn[30]) + '; ' + TURN_BASE + ' 60 Hz ' + stLog(so[60]) + '; 30 Hz ' + stLog(so[30]));
+    check(!!st && sn[60].n >= 7 && sn[30].n >= 7 && so[30].n >= 7 && Math.abs(st.display[30] - 1000 / 30) < 0.5 && sn[30].len <= sn[60].len + 1 && so[30].len >= 1.5 * so[60].len,
+      'LIT: on a display of 30 Hz (Low Power Mode) a falling grain\'s streak is no longer than on one of 60 Hz (one 60 Hz frame at most), while ' + TURN_BASE + '\'s, one display frame, is at least half as long again (control)',
+      st ? 'this tree ' + sn[60].len + ' and ' + sn[30].len + ' px, ' + TURN_BASE + ' ' + so[60].len + ' and ' + so[30].len + ' px' : 'no streaks drawn (TURN_BASE not had from git?)');
+    check(!!st && sn[60].tail <= 0.6 * sn[60].head && sn[30].tail <= 0.6 * sn[30].head && so[30].tail >= 0.85 * so[30].head && so[30].tail <= 1.15 * so[30].head,
+      'LIT: ... and a comet: the third of the streak behind the grain under 0.6 of the alpha of the third at it, at 60 Hz and 30 Hz, while ' + TURN_BASE + '\'s is even along its length (control: 0.85 to 1.15)',
+      st ? 'tail over head: this tree ' + f2(sn[60].tail / sn[60].head) + ', ' + f2(sn[30].tail / sn[30].head) + '; ' + TURN_BASE + ' ' + f2(so[30].tail / so[30].head) : '');
+    check(!!st && sn[30].headY <= so[30].headY + 0.01 && sn[30].tailY >= so[30].tailY + 0.05,
+      'LIT: ... in the light look a falling grain reads on the page at its head as it did (its darkest pixel there no lighter than ' + TURN_BASE + '\'s, + 0.01), while its tail is paler than ' + TURN_BASE + '\'s by at least 0.05 (no dark stick)',
+      st ? 'darkest at the head ' + sn[30].headY.toFixed(3) + ' against ' + so[30].headY.toFixed(3) + ', in the tail ' + sn[30].tailY.toFixed(3) + ' against ' + so[30].tailY.toFixed(3) : '');
+    // Soft is the picture of before with the streaks set aside: both renderers draw every grain sharp (exposure 0) until
+    // after the turn below (from build 11 a streak is a comet, whose shape the checks above hold)
+    await page.evaluate(function () { window.__lit.noStreak = true; });
     await setLit('soft', 'dark');
     var sA = await litFrame();
     check(uD.ok && uL.ok && uD.light.on && uD.light.m === 0 && uL.light.m === 1 && uD.flanks.ratio >= SUN && uL.flanks.ratio >= SUN,
@@ -1145,7 +1271,7 @@ async function installRelief(a) {
     check(sA.ok && uD.ok && uL.ok && !sA.light.on && sA.flanks.rel > 0.9 && sA.flanks.rel < 1.1 && uD.flanks.rel >= SUN && uL.flanks.rel >= SUN,
       'LIT: ... and under Soft the two sides are alike: the flank ratio over the light-free picture of the same grains in the same frame (the base\'s) is 1 under Soft (0.9 to 1.1), while Sunlit\'s is at least ' + SUN + ' in both looks (control)',
       'soft ' + f2(sA.flanks.rel) + ', sunlit dark ' + f2(uD.flanks.rel) + ', light ' + f2(uL.flanks.rel) + ' (the bed itself: ' + f2(sA.flanks.base) + ', ' + f2(uD.flanks.base) + ', ' + f2(uL.flanks.base) + ' : 1)');
-    check(sA.ok && sA.same.differ === 0 && sA.same.drawn > 5000, 'LIT: Soft is the picture of ' + LIT_BASE + ', byte for byte: at rest', JSON.stringify(sA.same));
+    check(sA.ok && sA.same.differ === 0 && sA.same.drawn > 5000, 'LIT: Soft is the picture of ' + LIT_BASE + ', byte for byte (the streaks set aside: every grain drawn sharp in both): at rest', JSON.stringify(sA.same));
     check(uD.same.differ > 0.2 * uD.same.drawn && uL.same.differ > 0.2 * uL.same.drawn, 'LIT: ... while Sunlit is another picture (control)',
       'dark ' + uD.same.differ + ' of ' + uD.same.drawn + ' pixels differ, light ' + uL.same.differ + ' of ' + uL.same.drawn);
     // the stream running, soft
@@ -1172,6 +1298,7 @@ async function installRelief(a) {
     await frames(120);
     var sD = await litFrame();
     check(sD.ok && sD.same.differ === 0 && sD.same.drawn > 5000, 'LIT: Soft is the picture of ' + LIT_BASE + ': after the turn', JSON.stringify(sD.same));
+    await page.evaluate(function () { window.__lit.noStreak = false; });
     // after that full turn the engine's points lie turned end for end; a new glass (a Reset: the bed even again) is lit from the screen's left as before
     await page.evaluate(function () { window.Hourglass.reset(); });
     await frames(150, sweeping);

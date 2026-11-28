@@ -1115,8 +1115,17 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   taken from git; `HOURGLASS_SOFT_BASE` names another, as for `render-unit`)
   draws the same points with the same look in the same commands on a canvas
   of its own, and the two canvases are equal byte for byte at rest, with
-  the stream running, at every fourth frame of a full turn and after it;
-  under Sunlit nearly every pixel differs (the control). After that turn,
+  the stream running, at every fourth frame of a full turn and after it,
+  the streaks set aside there (from build 11 both draw every grain sharp:
+  the streak's shape is new); under Sunlit nearly every pixel differs (the
+  control). The streak (1.22.0, engine build 11): nine grains in free
+  flight, drawn alone with the engine's look for a 60 Hz and a 30 Hz
+  display, by this tree and by `bc25789`'s renderer with its rule of one
+  display frame: this tree's streak is as long at 30 Hz as at 60 Hz, the
+  third behind the grain under 0.6 of the alpha of the third at it, and in
+  the light look its head as dark on the page as `bc25789`'s and its tail
+  paler by at least 0.05; `bc25789`'s is half as long again at 30 Hz and
+  even along its length (the controls). After that turn,
   with the engine's points turned end for end, a new glass is lit from the
   screen's left as before. Through a second full turn, under Sunlit, the key
   each frame is drawn with, as the screen then shows the canvas, is the

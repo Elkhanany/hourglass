@@ -1749,19 +1749,49 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
     'x ' + oldRule[0].toFixed(2) + ', y ' + oldRule[1].toFixed(2));
   // the beds' floor: held turned past the level (gravity up the grid), the relief scans from the far end, once the
   // field has held the beds there a quarter of a second (a jolt's frame turns nothing). The look asked for at 0,
-  // 100, 200 and 300 ms on a clock of its own; then all put back as it was
-  var clk = rLT.clock, a0 = rLT.angle, tf0 = rLT._toneField, tNow = clk.perf(), fl = [];
+  // 100, 200 and 300 ms on a clock of its own; upright again from 600 ms; then all put back as it was
+  var clk = rLT.clock, a0 = rLT.angle, tf0 = rLT._toneField, tNow = clk.perf(), fl = [], ups = [];
+  function sidesOf(a) { return a.map(function (x) { return x ? x.side : null; }); }
   rLT.clock = { wall: clk.wall, perf: function () { return tNow; } };
   rLT._toneField = null; rLT.angle = 2.6;
   for (var fk = 0; fk < 4; fk++) { fl.push(rLT._litLook(rLT.rate.hz)); tNow += 100; }
-  rLT.angle = a0; tNow += 300;
-  var upAgain = rLT._litLook(rLT.rate.hz);
-  rLT.clock = clk; rLT._toneField = tf0;
+  rLT.angle = a0; tNow += 200;
+  for (fk = 0; fk < 4; fk++) { ups.push(rLT._litLook(rLT.rate.hz)); tNow += 100; }
+  // a jolt after the sand has slept: 5 s with no frame drawn, then one frame whose field points up the grid, then
+  // upright frames; and a swap made while the floor is at the far end (completeFlip: the grid turned end for end)
+  tNow += 5000; rLT.angle = 2.6;
+  var jolt = [rLT._litLook(rLT.rate.hz)];
+  rLT.angle = a0;
+  for (fk = 0; fk < 3; fk++) { tNow += 100; jolt.push(rLT._litLook(rLT.rate.hz)); }
+  rLT.angle = 2.6;
+  for (fk = 0; fk < 4; fk++) { tNow += 100; rLT._litLook(rLT.rate.hz); }
+  var turnedSide = rLT._litSide;
+  rLT.completeFlip();
+  var afterSwap = rLT._litLook(rLT.rate.hz);
+  rLT.clock = clk; rLT._toneField = tf0; rLT.angle = a0;
   var dnOk = fl.every(function (x) { return !!x && near(x.down[0], rLT.Gg * Math.sin(2.6 + rLT.tilt), 1e-6) && near(x.down[1], -rLT.Gg * Math.cos(2.6 + rLT.tilt), 1e-6) && x.g === rLT.Gg; });
-  var sides = fl.map(function (x) { return x ? x.side : null; });
-  check(dnOk && sides[0] === 1 && sides[1] === 1 && sides[2] === 1 && sides[3] === -1 && upAgain && upAgain.side === 1,
-    'held turned past the level (2.6 rad), the sunlit look gives the relief the field the sand feels (gravity turned by the angle) and, once it has held the beds there a quarter of a second, their floor at the far end (-1); upright again, the near end',
-    'sides at 0, 100, 200, 300 ms: ' + sides.join(', ') + '; upright again ' + (upAgain && upAgain.side));
+  var sides = sidesOf(fl), upSides = sidesOf(ups), joltSides = sidesOf(jolt);
+  // (changed on purpose for build 11: upright again, the near end comes back a quarter of a second after the first
+  // upright frame, as the far end came; it was one call 300 ms after the last turned frame, with no frame between)
+  check(dnOk && sides.join() === '1,1,1,-1' && upSides.join() === '-1,-1,-1,1',
+    'held turned past the level (2.6 rad), the sunlit look gives the relief the field the sand feels (gravity turned by the angle) and, once it has held the beds there a quarter of a second, their floor at the far end (-1); upright again, the near end once it has held them there a quarter of a second (frames at 600 to 900 ms)',
+    'sides at 0, 100, 200, 300 ms: ' + sides.join(', ') + '; upright again at 600, 700, 800, 900 ms: ' + upSides.join(', '));
+  check(joltSides.join() === '1,1,1,1',
+    '... the quarter second is counted from the first frame that says so: one frame with the field up the grid after 5 s with no frame drawn (the sand asleep) turns nothing (control: counted from the last frame that agreed, as in build 10, it turned the floor at once)',
+    'the jolt\'s frame and the 300 ms after: ' + joltSides.join(', '));
+  check(turnedSide === -1 && afterSwap && afterSwap.side === 1 && afterSwap.fresh,
+    '... and a swap (completeFlip: the field holds the beds to the new lower end) sets the floor at the near end in the swap\'s own frame (control: before the swap it was at the far end, and build 10 kept it there for a quarter of a second more)',
+    'before the swap ' + turnedSide + '; the swap\'s frame ' + (afterSwap && afterSwap.side) + ', fresh ' + (afterSwap && afterSwap.fresh));
+  // the streak: one display frame's, and no longer than one of 60 Hz on a slower display (a 30 Hz one: Low Power Mode)
+  var raf0 = rLT._rafLog, hzE = rLT.rate.hz;
+  rLT._rafLog = []; for (fk = 0; fk < 30; fk++) rLT._rafLog.push(fk * 1000 / 30);
+  var ms30 = rLT._displayMs(), ex30 = rLT._look(hzE).exposure;
+  rLT._rafLog = []; for (fk = 0; fk < 60; fk++) rLT._rafLog.push(fk * 1000 / 60);
+  var ex60 = rLT._look(hzE).exposure;
+  rLT._rafLog = raf0;
+  check(near(ms30, 1000 / 30, 1e-6) && near(ex60, hzE / 60, 1e-9) && near(ex30, ex60, 1e-9),
+    'a grain in flight streaks over one display frame of 60 Hz, and no longer on a display of 30 Hz (exposure, substeps: ' + ex60.toFixed(3) + ' at 60 Hz, ' + ex30.toFixed(3) + ' at 30 Hz); control: the display\'s frame there is 33.3 ms, so one display frame (build 10\'s rule) would be twice as long',
+    'display frame ' + ms30.toFixed(1) + ' ms; at that rate ' + hzE + ' substeps/s');
   // soft again: no light in the look, and what the grains are otherwise given is what it was before any light
   rLT.o.rotor = null;
   var back = await litAfter(function () { rLT.setLight('soft', 0); });
@@ -1772,9 +1802,10 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   var lookOf = function (src) { var m = /\n  _look\(hz\) \{\n([\s\S]*?)\n  \}\n/.exec(src); return m ? m[1] : null; };
   var lookHead = lookOf(adapterSrc), SOFT_BASE = process.env.HOURGLASS_SOFT_BASE || '19c84db', lookBase = null;
   try { lookBase = lookOf(require('./lib/base.js').show(SOFT_BASE, 'realsand/app-sand.mjs')); } catch (eB) { /* (checked below) */ }
-  var strip = function (t) { return t.split('\n').filter(function (l) { return !/^\s*(\/\/ the sunlit sand|lit: this\._litLook|\/\/ how much of the light look|paper: this\._light\.m)/.test(l); }).join('\n').replace(/_sweepLook\(\),\n/, '_sweepLook()\n'); };
+  var strip = function (t) { return t.split('\n').filter(function (l) { return !/^\s*(\/\/ the sunlit sand|lit: this\._litLook|\/\/ how much of the light look|paper: this\._light\.m)/.test(l); }).join('\n').replace(/_sweepLook\(\),\n/, '_sweepLook()\n')
+    .replace('exposure(BLUR, Math.min(this._displayMs(), BLUR_MS), hz)', 'exposure(BLUR, this._displayMs(), hz)'); };
   check(!!lookHead && !!lookBase && strip(lookHead) === lookBase,
-    'under the soft light the look is the base\'s (' + SOFT_BASE + '): _look()\'s text is its text with the two fields lit and paper added', lookBase ? '' : 'the base\'s app-sand.mjs is not had from git');
+    'under the soft light the look is the base\'s (' + SOFT_BASE + '): _look()\'s text is its text with the two fields lit and paper added, and (from build 11) the streak\'s display frame no longer than one of 60 Hz', lookBase ? '' : 'the base\'s app-sand.mjs is not had from git');
   check(!!lookHead && !!lookBase && strip(lookHead.replace('0.75 / css.dpr', '0.8 / css.dpr')) !== lookBase, '... and a grain drawn a little larger is found out (control)');
   // without a Renderer that gives the tables, or without the classic sand's key, the sand stays as it was: nothing breaks
   var NL = makeApp({ ms: 10000, seed: 213 }), rNL = await NL.attach(); NL.calibrate(); NL.T.rem = NL.T.durationMs; NL.T.state = 'paused';

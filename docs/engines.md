@@ -300,7 +300,9 @@ classic sand has a glow over its dark sands, Real sand none).
   The bulb's floor is the end the field the sand feels holds it to (the
   run's last field, in the grid's axes: gravity turned by the glass's angle
   and tilt, and what a phone adds), once it has held the beds there a
-  quarter of a second (a jolt turns nothing): with gravity up the grid (a
+  quarter of a second, counted from the first frame that says so (a jolt
+  turns nothing, nor one frame after the sand has slept); a swap sets it to
+  the new lower end at once, in its own frame: with gravity up the grid (a
   glass held past the level by a finger, or a phone that holds it so) the
   bed is scanned from the bulb's far end, its surface is the run's lowest
   cell, its normal points down the grid, and depth, "above", the horizon
@@ -320,15 +322,31 @@ classic sand has a glow over its dark sands, Real sand none).
   chroma), and its side away from the key all the way: a little deeper than
   the classic sand's falling grains, since a blurred streak lets the page
   through (in pictures of the running app, Moonstone's most visible falling
-  pixel against the page goes from 2.5 to about 3); under Sunlit a pale sand's
-  bed tops are drawn `deep` levels deeper (`view.still.z`).
+  pixel against the page goes from 2.5 to about 3); from build 11 at the
+  streak's head, fading along its tail with the streak's own light (below);
+  under Sunlit a pale sand's bed tops are drawn `deep` levels deeper
+  (`view.still.z`).
+- **The streak (build 11).** A grain in flight is drawn over the way it
+  went in one display frame, but no longer than one of 60 Hz (`BLUR_MS`):
+  on a 30 Hz display (Low Power Mode) the streaks were twice as long, and on
+  paper each read as a dark stick. And it is a comet: the grain whole where
+  it is now, the way it came fading to clear and a third narrower behind it
+  (a streak shorter than a grain's width stays near the disc). `realsand-gpu`'s
+  LIT case draws nine grains in free flight with the engine's look for a
+  60 Hz and a 30 Hz display: the streak is as long at both, the third
+  behind the grain has under 0.6 of the alpha of the third at it, the head
+  is as dark on the paper as before and the tail paler, while bc25789's
+  renderer, with its rule of one display frame, draws them half as long
+  again at 30 Hz and even along their length (the controls).
 - **Soft in the dark look is the picture of before, exactly.** Under Soft the
   look given to the grains has no light, `paper` is 0 in the dark look, the
   shader takes the lines it always took, and no relief pass is encoded.
   `realsand-gpu`'s LIT case holds it: the grain renderer of 19c84db (release
   1.20.0, whose grain renderer is the one before the sunlit sand) draws the
   same points beside the engine's own, and the two pictures are equal byte for
-  byte.
+  byte. From build 11 the streaks are set aside there (both draw every grain
+  sharp, exposure 0), since the streak's shape is new; the checks above hold
+  it.
 - **Cost.** Counted from the shader: the vertex stage adds about 180 scalar
   operations for each corner of a grain's quad, four corners a grain (among
   them four `exp`, one `sqrt` and two integer hashes), and six loads from
@@ -1088,8 +1106,9 @@ the app draws. The grains are lit from the upper left of the room: under
 Tune's Sunlit by the classic sand's own key, body, free surface and glints
 (see "Real sand under the same light" above); under Soft each grain is a bead
 lit from that side and no more, the canvas's turn taken back by the glass's
-angle on screen. Grains in flight are drawn as their streaks, a bed moving as
-a whole sharp (the lab's rule). Reset is drawn as the classic sand draws it, in about
+angle on screen. Grains in flight are drawn as their streaks (comets, no longer
+than a 60 Hz frame's way: "The streak" above), a bed moving as a whole sharp
+(the lab's rule). Reset is drawn as the classic sand draws it, in about
 a second: the old sand drawn into the neck (every grain's squared distance
 from the neck falling by the same amount, the sand frozen), then the new bed
 shown from the neck up under a rising heap, with the thread that pours it.

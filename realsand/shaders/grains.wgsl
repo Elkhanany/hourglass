@@ -301,18 +301,23 @@ fn turned(v: vec2f) -> vec2f {
 }
 
 @fragment fn fragmentMain(v: VertexOut) -> @location(0) vec4f {
-    // a disc, drawn out along the streak (a capsule); without blur (half-length 0) the disc as before
+    // a disc, drawn out along the streak; without blur (half-length 0) the disc as before. The streak is a comet:
+    // the grain whole where it is now (its head, local.x = hl), the way it came fading to clear and a third narrower
+    // behind it, so a long streak is a bright head and a faint tail, never a stick of one tone. (A streak under a
+    // grain's width is near the disc: k.)
     let hl = v.streak.z;
+    let k = min(hl, 1.0);
+    let tail = k * clamp((hl - v.local.x) / max(2.0 * hl, 1e-6), 0.0, 1.0);
+    let fade = 1.0 - tail;
     let along = sign(v.local.x) * max(abs(v.local.x) - hl, 0.0);
-    let ql = vec2f(along, v.local.y);
+    let ql = vec2f(along, v.local.y / (1.0 - 0.35 * tail));
     let r2 = dot(ql, ql);
     if (r2 > 1.0) { discard; }
     // the same light falls on the grain whatever its streak: back to screen axes
     let d = v.streak.xy * ql.x + vec2f(-v.streak.y, v.streak.x) * ql.y;
-    // the grain's light is spread along its streak: a blurred grain is fainter, as on film, but
-    // no fainter than 0.6: a point here stands for many grains, and a stream of them is a bright
-    // thread to the eye, not the faint dashes that the full dimming drew
-    let spread = max(0.6, 1.0 / (1.0 + hl));
+    // the grain's light is spread along its streak, as on film: its head whole (a point here stands for many grains,
+    // and a stream of them is a bright thread to the eye), its tail fading
+    let spread = fade;
     // a rounded grain lit from the upper left of the room (in the app, turned back by the glass's
     // angle on screen); mica (alpha > 1) glints on its lit side
     let light = turned(normalize(vec2f(-0.55, 0.65)));
@@ -335,9 +340,9 @@ fn turned(v: vec2f) -> vec2f {
         // the light look, a grain in the air: its far side from the key (the room's, as the bead above) dark
         let kd = select(light, view.glint.zw, v.hi.a > 0.5);
         // (a streak is thin and drawn faint, its blur lets the page through: the whole grain is taken most of the way
-        // down, its far side the rest)
+        // down, its far side the rest; at the head, fading along the tail with the streak's light)
         let far = clamp(0.25 - 1.4 * dot(d, kd), 0.0, 1.0);
-        rgb = mix(rgb, v.shade.rgb, v.shade.a * (0.7 + 0.3 * far));
+        rgb = mix(rgb, v.shade.rgb, v.shade.a * (0.7 + 0.3 * far) * fade);
     }
     if (view.look.x > 0.5) {
         // liquid: soft round drops that run together
