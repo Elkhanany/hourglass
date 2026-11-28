@@ -21,6 +21,10 @@
  *             they start no glass, open nothing and turn nothing; the next one works as always
  *   TWICE     ... and a second tap 0.25 s after the first (Start, by a finger and by a mouse) is
  *             not eaten with it: only the rest of the first gesture is
+ *   TWO       two fingers landing together on the glass while the bowl is to ring again (the
+ *             phone picked up, a pinch begun) only stop it: the second finger is of the stopping
+ *             gesture, eaten with it, and the glass does not turn; with Rings once, two fingers
+ *             do nothing, as always
  *   QUIET     muted, Sound at 0 or Bowl at 0, the rings do not begin and the first tap after the
  *             end works as always; muted, or a slider brought to 0, while they are due, they stop
  *   AWAY      nothing rings while the page is hidden (a locked phone, another app): back on
@@ -51,7 +55,7 @@
  * fail it. The copy is handed to the page in place of the file it stands for; the tree served is
  * the app as it ships.
  *
- *   node tools/test/app-sound.test.js [--port <n>] [--root <dir>] [--only layout,levels,rings,tap,twice,quiet,away,rounds,awake,asleep,back,fade,silent]
+ *   node tools/test/app-sound.test.js [--port <n>] [--root <dir>] [--only layout,levels,rings,tap,twice,two,quiet,away,rounds,awake,asleep,back,fade,silent]
  */
 'use strict';
 var fs = require('fs'), path = require('path');
@@ -413,6 +417,33 @@ function twiceOk(m) {
                      '; the second, 0.25 s later: ' + (x.second.flip ? 'the glass turns' : x.second.state === 'running' ? 'the glass runs' : 'NOTHING (' + x.second.state + ')') + (x.errors.length ? '; ' + x.errors.slice(0, 2).join(' | ') : '') };
   };
   return { finger: one(m.finger), mouse: one(m.mouse) };
+}
+
+/* ---- TWO: two fingers landing together while the bowl is due are one gesture, used up ------- */
+async function two(env, routes) {
+  var out = {};
+  for (var rings of ['tap', 'once']) for (var where of ['top', 'middle']) {
+    var r = await toEnd(env, { settings: { bowlRings: rings }, routes: routes }), t = r.t;
+    try {
+      await sleep(1200);
+      var g = await t.glass(), y = where === 'top' ? g.top + g.h * 0.2 : g.cy;
+      var before = await snap(t);
+      await t.touch.fingers('touchStart', [[g.cx - g.w * 0.12, y], [g.cx + g.w * 0.12, y + 6]]);
+      await sleep(60);
+      await t.touch.up();
+      await sleep(900);
+      out[rings + '-' + where] = { due: !!before.rings, after: await snap(t), errors: t.errors.slice() };
+    } finally { await t.close(); }
+  }
+  return out;
+}
+function twoOk(m) {
+  var one = function (x, due) {
+    return { ok: x.due === due && x.after.rings === null && x.after.state === 'done' && !x.after.flip && !x.errors.length,
+             detail: (due ? 'Until a tap, the bowl due' : 'Once, nothing due') + ': after two fingers together, rings ' + JSON.stringify(x.after.rings) + ', ' + x.after.state +
+                     (x.after.flip ? ', the glass TURNING' : ', not turned') + (x.errors.length ? '; ' + x.errors.slice(0, 2).join(' | ') : '') };
+  };
+  return { top: one(m['tap-top'], true), middle: one(m['tap-middle'], true), onceTop: one(m['once-top'], false), onceMiddle: one(m['once-middle'], false) };
 }
 
 /* ---- QUIET: rings that cannot be heard are not rung, and take no tap ------------------------ */
@@ -824,7 +855,7 @@ function silentOk(m) {
       s.check('TAP: ... the first key (F) only stops it, and turns nothing; the next turns the glass', tp.key.ok, tp.key.detail);
       s.check('TAP: no page or console errors', tp.errors.ok, tp.errors.detail);
       await control('TAP: a copy whose first tap is not used up (it starts the glass too)', 'glass', function () {
-        return taps(env, copyOf('app.js', /    ringEat = \{ id: e\.pointerId, touch: null, up: 0 \};\n    ringEaten\(e\);\n/, '    ringEat = null;\n'));
+        return taps(env, copyOf('app.js', /    ringEat = \{ ids: \[e\.pointerId\], touches: \[\], up: 0 \};\n    ringEaten\(e\);\n/, '    ringEat = null;\n'));
       }, tapsOk);
       await control('TAP: a copy whose first key is not used up', 'key', function () {
         return taps(env, copyOf('app.js', /    ringEat = \{ key: e\.key, up: 0 \};\n    ringEaten\(e\);\n/, ''));
@@ -836,17 +867,26 @@ function silentOk(m) {
       s.check('TWICE: ... and clicked twice with a mouse 0.25 s apart: the same', tw.mouse.ok, tw.mouse.detail);
       // the copy: the next gesture's pointer down no longer ends the first, and every touch is eaten, not only the first's (as up to 1.19.0)
       var eatsAll = [broken(env, 'app.js', function (src) {
-        src = swap(/    if \(ringEat && \(ringEat\.up \|\| ringEat\.key !== undefined \|\| e\.pointerId !== ringEat\.id\)\) ringEat = null;[^\n]*\n/, '')(src);
+        src = swap(/    if \(ringEat\) ringEat = null;[^\n]*\n/, '')(src);
         src = swap(/        else if \(!ringTouch\(e, q\)\) return;\n/, '')(src);
-        return swap(/        if \(type === 'touchend' \|\| type === 'touchcancel'\) \{ ringEaten\(e\); ringEat = null; return; \}[^\n]*\n/, '')(src);
+        return swap(/        if \(type === 'touchend' \|\| type === 'touchcancel'\) \{[^\n]*\n          ringEaten\(e\);\n[^\n]*\n[^\n]*\n          return;\n        \}\n/, '')(src);
       })];
       await control('TWICE: a copy that eats every touch and click until 0.6 s after the first tap lifts (as up to 1.19.0): a finger', 'finger', function () { return twice(env, eatsAll); }, twiceOk);
       await control('TWICE: a copy whose mouse gesture is not ended by its click nor by the next press: a mouse', 'mouse', function () {
         return twice(env, [broken(env, 'app.js', function (src) {
-          src = swap(/    if \(ringEat && \(ringEat\.up \|\| ringEat\.key !== undefined \|\| e\.pointerId !== ringEat\.id\)\) ringEat = null;[^\n]*\n/, '')(src);
+          src = swap(/    if \(ringEat\) ringEat = null;[^\n]*\n/, '')(src);
           return swap(/      if \(type === 'click'\) ringEat = null;\n/, '')(src);
         })]);
       }, twiceOk);
+    }
+    if (wanted('two')) {
+      var tf = twoOk(await two(env));
+      s.check('TWO: while the bowl is to ring again (Until a tap), two fingers landing together near the top of the glass only stop it: the glass does not turn', tf.top.ok, tf.top.detail);
+      s.check('TWO: ... and the same two fingers across its middle', tf.middle.ok, tf.middle.detail);
+      s.check('TWO: with Rings once (nothing due) two fingers together do nothing, as always', tf.onceTop.ok && tf.onceMiddle.ok, tf.onceTop.detail + ' | ' + tf.onceMiddle.detail);
+      await control('TWO: a copy that takes a finger landing while the stopping one is down for a new gesture (as up to 1.21.1)', 'top', function () {
+        return two(env, copyOf('app.js', /    if \(ringEat && ringEat\.ids && !ringEat\.up\) \{[^\n]*\n[^\n]*\n      ringEaten\(e\);\n      return;\n    \}\n/, ''));
+      }, twoOk);
     }
     if (wanted('quiet')) {
       var qu = quietOk(await quiet(env));

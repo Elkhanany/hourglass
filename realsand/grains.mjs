@@ -91,12 +91,12 @@ export class GrainRenderer {
     const U = GPUBufferUsage;
     this.tonesBuf = device.createBuffer({ size: TONE_LEVELS * 256 * 4, usage: U.STORAGE | U.COPY_DST });
     this.hasTones = false; this.hasHalf = false;
-    this.columns = 0; this.rows = 0; this.reliefAt = 0; this.wasLit = false;
+    this.columns = 0; this.rows = 0; this.reliefAt = 0; this.wasLit = false; this.litSide = 1;
     this.cellsBuf = device.createBuffer({ size: 16, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     this.colsBuf = device.createBuffer({ size: 32, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     this.reliefBufs = [0, 1].map(() => device.createBuffer({ size: 32, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC }));
-    this.reliefData = new Float32Array(16);
-    this.reliefUni = device.createBuffer({ size: 64, usage: U.UNIFORM | U.COPY_DST });
+    this.reliefData = new Float32Array(20);
+    this.reliefUni = device.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
     this.countGroup = null; this.scanGroup = null; this.reliefGroups = null;
     this.n = { relief: 0 };              // relief passes encoded (the tests count them)
   }
@@ -196,7 +196,9 @@ export class GrainRenderer {
    *       direction a mica facet must face; glint [r, g, b] (0 to 1); still: the displacement in a substep
    *       above which a grain moves (cells); slow: the displacement in a substep up to which a crowded point
    *       lies in a bed (cells); frame: counts the frames drawn; fresh: the beds are new (a fill, a turn), so
-   *       the relief keeps nothing from before }.
+   *       the relief keeps nothing from before; down [x, y]: the field the sand feels, in the grid's axes (left
+   *       out: gravity down the grid), and g its length at rest: how far the grid's columns stand for the
+   *       beds' surface; side: the end the beds lie on, 1 their floor down the grid (left out), -1 up it }.
    *     Drawn sunlit only when canLight; the relief's two passes are encoded first.
    */
   encode(enc, count, look) {
@@ -230,6 +232,13 @@ export class GrainRenderer {
       v[44] = lit.share * 6 / Math.PI; v[45] = lit.mica; v[46] = L[0] / l2; v[47] = L[1] / l2;
       v[48] = g[0]; v[49] = g[1]; v[50] = g[2]; v[51] = lit.frame || 0;
       v[52] = lit.still; v[54] = lit.deep || 0;
+      // the beds' floor (lit.side), and how far the grid's columns stand for their surface (lit.down, the field
+      // in the grid's axes, at rest lit.g long: within about 45 degrees of their axis, none past 65: turned
+      // toward the level a bed lies against a wall), the less in a field far weaker than gravity
+      const dn = lit.down || [0, -1], gl = Math.hypot(dn[0], dn[1]), side = lit.side === -1 ? -1 : 1;
+      const ax = gl > 0 ? Math.abs(dn[1]) / gl : 1, gr = gl / (lit.g || gl || 1);
+      const ease = (a, b, t) => { const k = Math.min(1, Math.max(0, (t - a) / (b - a))); return k * k * (3 - 2 * k); };
+      v[55] = side;
       // the beds' relief for this frame: the tops found afresh, then read with the buffer the last frame wrote
       // and written to the other
       const r = this.reliefData, W = this.columns;
@@ -237,6 +246,9 @@ export class GrainRenderer {
       r[4] = H[0]; r[5] = H[1]; r[6] = H[2]; r[7] = lit.fresh || !this.wasLit ? 1 : 0;
       r[8] = lit.A; r[9] = lit.K; r[10] = lit.wrap; r[11] = this.warpCy;
       r[12] = count; r[13] = look.flight || FLIGHT; r[14] = lit.slow; r[15] = this.rows;
+      r[16] = gl > 0 ? -dn[0] / gl : 0; r[17] = gl > 0 ? -dn[1] / gl : 1; r[18] = side; r[19] = ease(0.42, 0.7, ax) * ease(0.25, 0.5, gr);
+      if (side !== this.litSide) r[7] = 1;       // (the floor at the other end: the beds' last surfaces are of the other)
+      this.litSide = side;
       this.device.queue.writeBuffer(this.reliefUni, 0, r);
       this.reliefAt ^= 1;
       enc.clearBuffer(this.cellsBuf);

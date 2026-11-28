@@ -44,8 +44,9 @@ still counts.
 
 When the sand runs out while the controls are dimmed, the glass stays still
 through the last grains and the bowl, then the controls return slowly. A
-touch brings them back at once. The app itself opens by fading up from dark,
-with the glass already in its place.
+touch brings them back at once. The app itself opens by fading up from the
+page's own colour (dark, or paper in the light look), with the glass already
+in its place.
 
 ## The amount of sand
 
@@ -83,12 +84,16 @@ Tune's **Glass** tab has the same choice as a row, **Background**, with four:
   followed while the app is open.
 - **Daytime**: light from 7:00 to 19:00 by the device's clock and dark at
   night; it changes at the hour while the app is open, and when it comes back
-  to the front.
+  to the front. A clock set by hand, or a new time zone after a flight, is
+  followed within about 10 seconds. The note under the row says the hours in
+  your device's own clock (7:00 AM to 7:00 PM on a 12-hour one).
 
 A tap on the moon button always turns to the other look and makes it your
-choice (Light or Dark) from Device or Daytime too. The look is chosen before
-the app first draws, so it never opens in the wrong one, and a running glass
-runs on untouched when it changes. A change while the app is open fades the
+choice (Light or Dark) from Device or Daytime too. The page is in its look
+from its first frame, so it never opens in the wrong one; the launch screen
+the phone shows before it (and a PC window's splash) is dark in either look,
+as it cannot know your choice. A running glass runs on untouched when the
+look changes. A change while the app is open fades the
 whole picture, glass and sand and bars, from one look to the other in about a
 third of a second (at once with Reduce Motion). The phone's status bar and a PC window's
 title bar follow it. *Put the look and sound back as they came* puts it back

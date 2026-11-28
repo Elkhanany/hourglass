@@ -828,7 +828,7 @@ async function zen(s, env) {
   await sampleStart(t);
   await t.touch.tap(g.cx, g.cy, 60);
   await sleep(400);
-  await t.page.tap('#btn-zen');                              // (Zen comes by the moon button or a pinch, never by itself)
+  await t.page.tap('#btn-zen');                              // (Zen comes by the Zen button or a pinch, never by itself)
   await t.page.waitForFunction(function () { return document.getElementById('app').classList.contains('zen-deep'); }, null, { timeout: 12000 });
   await sleep(600);
   var p = await H.perfWatch(t);

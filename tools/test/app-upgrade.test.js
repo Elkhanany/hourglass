@@ -32,7 +32,10 @@
  *     needs the settings store the old page never loads. The page then says "Hourglass is
  *     updating. Open it again in a moment." (not "with a connection": it has one), builds
  *     nothing and throws no error, and a later launch runs this tree. Its control: this tree
- *     with the online words taken out of app.js says "... with a connection" online.
+ *     with the online words taken out of app.js says "... with a connection" online. The same
+ *     for 1.18.0 (f7671de), whose page loads the settings store but whose renderer has none of
+ *     the light look's parts: the same words, nothing built, no error; its control, this tree
+ *     without the look at the renderer's parts, throws.
  *  4. LAB: a lab page that meets an engine of another build leaves the app's cache whole, and
  *     the app then starts offline.
  *  5. INTERRUPTED: an update that never finishes, over a copy installed before R1 (13a9772,
@@ -63,7 +66,7 @@
  * app.js or the style sheet).
  *
  * HOURGLASS_MAIN=<ref> installs another ref than origin/main first. Without that ref, or without
- * 13a9772, d6482bd or 5911e24 (a shallow clone), the suite fails and says how to fetch it.
+ * 13a9772, d6482bd, 5911e24 or f7671de (a shallow clone), the suite fails and says how to fetch it.
  *
  *   node tools/test/app-upgrade.test.js [--port <n>] [--only <case>]    (default port: $PORT, else 8711;
  *   cases: upgrade overtaken vary "failed install" hole lab interrupted "old saves")
@@ -658,8 +661,8 @@ async function caseHole(s, browser, T) {
  * connection (the old page, with `dir`'s app.js filled into the hole), then launches with a
  * connection until `dir` runs.
  */
-async function holeOlder(browser, T, dir) {
-  var ctx = await newContext(browser), old = T.olds['1.10.0'], r = {};
+async function holeOlder(browser, T, dir, rel) {
+  var ctx = await newContext(browser), old = T.olds[rel || '1.10.0'], r = {};
   try {
     serve(old.dir);
     await online(ctx);
@@ -690,6 +693,16 @@ async function caseHoleOlder(s, browser, T) {
   s.check('HOLE: control: this tree with the online words taken out of app.js says "' + UPDATING + '" in the same launch, though it has a connection',
           T.offlineWords.found === 1 && c.installed && c.took && !!cf.app && !cf.app.sim && cf.app.updating === UPDATING && cf.app.updating !== UPDATING_ONLINE,
           JSON.stringify({ undone: T.offlineWords.found, first: cf }));
+  // 1.18.0: its page loads the settings store, and its renderer has the name but none of the light look's parts
+  var r18 = await holeOlder(browser, T, T.tree, '1.18.0'), f18 = r18.first;
+  s.check('HOLE: 1.18.0 installed with app.js taken out of its cache, this tree on the server: the old page with this tree\'s app.js and the old renderer says "' + UPDATING_ONLINE + '", builds nothing, and throws no error',
+          r18.installed && r18.took && f18.release === '1.18.0' && !!f18.app && f18.app.updating === UPDATING_ONLINE && !f18.app.sim && pageErrors(f18).length === 0,
+          JSON.stringify({ installed: r18.installed, took: r18.took, first: f18 }));
+  s.check('HOLE: ... and a later launch with a connection runs this tree (' + T.release + ')', r18.next.ok, JSON.stringify(r18.next));
+  var c18 = await holeOlder(browser, T, T.noRendererParts.dir, '1.18.0'), cf18 = c18.first;
+  s.check('HOLE: control: this tree without the look at the renderer\'s parts throws in the same launch (' + (pageErrors(cf18)[0] || 'no error').slice(0, 90) + ')',
+          T.noRendererParts.found === 1 && c18.installed && c18.took && !!cf18.app && !cf18.app.sim && pageErrors(cf18).length > 0,
+          JSON.stringify({ undone: T.noRendererParts.found, first: cf18 }));
 }
 
 /**
@@ -1005,6 +1018,9 @@ async function main() {
     T.lab = labOtherBuild(copyTree(T.tree, 'lab'));
     T.olds = {};
     OLD_RELEASES.forEach(function (o) { var d = o[1] === MAIN ? T.main : archive(o[1], 'old-' + o[0]); T.olds[o[0]] = { dir: d, version: worker(d).version }; });
+    var d18 = archive('f7671de', 'old-1.18.0');          // (HOLE only: 1.18.0 has no material cards for OLD SAVES)
+    T.olds['1.18.0'] = { dir: d18, version: worker(d18).version };
+    T.noRendererParts = without(T.tree, 'no-renderer-parts', 'app.js', "    if (typeof P0.Renderer === 'function') ['setPaper',", "    if (false) ['setPaper',");
     T.noFinish = without(T.tree, 'no-finish', 'app/settings.js', 'from: function (saved, reg) { return reg.finishOf(saved.theme); } }', '}');
     T.oldLab = copyTree(T.tree, 'old-lab');
     fs.rmSync(path.join(T.oldLab, 'lab', 'sand'), { recursive: true, force: true });

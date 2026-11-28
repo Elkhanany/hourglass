@@ -23,6 +23,8 @@
  * lib/replay-iphone.js) has an end and a small answer (lib/ask.js): it ends after 30 s with an
  * error that names it, and an answer of more than 20,000 values is refused in the page, with a
  * message that says so, unless that one question raises the count (o.max).
+ * And the steps for a new setting (docs/engines.md, "The row count") name every suite that
+ * counts Tune's rows (`.rows === N`), so one who adds a row changes them all.
  * Each rule has its control: a tree or a suite that breaks it must fail.
  *
  *   node tools/test/check-harness.test.js
@@ -223,6 +225,16 @@ function page(tags) { return '<!doctype html><html><head><meta charset="utf-8"><
       'the harness\'s t.eval asks through it, in stubs/harness.js and in lib/replay-iphone.js');
     var unbounded = hs.replace(BOUNDED, 'eval: function (fn, arg) { return page.evaluate(fn, arg); }');
     check(unbounded !== hs && !bare(unbounded), '... and a harness whose t.eval asks the page as before (no end, any answer) is found out (control)');
+    /* ---- the suites that count Tune's rows, named in the steps for a new setting ---- */
+    var counting = tests.filter(function (f) { return /\.rows === \d+/.test(fs.readFileSync(path.join(__dirname, f), 'utf8')); }).map(function (f) { return f.replace('.test.js', ''); });
+    var engines = fs.readFileSync(path.join(paths.ROOT, 'docs', 'engines.md'), 'utf8');
+    var step = (/\n7\. The row count:([\s\S]*?)\n\n/.exec(engines) || [])[1] || '';
+    var unnamed = function (text) { return counting.filter(function (n) { return text.indexOf('`' + n + '`') < 0; }); };
+    check(counting.length >= 6 && step && unnamed(step).length === 0,
+      'the steps for a new setting name every suite that counts Tune\'s rows (' + counting.join(', ') + ')', unnamed(step).join(', '));
+    var asShipped = " five suites count Tune's rows (`app-regression`,\n   `e2e-calm`, `app-breath`, `app-sequence`, `app-realsand`), so a new row\n   changes those on purpose.";
+    check(unnamed(asShipped).length > 0 && unnamed(asShipped).indexOf('app-tune') >= 0,
+      '... and that check finds app-tune missing from the step as release 1.21.1 had it (control)', unnamed(asShipped).join(', '));
   } catch (e) {
     check(false, 'no exception', e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

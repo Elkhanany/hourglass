@@ -104,14 +104,19 @@ The look, light or dark ("Light and dark" in `app.js`). The setting
 `background` gives it: 'dark' and 'light' as they are, 'system' by the media
 query `prefers-color-scheme: light` (followed by its change event), 'hours'
 light from 7:00 to 19:00 by `new Date().getHours()`, looked at again by a
-timer set for the next 7:00 or 19:00 and whenever the page comes back to the
-front (`visibilitychange`, `pageshow`, `focus`: a phone's timers sleep in the
-background). The page is in the light look while `html` carries
+timer set for the next 7:00 or 19:00, every 10 s while the page is open
+(`lookClock`: a clock set by hand or a new time zone moves the hour, and a
+timer counts the time gone by, not the clock) and whenever the page comes back
+to the front (`visibilitychange`, `pageshow`, `focus`: a phone's timers sleep
+in the background). The note under Tune's row says the hours in the device's
+own clock (`Intl.DateTimeFormat`, as the state line's end). The page is in the light look while `html` carries
 `data-look="light"`; the dark look is the page with nothing set, so it is
 pixel for pixel what it was. index.html applies the saved choice by the same
 rule in a small script in its head, before the stylesheet and the first paint
 (and sets the `theme-color`, `color-scheme` and the iPhone's status-bar
-metas), so a launch never shows the other look first; app.js keeps it from
+metas), so the page never shows the other look first (the launch screen
+before it, icons/splash and the manifest's colours, is dark in either look: it
+cannot read a saved choice); app.js keeps it from
 then on (`showLook`), with the metas and the moon button (`#btn-look`,
 `aria-pressed`). In styles.css the light look is its own tokens
 (`html[data-look="light"]`: paper `--bg` #f3f0ea, the inks, panels and sheet,
@@ -478,7 +483,10 @@ page that meets an engine of another build says so, with both stamps.
 `tools/icons.html` regenerates all of them in the browser from one SVG
 template; it is not part of the installed app. `icons/splash/` holds dark
 launch screens for current iPhone sizes, so an app opened from the home screen
-never flashes white before its first frame.
+never flashes white before its first frame. They are dark in the light look
+too, as are the manifest's `background_color` and `theme_color` (a PC
+window's splash): a launch screen cannot follow a saved choice, so a light
+look's launch shows the dark screen and then the page in paper.
 
 ## Running locally
 

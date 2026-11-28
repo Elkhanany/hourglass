@@ -1303,9 +1303,18 @@ async function radios(env, o) {
       var c = await state(id);
       await t.page.keyboard.press('End');
       await sleep(350);
-      var d = await state(id);
+      var d = await state(id), more = [];
+      // round the ends both ways, the other two arrows, and Home: from the last, ArrowRight to the first,
+      // ArrowUp to the last, ArrowDown to the first and on to the second, Home to the first
+      for (var key of ['ArrowRight', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'Home']) {
+        await t.page.keyboard.press(key);
+        await sleep(350);
+        more.push(await state(id));
+      }
+      await t.page.keyboard.press('End');                 // (left on the last, as before: with no ambience, say, the fade's group would hide)
+      await sleep(350);
       var changed = Object.keys(now || {}).filter(function (k) { return JSON.stringify(now[k]) !== JSON.stringify((was || {})[k]); });
-      m.tried.push({ id: id, shown: true, a: a, b: b, c: c, d: d, changed: changed });
+      m.tried.push({ id: id, shown: true, a: a, b: b, c: c, d: d, more: more, changed: changed });
     }
     // the durations under the glass, with Tune closed
     await tune.close(t);
@@ -1327,8 +1336,10 @@ function radiosOk(m) {
   var shown = m.tried.filter(function (x) { return x.shown; });
   var badKeys = shown.filter(function (x) {
     var nx = (x.a.checked + 1) % x.a.n;
+    var want = [0, x.a.n - 1, 0, 1 % x.a.n, 0];          // (after End: ArrowRight, ArrowUp, ArrowDown, ArrowDown, Home)
     return !(x.b.focus === nx && x.b.checked === nx && x.b.zero.join() === String(nx) &&
-             x.c.focus === x.a.checked && x.c.checked === x.a.checked && x.d.focus === x.a.n - 1 && x.d.checked === x.a.n - 1);
+             x.c.focus === x.a.checked && x.c.checked === x.a.checked && x.d.focus === x.a.n - 1 && x.d.checked === x.a.n - 1 &&
+             x.more.every(function (y, k) { return y.focus === want[k] && y.checked === want[k] && y.zero.join() === String(want[k]); }));
   });
   var rings = shown.filter(function (x) { return x.id === 'rings'; })[0], sands = shown.filter(function (x) { return x.id === 'sands'; })[0];
   var p = m.pills;
@@ -1336,7 +1347,7 @@ function radiosOk(m) {
     stops: { ok: m.groups.length >= 11 && badStops.length === 0,
              detail: m.groups.length + ' radio groups; ' + (badStops.length ? 'not one stop, the checked one: ' + badStops.map(function (g) { return g.id + ' (stops ' + g.zero.join(',') + ' of ' + g.n + ', checked ' + g.checked.join(',') + ')'; }).join('; ') : 'each one Tab stop, its checked option') },
     keys: { ok: shown.length >= 8 && badKeys.length === 0 && !m.errors.length,
-            detail: shown.map(function (x) { return x.id + ' ' + x.a.checked + '->' + x.b.checked + ' (focus ' + x.b.focus + ')->' + x.c.checked + ', End ' + x.d.checked + '/' + (x.a.n - 1); }).join('; ') +
+            detail: shown.map(function (x) { return x.id + ' ' + x.a.checked + '->' + x.b.checked + ' (focus ' + x.b.focus + ')->' + x.c.checked + ', End ' + x.d.checked + '/' + (x.a.n - 1) + ', then ' + x.more.map(function (y) { return y.checked; }).join(','); }).join('; ') +
                     (badKeys.length ? '; WRONG ' + badKeys.map(function (x) { return x.id; }).join(', ') : '') + '; not shown: ' + m.tried.filter(function (x) { return !x.shown; }).map(function (x) { return x.id; }).join(', ') + (m.errors.length ? '; ' + m.errors.join(' | ') : '') },
     saves: { ok: !!rings && rings.changed.indexOf('bowlRings') >= 0 && !!sands && sands.changed.indexOf('sand') >= 0 && !!p && p.after.focus === String((+p.at + 1) % 6) && p.after.checked === 'true' && p.after.dur !== p.dur && p.after.saved === p.after.dur,
              detail: 'saved by ArrowRight: Rings ' + (rings ? rings.changed.join(',') : '?') + ', Sand ' + (sands ? sands.changed.join(',') : '?') + '; the durations under the glass: pill ' + (p && p.at) + ' -> ' + (p && p.after.focus) + ' (' + (p && p.after.checked) + '), ' + (p && p.dur) + ' -> ' + (p && p.after.dur) + ' ms, saved ' + (p && p.after.saved) }
@@ -1520,13 +1531,17 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
     if (wanted('radios')) {
       var rd = radiosOk(await radios(env));
       s.check('RADIOS: every radio group (the durations under the glass and Tune\'s) is one stop in the Tab order: its checked option', rd.stops.ok, rd.stops.detail);
-      s.check('RADIOS: in Tune\'s groups ArrowRight moves the focus to the next option and chooses it (it alone the Tab stop), ArrowLeft back, End to the last', rd.keys.ok, rd.keys.detail);
+      s.check('RADIOS: in Tune\'s groups ArrowRight moves the focus to the next option and chooses it (it alone the Tab stop), ArrowLeft back, End to the last; from the last ArrowRight round to the first, ArrowUp round to the last, ArrowDown to the first and the second, Home to the first', rd.keys.ok, rd.keys.detail);
       s.check('RADIOS: ... and a key saves what a tap saves (Rings, Sand), and the durations under the glass take the arrows too', rd.saves.ok, rd.saves.detail);
       await control('RADIOS: a copy with every option its own Tab stop (as up to 1.19.0)', 'stops', function () {
         return radios(env, { routes: [broken(env, 'app.js', swap(/  function rove\(g\) \{\n/, '  function rove(g) { return;\n'))] });
       }, radiosOk);
       await control('RADIOS: a copy without the arrow keys in a radio group (as up to 1.19.0)', 'keys', function () {
         return radios(env, { routes: [broken(env, 'app.js', swap(/if \(!r \|\| !r\.getAttribute \|\| r\.getAttribute\('role'\) !== 'radio'/, 'if (true'))] });
+      }, radiosOk);
+      await control('RADIOS: a copy whose arrows stop at the ends and that has no Home, ArrowUp or ArrowDown', 'keys', function () {
+        return radios(env, { routes: [broken(env, 'app.js', swap(/    j = e\.key === 'ArrowRight' \|\| e\.key === 'ArrowDown' \? \(i \+ 1\) % n : e\.key === 'ArrowLeft' \|\| e\.key === 'ArrowUp' \? \(i \+ n - 1\) % n :\n        e\.key === 'Home' \? 0 : e\.key === 'End' \? n - 1 : -1;/,
+          "    j = e.key === 'ArrowRight' ? Math.min(i + 1, n - 1) : e.key === 'ArrowLeft' ? Math.max(i - 1, 0) : e.key === 'End' ? n - 1 : -1;"))] });
       }, radiosOk);
     }
 

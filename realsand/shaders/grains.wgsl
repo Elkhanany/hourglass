@@ -71,7 +71,8 @@ struct View {
     spark: vec4f,  // rgb: the glint's colour; w: the frame (a moving grain's facet tumbles)
     still: vec4f,  // x: a grain moves when its displacement in a substep is over this (cells); y: how much of the light look
                    // the page shows (0 the dark, 1 the light: a grain in the air gets a dark side); z: light levels a pale sand
-                   // is drawn deeper at its beds' tops in the light look (sunlit)
+                   // is drawn deeper at its beds' tops in the light look (sunlit); w: the beds' floor (relief.wgsl): 1 gravity
+                   // down the grid, -1 up it (a bed's depth and what lies above it are measured away from its floor)
 };
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -260,8 +261,9 @@ fn threadGrain(k: u32) -> vec3f {
         // (each term of the surface weighed by how far it is trusted, rl.w, relief.wgsl: where the bed is thrown
         // about they fade out together, smoothly, and the grain keeps the body's light; a grain above its column's
         // bed, on the wall or in the air, takes nothing of the bed beneath it)
-        let dep = max(rl.x - at.y, 0.0) / cells;
-        let over = 1.0 - smoothstep(1.0, 3.0, at.y - rl.x);
+        let up = view.still.w;
+        let dep = max(up * (rl.x - at.y), 0.0) / cells;
+        let over = 1.0 - smoothstep(1.0, 3.0, up * (at.y - rl.x));
         let top = select(0.0, exp(-dep * view.bed.z), rl.x > 0.0);
         let trust = select(0.0, rl.w * over, rl.x > 0.0);
         let bedLight = mix(body, rl.y, top * trust) * (1.0 - view.bed.y * (1.0 - exp(-dep / 7.0)) * trust);

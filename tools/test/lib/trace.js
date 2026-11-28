@@ -383,12 +383,17 @@ var CONTROLS = DRIVE.map(function (d) { return d[0]; });
 // slider, every tab, and every button but the one that closes the sheet (the reset link is one)
 var HOLDERS = '.switch, [role="switch"], [role="radio"], [role="tab"], input[type="checkbox"], input[type="range"], input[type="color"], select, button:not(.sheet-close)';
 
+// At rest: no fade of the glass, no sweep, swap or new grain, and no change of look still fading
+// (html.look-fade): a tap that finds the look before's fade not yet drawn a frame (a frame very late,
+// under load) is a change back while the page still shows the look asked for, which ends at once
+// (the sand told its light, the glass not drawn again), not a change from a page at rest.
 function state(page) {
   return page.evaluate(function () {
     var T = window.__trace, app = document.getElementById('app'), as = document.getElementById('assembly');
     return {
       id: T ? T.id : null, booted: !!(T && T.boot && T.loaded) && !!window.Hourglass && !!(window.__mon && window.__mon.hooked),
-      calm: !!app && !!as && !as.classList.contains('fade') && !app.classList.contains('sweep') && !app.classList.contains('swap') && !app.classList.contains('regrain'),
+      calm: !!app && !!as && !as.classList.contains('fade') && !app.classList.contains('sweep') && !app.classList.contains('swap') && !app.classList.contains('regrain') &&
+            !document.documentElement.classList.contains('look-fade'),
       starts: window.__motionStub ? window.__motionStub.starts : 0
     };
   }).catch(function () { return null; });         // (the page is on its way to another document)

@@ -1,7 +1,7 @@
 /*
  * Controller acceptance 2–7 and 12: the glass as a body under a finger.
  * MOVE (drag by the waist), TURN (drag a bulb), FREE / DETENT (flicks),
- * CATCH, MEND (kintsugi), ZEN (only a pinch and the moon button change it) and
+ * CATCH, MEND (kintsugi), ZEN (only a pinch and the Zen button change it) and
  * REDUCE MOTION. iPhone 12 in Chromium, real touch events (CDP).
  *
  *   node tools/test/app-gestures.test.js [--root <dir>] [--port <n>] [--only move|turn|free|catch|mend|zen|reduced]
@@ -545,12 +545,12 @@ async function testZen(s, env) {
   for (i = 1; i <= 14; i++) { await t.touch.fingers('touchMove', [[g.cx - (230 - 10 * i) / 2, g.cy], [g.cx + (230 - 10 * i) / 2, g.cy]]); await sleep(10); }
   await t.touch.up();
   s.check('ZEN: spread and turned back within one pinch: there and back', mid && !(await zenOn(t)));
-  // the moon button, and Escape
+  // the Zen button, and Escape
   await sleep(700);
   await t.page.tap('#btn-zen');
   await sleep(300);
   var hint = await t.eval(function () { var q = document.getElementById('toast'); return q.classList.contains('show') ? q.textContent : ''; });
-  s.check('ZEN: the moon button brings it, and says the way back', (await zenOn(t)) && /Pinch in/.test(hint), JSON.stringify(hint));
+  s.check('ZEN: the Zen button brings it, and says the way back', (await zenOn(t)) && /Pinch in/.test(hint), JSON.stringify(hint));
   await t.page.keyboard.press('Escape');
   await sleep(150);
   s.check('ZEN: Escape leaves it', !(await zenOn(t)));
