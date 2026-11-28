@@ -1747,6 +1747,21 @@ var tick = function () { return new Promise(function (r) { setImmediate(r); }); 
   check(!!swap.first && near(swap.first.light, Math.PI - 0.01, 1e-3) && oldRule[0] > 0.5 && oldRule[1] < -0.3,
     '... while a key turned back by the rotor\'s CSS angle (the frame before\'s, as the bead\'s light of before) would point down and to the right in that frame (control)',
     'x ' + oldRule[0].toFixed(2) + ', y ' + oldRule[1].toFixed(2));
+  // the beds' floor: held turned past the level (gravity up the grid), the relief scans from the far end, once the
+  // field has held the beds there a quarter of a second (a jolt's frame turns nothing). The look asked for at 0,
+  // 100, 200 and 300 ms on a clock of its own; then all put back as it was
+  var clk = rLT.clock, a0 = rLT.angle, tf0 = rLT._toneField, tNow = clk.perf(), fl = [];
+  rLT.clock = { wall: clk.wall, perf: function () { return tNow; } };
+  rLT._toneField = null; rLT.angle = 2.6;
+  for (var fk = 0; fk < 4; fk++) { fl.push(rLT._litLook(rLT.rate.hz)); tNow += 100; }
+  rLT.angle = a0; tNow += 300;
+  var upAgain = rLT._litLook(rLT.rate.hz);
+  rLT.clock = clk; rLT._toneField = tf0;
+  var dnOk = fl.every(function (x) { return !!x && near(x.down[0], rLT.Gg * Math.sin(2.6 + rLT.tilt), 1e-6) && near(x.down[1], -rLT.Gg * Math.cos(2.6 + rLT.tilt), 1e-6) && x.g === rLT.Gg; });
+  var sides = fl.map(function (x) { return x ? x.side : null; });
+  check(dnOk && sides[0] === 1 && sides[1] === 1 && sides[2] === 1 && sides[3] === -1 && upAgain && upAgain.side === 1,
+    'held turned past the level (2.6 rad), the sunlit look gives the relief the field the sand feels (gravity turned by the angle) and, once it has held the beds there a quarter of a second, their floor at the far end (-1); upright again, the near end',
+    'sides at 0, 100, 200, 300 ms: ' + sides.join(', ') + '; upright again ' + (upAgain && upAgain.side));
   // soft again: no light in the look, and what the grains are otherwise given is what it was before any light
   rLT.o.rotor = null;
   var back = await litAfter(function () { rLT.setLight('soft', 0); });
