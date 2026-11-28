@@ -243,7 +243,14 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   light look one `setSandLight` more after `setPaper`); in the Tune trace
   two new entries (Light: Soft and Sunlit), and one `renderer.drawGlass`
   more at each change of look and at the reset link's second tap (the glass
-  drawn at the fade's start); no other entry changed. A traced page is at
+  drawn at the fade's start); no other entry changed. Both were made again
+  for release 1.22.0, Real sand without its switch and engine build 11:
+  `v` 3 for 2 in every full save and the stamp "11" for "10"; in the four
+  boots of a version-2 save with Real sand off, `realSand` true in the first
+  full save and in the saved settings (the version 3 step); in the Tune
+  trace the entry "Real sand: on" gone, and its last save with `realSand`
+  false (the harness's seed) and `tuneTab` 'time' (the walk ends at the
+  reset link); no other entry changed. A traced page is at
   noon (the recorder sets the hour of `new Date()`), so Daytime traces the
   same at any hour of the run.
   The two traces use three ports: the suite's own and the next two.
