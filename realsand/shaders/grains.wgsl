@@ -71,7 +71,8 @@ struct View {
     spark: vec4f,  // rgb: the glint's colour; w: the frame (a moving grain's facet tumbles)
     still: vec4f,  // x: a grain moves when its displacement in a substep is over this (cells); y: how much of the light look
                    // the page shows (0 the dark, 1 the light: a grain in the air gets a dark side); z: light levels a pale sand
-                   // is drawn deeper at its beds' tops in the light look (sunlit)
+                   // is drawn deeper at its beds' tops in the light look (sunlit); w: the beds' floor (relief.wgsl): 1 gravity
+                   // down the grid, -1 up it (a bed's depth and what lies above it are measured away from its floor)
 };
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -260,8 +261,9 @@ fn threadGrain(k: u32) -> vec3f {
         // (each term of the surface weighed by how far it is trusted, rl.w, relief.wgsl: where the bed is thrown
         // about they fade out together, smoothly, and the grain keeps the body's light; a grain above its column's
         // bed, on the wall or in the air, takes nothing of the bed beneath it)
-        let dep = max(rl.x - at.y, 0.0) / cells;
-        let over = 1.0 - smoothstep(1.0, 3.0, at.y - rl.x);
+        let up = view.still.w;
+        let dep = max(up * (rl.x - at.y), 0.0) / cells;
+        let over = 1.0 - smoothstep(1.0, 3.0, up * (at.y - rl.x));
         let top = select(0.0, exp(-dep * view.bed.z), rl.x > 0.0);
         let trust = select(0.0, rl.w * over, rl.x > 0.0);
         let bedLight = mix(body, rl.y, top * trust) * (1.0 - view.bed.y * (1.0 - exp(-dep / 7.0)) * trust);
@@ -299,18 +301,23 @@ fn turned(v: vec2f) -> vec2f {
 }
 
 @fragment fn fragmentMain(v: VertexOut) -> @location(0) vec4f {
-    // a disc, drawn out along the streak (a capsule); without blur (half-length 0) the disc as before
+    // a disc, drawn out along the streak; without blur (half-length 0) the disc as before. The streak is a comet:
+    // the grain whole where it is now (its head, local.x = hl), the way it came fading to clear and a third narrower
+    // behind it, so a long streak is a bright head and a faint tail, never a stick of one tone. (A streak under a
+    // grain's width is near the disc: k.)
     let hl = v.streak.z;
+    let k = min(hl, 1.0);
+    let tail = k * clamp((hl - v.local.x) / max(2.0 * hl, 1e-6), 0.0, 1.0);
+    let fade = 1.0 - tail;
     let along = sign(v.local.x) * max(abs(v.local.x) - hl, 0.0);
-    let ql = vec2f(along, v.local.y);
+    let ql = vec2f(along, v.local.y / (1.0 - 0.35 * tail));
     let r2 = dot(ql, ql);
     if (r2 > 1.0) { discard; }
     // the same light falls on the grain whatever its streak: back to screen axes
     let d = v.streak.xy * ql.x + vec2f(-v.streak.y, v.streak.x) * ql.y;
-    // the grain's light is spread along its streak: a blurred grain is fainter, as on film, but
-    // no fainter than 0.6: a point here stands for many grains, and a stream of them is a bright
-    // thread to the eye, not the faint dashes that the full dimming drew
-    let spread = max(0.6, 1.0 / (1.0 + hl));
+    // the grain's light is spread along its streak, as on film: its head whole (a point here stands for many grains,
+    // and a stream of them is a bright thread to the eye), its tail fading
+    let spread = fade;
     // a rounded grain lit from the upper left of the room (in the app, turned back by the glass's
     // angle on screen); mica (alpha > 1) glints on its lit side
     let light = turned(normalize(vec2f(-0.55, 0.65)));
@@ -333,9 +340,9 @@ fn turned(v: vec2f) -> vec2f {
         // the light look, a grain in the air: its far side from the key (the room's, as the bead above) dark
         let kd = select(light, view.glint.zw, v.hi.a > 0.5);
         // (a streak is thin and drawn faint, its blur lets the page through: the whole grain is taken most of the way
-        // down, its far side the rest)
+        // down, its far side the rest; at the head, fading along the tail with the streak's light)
         let far = clamp(0.25 - 1.4 * dot(d, kd), 0.0, 1.0);
-        rgb = mix(rgb, v.shade.rgb, v.shade.a * (0.7 + 0.3 * far));
+        rgb = mix(rgb, v.shade.rgb, v.shade.a * (0.7 + 0.3 * far) * fade);
     }
     if (view.look.x > 0.5) {
         // liquid: soft round drops that run together

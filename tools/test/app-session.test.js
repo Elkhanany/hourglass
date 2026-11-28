@@ -10,7 +10,8 @@
  *    a plain launch before it, the control, picks the running glass up.
  *  - Launched at "./?t=300", the preset is applied once and ?t= leaves the
  *    address: a running glass is kept, with its time, through the browser's
- *    reload and the app's own for "Use this shape", Grain and Real sand, and
+ *    reload and the app's own for "Use this shape" and Grain (Real sand's switch,
+ *    whose reload was a third, went in 1.22.0), and
  *    a duration picked after the launch is kept (a pill, then a reload). The
  *    control: a copy of app.js that leaves ?t= in the address loses them.
  *
@@ -23,26 +24,34 @@ var sleep = H.sleep;
 var SEG = 156;                       // lower bulb, right side, u ≈ 0.91 (the dome)
 var CFG = { stub: true };            // drive the motion stub (e2e-session.test.js runs this on the real modules)
 
-/** Pixels of c-front within `cells` of crack k's chip, as a flat array (canvas px). */
-function frontPatch(t, k, cells) {
+/**
+ * The pixels of c-front within `cells` of crack k's chip (or of o.at), measured in the page: a
+ * patch is some 10,000 to 25,000 numbers, more than an answer may hold (lib/ask.js). o.keep keeps
+ * the patch in the page's sessionStorage under that name (so a reload keeps it); o.against counts
+ * the pixels that differ from the patch kept under that name (by more than 24 in the sum of the
+ * four channels). { at, n (values), differ (null without o.against), size (the same size as it) }.
+ */
+function frontPatch(t, k, cells, o) {
   return t.eval(function (a) {
     var H = window.Hourglass, sim = H.sim, r = H.renderer, c = document.getElementById('c-front');
-    var at = r.chipVessel(a.k, {});
+    var at = a.k === null ? null : r.chipVessel(a.k, {});
     if (!at) at = a.at;
     if (!at) return null;
     var S = r.scale * r.dpr, x = c.width / 2 + (at.x - sim.geo.cx) * S, y = c.height / 2 + (at.y - sim.geo.cy) * S;
     var R = Math.ceil(a.cells * S), x0 = Math.max(0, Math.round(x - R)), y0 = Math.max(0, Math.round(y - R));
     var w = Math.min(c.width - x0, 2 * R), h = Math.min(c.height - y0, 2 * R);
-    var d = c.getContext('2d').getImageData(x0, y0, w, h).data;
-    return { at: { x: at.x, y: at.y }, px: Array.prototype.slice.call(d) };
-  }, { k: k, cells: cells, at: null });
-}
-function diffCount(a, b) {
-  var n = 0;
-  for (var i = 0; i < a.length; i += 4) {
-    if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) + Math.abs(a[i + 3] - b[i + 3]) > 24) n++;
-  }
-  return n;
+    var d = c.getContext('2d').getImageData(x0, y0, w, h).data, out = { at: { x: at.x, y: at.y }, n: d.length, differ: null, size: null };
+    if (a.against) {
+      var b = JSON.parse(sessionStorage.getItem('__patch.' + a.against) || '[]'), n = 0;
+      out.size = b.length === d.length;
+      for (var i = 0; i < d.length && i < b.length; i += 4) {
+        if (Math.abs(d[i] - b[i]) + Math.abs(d[i + 1] - b[i + 1]) + Math.abs(d[i + 2] - b[i + 2]) + Math.abs(d[i + 3] - b[i + 3]) > 24) n++;
+      }
+      out.differ = n;
+    }
+    if (a.keep) sessionStorage.setItem('__patch.' + a.keep, JSON.stringify(Array.prototype.slice.call(d)));
+    return out;
+  }, { k: k, cells: cells, at: (o && o.at) || null, keep: (o && o.keep) || null, against: (o && o.against) || null });
 }
 
 /**
@@ -64,7 +73,7 @@ async function run(s, env, opts) {
       var H = window.Hourglass;
       return { rem: H.timer.rem, state: H.timer.state, now: Date.now(), lost: H.sim.lost, total: H.sim.total };
     });
-    var drawnBefore = await frontPatch(t, 0, 6);
+    var drawnBefore = await frontPatch(t, 0, 6, { keep: 'before' });
     await t.reload();
     await sleep(400);
     var after = await t.eval(function () {
@@ -78,11 +87,10 @@ async function run(s, env, opts) {
     var expect = before.rem - (after.now - before.now);
     s.check('SESSION: timer state and time restored within 100 ms', after.state === before.state && Math.abs(after.rem - expect) <= 100,
             after.state + ', rem ' + after.rem.toFixed(0) + ' vs ' + expect.toFixed(0) + ' ms');
-    var drawnAfter = await frontPatch(t, 0, 6);
-    var same = drawnBefore && drawnAfter ? drawnBefore.px.length === drawnAfter.px.length && diffCount(drawnBefore.px, drawnAfter.px) < 30 : false;
-    t.__drawn = drawnAfter;
+    var drawnAfter = await frontPatch(t, 0, 6, { keep: 'after', against: 'before' });
+    var same = drawnBefore && drawnAfter ? drawnAfter.size && drawnAfter.differ < 30 : false;
     s.check('SESSION: the restored crack is drawn on c-front as before', same,
-            drawnAfter ? diffCount(drawnBefore.px, drawnAfter.px) + ' px differ from before the reload' : 'no patch');
+            drawnAfter ? drawnAfter.differ + ' px differ from before the reload' + (drawnAfter.size ? '' : ' (another size)') : 'no patch');
 
     if (opts.leak) {
       // E10 starts from a glass that has leaked, with sand on the desk
@@ -107,15 +115,9 @@ async function run(s, env, opts) {
     s.check('RESET: no cracks and no spilled sand after 0.8 s', rs.n === 0 && rs.spill === 0, JSON.stringify({ cracks: rs.n, spill: rs.spill }));
     s.check('RESET: a full new glass, nothing lost', rs.total === rs.want && rs.lost === 0, 'total ' + rs.total + ' / ' + rs.want + ', lost ' + rs.lost);
     await sleep(200);
-    var gone = await t.eval(function (a) {
-      var H = window.Hourglass, sim = H.sim, r = H.renderer, c = document.getElementById('c-front');
-      var S = r.scale * r.dpr, x = c.width / 2 + (a.x - sim.geo.cx) * S, y = c.height / 2 + (a.y - sim.geo.cy) * S;
-      var R = Math.ceil(6 * S), x0 = Math.max(0, Math.round(x - R)), y0 = Math.max(0, Math.round(y - R));
-      var w = Math.min(c.width - x0, 2 * R), h = Math.min(c.height - y0, 2 * R);
-      return Array.prototype.slice.call(c.getContext('2d').getImageData(x0, y0, w, h).data);
-    }, pre.at);
-    s.check('RESET: the crack\'s pixels are gone from c-front', diffCount(pre.px, gone) > 40,
-            diffCount(pre.px, gone) + ' px changed where the crack was');
+    var gone = await frontPatch(t, null, 6, { at: pre.at, against: 'after' });
+    s.check('RESET: the crack\'s pixels are gone from c-front', !!gone && gone.size && gone.differ > 40,
+            gone ? gone.differ + ' px changed where the crack was' : 'no patch');
     await H.invariants(s, t, 'SESSION/RESET');
   } finally {
     await t.close();
@@ -171,7 +173,6 @@ var KEPT = [
         for (var i = 0; i < bs.length; i++) if (bs[i].getAttribute('aria-checked') !== 'true') { bs[i].click(); return; }
       });
     } },
-  { name: 'the Real sand switch', how: function (t) { return t.page.$eval('#opt-realsand', function (el) { el.click(); }); } },
   { name: 'the 15-minute pill after the launch, then the browser\'s reload', pick: 15, how: function (t) { return t.page.reload(); } }
 ];
 async function shortcutKept(s, env, opts) {

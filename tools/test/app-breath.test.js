@@ -247,8 +247,8 @@ async function tune(s, env) {
       on: window.Hourglass.breath.on
     };
   });
-  s.check('TUNE: the main screen has the same buttons (5 top, one of them hidden; 12 bottom); Tune has its row (15 in all, with Layered sand, Grain, Real sand, the custom sand\'s colour, Fade out before the end, Sound in silent mode, Show when it ends and Background)',
-          ui.top === 5 && ui.bottom === 12 && ui.rows === 16, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
+  s.check('TUNE: the main screen has the same buttons (5 top, one of them hidden; 12 bottom); Tune has its row (15 in all, with Layered sand, Grain, the custom sand\'s colour, Fade out before the end, Sound in silent mode, Show when it ends and Background)',
+          ui.top === 5 && ui.bottom === 12 && ui.rows === 15, JSON.stringify({ top: ui.top, bottom: ui.bottom, rows: ui.rows }));
   s.check('TUNE: "Breathing pace" is the first row of the Time tab\'s "While it runs", its choice sits directly under it, then Full Zen',
           ui.tab === 'Time' && ui.group === 'While it runs' && ui.before === '(first)' && ui.then === 'breath-row' && ui.after === 'Full Zen' && ui.name === 'Breathing pace',
           ui.tab + ' / ' + ui.group + ': ' + ui.before + ' / ' + ui.name + ' / #' + ui.then + ' / ' + ui.after);
@@ -828,7 +828,7 @@ async function zen(s, env) {
   await sampleStart(t);
   await t.touch.tap(g.cx, g.cy, 60);
   await sleep(400);
-  await t.page.tap('#btn-zen');                              // (Zen comes by the moon button or a pinch, never by itself)
+  await t.page.tap('#btn-zen');                              // (Zen comes by the Zen button or a pinch, never by itself)
   await t.page.waitForFunction(function () { return document.getElementById('app').classList.contains('zen-deep'); }, null, { timeout: 12000 });
   await sleep(600);
   var p = await H.perfWatch(t);

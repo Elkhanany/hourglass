@@ -245,7 +245,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
   mix-blend-mode: screen;
   transition: opacity 0.42s var(--ease);
 }
-/* Real sand (Tune): the sand simulated on the graphics chip draws into #c-gpu, which the engine
+/* Real sand: the sand simulated on the graphics chip draws into #c-gpu, which the engine
    puts after #c-sand in #rotor with #c-sand's box. While it runs (#app.real) the CPU sand's
    canvases are hidden by opacity, never display: none (a knock is placed by #c-sand's box). */
 #c-gpu { opacity: 0; transition: opacity 0.42s var(--ease); }
@@ -274,7 +274,7 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 }
 
 /* ------------------------------------------------------------------ *
- *  HUD (dims in Zen: a pinch, or the moon button)
+ *  HUD (dims in Zen: a pinch, or the Zen button)
  * ------------------------------------------------------------------ */
 .hud {
   position: absolute; left: 0; right: 0; z-index: 3;
@@ -838,11 +838,6 @@ input[type="range"]::-moz-range-thumb {
 /* a choice that belongs to the switch above it (the breathing pattern) */
 .rows .sub { padding: 0 12px 12px; }
 .rows .sub + .row { box-shadow: inset 0 1px 0 var(--hair); }
-/* (Real sand that this browser cannot have shows off, and its note says why: the switch is never
-   greyed or disabled, a tap tries again; settings design 5.2) */
-/* Real sand on: the row's link that copies the report (the home-screen app cannot open ?debug=sand) */
-#realsand-report { justify-self: start; padding: 4px 0 2px; font-size: 12.5px; color: var(--ink-2); text-decoration: underline; }
-#realsand-report[hidden] { display: none; }
 .rows .sub i { font-style: normal; font-size: 0.92em; font-variant-numeric: tabular-nums; color: var(--ink-3); margin-left: 2px; }
 .switch {
   -webkit-appearance: none; appearance: none; flex: none; margin: 0;
@@ -862,6 +857,10 @@ input[type="range"]::-moz-range-thumb {
 .colophon { margin: 16px 6px 2px; font-size: 12.5px; font-style: italic; line-height: 1.45; color: var(--ink-3); text-align: center; }
 /* the version line (app.js makes it): the release, and that of the offline copy when it differs */
 .colophon.version { margin-top: 4px; font-size: 11.5px; font-style: normal; font-variant-numeric: tabular-nums; }
+/* the sand drawn without the graphics chip (app.js, showReal): why, and after a failure a link that copies the report */
+.colophon.fallback { margin-top: 4px; font-size: 11.5px; font-style: normal; }
+#realsand-report { margin-left: 6px; color: var(--ink-2); text-decoration: underline; white-space: nowrap; }
+#realsand-report[hidden] { display: none; }
 /* a tap on it: how the page is laid out, for 8 s, smaller still (app.js, measures) */
 .colophon.measures { margin-top: 2px; font-size: 10.5px; font-style: normal; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 /* the way back, at the very end of the Time tab: a quiet link that asks for a second tap (app.js, resetLook) */
@@ -1033,6 +1032,7 @@ html[data-look="light"] #readout { text-shadow: none; }
 html[data-look="light"] #app[data-state="running"] #status,
 html[data-look="light"] #app[data-state="done"] #status { color: var(--accent-text); }
 html[data-look="light"] #btn-motion { color: var(--accent-text); }
+html[data-look="light"] .act.held { color: var(--accent-text); }   /* (the Sand button held: the sand's own colour is pale on paper) */
 html[data-look="light"] button:focus-visible, html[data-look="light"] input:focus-visible, html[data-look="light"] .wheel:focus-visible { outline-color: var(--accent-text); }
 html[data-look="light"] .panel {
   box-shadow: inset 0 0 0 1px var(--hair), inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 14px 40px rgba(60, 46, 28, 0.14);
@@ -1125,8 +1125,10 @@ html.look-fade #btn-look .ic-moon { opacity: calc(1 - var(--lk)); }
 html.look-fade #btn-look .ic-sun { opacity: var(--lk); }
 html.look-fade .panel {
   box-shadow: inset 0 0 0 1px var(--hair), inset 0 1px 0 rgba(255, 255, 255, calc(0.07 + 0.63 * var(--lk))),
-    0 calc(18px - 4px * var(--lk)) calc(50px - 10px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.55), rgba(60, 46, 28, 0.14) var(--lp));
+    0 calc(18px - 4px * var(--lk)) calc(50px - 10px * var(--lk)) color-mix(in srgb, rgba(0, 0, 0, 0.55), rgba(60, 46, 28, 0.14) min(100%, 4 * var(--lp)));
 }
+/* (the bar's shadow is the paper's from a quarter of the way: the dark look's deep one on a ground half way to
+   the paper would show where the app's box cuts it, as a home-screen app's box can end above the screen's foot) */
 html.look-fade .chip .swatch { box-shadow: 0 0 10px rgba(var(--glow), calc(0.5 * (1 - var(--lk)))), 0 0 0 1px rgba(40, 32, 20, calc(0.18 * var(--lk))); }
 html.look-fade #scrim { background: color-mix(in srgb, rgba(4, 5, 6, 0.5), rgba(40, 34, 26, 0.28) var(--lp)); }
 html.look-fade #scrim.light { background: color-mix(in srgb, rgba(4, 5, 6, 0.2), rgba(40, 34, 26, 0.08) var(--lp)); }

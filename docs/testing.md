@@ -47,7 +47,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   browser harness refuses a tree that lacks a script the page loads, naming
   it, `run-all.js` fails when its filter matches no suite, and every suite
   that needs no browser is either in GitHub's list or in the check's own
-  list of the eight left to a run by hand.
+  list of the eight left to a run by hand; and every question a suite asks
+  a page through the harness (`t.eval`, of `stubs/harness.js` and
+  `lib/replay-iphone.js`, through `lib/ask.js`) ends after 30 s with an
+  error that names it, and an answer of more than 20,000 values is refused
+  in the page with a message that says so (a typed array is one value; one
+  question may raise the count with `t.eval(fn, arg, { max })`; a harness
+  whose `t.eval` asks as before is found out).
   `check-registry`: the sound cards of `index.html` and the
   registry of `sound/audio.js` say the same (the ids, names and icons of
   `HourglassAudio.characters()` and `.ambiences()`, in order, each card a
@@ -114,7 +120,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   come up with them and every other value as saved; each value of their
   range kept, 28 out of it or of the wrong type and a name every object has
   as the rings the default; seven stores with one thing wrong in them found
-  out); the version step (Real sand on, once, for a save from before version 2); a
+  out); the version steps (Real sand on, once, for a save from before version 2,
+  and once more for one from before version 3: a save of 1.21.1 with the old
+  switch off opens on Real sand; set off after that, it stays off; a store
+  without version 3's step is found out, and the 500 launches hold it as a
+  third difference made on purpose, the version 3 for 2); a
   record's `from` and the steps' order, on a made-up store, and an example
   for every `from` the app has, which must come up with something other
   than the default; the Time tab's two records (`quick` then `endsAt`,
@@ -152,7 +162,16 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   switch, choice and slider of Tune's sheet must be one the trace drives
   (`DRIVE` in `tools/test/lib/trace.js`), so a control added to Tune and not
   to the driver fails instead of going untraced; a copy of the page with one
-  switch more must be found out. The two kept traces are the reviewed
+  switch more must be found out. Each control is tapped on a page at rest:
+  no fade of the glass, no sweep, swap or new grain, and no change of look
+  still fading (`html.look-fade`). A tap that finds the look before's fade
+  not yet drawn a frame (a frame very late, under load) is a change back
+  while the page still shows the look asked for: the app ends it at once,
+  the sand told its light in the tap (`setSandLight`) and the glass already
+  drawn by `setPaper`, where from rest it draws the glass at the start look
+  (`drawGlass`) and tells the sand in the fade's frames; until 1.21.1 the
+  driver did not wait for the fade, and the moon button's entry could flip
+  so. The two kept traces are the reviewed
   record of the tree named in each file's `from`, not a recording of the
   app before the store: run with `--write`, a trace suite writes its file
   from the tree just run, and that is how a setting or a control added on
@@ -224,7 +243,14 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   light look one `setSandLight` more after `setPaper`); in the Tune trace
   two new entries (Light: Soft and Sunlit), and one `renderer.drawGlass`
   more at each change of look and at the reset link's second tap (the glass
-  drawn at the fade's start); no other entry changed. A traced page is at
+  drawn at the fade's start); no other entry changed. Both were made again
+  for release 1.22.0, Real sand without its switch and engine build 11:
+  `v` 3 for 2 in every full save and the stamp "11" for "10"; in the four
+  boots of a version-2 save with Real sand off, `realSand` true in the first
+  full save and in the saved settings (the version 3 step); in the Tune
+  trace the entry "Real sand: on" gone, and its last save with `realSand`
+  false (the harness's seed) and `tuneTab` 'time' (the walk ends at the
+  reset link); no other entry changed. A traced page is at
   noon (the recorder sets the hour of `new Date()`), so Daytime traces the
   same at any hour of the run.
   The two traces use three ports: the suite's own and the next two.
@@ -484,12 +510,20 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   more turn Start (for the Flip button and `F`) or a tap on the glass (for
   the finger's turns) starts each of the first three. Its control is the
   tree at f7e10b9 (`git archive`, given as `--root`), where a turned
-  finished glass runs. Every script `index.html` loads
+  finished glass runs. MIDTURN, `--only midturn` (1.22.0): while the Flip
+  button turns the glass, Space on a running glass lands it paused and it
+  stays so, Start on it turned again lands it running, Start while a
+  waiting glass turns runs it as it lands (turned over again, its sand
+  below), and the page hidden 0.4 s into a running glass's turn (its frames
+  held, as a phone's are) for 3 s sets the turn down at once, the clock
+  swapped, and counts the 3 s. Its control is `bc25789` (`git archive`,
+  `--root`), where all four fail. Every script `index.html` loads
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
-  then served at `motion.js`'s path. Real sand is the app's default, and
+  then served at `motion.js`'s path. Real sand is the app's only sand, and
   this Chromium has `navigator.gpu` but no adapter, so every page a suite
-  opens starts from a saved `{ v: 2, realSand: false }` merged under what
+  opens starts from a saved `{ v: 3, realSand: false }` (the hidden switch,
+  in a save of the version whose step leaves it alone) merged under what
   the suite seeds itself (`lib/seed.js`, in the harness and in the suites
   that open the app on their own: `render-app`, `audio-api` and
   `lib/replay-iphone.js`): the suites measure the classic sand, as before. A
@@ -500,9 +534,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   5-minute glass is a new glass, after a plain launch has picked that glass
   up (the control); then, launched at `./?t=300`, a running glass is kept
   with its time through the browser's reload and the app's own for "Use this
-  shape", Grain and Real sand, and so is a duration picked after the launch
-  (the control: a copy of `app.js` that leaves `?t=` in the address loses
-  all five). `app-breath` covers breathing pace: the Tune row and what is
+  shape" and Grain, and so is a duration picked after the launch (the
+  control: a copy of `app.js` that leaves `?t=` in the address loses all
+  four; Real sand's switch, whose reload was a fifth, went in 1.22.0). The
+  crack's pixels are compared in the page, the patch before a reload kept
+  in its `sessionStorage`. `app-breath` covers breathing pace: the Tune row and what is
   saved, the toast's place just above the sheet, the three patterns against
   the wall clock, a blocked main thread, a hidden page and a long sleep,
   easing back to rest, Reduce Motion, Full Zen, the landscape halo, a damaged
@@ -511,17 +547,21 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   rounds, a watched sequence (the length and last grain of every phase, the
   bowls, the turns, Zen), pause, Flip and Reset inside a phase, the clock
   moved on through phase ends (asleep, hidden), reloads, and Reduce Motion.
-  `app-realsand` covers the Real sand switch in this harness, which has no
-  WebGPU adapter, reading the row's state from its `data-state`: off,
-  nothing under `realsand/` is requested, and Grain and Real motion's crack
-  sentence are shown; on with the real engine, it finds no adapter, the
-  switch shows off but is not disabled ("Needs WebGPU (iOS 26 or later). Tap
-  to try again"), the setting stays on and the browser's user agent is kept;
-  with nothing saved (a first launch), the engine is loaded once, the next
-  launch loads nothing, and another user agent (an iOS update) or a tap
-  tries again, while a failure in a page that was hidden meanwhile keeps
-  nothing; a save without a version or of version 1 comes up on, once, and a
-  version-2 save that is off stays off; a new engine build forgets three
+  `app-realsand` covers Real sand in this harness, which has no WebGPU
+  adapter, reading its state from the `data-state` of the line at the foot
+  of Tune's Sand tab (`#fallback-line`): Tune offers no choice of sand (no
+  row, switch or note for it, 15 rows); the hidden switch off, nothing
+  under `realsand/` is requested, nothing is said, and Grain and Real
+  motion's crack sentence are shown; on with the real engine, it finds no
+  adapter, the line says the sand is drawn without the graphics chip on
+  this device ("Needs WebGPU (iOS 26 or later)"), the setting stays on and
+  the browser's user agent is kept; with nothing saved (a first launch), the
+  engine is loaded once, the next launch loads nothing, and another user
+  agent (an iOS update) tries again, while a failure in a page that was
+  hidden meanwhile keeps nothing; a failure to start shows the line with
+  "Copy a report", and while Real sand runs nothing shows; a save without a
+  version or of version 1 comes up on, once, so does a save of 1.21.1
+  (version 2) with Real sand off, and a version-3 save that is off stays off; a new engine build forgets three
   failed starts and a kept user agent; the dark opening waits for the GPU
   sand's first frame (not on a reload marked `hourglass.openNow`); the
   watchdog: the GPU stopping while the glass runs in view gives the CPU sand
@@ -633,7 +673,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   release (1.10.0) with `app.js` taken out of its cache, met online by this
   tree (the page says to open it again in a moment, not "with a
   connection", and the next launch runs this tree; its control is this tree
-  with the online words taken out); a lab
+  with the online words taken out); the same for 1.18.0 (f7671de), whose
+  page loads the settings store but whose renderer has none of the light
+  look's parts (`missingParts()` names them: the same words, nothing built,
+  no error; its control, this tree without that look, throws); a lab
   page that meets another build (the app's cache stays whole); and an update
   that never finishes over a copy installed before the snapshot worker
   (13a9772's worker fetches each file it answers into its copy, so offline
@@ -656,8 +699,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   as that sand over its own finish, and every other setting as it was,
   online and offline (what the app keeps of its Real sand engine aside); a
   copy without the finish's migration is found out. It needs
-  `origin/main`, d6482bd (release 1.13.0), 5911e24 (release 1.10.0) and
-  13a9772 from git (`HOURGLASS_MAIN=<ref>` names another first release;
+  `origin/main`, d6482bd (release 1.13.0), 5911e24 (release 1.10.0),
+  f7671de (release 1.18.0) and 13a9772 from git (`HOURGLASS_MAIN=<ref>` names another first release;
   the old saves are always made by those two releases).
   `app-tune` covers Tune's four tabs: one panel shown and remembered, the
   Sand tab's Light row (after Grain, Sunlit checked and lit as the app comes,
@@ -687,8 +730,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   reaches the row under it (the lowest point of the hint over a control
   that does not load the page again); the sheet, the tab row and each tab's
   first row stand where they did before the hint (Sand's first control, a
-  sand since 1.14.0, where the first material card stood); Grain appearing or going with Real
-  sand keeps it right; and Reduce Motion shows it without a fade. The
+  sand since 1.14.0, where the first material card stood); Grain and the
+  line at the Sand tab's foot appearing or going with Real sand (a start
+  that fails, the next launch and its failure) keep it right; and Reduce Motion shows it without a fade. The
   suites reach a control of Tune through `lib/tune.js`, which opens the
   sheet and taps the tab whose panel holds it, read from the page.
   `app-time` covers the Time tab's own rows (settings design 3.4, rows 1
@@ -780,7 +824,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   canvas; on the ground as it was (`oldGround()`: no flat edge to the room,
   the canvas the page's own colour, the scrim to the edges) they must find
   one in the light look at both ends and sizes, with Tune open at the top in
-  both looks and half way through a fade. FIRST reads the canvas as the
+  both looks and half way through a fade. The bottom bar's own shadow is
+  taken out of the picture before the scan, as the bar is out of the scan:
+  it reaches past the app's box, which cuts it at its foot, and half way
+  through a fade it read 11 there at x = W - 7 in one run and 14 in the
+  next (the computed colours the same, the browser's raster of the box a
+  level apart); without it the ground meets the canvas at 5 to 8. FIRST
+  reads the canvas as the
   room's edge (`#ece9e2` light, `#090a0c` dark) and the body as the page's
   colour. STANDALONE (1.21.1): in a home-screen app the app's box is exactly the
   layout viewport's, never taller, and the bar and Tune end where they do in
@@ -803,7 +853,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   protocol about 5 µs and 200 bytes in Node (1.63, measured), and the two
   drawn layers are 19 million of them at 390 x 844, 100 s and over 3 GB a
   picture. In this suite every question to a page ends after 30 s, an answer
-  of more than 20,000 values is refused in the page, a case that is stopped
+  of more than 20,000 values is refused in the page (`lib/ask.js`, which
+  every suite's `t.eval` has too), a case that is stopped
   so fails by name and the next one runs, and the suite stops itself if its
   own process passes 1 GB.
   `HOURGLASS_SHOTS=<folder>` keeps pictures of both looks. It runs alone
@@ -830,7 +881,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Each check has a control.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-sound` covers the
-  Sound tab's own rows (`--only layout,levels,rings,tap,twice,quiet,away,rounds,awake,asleep,back,fade,silent`):
+  Sound tab's own rows (`--only layout,levels,rings,tap,twice,two,quiet,away,rounds,awake,asleep,back,fade,silent`):
   at 393 x 852, 375 x 667 and 320 x 568 the rows in the design's order and
   words, nothing wider than the sheet, no sideways scroll, no word cut off,
   44 px for every new control, each named for a screen reader, the bowl's
@@ -841,7 +892,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the last within 10 minutes), the first tap on the glass, the first button
   (Tune) and the first key (F) used up by stopping the bowl and the next one
   working, Start tapped twice 0.25 s apart (by a finger, by a mouse) where
-  only the first is used up, no rings and no tap taken when the bowl cannot
+  only the first is used up, two fingers landing together on the glass while
+  the bowl is due (near its top, across its middle) only stopping it, the
+  glass not turned (a copy that takes the second finger for a new gesture
+  must fail; with Rings once two fingers do nothing), no rings and no tap taken when the bowl cannot
   be heard (muted, Sound at 0, Bowl at 0) and the rings stopped when it
   becomes so, nothing rung while the page is hidden and nothing late when it is
   back (and nothing after 10 minutes away), a sequence's soft bowl once
@@ -1068,8 +1122,17 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   taken from git; `HOURGLASS_SOFT_BASE` names another, as for `render-unit`)
   draws the same points with the same look in the same commands on a canvas
   of its own, and the two canvases are equal byte for byte at rest, with
-  the stream running, at every fourth frame of a full turn and after it;
-  under Sunlit nearly every pixel differs (the control). After that turn,
+  the stream running, at every fourth frame of a full turn and after it,
+  the streaks set aside there (from build 11 both draw every grain sharp:
+  the streak's shape is new); under Sunlit nearly every pixel differs (the
+  control). The streak (1.22.0, engine build 11): nine grains in free
+  flight, drawn alone with the engine's look for a 60 Hz and a 30 Hz
+  display, by this tree and by `bc25789`'s renderer with its rule of one
+  display frame: this tree's streak is as long at 30 Hz as at 60 Hz, the
+  third behind the grain under 0.6 of the alpha of the third at it, and in
+  the light look its head as dark on the page as `bc25789`'s and its tail
+  paler by at least 0.05; `bc25789`'s is half as long again at 30 Hz and
+  even along its length (the controls). After that turn,
   with the engine's points turned end for end, a new glass is lit from the
   screen's left as before. Through a second full turn, under Sunlit, the key
   each frame is drawn with, as the screen then shows the canvas, is the
@@ -1101,13 +1164,22 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   screen's left (1.2 : 1 and over, in both looks). RELIEF takes about 13
   minutes with the engine's start (`--only relief`); with `--shots` it saves each canvas of each frame
   it measures, and sand poured in and a flip under way besides
-  (`HOURGLASS_RELIEF_SANDS=rosequartz,sahara` for more sands). Then each shape Tune
+  (`HOURGLASS_RELIEF_SANDS=rosequartz,sahara` for more sands). TURNED: a bed
+  of points laid in the upper bulb is drawn by a grain renderer of this tree
+  and one of bc25789 (release 1.21.1, engine build 10; `HOURGLASS_TURN_BASE`
+  names another), each with its relief pass, and the relief read back:
+  upright the two agree to the bit; with the glass turned over (gravity up
+  the grid, the bed against the cap) this tree finds the bed's free face,
+  trusted and lit as the same face upright, while the base takes the bed's
+  end against the cap, trusts it and shades it (the control); on its side
+  no column is trusted, while the base trusts the bulb's roof (the control).
+  A minute or so with the engine's start (`--only turned`). Then each shape Tune
   offers, the page loaded in
   it: a 60-minute glass filled to its cap with exactly the ledger's points
   on the chip, and a 10 s glass whose last grain crosses within one frame
   after 00:00.0. With `--shots <dir>` it saves pictures of the app with
   Real sand on, each shape mid-run among them. `--only <case>[,<case>...]`
-  (BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, RELIEF, SHAPES, as its log
+  (BOOT, SOUND, RUN, RESET, FLIP, POUR, HIDDEN, LOSS, LIT, RELIEF, TURNED, SHAPES, as its log
   names them, any letter case) runs those cases alone, in that order: the
   engine is always started, a case sets up what it needs from the one
   before it, a name that is no case is an error that lists them, and the

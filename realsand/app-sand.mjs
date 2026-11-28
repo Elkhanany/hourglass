@@ -113,7 +113,8 @@ const REBUILD_MS = 2000;                   // after a loss that is not, rebuild 
 const LOSS_WINDOW_MS = 600000;             // a second such loss within 10 minutes is final
 const LAM0 = 0.09;                         // the app's lambda before it has said one (G / g at the glass's size)
 const RC = 0.36;                           // a grain's radius, solver cells (the lab's)
-const BLUR = 1;                            // a grain in flight streaks over one display frame
+const BLUR = 1;                            // a grain in flight streaks over one display frame,
+const BLUR_MS = 1000 / 60;                 // and no longer than one of 60 Hz (a slow display's grain is no stick)
 const SAMPLES = 64;                        // the app's field samples kept (half a second at 120 Hz)
 // The bed's sounds (design 8), on the classic Sim's scale (sand/sim.js _landing, _stepMotion):
 //  E_MIN: a landing under this energy is not heard (audio.js thump: 1.3 sqrt(E) under 0.05);
@@ -339,6 +340,7 @@ export class RealSand {
     // what they were made for, the frames drawn sunlit, and the fill and the way up its relief was last made for
     this._light = { on: false, m: 0 };
     this._lit = null; this._toneTable = null; this._litKey = null; this._litTheme = null; this._litFrame = 0; this._reliefKey = null;
+    this._litSide = 1; this._litOther = null;            // (the beds' floor for the sunlit sand's relief: _litLook)
     this.n.litTables = 0;
   }
 
@@ -698,6 +700,7 @@ export class RealSand {
     this.valve.completeFlip();
     this.cpu.completeFlip();
     this.angle = 0; this.flipping = false;
+    this._litSide = 1; this._litOther = null;            // (the field holds the beds to the new lower end: its floor at once)
     this._swapAt = this._wall(); this.n.swaps++;
     if (this.layers) this._turnedLayers();
   }
@@ -1028,12 +1031,20 @@ export class RealSand {
     const hl = Math.hypot(L[0], L[1], L[2] + 1), H = [L[0] / hl, L[1] / hl, (L[2] + 1) / hl];
     const bed = this._gen * 2 + this.valve.parity, fresh = bed !== this._reliefKey;
     this._reliefKey = bed;
+    // (the field the sand feels in this run, the grid's axes; at rest, gravity turned by angle + tilt. The beds'
+    // floor is the end it holds them to, once it has held them there a quarter of a second, counted from the first
+    // frame that said so: a jolt turns nothing, nor does one after the sand has slept. A swap sets it: completeFlip)
+    const fd = (this._toneField || this._uprightField()).gravity, side = fd[1] > 0 ? -1 : 1, at = this.clock.perf();
+    if (side === this._litSide) this._litOther = null;
+    else if (this._litOther === null) this._litOther = at;
+    else if (at - this._litOther >= 250) { this._litSide = side; this._litOther = null; }
     const g = (R.theme && R.theme.glint) || [255, 255, 255];
     return { key: L, half: H, A: k.A, K: k.K, X: k.X, wrap: k.wrap, C: k.C, kw: k.kw, kd: k.kd, wd: k.wd, cells: this.s, deep: this._lit.deep || 0,
       share: k.sun.glints, mica: k.sun.mica, glint: [g[0] / 255, g[1] / 255, g[2] / 255],
       // (a grain moves when it is faster than 2 cells/s, as the tally's point at rest is slower; a crowded point
       // lies in a bed up to 2 % of a free fall over the glass, as the tally's bed is what does not move)
-      still: 2 / hz, slow: 0.02 * Math.sqrt(2 * Math.max(this.Gg, 1) * this.glass.H) / hz, frame: this._litFrame++, fresh };
+      still: 2 / hz, slow: 0.02 * Math.sqrt(2 * Math.max(this.Gg, 1) * this.glass.H) / hz, frame: this._litFrame++, fresh,
+      down: [fd[0], fd[1]], g: this.Gg, side: this._litSide };
   }
 
   /** A few of the table's colours at the palette's light level: when they change, so has the sand's colour. */
@@ -1137,7 +1148,7 @@ export class RealSand {
     const rpx = Math.max(RC / s * scale, 0.75 / css.dpr);
     return {
       m: [kx, 0, 0, ky], o: [-g.cx * kx, -g.cy * ky], r: [2 * rpx / Math.max(1, css.w), 2 * rpx / Math.max(1, css.h)],
-      liquid: false, exposure: exposure(BLUR, this._displayMs(), hz), flight: FLIGHT,
+      liquid: false, exposure: exposure(BLUR, Math.min(this._displayMs(), BLUR_MS), hz), flight: FLIGHT,
       // the room's light turned back by the glass's angle on screen; the Reset's sweep (design 6.2, 6.5)
       light: this._rotorAngle(), sweep: this._sweepLook(),
       // the sunlit sand (setLight), null under the soft light

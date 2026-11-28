@@ -440,7 +440,7 @@ async function ends(env, place, o) {
     await t.page.tap('#btn-play');
     await sleep(500);
     m.resumed = await endState(t);
-    // Zen (the moon), then out again
+    // Zen (the Zen button), then out again
     await t.page.tap('#btn-zen');
     await sleep(1800);
     m.zen = await endState(t);

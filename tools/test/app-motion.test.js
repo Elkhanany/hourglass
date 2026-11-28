@@ -59,7 +59,14 @@
  *     'running'`) it fails RUNNING; a paused glass sent to wait fails both PAUSED checks;
  *     seqSwapped without its `|| next === 'idle'` fails SEQUENCE.
  *
- *   node tools/test/app-motion.test.js [--root <dir>] [--port <n>] [--only mapping|tiltswap|slosh|sides|start]
+ * MIDTURN (1.22.0): while the Flip button turns the glass. Space pressed on a running glass: it lands
+ *     paused and stays so; the Start button on it then, turned again: it lands running; Start pressed
+ *     while a waiting glass turns: as it lands (its sand below) it is turned over again and runs. The
+ *     page hidden 0.4 s into a running glass's turn (frames held, as a phone's are) for 3 s: the turn
+ *     is set down at once on its far end, the clock swapped, and the 3 s are counted. Control: on
+ *     bc25789 (git archive, --root, --only midturn) all four fail.
+ *
+ *   node tools/test/app-motion.test.js [--root <dir>] [--port <n>] [--only mapping|tiltswap|slosh|sides|start|turns|turnseq|midturn]
  */
 'use strict';
 var H = require('./stubs/harness.js');
@@ -799,6 +806,84 @@ async function testTurnSeq(s, env) {
   } finally { await t.close(); }
 }
 
+/* ---- MIDTURN: Start, a pause and a hidden page while the glass turns (1.22.0) ----------------- */
+// The page's side: a hidden page holds its animation frames, as a phone's does (timers run on).
+function hideInit() {
+  var raf = window.requestAnimationFrame.bind(window), q = [], held = false, hid = false;
+  window.requestAnimationFrame = function (cb) { if (held) { q.push(cb); return 0; } return raf(cb); };
+  Object.defineProperty(document, 'hidden', { configurable: true, get: function () { return hid; } });
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: function () { return hid ? 'hidden' : 'visible'; } });
+  window.__hide = function (h) { hid = h; held = h; document.dispatchEvent(new Event('visibilitychange')); if (!h) { var a = q; q = []; a.forEach(function (cb) { raf(cb); }); } };
+}
+async function testMidTurn(s, env) {
+  var t = await env.open({ init: hideInit, storage: { 'hourglass.settings.v1': { durationMs: 60000 } } });
+  try {
+    await sleep(800);
+    // a running glass, the Flip button, Space 0.7 s into its 2.6 s turn: it lands paused, and stays so
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(2000);
+    await t.page.tap('#btn-flip');
+    await sleep(700);
+    await t.eval(function () { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
+    await t.page.keyboard.press(' ');
+    var p0 = await startRead(t);
+    await turnOver(t);
+    var p1 = await startRead(t);
+    await sleep(1000);
+    var p2 = await startRead(t);
+    s.check('MIDTURN: Space pressed while the Flip button turns a running glass: it lands paused ("Paused", the Start button) and stays so, its time still (it ran on after the turn before 1.22.0)',
+            p0.turning && p1.state === 'paused' && p1.status === 'Paused' && p1.label === 'Start' && p2.state === 'paused' && p2.rem === p1.rem,
+            startShow(p0) + ' → ' + startShow(p1) + ' → ' + startShow(p2));
+    // ... and Start pressed while it turns again (paused; paused here as well, should the turn before have run it): it runs as it lands
+    await t.eval(function () { var H = window.Hourglass; if (H.timer.state === 'running') H.pause(); });
+    await sleep(300);
+    await t.page.tap('#btn-flip');
+    await sleep(700);
+    await t.page.tap('#btn-play');
+    var q0 = await startRead(t);
+    await turnOver(t);
+    var q1 = await startRead(t);
+    await sleep(1000);
+    var q2 = await startRead(t);
+    s.check('MIDTURN: ... and the Start button pressed while it turns again: it lands running (it stayed paused before 1.22.0)',
+            q0.turning && q0.state === 'paused' && q1.state === 'running' && q1.label === 'Pause' && q2.state === 'running' && q2.rem < q1.rem,
+            startShow(q0) + ' → ' + startShow(q1) + ' → ' + startShow(q2));
+    // a glass that waits (after Reset), the Flip button, Start while it turns: as it lands (its sand below) Start
+    // turns it over again on the screen and runs it, as Start does on a glass whose sand is all below
+    await t.eval(function () { window.Hourglass.pause(); });
+    await resetGlass(t);
+    await t.page.tap('#btn-flip');
+    await sleep(700);
+    await t.page.tap('#btn-play');
+    await turnOver(t);
+    try { await t.page.waitForFunction(function () { var H = window.Hourglass; return H.timer.state === 'running' && !H.flip.active; }, null, { timeout: 6000, polling: 100 }); } catch (e) { /* (checked below) */ }
+    await sleep(600);
+    var w1 = await startRead(t);
+    s.check('MIDTURN: a glass that waits, turned by the Flip button, Start pressed while it turns: as it lands, its sand below, it is turned over again and runs (Start was lost before 1.22.0: it waited at 00:00.0)',
+            w1.state === 'running' && w1.top > 0 && w1.rem > 50000 && w1.rem < 60000, startShow(w1));
+    // a running glass, the Flip button, the page hidden 0.4 s into the turn (a phone locked) for 3 s: the turn is set
+    // down at once (the clock swapped) and the 3 s are counted
+    await t.eval(function () { window.Hourglass.pause(); });
+    await resetGlass(t);
+    await t.eval(function () { window.Hourglass.start(); });
+    await sleep(3000);
+    await t.page.tap('#btn-flip');
+    await sleep(400);
+    await t.eval(function () { window.__hide(true); });
+    var h0 = await startRead(t);
+    await sleep(3000);
+    await t.eval(function () { window.__hide(false); });
+    var h1 = await startRead(t);
+    var lost = (h0.rem - h1.rem) - 3000;
+    s.check('MIDTURN: the page hidden while the Flip button turns a running glass: the turn is set down at once on its far end (the clock swapped) and the 3 s hidden are counted (none were before 1.22.0: the turn waited for frames)',
+            !h0.turning && h0.state === 'running' && h0.rem < 10000 && h0.rem > 2000 && !h1.turning && h1.state === 'running' && Math.abs(lost) < 400,
+            'hidden: ' + startShow(h0) + '; shown again 3 s later: ' + startShow(h1) + ' (' + Math.round(lost) + ' ms not counted)');
+    await t.eval(function () { var H = window.Hourglass; if (H.timer.state === 'running') H.pause(); });
+    await sleep(400);
+    await H.invariants(s, t, 'MIDTURN');
+  } finally { await t.close(); }
+}
+
 (async function main() {
   var s = new H.Suite('app-motion');
   var env = await H.start();
@@ -811,6 +896,7 @@ async function testTurnSeq(s, env) {
     if (!only || only === 'start') await testStart(s, env);
     if (!only || only === 'turns') await testTurns(s, env);
     if (!only || only === 'turns' || only === 'turnseq') await testTurnSeq(s, env);
+    if (!only || only === 'midturn') await testMidTurn(s, env);
   } catch (e) {
     s.check('no exception', false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

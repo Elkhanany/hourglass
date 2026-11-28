@@ -470,8 +470,8 @@ var SAVE_1_14 = { theme: 'rosequartz', character: 'warm', volume: 0.6, muted: fa
   tuneTab: 'sand', sand: 'custom', sandColor: '12.5,0.6,0.55', finish: 'copper' };
 async function old(env, o) {
   o = o || {};
-  var cases = [['1.14.0', SAVE_1_14], ['1.13.0', SAVE_1_13], ['1.10.0', SAVE_1_10], ['trumpet', { v: 2, realSand: false, shape: 'trumpet' }, ['trumpet']], ['florence', { v: 2, realSand: false, shape: 'florence' }, ['florence']],
-               ['unknown', { v: 2, realSand: false, shape: 'heart' }]];
+  var cases = [['1.14.0', SAVE_1_14], ['1.13.0', SAVE_1_13], ['1.10.0', SAVE_1_10], ['trumpet', { v: 3, realSand: false, shape: 'trumpet' }, ['trumpet']], ['florence', { v: 3, realSand: false, shape: 'florence' }, ['florence']],
+               ['unknown', { v: 3, realSand: false, shape: 'heart' }]];
   var out = [];
   for (var i = 0; i < cases.length; i++) {
     var raw = {}; raw[KEY] = cases[i][1];
@@ -492,13 +492,15 @@ function oldOk(list) {
     if (r.glass !== 'classic' || r.saved.shape !== 'classic' || r.inUse !== 'classic') bad.push(r.name + ': the glass ' + r.glass + ', saved ' + r.saved.shape + ', in use ' + r.inUse);
     if (r.name === '1.14.0' || r.name === '1.13.0' || r.name === '1.10.0') {
       Object.keys(r.save).forEach(function (k) {
-        if (k === 'realSandBuild') return;                         // (the engine's stamp: the app writes its own)
-        if (JSON.stringify(r.saved[k]) !== JSON.stringify(r.save[k])) bad.push(r.name + ': ' + k + ' ' + JSON.stringify(r.saved[k]) + ' for ' + JSON.stringify(r.save[k]));
+        if (/^realSand(Build|Fails|Why|Na|NaAt)$/.test(k)) return;   // (what the app keeps of its engine: it writes its own)
+        // (saves of version 2: from 1.22.0 they come up with Real sand on, and say version 3)
+        var want = k === 'realSand' ? true : k === 'v' ? 3 : r.save[k];
+        if (JSON.stringify(r.saved[k]) !== JSON.stringify(want)) bad.push(r.name + ': ' + k + ' ' + JSON.stringify(r.saved[k]) + ' for ' + JSON.stringify(want));
       });
     }
     if (r.errors.length) bad.push(r.name + ': ' + r.errors[0]);
   });
-  return { ok: list.length === 6 && bad.length === 0, detail: bad.length ? bad.join('; ') : list.map(function (r) { return r.name + ' -> ' + r.glass; }).join(', ') + '; every other setting of the three old saves as it was' };
+  return { ok: list.length === 6 && bad.length === 0, detail: bad.length ? bad.join('; ') : list.map(function (r) { return r.name + ' -> ' + r.glass; }).join(', ') + '; every other setting of the three old saves as it was (Real sand on, version 3)' };
 }
 
 /* ---- the run ---------------------------------------------------------------------------------- */
@@ -591,7 +593,7 @@ async function main() {
     }
     if (wanted('old')) {
       var od = oldOk(await old(env));
-      s.check('OLD: saves of 1.14.0, 1.13.0 and 1.10.0 come up in the classic glass, every setting as it was; a shape held back (trumpet, florence, each held on its page) or unknown is the classic glass, saved so', od.ok, od.detail);
+      s.check('OLD: saves of 1.14.0, 1.13.0 and 1.10.0 come up in the classic glass, every setting as it was (but Real sand, on, and the version, 3, from 1.22.0); a shape held back (trumpet, florence, each held on its page) or unknown is the classic glass, saved so', od.ok, od.detail);
       await control('a copy of the settings that takes any shape name', 'ok', function () {
         return old(env, { open: { routes: [broken(env, 'app/settings.js', swap('return !!s && has.call(s, v) && s[v].offered === true;', 'return true;'))] } });
       }, function (l) { return { ok: oldOk(l) }; });

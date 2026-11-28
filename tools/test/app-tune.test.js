@@ -53,7 +53,8 @@
  *             from its top fades its rows out under the tab row; neither edge takes a tap (a
  *             finger on the hint reaches the row under it) or is read out, and neither moves the
  *             sheet, the tab row or any row from where they were at 122a7fd; rows that appear or
- *             go (Grain with Real sand, "Copy a report") keep it right; with reduced motion they
+ *             go (Grain, and the line that says the sand is drawn without the graphics chip, with
+ *             its "Copy a report") keep it right; with reduced motion they
  *             appear and go without a fade
  *
  * Every check has its control: the same measurements on a copy of the app with that one thing
@@ -958,7 +959,7 @@ function resetOk(m, save) {
   var quiet = function (st) { return names(st.events).filter(function (n) { return n !== 'buzz'; }).length === 0; };
   // 1. the first tap
   var ask = {
-    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 16 &&
+    ok: !!m.place && m.place.tag === 'BUTTON' && m.place.type === 'button' && !m.place.row && m.place.panel === 'panel-time' && m.place.last && m.place.rows === 15 &&
         m.idle.link.join('|') === 'idle|' + ASK && m.asked.link.join('|') === 'armed|' + SURE && untouched(m.asked) && JSON.stringify(m.asked.events) === '[["buzz",8]]' &&
         m.gaveUp.link.join('|') === 'idle|' + ASK && untouched(m.gaveUp) && m.gaveUp.events.length === 0 && m.waited >= 2900 && m.waited < 5500,
     detail: JSON.stringify(m.place) + '; ' + m.idle.link.join(': ') + ' → ' + m.asked.link.join(': ') + ' ' + JSON.stringify(m.asked.events) + (untouched(m.asked) ? '' : ' AND THE SAVE CHANGED') +
@@ -1079,7 +1080,8 @@ function edges(t) {
       sheet: R(s), tabs: R(document.getElementById('tune-tabs')), body: R(b), row: row ? R(row) : null,
       top: look(top), more: look(more), mark: mark ? R(mark) : null, markEvents: mark ? getComputedStyle(mark.ownerSVGElement).pointerEvents : null,
       grain: (function () { var g = document.getElementById('grain-row'); return !!g && !g.hidden && g.getClientRects().length > 0; })(),
-      report: (function () { var a = document.getElementById('realsand-report'); return !!a && !a.hidden; })()
+      report: (function () { var a = document.getElementById('realsand-report'); return !!a && !a.hidden && a.getClientRects().length > 0; })(),
+      line: (function () { var l = document.getElementById('fallback-line'); return !!l && !l.hidden && l.getClientRects().length > 0; })()
     };
   });
 }
@@ -1117,9 +1119,8 @@ async function hint(env, o) {
         await scrollBody(t, 'end'); await sleep(400);
         m.end[TABS[k]] = await edges(t);
       }
-      // a finger where the hint is, on the Sand tab at its top: the row or sand under it answers. (The
-      // lowest point of the hint over a control that does not load the page again: Real sand's row,
-      // which does, may lie under the hint's lowest pixels.)
+      // a finger where the hint is, on the Sand tab at its top: the row or sand under it answers (the
+      // lowest point of the hint over one)
       await tapTab(t, 'sand'); await sleep(400);
       var e = await edges(t), pt = { x: (e.body[0] + e.body[2]) / 2, y: e.body[3] - 10 };
       var STATE = function (q) {
@@ -1132,7 +1133,7 @@ async function hint(env, o) {
       };
       for (var y = e.body[3] - 10; e.more && y > e.more.box[1] + 4; y -= 4) {
         var under = await t.eval(STATE, { x: pt.x, y: y });
-        if (under.host && under.host !== 'the row of #opt-realsand') { pt.y = y; break; }
+        if (under.host) { pt.y = y; break; }
       }
       m.tap = { at: pt, more: e.more ? e.more.opacity : null, before: await t.eval(STATE, pt) };
       await t.touch.tap(pt.x, pt.y, 60);
@@ -1145,12 +1146,15 @@ async function hint(env, o) {
 }
 /**
  * Rows that appear and go on the Sand tab, by the app's own paths: Real sand on, its engine held
- * back (the row "starting": Grain hidden, "Copy a report" made and shown); then the engine failing
- * to load while the tab is scrolled to its end (Grain appears under a scroll that does not move);
- * then the switch turned off and on again (the page built afresh each time). The engine is held
- * back before it is asked for: the app's script element for realsand/boot.mjs is kept out of the
- * page until release() puts it in, and the network then refuses the file. (A request held open
- * at the network would hold the page's load event too, and the page would never be opened.)
+ * back ("starting": Grain hidden, and no line at the foot); then the engine failing to load while
+ * the tab is scrolled to its end (Grain appears under a scroll that does not move, and at the foot
+ * the line that says the sand is drawn without the graphics chip, with "Copy a report"); then the
+ * next launch (the page loaded again: held back again, Grain and the line gone), whose engine
+ * fails in its turn (both back). (Before 1.22.0 the third and fourth steps were Real sand's switch
+ * turned off and on again.) The engine is held back before it is asked for: the app's script
+ * element for realsand/boot.mjs is kept out of the page until release() puts it in, and the
+ * network then refuses the file. (A request held open at the network would hold the page's load
+ * event too, and the page would never be opened.)
  */
 async function hintRows(env, o) {
   o = o || {};
@@ -1179,10 +1183,8 @@ async function hintRows(env, o) {
     await scrollBody(t, 'end'); await sleep(400);
     m[name + 'End'] = await edges(t);
   }
-  async function flip() {
-    var loaded = t.page.waitForEvent('load', { timeout: 15000 });
-    await tune.tap(t, '#opt-realsand');
-    await loaded;
+  async function relaunch() {
+    await t.page.reload({ timeout: 15000 });
     await t.page.waitForFunction(function () { return window.Hourglass && window.__mon && window.__mon.hooked; }, null, { timeout: 15000 });
     await sleep(700);
   }
@@ -1193,10 +1195,12 @@ async function hintRows(env, o) {
     m.failed = await edges(t);
     await scrollBody(t, 'end'); await sleep(400);
     m.failedEnd = await edges(t);
-    await flip();                                      // off: the classic sand, Grain shown
-    await sandTab('off');
-    await flip();                                      // on again: held back again, Grain hidden
-    await sandTab('on');
+    await relaunch();                                  // the next launch tries again: held back again
+    await sandTab('next');
+    m.released += await release(); await sleep(900);   // ... and fails again: Grain and the line back
+    m.nextFailed = await edges(t);
+    await scrollBody(t, 'end'); await sleep(400);
+    m.nextFailedEnd = await edges(t);
   } finally { await t.close(); }
   return m;
 }
@@ -1234,16 +1238,17 @@ function hintOk(m) {
   };
 }
 function hintRowsOk(m) {
-  var steps = ['held', 'heldEnd', 'failed', 'failedEnd', 'off', 'offEnd', 'on', 'onEnd'];
+  var steps = ['held', 'heldEnd', 'failed', 'failedEnd', 'next', 'nextEnd', 'nextFailed', 'nextFailedEnd'];
+  var quiet = function (e) { return !e.grain && !e.line && !e.report; }, said = function (e) { return e.grain && e.line && e.report; };
   var want = {
-    held: function (e) { return !e.grain && e.report && showsHint(e); }, heldEnd: function (e) { return !e.grain && noHint(e) && e.left <= 2; },
-    failed: function (e) { return m.released === 1 && e.grain && showsHint(e) && near(e.scrolled, m.heldEnd.scrolled, 1); }, failedEnd: function (e) { return e.grain && noHint(e) && e.left <= 2; },
-    off: function (e) { return e.grain && showsHint(e); }, offEnd: function (e) { return e.grain && noHint(e); },
-    on: function (e) { return !e.grain && showsHint(e); }, onEnd: function (e) { return !e.grain && noHint(e); }
+    held: function (e) { return quiet(e) && showsHint(e); }, heldEnd: function (e) { return quiet(e) && noHint(e) && e.left <= 2; },
+    failed: function (e) { return said(e) && showsHint(e) && near(e.scrolled, m.heldEnd.scrolled, 1); }, failedEnd: function (e) { return said(e) && noHint(e) && e.left <= 2; },
+    next: function (e) { return quiet(e) && showsHint(e); }, nextEnd: function (e) { return quiet(e) && noHint(e) && e.left <= 2; },
+    nextFailed: function (e) { return m.released === 2 && said(e) && showsHint(e) && near(e.scrolled, m.nextEnd.scrolled, 1); }, nextFailedEnd: function (e) { return said(e) && noHint(e) && e.left <= 2; }
   };
   var bad = steps.filter(function (k) { return !m[k] || !want[k](m[k]); });
   return { ok: bad.length === 0,
-           detail: (bad.length ? 'WRONG at ' + bad.join(', ') + ': ' : '') + steps.map(function (k) { var e = m[k]; return k + ' (Grain ' + (e && e.grain ? 'shown' : 'hidden') + ') ' + edgeSays(e); }).join('; ') + '; engine let go ' + m.released + ' time(s)' };
+           detail: (bad.length ? 'WRONG at ' + bad.join(', ') + ': ' : '') + steps.map(function (k) { var e = m[k]; return k + ' (Grain ' + (e && e.grain ? 'shown' : 'hidden') + ', the line ' + (e && e.line ? 'shown' + (e.report ? ' with the link' : '') : 'hidden') + ') ' + edgeSays(e); }).join('; ') + '; engine let go ' + m.released + ' time(s)' };
 }
 function hintReducedOk(m) {
   var s = m.at.sand || {}, g = m.at.glass || {}, mid = m.middle.sand || {};
@@ -1298,9 +1303,18 @@ async function radios(env, o) {
       var c = await state(id);
       await t.page.keyboard.press('End');
       await sleep(350);
-      var d = await state(id);
+      var d = await state(id), more = [];
+      // round the ends both ways, the other two arrows, and Home: from the last, ArrowRight to the first,
+      // ArrowUp to the last, ArrowDown to the first and on to the second, Home to the first
+      for (var key of ['ArrowRight', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'Home']) {
+        await t.page.keyboard.press(key);
+        await sleep(350);
+        more.push(await state(id));
+      }
+      await t.page.keyboard.press('End');                 // (left on the last, as before: with no ambience, say, the fade's group would hide)
+      await sleep(350);
       var changed = Object.keys(now || {}).filter(function (k) { return JSON.stringify(now[k]) !== JSON.stringify((was || {})[k]); });
-      m.tried.push({ id: id, shown: true, a: a, b: b, c: c, d: d, changed: changed });
+      m.tried.push({ id: id, shown: true, a: a, b: b, c: c, d: d, more: more, changed: changed });
     }
     // the durations under the glass, with Tune closed
     await tune.close(t);
@@ -1322,8 +1336,10 @@ function radiosOk(m) {
   var shown = m.tried.filter(function (x) { return x.shown; });
   var badKeys = shown.filter(function (x) {
     var nx = (x.a.checked + 1) % x.a.n;
+    var want = [0, x.a.n - 1, 0, 1 % x.a.n, 0];          // (after End: ArrowRight, ArrowUp, ArrowDown, ArrowDown, Home)
     return !(x.b.focus === nx && x.b.checked === nx && x.b.zero.join() === String(nx) &&
-             x.c.focus === x.a.checked && x.c.checked === x.a.checked && x.d.focus === x.a.n - 1 && x.d.checked === x.a.n - 1);
+             x.c.focus === x.a.checked && x.c.checked === x.a.checked && x.d.focus === x.a.n - 1 && x.d.checked === x.a.n - 1 &&
+             x.more.every(function (y, k) { return y.focus === want[k] && y.checked === want[k] && y.zero.join() === String(want[k]); }));
   });
   var rings = shown.filter(function (x) { return x.id === 'rings'; })[0], sands = shown.filter(function (x) { return x.id === 'sands'; })[0];
   var p = m.pills;
@@ -1331,7 +1347,7 @@ function radiosOk(m) {
     stops: { ok: m.groups.length >= 11 && badStops.length === 0,
              detail: m.groups.length + ' radio groups; ' + (badStops.length ? 'not one stop, the checked one: ' + badStops.map(function (g) { return g.id + ' (stops ' + g.zero.join(',') + ' of ' + g.n + ', checked ' + g.checked.join(',') + ')'; }).join('; ') : 'each one Tab stop, its checked option') },
     keys: { ok: shown.length >= 8 && badKeys.length === 0 && !m.errors.length,
-            detail: shown.map(function (x) { return x.id + ' ' + x.a.checked + '->' + x.b.checked + ' (focus ' + x.b.focus + ')->' + x.c.checked + ', End ' + x.d.checked + '/' + (x.a.n - 1); }).join('; ') +
+            detail: shown.map(function (x) { return x.id + ' ' + x.a.checked + '->' + x.b.checked + ' (focus ' + x.b.focus + ')->' + x.c.checked + ', End ' + x.d.checked + '/' + (x.a.n - 1) + ', then ' + x.more.map(function (y) { return y.checked; }).join(','); }).join('; ') +
                     (badKeys.length ? '; WRONG ' + badKeys.map(function (x) { return x.id; }).join(', ') : '') + '; not shown: ' + m.tried.filter(function (x) { return !x.shown; }).map(function (x) { return x.id; }).join(', ') + (m.errors.length ? '; ' + m.errors.join(' | ') : '') },
     saves: { ok: !!rings && rings.changed.indexOf('bowlRings') >= 0 && !!sands && sands.changed.indexOf('sand') >= 0 && !!p && p.after.focus === String((+p.at + 1) % 6) && p.after.checked === 'true' && p.after.dur !== p.dur && p.after.saved === p.after.dur,
              detail: 'saved by ArrowRight: Rings ' + (rings ? rings.changed.join(',') : '?') + ', Sand ' + (sands ? sands.changed.join(',') : '?') + '; the durations under the glass: pill ' + (p && p.at) + ' -> ' + (p && p.after.focus) + ' (' + (p && p.after.checked) + '), ' + (p && p.dur) + ' -> ' + (p && p.after.dur) + ' ms, saved ' + (p && p.after.saved) }
@@ -1515,13 +1531,17 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
     if (wanted('radios')) {
       var rd = radiosOk(await radios(env));
       s.check('RADIOS: every radio group (the durations under the glass and Tune\'s) is one stop in the Tab order: its checked option', rd.stops.ok, rd.stops.detail);
-      s.check('RADIOS: in Tune\'s groups ArrowRight moves the focus to the next option and chooses it (it alone the Tab stop), ArrowLeft back, End to the last', rd.keys.ok, rd.keys.detail);
+      s.check('RADIOS: in Tune\'s groups ArrowRight moves the focus to the next option and chooses it (it alone the Tab stop), ArrowLeft back, End to the last; from the last ArrowRight round to the first, ArrowUp round to the last, ArrowDown to the first and the second, Home to the first', rd.keys.ok, rd.keys.detail);
       s.check('RADIOS: ... and a key saves what a tap saves (Rings, Sand), and the durations under the glass take the arrows too', rd.saves.ok, rd.saves.detail);
       await control('RADIOS: a copy with every option its own Tab stop (as up to 1.19.0)', 'stops', function () {
         return radios(env, { routes: [broken(env, 'app.js', swap(/  function rove\(g\) \{\n/, '  function rove(g) { return;\n'))] });
       }, radiosOk);
       await control('RADIOS: a copy without the arrow keys in a radio group (as up to 1.19.0)', 'keys', function () {
         return radios(env, { routes: [broken(env, 'app.js', swap(/if \(!r \|\| !r\.getAttribute \|\| r\.getAttribute\('role'\) !== 'radio'/, 'if (true'))] });
+      }, radiosOk);
+      await control('RADIOS: a copy whose arrows stop at the ends and that has no Home, ArrowUp or ArrowDown', 'keys', function () {
+        return radios(env, { routes: [broken(env, 'app.js', swap(/    j = e\.key === 'ArrowRight' \|\| e\.key === 'ArrowDown' \? \(i \+ 1\) % n : e\.key === 'ArrowLeft' \|\| e\.key === 'ArrowUp' \? \(i \+ n - 1\) % n :\n        e\.key === 'Home' \? 0 : e\.key === 'End' \? n - 1 : -1;/,
+          "    j = e.key === 'ArrowRight' ? Math.min(i + 1, n - 1) : e.key === 'ArrowLeft' ? Math.max(i - 1, 0) : e.key === 'End' ? n - 1 : -1;"))] });
       }, radiosOk);
     }
 
@@ -1724,7 +1744,7 @@ function failing(v) { return Object.keys(v).filter(function (k) { return !v[k].o
       s.check('HINT: the sheet, the tab row, the rows\' box and every tab\'s first row stand where they stood at 122a7fd', hn.place.ok, hn.place.detail);
       s.check('HINT: no page or console errors', hn.errors.ok, hn.errors.detail);
       var hr = hintRowsOk(await hintRows(env));
-      s.check('HINT: rows that appear and go keep it right: Grain appearing under a tab scrolled to its end (Real sand failing to start) brings the hint back; Real sand turned off and on again, it is right at the top and at the end', hr.ok, hr.detail);
+      s.check('HINT: rows that appear and go keep it right: Grain and the line at the foot ("drawn without the graphics chip", with "Copy a report") appearing under a tab scrolled to its end (Real sand failing to start) bring the hint back; at the next launch (both gone while it starts) and its failure, it is right at the top and at the end', hr.ok, hr.detail);
       var hd = hintReducedOk(await hint(env, { reduced: true, open: { reducedMotion: true } }));
       s.check('HINT: with reduced motion the edges appear and go at once, without a fade', hd.ok, hd.detail);
       var css = function (rule) { return function () { return hint(env, { open: { routes: [broken(env, 'styles.css', add(rule))] } }); }; };

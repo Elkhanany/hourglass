@@ -66,14 +66,20 @@
    * The version step. The settings carry the version they were saved by
    * (`v`). A save of an older version than a step's, or of none, has that
    * step applied, once: load() leaves the newest version in the values, and
-   * the next save() writes it. It is used for one thing, and every later
+   * the next save() writes it. It is used for Real sand alone, whose
+   * saved value means another thing from each version on; every other
    * migration is a record's `from` (settings design 5.1).
    */
   var STEPS = [
     // Version 2: Real sand on, once. Every launch before 1.10.0 saved realSand: false, so such a
     // save cannot tell "never touched" from "turned off"; from version 2 on, a saved false is
     // the person's choice.
-    { v: 2, run: function (values) { values.realSand = true; } }
+    { v: 2, run: function (values) { values.realSand = true; } },
+    // Version 3: Real sand on, once more. From 1.22.0 Tune has no switch for it (the classic sand
+    // is only the fallback where it cannot run), so a false saved with the switch of 1.10.0 to
+    // 1.21.1 would keep the classic sand for good; from version 3 on, a saved false is made only
+    // by the tests or by an edit of the storage.
+    { v: 3, run: function (values) { values.realSand = true; } }
   ];
 
   /* The records, in the order their keys are saved. */
@@ -105,13 +111,13 @@
     { id: 'grain', default: 0,                   // the sand's grain: 0 classic, 1 fine (twice the grains), 2 finest (four times)
       valid: function (v) { return v === 1 || v === 2; } },
     { id: 'hintMotion', default: 0 },            // how often the tilt icon has been pointed out (three times at most)
-    { id: 'realSand', default: true },           // Real sand: the sand simulated on the graphics chip (off: the classic sand); on by default from 1.10.0
+    { id: 'realSand', default: true },           // Real sand: the sand simulated on the graphics chip; off (no switch from 1.22.0: the tests, or an edit) the classic sand
     { id: 'realSandFails', default: 0 },         // launches in a row at which Real sand did not start (it stops trying at 3)
     { id: 'realSandWhy', default: '' },          // ... and why the last one did not (or why this browser cannot have it)
     { id: 'realSandNa', default: '' },           // the user agent of a browser that could not have it: while it is this one, "Needs WebGPU", nothing loaded
     { id: 'realSandNaAt', default: 0 },          // ... and when that was found (ms since 1970): after seven days it is tried again all the same
     { id: 'realSandBuild', default: '' },        // the engine build those three were found with: another build clears them, and it tries again
-    { id: 'v', default: 2 },                     // the settings' version (see STEPS)
+    { id: 'v', default: 3 },                     // the settings' version (see STEPS)
     { id: 'tuneTab', default: 'sand',            // the tab of Tune last shown: Tune opens on it
       valid: function (v) { return v === 'glass' || v === 'sound' || v === 'time'; } },
     // From 1.14.0 the sand and the frame's finish are chosen apart. A save from before has only

@@ -256,9 +256,8 @@ function dial(sel, v) { return { dial: sel, value: v }; }
 // kept apart (reaches), so a control's entry holds what the control did and nothing of how it
 // was got to; app-tune-trace holds every reach to the kept entry of the line that drives the
 // same element (a tab's, or "open Tune"). The tabs have lines of their own at the start. The
-// reset link's two taps come after every control that changes the look and the sound, just
-// before Real sand (which must be last: what Real sand does once it has started is another
-// suite's): there it has a sand, a volume, an ambience level, the sand's and the bowl's levels,
+// reset link's two taps come last, after every control that changes the look and the sound
+// (until 1.22.0 Real sand's switch came after them): there it has a sand, a volume, an ambience level, the sand's and the bowl's levels,
 // the rings and the fade before the end to put back, so its
 // save, its cross-fade and what it tells the sound engine are in the trace (what it does with every
 // setting changed is app-tune's). The second tap is
@@ -377,20 +376,24 @@ var DRIVE = [
   ['light: soft', click('#lights [data-light="soft"]')],
   ['light: sunlit', click('#lights [data-light="sunlit"]')],
   ['the look and sound put back: the first tap', click('#tune-reset')],
-  ['the look and sound put back: the second tap', click('#tune-reset'), 'slow'],
-  ['Real sand: on', click('#opt-realsand'), 'reload']
+  ['the look and sound put back: the second tap', click('#tune-reset'), 'slow']
 ];
 var CONTROLS = DRIVE.map(function (d) { return d[0]; });
 // what holds or changes a setting in Tune's sheet: every switch, every choice of a group, every
 // slider, every tab, and every button but the one that closes the sheet (the reset link is one)
 var HOLDERS = '.switch, [role="switch"], [role="radio"], [role="tab"], input[type="checkbox"], input[type="range"], input[type="color"], select, button:not(.sheet-close)';
 
+// At rest: no fade of the glass, no sweep, swap or new grain, and no change of look still fading
+// (html.look-fade): a tap that finds the look before's fade not yet drawn a frame (a frame very late,
+// under load) is a change back while the page still shows the look asked for, which ends at once
+// (the sand told its light, the glass not drawn again), not a change from a page at rest.
 function state(page) {
   return page.evaluate(function () {
     var T = window.__trace, app = document.getElementById('app'), as = document.getElementById('assembly');
     return {
       id: T ? T.id : null, booted: !!(T && T.boot && T.loaded) && !!window.Hourglass && !!(window.__mon && window.__mon.hooked),
-      calm: !!app && !!as && !as.classList.contains('fade') && !app.classList.contains('sweep') && !app.classList.contains('swap') && !app.classList.contains('regrain'),
+      calm: !!app && !!as && !as.classList.contains('fade') && !app.classList.contains('sweep') && !app.classList.contains('swap') && !app.classList.contains('regrain') &&
+            !document.documentElement.classList.contains('look-fade'),
       starts: window.__motionStub ? window.__motionStub.starts : 0
     };
   }).catch(function () { return null; });         // (the page is on its way to another document)
@@ -406,7 +409,7 @@ async function until(page, ok, ms, what) {
 }
 
 /**
- * Every control in turn (or those named in `only`, in order), from a version-2 save with Real
+ * Every control in turn (or those named in `only`, in order), from a version-3 save with Real
  * sand off: what its own tap did (now), and what followed until the next one (later: the
  * cross-fade's calls, an answer to the motion question, the boot after a reload).
  */
@@ -486,7 +489,7 @@ async function tune(env, only) {
       if (d[2] === 'reload') {
         await until(page, function (s) { return s.id !== before.id && s.booted; }, 20000, 'the reload after "' + d[0] + '"');
         cur.later = cur.later.concat([['(the page is loaded again)']], await page.evaluate(function () { return window.__trace.boot; }));
-        if (i === DRIVE.length - 1) break;             // (what Real sand does once it has started is another suite's)
+        if (i === DRIVE.length - 1) break;             // (a last line that reloads: what follows is another suite's)
       } else {
         if (d[2] === 'motion') await until(page, function (s) { return s.starts > before.starts; }, 5000, 'the answer to the motion question');
         await rest(before, '"' + d[0] + '"');
