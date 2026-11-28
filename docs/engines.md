@@ -1629,9 +1629,10 @@ and the rest stays by hand in the controller. In order:
    tools/test/app-tune-trace.test.js --write` write them from the tree
    just run. Read the diff: the new key in each save, the new control's
    lines and each file's `from` line, and nothing else.
-7. The row count: five suites count Tune's rows (`app-regression`,
-   `e2e-calm`, `app-breath`, `app-sequence`, `app-realsand`), so a new row
-   changes those on purpose.
+7. The row count: six suites count Tune's rows (`app-regression`,
+   `e2e-calm`, `app-breath`, `app-sequence`, `app-realsand`, and `app-tune`'s
+   reset place check), so a new row changes those on purpose
+   (`check-harness` finds every suite that counts them named here).
 
 `settings-unit` needs no change for a record after the old ones: it holds
 the store's first 31 records to the app before the store, and leaves newer

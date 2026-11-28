@@ -492,7 +492,11 @@ async function hoursCase(s, env) {
   // the clock set by hand, or the time zone changed (after a flight), with the app open and in front:
   // no event comes, and the timer for 19:00 counts the time gone by, not the clock
   async function moved(how, routes) {
-    var u = await opn(env, { storage: { background: 'hours' }, timezoneId: how === 'zone' ? 'Europe/London' : ZONE, init: fakeClock, initArg: [18, 0, 0], routes: routes });
+    var u = await opn(env, { storage: { background: 'hours' }, timezoneId: how === 'zone' ? undefined : ZONE, init: fakeClock, initArg: [18, 0, 0], routes: routes });
+    if (how === 'zone') {          // (the zone set by this page's own session, which alone can change it again: then the page opened in it)
+      await u.cdp.send('Emulation.setTimezoneOverride', { timezoneId: 'Europe/London' });
+      await u.reload();
+    }
     await sleep(300);
     var x = (await lookOf(u)).look;
     if (how === 'clock') await u.eval(function () { window.__setClock(19, 30, 0); });

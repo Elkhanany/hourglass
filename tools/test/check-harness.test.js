@@ -19,6 +19,8 @@
  *    Node suites by name. Every suite that needs no browser (none of the files it requires asks
  *    for Playwright) is either in that list or in LEFT_OUT below, with its reason, and every name
  *    in the two lists is such a suite: a new suite cannot be left out by forgetting it.
+ * And the steps for a new setting (docs/engines.md, "The row count") name every suite that
+ * counts Tune's rows (`.rows === N`), so one who adds a row changes them all.
  * Each rule has its control: a tree or a suite that breaks it must fail.
  *
  *   node tools/test/check-harness.test.js
@@ -193,6 +195,17 @@ function page(tags) { return '<!doctype html><html><head><meta charset="utf-8"><
           w3.length === wp.length + 1 && /realsand-felt/.test(w3.join()) && w4.length === wp.length + 1 && /sim-perf.*both/.test(w4.join()),
       '... and that check finds a new suite in neither list, realsand-felt left out of the workflow, a listed name with no file, a listed browser suite, and a name in both lists (control)',
       [w1, w2, w3, w4].map(function (w) { return w.join('; '); }).join(' | '));
+
+    /* ---- the suites that count Tune's rows, named in the steps for a new setting ---- */
+    var counting = tests.filter(function (f) { return /\.rows === \d+/.test(fs.readFileSync(path.join(__dirname, f), 'utf8')); }).map(function (f) { return f.replace('.test.js', ''); });
+    var engines = fs.readFileSync(path.join(paths.ROOT, 'docs', 'engines.md'), 'utf8');
+    var step = (/\n7\. The row count:([\s\S]*?)\n\n/.exec(engines) || [])[1] || '';
+    var unnamed = function (text) { return counting.filter(function (n) { return text.indexOf('`' + n + '`') < 0; }); };
+    check(counting.length >= 6 && step && unnamed(step).length === 0,
+      'the steps for a new setting name every suite that counts Tune\'s rows (' + counting.join(', ') + ')', unnamed(step).join(', '));
+    var asShipped = " five suites count Tune's rows (`app-regression`,\n   `e2e-calm`, `app-breath`, `app-sequence`, `app-realsand`), so a new row\n   changes those on purpose.";
+    check(unnamed(asShipped).length > 0 && unnamed(asShipped).indexOf('app-tune') >= 0,
+      '... and that check finds app-tune missing from the step as release 1.21.1 had it (control)', unnamed(asShipped).join(', '));
   } catch (e) {
     check(false, 'no exception', e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e));
   } finally {

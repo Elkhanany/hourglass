@@ -633,7 +633,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   release (1.10.0) with `app.js` taken out of its cache, met online by this
   tree (the page says to open it again in a moment, not "with a
   connection", and the next launch runs this tree; its control is this tree
-  with the online words taken out); a lab
+  with the online words taken out); the same for 1.18.0 (f7671de), whose
+  page loads the settings store but whose renderer has none of the light
+  look's parts (`missingParts()` names them: the same words, nothing built,
+  no error; its control, this tree without that look, throws); a lab
   page that meets another build (the app's cache stays whole); and an update
   that never finishes over a copy installed before the snapshot worker
   (13a9772's worker fetches each file it answers into its copy, so offline
@@ -656,8 +659,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   as that sand over its own finish, and every other setting as it was,
   online and offline (what the app keeps of its Real sand engine aside); a
   copy without the finish's migration is found out. It needs
-  `origin/main`, d6482bd (release 1.13.0), 5911e24 (release 1.10.0) and
-  13a9772 from git (`HOURGLASS_MAIN=<ref>` names another first release;
+  `origin/main`, d6482bd (release 1.13.0), 5911e24 (release 1.10.0),
+  f7671de (release 1.18.0) and 13a9772 from git (`HOURGLASS_MAIN=<ref>` names another first release;
   the old saves are always made by those two releases).
   `app-tune` covers Tune's four tabs: one panel shown and remembered, the
   Sand tab's Light row (after Grain, Sunlit checked and lit as the app comes,
@@ -836,7 +839,7 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   Each check has a control.
   `app-layers` covers layered sand: the Tune switch, its saving, a new glass,
   pour, flip, a restored session and Reduce Motion. `app-sound` covers the
-  Sound tab's own rows (`--only layout,levels,rings,tap,twice,quiet,away,rounds,awake,asleep,back,fade,silent`):
+  Sound tab's own rows (`--only layout,levels,rings,tap,twice,two,quiet,away,rounds,awake,asleep,back,fade,silent`):
   at 393 x 852, 375 x 667 and 320 x 568 the rows in the design's order and
   words, nothing wider than the sheet, no sideways scroll, no word cut off,
   44 px for every new control, each named for a screen reader, the bowl's
@@ -847,7 +850,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   the last within 10 minutes), the first tap on the glass, the first button
   (Tune) and the first key (F) used up by stopping the bowl and the next one
   working, Start tapped twice 0.25 s apart (by a finger, by a mouse) where
-  only the first is used up, no rings and no tap taken when the bowl cannot
+  only the first is used up, two fingers landing together on the glass while
+  the bowl is due (near its top, across its middle) only stopping it, the
+  glass not turned (a copy that takes the second finger for a new gesture
+  must fail; with Rings once two fingers do nothing), no rings and no tap taken when the bowl cannot
   be heard (muted, Sound at 0, Bowl at 0) and the rings stopped when it
   becomes so, nothing rung while the page is hidden and nothing late when it is
   back (and nothing after 10 minutes away), a sequence's soft bowl once

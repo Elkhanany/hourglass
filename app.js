@@ -32,6 +32,11 @@
     ['Sim', 'Renderer', 'Spill'].forEach(function (k) {
       if (typeof P0[k] !== 'function') out.push('HourglassPhysics.' + k);
     });
+    // the renderer's parts that came after it (an older renderer has the name, not these: 1.18.0's
+    // met this script's first call to setSandLight, threw, and the page's last lines said it was updating)
+    if (typeof P0.Renderer === 'function') ['setPaper', '_paperMix', '_prepareLooks', 'setSandLight', 'prepareSun'].forEach(function (k) {
+      if (typeof P0.Renderer.prototype[k] !== 'function') out.push('HourglassPhysics.Renderer.' + k);
+    });
     if (typeof w.HourglassAudio !== 'function') out.push('HourglassAudio');
     if (typeof w.HourglassMotion !== 'function') out.push('HourglassMotion');
     if (!w.HourglassSettings || typeof w.HourglassSettings.load !== 'function') out.push('HourglassSettings');
@@ -492,25 +497,34 @@
   // The tap that stops the bowl is used up: seen first (on the window, capturing), it goes no
   // further, nor does the rest of that one gesture: its pointer's moves and lift, its touch's
   // events, and the mouse events and the click that follow its lift, or the key's own repeats,
-  // lift and click. The next gesture is never eaten: a new pointer down (a finger, a mouse
-  // button), a new touch or another key gets through as always, however soon it comes.
-  var ringEat = null;                // { id: the pointer, touch: its touch's identifier, up: when it lifted (0: still down) } or { key, up }
+  // lift and click. A finger that comes down while the stopping one is still down (two fingers
+  // landing together: the phone picked up, a pinch begun) is of that gesture too, eaten with it
+  // until every finger has lifted; else the app would see the second finger alone, as a tap on
+  // the glass, and turn it. The next gesture is never eaten: a new pointer down (a finger, a
+  // mouse button), a new touch or another key once the gesture has lifted gets through as always,
+  // however soon it comes.
+  var ringEat = null;                // { ids: its pointers still down, touches: their touches' identifiers, up: when the last lifted (0: not yet) } or { key, up }
   function ringEaten(e) {
     onGesture();                     // (what every gesture does still happens: the sound unlocked, the wake lock asked for)
     e.stopImmediatePropagation();
     if (e.cancelable) e.preventDefault();
   }
-  /** The touch event is the eaten gesture's own touch (a new finger's is not). */
+  /** The touch event is one of the eaten gesture's own touches (a new finger's, after it, is not). */
   function ringTouch(e, q) {
     var c = e.changedTouches || [];
-    for (var i = 0; i < c.length; i++) if (c[i].identifier === q.touch) return true;
+    for (var i = 0; i < c.length; i++) if (q.touches.indexOf(c[i].identifier) >= 0) return true;
     return false;
   }
   window.addEventListener('pointerdown', function (e) {
-    if (ringEat && (ringEat.up || ringEat.key !== undefined || e.pointerId !== ringEat.id)) ringEat = null;   // (a new gesture: never eaten)
+    if (ringEat && ringEat.ids && !ringEat.up) {             // (another finger while the stopping one is down: the same gesture)
+      if (ringEat.ids.indexOf(e.pointerId) < 0) ringEat.ids.push(e.pointerId);
+      ringEaten(e);
+      return;
+    }
+    if (ringEat) ringEat = null;                             // (a new gesture: never eaten)
     if (!ringsDue()) return;
     ringsStop(true);
-    ringEat = { id: e.pointerId, touch: null, up: 0 };
+    ringEat = { ids: [e.pointerId], touches: [], up: 0 };
     ringEaten(e);
     buzz(10);
   }, true);
@@ -532,13 +546,19 @@
         if (type === 'click' && (!q.up || performance.now() - q.up < 50)) ringEaten(e);
         return;
       }
-      if (type.indexOf('pointer') === 0) {                                       // (its own pointer only, until it lifts)
-        if (e.pointerId !== q.id || q.up) return;
-        if (type !== 'pointermove') q.up = performance.now();
-      } else if (type.indexOf('touch') === 0) {                                  // (its own touch only: the first to start after its pointer went down)
-        if (q.touch === null && type === 'touchstart' && !q.up) q.touch = e.changedTouches && e.changedTouches.length ? e.changedTouches[0].identifier : -1;
+      if (type.indexOf('pointer') === 0) {                                       // (its own pointers only, each until it lifts)
+        var k = q.ids.indexOf(e.pointerId);
+        if (k < 0) return;
+        if (type !== 'pointermove') { q.ids.splice(k, 1); if (!q.ids.length) q.up = performance.now(); }
+      } else if (type.indexOf('touch') === 0) {                                  // (its own touches only: those that start while a pointer of it is down)
+        if (type === 'touchstart' && !q.up) for (var c = e.changedTouches || [], i = 0; i < c.length; i++) q.touches.push(c[i].identifier);
         else if (!ringTouch(e, q)) return;
-        if (type === 'touchend' || type === 'touchcancel') { ringEaten(e); ringEat = null; return; }   // (a touch's lift cancelled: no mouse events, no click follow it)
+        if (type === 'touchend' || type === 'touchcancel') {                     // (a touch's lift cancelled: no mouse events, no click follow it)
+          ringEaten(e);
+          for (var j = 0, d = e.changedTouches || []; j < d.length; j++) if (q.touches.indexOf(d[j].identifier) >= 0) q.touches.splice(q.touches.indexOf(d[j].identifier), 1);
+          if (!q.touches.length && q.up) ringEat = null;
+          return;
+        }
       }
       ringEaten(e);
       if (type === 'click') ringEat = null;
