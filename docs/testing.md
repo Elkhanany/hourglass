@@ -152,7 +152,16 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   switch, choice and slider of Tune's sheet must be one the trace drives
   (`DRIVE` in `tools/test/lib/trace.js`), so a control added to Tune and not
   to the driver fails instead of going untraced; a copy of the page with one
-  switch more must be found out. The two kept traces are the reviewed
+  switch more must be found out. Each control is tapped on a page at rest:
+  no fade of the glass, no sweep, swap or new grain, and no change of look
+  still fading (`html.look-fade`). A tap that finds the look before's fade
+  not yet drawn a frame (a frame very late, under load) is a change back
+  while the page still shows the look asked for: the app ends it at once,
+  the sand told its light in the tap (`setSandLight`) and the glass already
+  drawn by `setPaper`, where from rest it draws the glass at the start look
+  (`drawGlass`) and tells the sand in the fade's frames; until 1.21.1 the
+  driver did not wait for the fade, and the moon button's entry could flip
+  so. The two kept traces are the reviewed
   record of the tree named in each file's `from`, not a recording of the
   app before the store: run with `--write`, a trace suite writes its file
   from the tree just run, and that is how a setting or a control added on
