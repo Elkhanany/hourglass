@@ -1095,10 +1095,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   in that band over 6 blocks (36 px, 18 pt: neighbouring blocks differing by
   over 0.2 in the same direction, block under block); 2aba504's, on the very
   same grains in the very same frames, has both (the control: its bars and
-  blocks, steps of 0.77 to 1.56 against a bound of about 0.23). And the
-  settled bed keeps LIT's margin, lit from the screen's left (1.2 : 1 and
-  over, in both looks). RELIEF takes about 24 minutes with the engine's
-  start (`--only relief`); with `--shots` it saves each canvas of each frame
+  blocks: steps of 0.89 to 1.39 and edges of 18 blocks, the whole band,
+  against a bound of 0.24, where the engine's steps are 0.08 to 0.16 and its
+  edges 2 or 3 blocks). And the settled bed keeps LIT's margin, lit from the
+  screen's left (1.2 : 1 and over, in both looks). RELIEF takes about 13
+  minutes with the engine's start (`--only relief`); with `--shots` it saves each canvas of each frame
   it measures, and sand poured in and a flip under way besides
   (`HOURGLASS_RELIEF_SANDS=rosequartz,sahara` for more sands). Then each shape Tune
   offers, the page loaded in

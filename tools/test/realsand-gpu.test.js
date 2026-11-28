@@ -77,7 +77,7 @@
  *          second and back) and shaken (1.5 g from side to side, 5 Hz), in both looks, the engine's light
  *          has no step over the bound and no straight vertical edge over 6 blocks (36 px), while RELIEF_BASE's,
  *          on the same grains in the same frames, has (the control: its bars and blocks); and the settled
- *          bed is lit from the screen's left by LIT's margin. About 20 minutes with the engine's start.
+ *          bed is lit from the screen's left by LIT's margin. About 13 minutes with the engine's start.
  *          With --shots: each canvas of each frame measured (relief-<sand>-<look>-<moment>-<eng|old|soft>.png),
  *          sand poured in and a flip under way besides; HOURGLASS_RELIEF_SANDS=rosequartz,sahara for more sands;
  *  SHAPES  each glass shape Tune offers, the page loaded in it (release 1.15.0): a 60-minute glass
