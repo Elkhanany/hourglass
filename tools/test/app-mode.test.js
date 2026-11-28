@@ -1175,40 +1175,58 @@ async function pillsAt(env, w, look, quick, routes) {
   await t.close();
   return r;
 }
-/* ---- a home-screen app: the app's box as tall as the larger of the window and 100vh (1.20.2) ---- */
-// A test browser cannot be a home-screen app (display-mode cannot be emulated in it), so the
-// rule is read as a tab (it does not apply) and with its media query made true: in a window
-// whose viewport is the window, as Android's home-screen app and the PC's installed window
-// are, the app's box is the window's either way, in both looks and in Zen and with Tune open.
+/* ---- a home-screen app: the app's box the window's, never taller (1.21.1) ---------------- */
+// Release 1.20.2 sized the box, in a home-screen app, as tall as the larger of the window and
+// 100vh / 100lvh; on an iPhone whose web view shows less of the page than those units measure
+// (vh the whole screen) the box ran past what is shown and the control panel's foot was lost.
+// 1.21.1 took the rule out: the box is the window's (inset: 0) everywhere. A test browser cannot
+// be a home-screen app (display-mode cannot be emulated in it) and its vh is its window, so the
+// home-screen app is played: every `@media (display-mode: standalone)` made true, and every 100vh
+// and 100lvh measuring 56 px more than the window shows, as on that iPhone. The box must be the
+// layout viewport's exactly, never taller; the stylesheet of STANDALONE_BASE (release 1.21.0, the
+// rule still in it), played the same way, must give a box taller than the window (control).
+var STANDALONE_BASE = process.env.HOURGLASS_STANDALONE_BASE || '2aba504';
+function phoneCss(src) {
+  return src.replace(/@media \(display-mode: standalone\)/g, '@media all').replace(/\b100(l?)vh\b/g, 'calc(100$1vh + 56px)');
+}
+function cssRoute(env, src) {
+  var origin = env.url.replace(/\/$/, '');
+  return { url: function (u) { return u.origin === origin && u.pathname === '/styles.css'; }, handler: function (route) {
+    route.fulfill({ status: 200, contentType: 'text/css', body: src });
+  } };
+}
+async function boxAt(env, look, size, routes) {
+  var t = await opn(env, { storage: { background: look }, viewport: { width: size[0], height: size[1] }, routes: routes });
+  await sleep(700);
+  var b = await t.eval(function () {
+    var r = document.getElementById('app').getBoundingClientRect(), p = document.querySelector('.panel').getBoundingClientRect();
+    return { app: [r.left, r.top, r.width, r.height].map(Math.round), w: innerWidth, h: innerHeight, root: document.documentElement.clientHeight, panel: Math.round(p.bottom) };
+  });
+  await tune.open(t); await sleep(700);
+  b.sheet = await t.eval(function () { var r = document.getElementById('sheet-settings').getBoundingClientRect(); return Math.round(r.bottom); });
+  await t.close();
+  return b;
+}
 async function standaloneCase(s, env) {
-  var on = routed(env, 'styles.css', function (src) { return src.replace('@media (display-mode: standalone) {\n  #app {', '@media all {\n  #app { --on: 1;'); });
+  var phone = cssRoute(env, phoneCss(fs.readFileSync(path.join(env.root, 'styles.css'), 'utf8')));
   var rows = [], ok = true, tab = {};
   for (var look of ['light', 'dark']) for (var size of [[393, 852], [1280, 800], [412, 915]]) for (var how of ['tab', 'standalone']) {
-    var t = await opn(env, { storage: { background: look }, viewport: { width: size[0], height: size[1] }, routes: how === 'standalone' ? [on] : null });
-    await sleep(700);
-    var b = await t.eval(function () {
-      var r = document.getElementById('app').getBoundingClientRect(), p = document.querySelector('.panel').getBoundingClientRect();
-      return { app: [r.left, r.top, r.width, r.height].map(Math.round), w: innerWidth, h: innerHeight, panel: Math.round(p.bottom), rule: getComputedStyle(document.getElementById('app')).getPropertyValue('--on').trim() === '1' };
-    });
-    await tune.open(t); await sleep(700);
-    var sheet = await t.eval(function () { var r = document.getElementById('sheet-settings').getBoundingClientRect(); return Math.round(r.bottom); });
-    await t.close();
+    var b = await boxAt(env, look, size, how === 'standalone' ? [phone] : null);
     var key = look + size.join('x'), was = tab[key];
-    if (how === 'tab') tab[key] = { panel: b.panel, sheet: sheet };
-    var same = b.app[0] === 0 && b.app[1] === 0 && b.app[2] === b.w && b.app[3] === b.h && b.rule === (how === 'standalone') &&
-      (how === 'tab' || (was && was.panel === b.panel && was.sheet === sheet));
+    if (how === 'tab') tab[key] = b;
+    var same = b.app[0] === 0 && b.app[1] === 0 && b.app[2] === b.w && b.app[3] === b.h && b.app[3] === b.root &&
+      (how === 'tab' || (was && was.panel === b.panel && was.sheet === b.sheet));
     ok = ok && same;
-    rows.push(look + ' ' + size.join('x') + ' ' + how + ': app ' + b.app.join(',') + ' of ' + b.w + 'x' + b.h + ', bar to ' + b.panel + ', Tune to ' + sheet + (b.rule ? ' (the rule on)' : ''));
+    rows.push(look + ' ' + size.join('x') + ' ' + how + ': app ' + b.app.join(',') + ' of ' + b.w + 'x' + b.h + ' (layout viewport ' + b.root + '), bar to ' + b.panel + ', Tune to ' + b.sheet);
   }
-  s.check('STANDALONE: the home-screen app\'s rule (the box as tall as the larger of the window and 100vh) changes nothing where the viewport is the window: as a tab (the rule off) and with it on, at a phone\'s size, a PC window\'s and an Android phone\'s, in both looks, the app\'s box is the window\'s and the bar and Tune end where they do in the tab',
+  s.check('STANDALONE: in a home-screen app (played: its media query true, 100vh and 100lvh 56 px more than the window shows) the app\'s box is exactly the layout viewport\'s, never taller, at a phone\'s size, a PC window\'s and an Android phone\'s, in both looks, and the bar and Tune end where they do in a tab',
     ok, rows.join('; '));
-  // control: a rule that sized the box past the window would be seen
-  var past = routed(env, 'styles.css', function (src) { return src.replace('@media (display-mode: standalone) {', '@media all {').replace('height: max(100%, 100vh, 100lvh); }', 'height: calc(100vh + 34px); }'); });
-  var t2 = await opn(env, { storage: { background: 'light' }, viewport: { width: 393, height: 852 }, routes: [past] });
-  await sleep(700);
-  var c = await t2.eval(function () { var r = document.getElementById('app').getBoundingClientRect(); return [Math.round(r.height), innerHeight]; });
-  await t2.close();
-  s.check('... and with the box sized 34 px past the window instead, the same measure sees it (control: ' + c.join(' of ') + ')', c[0] !== c[1], c.join(' of '));
+  // control: 1.21.0's stylesheet, its home-screen rule played the same way, sizes the box past what is shown
+  var src = null;
+  try { src = require('./lib/base.js').show(STANDALONE_BASE, 'styles.css'); } catch (e) { /* (checked below) */ }
+  var c = src ? await boxAt(env, 'light', [393, 852], [cssRoute(env, phoneCss(src))]) : null;
+  s.check('... and with the stylesheet of ' + STANDALONE_BASE + ' (the box as tall as the larger of the window, 100vh and 100lvh) played the same way, the same measure sees the box run past the window (control)',
+    !!c && c.app[3] > c.h && c.panel > c.h, c ? 'app ' + c.app.join(',') + ' of ' + c.w + 'x' + c.h + ', bar to ' + c.panel : 'git show failed: the commit is not in this clone');
 }
 
 /* ---- the readout under the version line (1.20.2) -------------------------------------------- */

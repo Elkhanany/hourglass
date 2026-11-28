@@ -13,9 +13,12 @@
  * as the classic sand is lit (glass/renderer.js, the sunlit sand): its colours
  * are the classic sand's own table (setTones), the body of sand takes the
  * bore's normal (setWarp's half-widths), and the free surface its light from
- * the beds' relief, which two small compute passes (shaders/relief.wgsl) make
- * each frame of the solver's points, read only (per column the top of each bed,
- * then its slope, its soft shadow and its light).
+ * the beds' relief, which three small compute passes (shaders/relief.wgsl)
+ * make each frame of the solver's points, read only (the bed points counted per
+ * cell; per column the top of each bed, where the bed is and not its highest
+ * grain; then its surface evened over seven columns, its slope, its soft shadow,
+ * its light, and how far it is to be trusted, which every term of the surface is
+ * weighed by).
  *
  * Part of the Hourglass project. License: GPL-3.0. The quad-per-particle idea
  * follows Smoosh's density.wgsl (MIT, see LICENSES.md).
@@ -88,25 +91,27 @@ export class GrainRenderer {
     const U = GPUBufferUsage;
     this.tonesBuf = device.createBuffer({ size: TONE_LEVELS * 256 * 4, usage: U.STORAGE | U.COPY_DST });
     this.hasTones = false; this.hasHalf = false;
-    this.columns = 0; this.reliefAt = 0; this.wasLit = false;
-    this.topsBuf = device.createBuffer({ size: 16, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    this.columns = 0; this.rows = 0; this.reliefAt = 0; this.wasLit = false;
+    this.cellsBuf = device.createBuffer({ size: 16, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    this.colsBuf = device.createBuffer({ size: 32, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     this.reliefBufs = [0, 1].map(() => device.createBuffer({ size: 32, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC }));
     this.reliefData = new Float32Array(16);
     this.reliefUni = device.createBuffer({ size: 64, usage: U.UNIFORM | U.COPY_DST });
-    this.topsGroup = null; this.reliefGroups = null;
+    this.countGroup = null; this.scanGroup = null; this.reliefGroups = null;
     this.n = { relief: 0 };              // relief passes encoded (the tests count them)
   }
   async init(shaders) {
     const [module, relief] = await Promise.all([shaders.module(this.device, 'grains'), shaders.module(this.device, 'relief')]);
     const blend = { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' };
-    [this.pipeline, this.topsPipe, this.reliefPipe] = await Promise.all([
+    [this.pipeline, this.countPipe, this.scanPipe, this.reliefPipe] = await Promise.all([
       this.device.createRenderPipelineAsync({
         layout: 'auto',
         vertex: { module, entryPoint: 'vertexMain' },
         fragment: { module, entryPoint: 'fragmentMain', targets: [{ format: this.format, blend: { color: blend, alpha: blend } }] },
         primitive: { topology: 'triangle-strip' }
       }),
-      this.device.createComputePipelineAsync({ layout: 'auto', compute: { module: relief, entryPoint: 'csTops' } }),
+      this.device.createComputePipelineAsync({ layout: 'auto', compute: { module: relief, entryPoint: 'csCount' } }),
+      this.device.createComputePipelineAsync({ layout: 'auto', compute: { module: relief, entryPoint: 'csScan' } }),
       this.device.createComputePipelineAsync({ layout: 'auto', compute: { module: relief, entryPoint: 'csMain' } })]);
   }
   /** The solver's particle buffer (after each configure). */
@@ -120,12 +125,14 @@ export class GrainRenderer {
       entries: [this.viewBuf, particles, this.palBuf, this.warpBuf, rb, this.tonesBuf].map((b, binding) => ({ binding, resource: buf(b) }))
     }));
     this.group = this.groups[this.reliefAt];
-    this.topsGroup = d.createBindGroup({ layout: this.topsPipe.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: buf(this.reliefUni) }, { binding: 1, resource: buf(particles) }, { binding: 2, resource: buf(this.topsBuf) }] });
+    this.countGroup = d.createBindGroup({ layout: this.countPipe.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: buf(this.reliefUni) }, { binding: 1, resource: buf(particles) }, { binding: 2, resource: buf(this.cellsBuf) }] });
+    this.scanGroup = d.createBindGroup({ layout: this.scanPipe.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: buf(this.reliefUni) }, { binding: 2, resource: buf(this.cellsBuf) }, { binding: 3, resource: buf(this.colsBuf) }] });
     this.reliefGroups = this.reliefBufs.map((rb, i) => d.createBindGroup({
       layout: this.reliefPipe.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: buf(this.reliefUni) }, { binding: 2, resource: buf(this.topsBuf) },
-        { binding: 3, resource: buf(this.reliefBufs[1 - i]) }, { binding: 4, resource: buf(rb) }]
+      entries: [{ binding: 0, resource: buf(this.reliefUni) }, { binding: 3, resource: buf(this.colsBuf) },
+        { binding: 4, resource: buf(this.reliefBufs[1 - i]) }, { binding: 5, resource: buf(rb) }]
     }));
   }
   /**
@@ -138,13 +145,14 @@ export class GrainRenderer {
    */
   setWarp(warp, cx, cy, half = null, columns = 0) {
     const n = warp ? warp.length : 0, lit = n > 0 && !!half && half.length === n && columns > 0;
-    const U = GPUBufferUsage, W = lit ? columns | 0 : 0;
-    if (W !== this.columns) {
-      this.topsBuf.destroy?.();
+    const U = GPUBufferUsage, W = lit ? columns | 0 : 0, R = lit ? n : 0;
+    if (W !== this.columns || R !== this.rows) {
+      this.cellsBuf.destroy?.(); this.colsBuf.destroy?.();
       for (const b of this.reliefBufs) b.destroy?.();
-      this.topsBuf = this.device.createBuffer({ size: Math.max(16, Math.ceil(2 * W * 4 / 16) * 16), usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+      this.cellsBuf = this.device.createBuffer({ size: Math.max(16, Math.ceil(W * R * 4 / 16) * 16), usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+      this.colsBuf = this.device.createBuffer({ size: Math.max(32, 2 * W * 16), usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       this.reliefBufs = [0, 1].map(() => this.device.createBuffer({ size: Math.max(32, 2 * W * 16), usage: U.STORAGE | U.COPY_DST | U.COPY_SRC }));
-      this.columns = W;
+      this.columns = W; this.rows = R;
     }
     if (n > 0) {
       const data = new Float32Array(lit ? 2 * n : n);
@@ -228,12 +236,13 @@ export class GrainRenderer {
       r[0] = L[0]; r[1] = L[1]; r[2] = L[2]; r[3] = W;
       r[4] = H[0]; r[5] = H[1]; r[6] = H[2]; r[7] = lit.fresh || !this.wasLit ? 1 : 0;
       r[8] = lit.A; r[9] = lit.K; r[10] = lit.wrap; r[11] = this.warpCy;
-      r[12] = count; r[13] = look.flight || FLIGHT; r[14] = lit.slow; r[15] = 0;
+      r[12] = count; r[13] = look.flight || FLIGHT; r[14] = lit.slow; r[15] = this.rows;
       this.device.queue.writeBuffer(this.reliefUni, 0, r);
       this.reliefAt ^= 1;
-      enc.clearBuffer(this.topsBuf);
+      enc.clearBuffer(this.cellsBuf);
       const cp = enc.beginComputePass({ label: 'relief' });
-      if (count) { cp.setPipeline(this.topsPipe); cp.setBindGroup(0, this.topsGroup); cp.dispatchWorkgroups(Math.ceil(count / 64)); }
+      if (count) { cp.setPipeline(this.countPipe); cp.setBindGroup(0, this.countGroup); cp.dispatchWorkgroups(Math.ceil(count / 64)); }
+      cp.setPipeline(this.scanPipe); cp.setBindGroup(0, this.scanGroup); cp.dispatchWorkgroups(Math.ceil(2 * W / 64));
       cp.setPipeline(this.reliefPipe); cp.setBindGroup(0, this.reliefGroups[this.reliefAt]);
       cp.dispatchWorkgroups(Math.ceil(2 * W / 64));
       cp.end();

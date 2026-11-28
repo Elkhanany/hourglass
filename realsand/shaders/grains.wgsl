@@ -257,13 +257,20 @@ fn threadGrain(k: u32) -> vec3f {
         // the free surface: its light where the grain lies near the top of its bed, the body's below
         let W = arrayLength(&relief) / 2u;
         let rl = relief[select(W, 0u, at.y > view.neck.y) + min(u32(max(at.x, 0.0)), W - 1u)];
+        // (each term of the surface weighed by how far it is trusted, rl.w, relief.wgsl: where the bed is thrown
+        // about they fade out together, smoothly, and the grain keeps the body's light; a grain above its column's
+        // bed, on the wall or in the air, takes nothing of the bed beneath it)
         let dep = max(rl.x - at.y, 0.0) / cells;
+        let over = 1.0 - smoothstep(1.0, 3.0, at.y - rl.x);
         let top = select(0.0, exp(-dep * view.bed.z), rl.x > 0.0);
-        let bedLight = mix(body, rl.y, top) * (1.0 - view.bed.y * (1.0 - exp(-dep / 7.0)));
+        let trust = select(0.0, rl.w * over, rl.x > 0.0);
+        let bedLight = mix(body, rl.y, top * trust) * (1.0 - view.bed.y * (1.0 - exp(-dep / 7.0)) * trust);
         let moving = dot(moved, moved) > view.still.x * view.still.x;
         // the light level (a level every 0.031 of light from 0.34, as the classic sand's table), the grain's own shade in it
-        let lv = clamp(floor(mix(bedLight, view.amb.x + 0.62 * view.amb.y, air) * shade * view.half.w - 10.467742)
-            + select(0.0, 1.0, moving && air < 0.5) - floor(view.still.z * step(0.5, top) * (1.0 - air)), 3.0, 44.0);
+        // (a pale sand's deeper top, whole levels, taken inside the floor: where the trust fades it is dithered by
+        // the grains' own shades, never a hard line)
+        let lv = clamp(floor(mix(bedLight, view.amb.x + 0.62 * view.amb.y, air) * shade * view.half.w - 10.467742
+            - view.still.z * step(0.5, top) * trust * (1.0 - air)) + select(0.0, 1.0, moving && air < 0.5), 3.0, 44.0);
         let ti = (u32(lv) << 8u) | seed;
         let mid = unpack4x8unorm(tones[ti]);
         let kind = u32(round((1.0 - mid.a) * 255.0));            // 0 plain, 1 glossy, 2 mica
@@ -274,7 +281,7 @@ fn threadGrain(k: u32) -> vec3f {
         let jj = dot(J, J);
         let gs = select(select(0.993, 0.982, kind == 1u), view.glint.y, kind == 2u);
         let hb = sn * Hv.x + cz * Hv.z;
-        let gl = hb + (rl.z - hb) * top + dot(J, Hv);
+        let gl = hb + (rl.z - hb) * top * trust + dot(J, Hv);
         var glints = jj <= 0.3025 && f32(h >> 24u) < view.glint.x * 256.0 && gl > 0.0 && gl * gl > gs * gs * (1.0 + jj);
         // in flight the bead tumbles and flashes now and then
         if (air > 0.5) { glints = (hash(index ^ ((u32(view.spark.w) >> 1u) * 2654435761u)) & 255u) < select(10u, 40u, kind == 2u); }

@@ -81,7 +81,7 @@
  *  Under the sunlit light (setLight) the sand is lit as the classic sand is, by the same key from
  *  the room's upper left and in front and with the same colour table (the Renderer's sunTables):
  *  a sunny flank and a shady one, a contact shade at the glass, the free surface lit by its own
- *  slope (the beds' relief, two read-only passes over the solver's points), glints on the
+ *  slope (the beds' relief, three read-only passes over the solver's points), glints on the
  *  grains that face the key. Under the soft light every grain is drawn as it always was.
  */
 import { buildGlass, sampleField } from './glass.mjs';
