@@ -782,10 +782,17 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   one in the light look at both ends and sizes, with Tune open at the top in
   both looks and half way through a fade. FIRST reads the canvas as the
   room's edge (`#ece9e2` light, `#090a0c` dark) and the body as the page's
-  colour. STANDALONE: the home-screen app's rule (`@media (display-mode:
-  standalone)`, which a test browser cannot emulate, so read with its query
-  made true, and as a tab) leaves the app's box the window's and Tune at its
-  foot at 393 x 852, 1280 x 800 and 412 x 915 in both looks. MEASURES: a tap
+  colour. STANDALONE (1.21.1): in a home-screen app the app's box is exactly the
+  layout viewport's, never taller, and the bar and Tune end where they do in
+  a tab, at 393 x 852, 1280 x 800 and 412 x 915 in both looks. A test browser
+  cannot be a home-screen app and its vh is its window, so the home-screen
+  app is played: every `@media (display-mode: standalone)` made true and
+  every 100vh and 100lvh 56 px more than the window shows, as on an iPhone
+  whose web view showed about 796 of its 852 pt while vh measured the whole
+  screen. The control is the stylesheet of 2aba504 (release 1.21.0, whose
+  home-screen rule, from 1.20.2, made the box as tall as the larger of the
+  window, 100vh and 100lvh) played the same way: its box and bar run past
+  the window, and the bar's foot is lost. MEASURES: a tap
   on Tune's version line shows one small line of the page's measures under
   it, exactly what the page reads, for 8 s, and stores nothing.
   The screen's pixels (a screenshot, read back in the page) and the glass's

@@ -148,18 +148,13 @@ button:focus-visible, input:focus-visible, .wheel:focus-visible {
 /* The app fills the screen it is shown on, edge to edge: its box is the window's (inset: 0), never a
    viewport unit. On an iPhone's home-screen app 100dvh can come out shorter than the screen, and
    under the box it left the page's own flat ground showed as a band of another colour along the
-   bottom, behind the home indicator (1.20.1). */
+   bottom, behind the home indicator (1.20.1). So in a home-screen app too: there an iPhone can show
+   less of the page than 100vh and 100lvh measure, and a box sized by them ran past what is shown and
+   lost the control panel's foot (1.20.2; taken out again in 1.21.1). */
 #app {
   position: fixed; inset: 0;
   overflow: hidden;
   isolation: isolate;
-}
-/* As a home-screen app on an iPhone, a fixed box with top and bottom at 0 can end short of the
-   screen's bottom, while 100vh and 100lvh measure the whole screen (WebKit bugs 237961, 254868,
-   316008): there the box is as tall as the larger. Everywhere else (a tab, Android, a PC window)
-   the largest viewport is the window itself, so this changes nothing. */
-@media (display-mode: standalone) {
-  #app { bottom: auto; height: 100%; height: max(100%, 100vh); height: max(100%, 100vh, 100lvh); }
 }
 
 /* light pooling softly behind the bulbs, tinted by the sand */
