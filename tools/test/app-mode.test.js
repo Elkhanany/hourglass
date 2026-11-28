@@ -102,7 +102,7 @@ function bounded(t) {
   OPEN.push(t);
   return t;
 }
-/** env.open with `storage` the settings to save (under the app's key, over a version-2 save with Real sand off). */
+/** env.open with `storage` the settings to save (under the app's key, over a version-3 save with Real sand off). */
 function opn(env, o) {
   o = Object.assign({}, o || {});
   if (o.storage) { var st = {}; st[KEY] = o.storage; o.storage = st; }

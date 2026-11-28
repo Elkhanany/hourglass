@@ -172,7 +172,7 @@ async function open(env, o) {
     { permission: o.permission === undefined ? 'granted' : o.permission, webgl: false });
   await context.addInitScript({ path: STREAMS });
   await context.addInitScript({ path: PROBE });
-  // { v: 2, realSand: false } under what the caller seeds (lib/seed.js: Real sand is the app's default)
+  // { v: 3, realSand: false } under what the caller seeds (lib/seed.js: Real sand is the app's default)
   await context.addInitScript(seed.seedOnce, seed.storageFor(o));
   var page = await context.newPage();
   var errors = [];

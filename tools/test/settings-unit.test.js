@@ -17,14 +17,17 @@
  *     first records, in their order; a record added since comes after them, and is left out of
  *     this comparison (out of the values, and out of the saved JSON where a save was written),
  *     so a new setting needs no change here.
- *     Two differences from the old section are made on purpose (deliberate() below), and the
- *     store is held to them: a saved theme that is one of the names every object has (each own
+ *     Three differences from the old section are made on purpose (deliberate() and
+ *     versionThree() below), and the store is held to them: a saved theme that is one of the names every object has (each own
  *     name of Object.prototype: 'toString', '__proto__', 'valueOf' ...) passed the old check,
  *     and was kept and saved (in 1.13.0 it stopped the app at every launch): the store gives the default material ('sahara');
  *     and where the storage could not be read (getItem threw), the old section saved the
  *     defaults over whatever was there: the store reads again before it writes, and while
- *     that throws too, it writes nothing (the save is left as it was).
- *  3. The migrations: the version step (Real sand on, once, for a save from before version 2),
+ *     that throws too, it writes nothing (the save is left as it was); and from 1.22.0 (no
+ *     switch for Real sand) the version is 3, and a save of an older version with Real sand
+ *     off comes up with it on.
+ *  3. The migrations: the version steps (Real sand on, once, for a save from before version 2,
+ *     and again for one from before version 3),
  *     and a record's `from` (the value for a save without the key), on a made-up store; every
  *     record of the app with a `from` has its example in FROM below.
  *  4. The names: every settings.<name> in app.js is a record, every key it binds with
@@ -153,6 +156,28 @@ function deliberate(out) {
   }
   return changed;
 }
+/*
+ * The third difference made on purpose (1.22.0): the store's version is 3, and its step turns Real
+ * sand on for a save whose version is not a number of 3 or more (the old section kept a false of
+ * version 2). Made on the old launch, in its values and in the JSON it wrote; the number of
+ * launches whose Real sand it turned on.
+ */
+function versionThree(out) {
+  var n = 0, saved = null, o;
+  try { saved = JSON.parse(out.before); } catch (e) { saved = null; }
+  var keep = !!saved && typeof saved.v === 'number' && saved.v >= 3;
+  out.values.forEach(function (e) {
+    if (e[0] === 'v' && e[1] === 2) e[1] = 3;
+    if (e[0] === 'realSand' && e[1] === false && !keep) { e[1] = true; n++; }
+  });
+  if (out.json !== null && out.wrote) {
+    o = JSON.parse(out.json);
+    if (o.v === 2) o.v = 3;
+    if (n && o.realSand === false) o.realSand = true;
+    out.json = JSON.stringify(o);
+  }
+  return n;
+}
 // The keys the app had before the store (31): the old section's, which the store's first records
 // must be, in that order. A record added since comes after them.
 var OLD = runRef(null, '', 'ok').values.length;
@@ -237,12 +262,12 @@ function differ(a, b) {
  */
 function compare(run, c, handed) {
   var a = runRef(c.text, c.search, c.mode), b = run(c.text, c.search, c.mode);
-  deliberate(a);
+  deliberate(a); versionThree(a);
   if (handed) b.reached = a.reached;
   var out = differ(a, b);
   if (!out.length && a.json !== null) {
     var a2 = runRef(a.json, '', 'ok'), b2 = run(b.full, '', 'ok');
-    deliberate(a2);
+    deliberate(a2); versionThree(a2);
     if (handed) b2.reached = a2.reached;
     out = differ(a2, b2).map(function (d) { return 'second launch: ' + d; });
   }
@@ -273,10 +298,11 @@ check(S.KEY === KEY && table.length === 0 && S.KEYS.join() === ids.join() && S.R
 var bad = tableProblems([{ id: 'a', default: 1 }, { id: 'a', default: null }, { id: 'b', default: 'x', valid: 1, to: 2 }, { default: 2 }, { id: 'c', default: 1 / 0 }]);
 check(bad.length === 6, '... and a table with an id twice, a default of null, a valid that is no function, an unknown field, no id and a default that is not finite fails that (control)', bad.join('; '));
 function firstRecords(records) { return records.slice(0, OLD).map(function (r) { return r.id + '=' + show(r.default); }).join(' '); }
-var was = fresh.values.map(function (e) { return e[0] + '=' + show(e[1]); }).join(' '), now = firstRecords(S.RECORDS);
-check(was === now && OLD === 31, 'the first ' + OLD + ' records are the old settings\', ids and defaults, in the same order (theme to v)' +
+// (the version's default is the store's version: 2 then, 3 from 1.22.0)
+var was = fresh.values.map(function (e) { return e[0] + '=' + show(e[0] === 'v' ? S.VERSION : e[1]); }).join(' '), now = firstRecords(S.RECORDS);
+check(was === now && OLD === 31, 'the first ' + OLD + ' records are the old settings\', ids and defaults, in the same order (theme to v, whose default is the version)' +
   (S.RECORDS.length > OLD ? '; ' + (S.RECORDS.length - OLD) + ' added since come after them: ' + S.KEYS.slice(OLD).join(', ') : ''), was === now ? '' : now + '  for  ' + was);
-check(S.VERSION === 2 && S.STEPS.length === 1 && S.STEPS[0].v === 2, 'the settings\' version is 2, with one version step');
+check(S.VERSION === 3 && S.STEPS.length === 2 && S.STEPS[0].v === 2 && S.STEPS[1].v === 3, 'the settings\' version is 3, with two version steps (2 and 3)');
 
 /* ---- 2. the loader, differential ------------------------------------------------------- */
 /** mulberry32: the same cases at every run. */
@@ -394,12 +420,14 @@ function first(list) { return list.slice(0, 3).map(function (d) { return '#' + d
 var dFn = differing(storeRun(S, 'function')), dObj = differing(storeRun(S, 'object'), true);
 var nDeliberate = CASES.filter(function (c) { var r = runRef(c.text, c.search, c.mode); return c.mode !== 'noget' && deliberate(r); }).length;
 var nUnread = CASES.filter(function (c) { var r = runRef(c.text, c.search, c.mode); return c.mode === 'noget' && deliberate(r); }).length;
+var nThree = CASES.filter(function (c) { var r = runRef(c.text, c.search, c.mode); deliberate(r); return versionThree(r) > 0; }).length;
 var namesCovered = INHERITED.filter(function (n) { return CASES.some(function (c) { return c.text === '{"theme":' + JSON.stringify(n) + '}'; }); });
-check(dFn.length === 0 && namesCovered.length === INHERITED.length && nDeliberate >= INHERITED.length && nUnread >= 4,
+check(dFn.length === 0 && namesCovered.length === INHERITED.length && nDeliberate >= INHERITED.length && nUnread >= 4 && nThree >= 4,
   'the loader: on all 500, the store gives what the old section gave: the same settings in the same order, the same saved JSON byte for byte, ' +
-  'the same calls on storage, the same answer to "?t=", and the same again on a second launch; but for the two differences made on purpose: on the ' + nDeliberate +
+  'the same calls on storage, the same answer to "?t=", and the same again on a second launch; but for the three differences made on purpose: on the ' + nDeliberate +
   ' whose theme is a name every object has (each of the ' + INHERITED.length + ' own names of Object.prototype among them), which the old section kept, the store gives the default material, \'sahara\'; ' +
-  'on the ' + nUnread + ' whose storage cannot be read (getItem throws), where the old section saved the defaults over the save, the store reads again, and writes nothing',
+  'on the ' + nUnread + ' whose storage cannot be read (getItem throws), where the old section saved the defaults over the save, the store reads again, and writes nothing; ' +
+  'on every one, the version 3 for 2, and on the ' + nThree + ' of version 2 (or between 2 and 3) with Real sand off, which the old section kept off, the store turns it on',
   first(dFn) + (namesCovered.length === INHERITED.length ? '' : ' (not every name is a case: ' + namesCovered.join() + ')'));
 check(dObj.length === 0, '... and the same with the Storage handed over itself instead of the function that reaches it', first(dObj));
 
@@ -443,7 +471,8 @@ var dCopy = differing(storeRun(plainCopy, 'function'));
 check(dCopy.length === 0, 'a store made again from the same records, steps and repairs gives the same on all 500 (the controls below change one thing each)', first(dCopy));
 var CONTROLS = [
   ['two records in another order (volume after muted)', function (o) { var a = o.records[2]; o.records[2] = o.records[3]; o.records[3] = a; }, 500],
-  ['a version step that does nothing', function (o) { o.steps[0] = { v: 2, run: function () {} }; }, 20],
+  ['version steps that do nothing', function (o) { o.steps = o.steps.map(function (st) { return { v: st.v, run: function () {} }; }); }, 20],
+  ['no step of version 3 (Real sand as 1.21.1 left it, the version 3)', function (o) { o.steps[1] = { v: 3, run: function () {} }; }, 4],
   ['no version step at all (v is not set)', function (o) { o.steps.length = 0; }, 100],
   ['a theme checked as the old section checked it (!!reg.themes[v]: a name every object has passes)', function (o) { o.records[0].valid = function (v, reg) { return !!reg.themes[v]; }; }, INHERITED.length],
   ['a volume held between 0 and 1', function (o) { o.records[2].valid = function (v) { return v >= 0 && v <= 1; }; }, 5],
@@ -458,7 +487,7 @@ CONTROLS.forEach(function (c) {
   if (n < c[2]) weak.push(c[0] + ': ' + n + ' of 500 differ, at least ' + c[2] + ' expected');
 });
 check(weak.length === 0 && S.RECORDS[2].id === 'volume' && S.RECORDS[18].id === 'motionSign' && S.RECORDS[22].id === 'grain',
-  '... and each of ' + CONTROLS.length + ' stores that differ in one thing (the records\' order, the version step, the theme\'s check, a range, the zero\'s sign, the repairs, "?t=") is found out by the 500 (control)', weak.join('; '));
+  '... and each of ' + CONTROLS.length + ' stores that differ in one thing (the records\' order, the version steps, the theme\'s check, a range, the zero\'s sign, the repairs, "?t=") is found out by the 500 (control)', weak.join('; '));
 
 // a record added since the store: after the old ones it changes nothing here (this file needs no
 // change for a new setting); among them it is found out
@@ -468,7 +497,7 @@ var dEnd = differing(storeRun(atEnd, 'function')), dEndApp = differing(sectionRu
 var endSt = Storage('{"v":2,"frame":false}', 'ok'), endValues = atEnd.load(endSt.reach, '', REG);
 atEnd.save(endValues);
 check(dEnd.length === 0 && dEndApp.length === 0 && atEnd.KEYS.length === S.KEYS.length + 1 && firstRecords(atEnd.RECORDS) === was &&
-      endValues['x-added'] === false && /,"x-added":false\}$/.test(endSt.data[KEY]) && endSt.data[KEY].indexOf('"v":2') > 0,
+      endValues['x-added'] === false && /,"x-added":false\}$/.test(endSt.data[KEY]) && endSt.data[KEY].indexOf('"v":3') > 0,
   'a store with a record added after the old ones (a switch made from an older key) gives the same on all 500, by itself and under ' + APP_FILE +
   '\'s section: its key is left out of the comparison, and is loaded, migrated and saved last', first(dEnd.concat(dEndApp)) + ' ' + endSt.data[KEY]);
 check(dAmong.length === 500 && firstRecords(among.RECORDS) !== was, '... and the same record put among the old ones is found out, by the 500 and by the records\' order (control)',
@@ -481,17 +510,22 @@ function loadOf(store, saved, search) {
   store.save(values);
   return { values: values, json: st.data[KEY], st: st };
 }
+// version 3 (1.22.0, no switch): a save of version 2 with Real sand off (turned off with the switch of
+// 1.10.0 to 1.21.1) comes up on too; from version 3 a saved false (the tests' hidden switch) is kept
 var V = [
   [null, true, 'nothing saved'], [{ realSand: false }, true, 'a save without a version'], [{ v: 1, realSand: false }, true, 'version 1'],
-  [{ v: 2, realSand: false }, false, 'version 2, off'], [{ v: 2, realSand: true }, true, 'version 2, on'], [{ v: 3, realSand: false }, false, 'a later version, off'],
+  [{ v: 2, realSand: false }, true, 'version 2, off (a save of 1.21.1)'], [{ v: 2, realSand: true }, true, 'version 2, on'],
+  [{ v: 3, realSand: false }, false, 'version 3, off'], [{ v: 4, realSand: false }, false, 'a later version, off'],
   [{ v: '2', realSand: false }, true, 'a version that is no number']
 ];
-var vBad = V.filter(function (c) { var r = loadOf(S, c[0]); return r.values.realSand !== c[1] || r.values.v !== 2 || JSON.parse(r.json).v !== 2; }).map(function (c) { return c[2]; });
-var again = loadOf(S, loadOf(S, { v: 1, realSand: false }).json);
-again.values.realSand = false; S.save(again.values);
-var kept = loadOf(S, again.st.data[KEY]);
-check(vBad.length === 0 && kept.values.realSand === false,
-  'the version step: Real sand comes up on for a save of no version or of version 1, once; the save then says version 2, and turned off after that it stays off', vBad.join(', '));
+var vBad = V.filter(function (c) { var r = loadOf(S, c[0]); return r.values.realSand !== c[1] || r.values.v !== 3 || JSON.parse(r.json).v !== 3; }).map(function (c) { return c[2]; });
+var keptOff = [{ v: 1, realSand: false }, { v: 2, realSand: false }].map(function (first) {
+  var again = loadOf(S, loadOf(S, first).json);
+  again.values.realSand = false; S.save(again.values);
+  return loadOf(S, again.st.data[KEY]).values.realSand;
+});
+check(vBad.length === 0 && keptOff.every(function (on) { return on === false; }),
+  'the version steps: Real sand comes up on for a save of no version, of version 1 or of version 2 (a save of 1.21.1 with the switch off), once; the save then says version 3, and set off after that it stays off', vBad.join(', ') + (keptOff.join() === 'false,false' ? '' : ' kept: ' + keptOff.join()));
 // a made-up store: a record made from an older one, and one whose `from` throws
 var calls = [];
 var M = S.make([
@@ -666,7 +700,9 @@ function shapeProblems(store) {
     store.KEYS.forEach(function (k) {
       if (k === 'shape') return;
       if (!Object.is(old[k], withShape[k])) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' without a shape, ' + show(withShape[k]) + ' with one');
-      if (Object.prototype.hasOwnProperty.call(c[0], k) && k !== 'v' && !Object.is(old[k], c[0][k]) && !(k === 'durationMs' || k === 'rounds')) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' for the saved ' + show(c[0][k]));
+      // (both saves are of version 2: from version 3 Real sand comes up on)
+      var want = k === 'realSand' ? true : c[0][k];
+      if (Object.prototype.hasOwnProperty.call(c[0], k) && k !== 'v' && !Object.is(old[k], want) && !(k === 'durationMs' || k === 'rounds')) out.push(c[1] + ': ' + k + ' ' + show(old[k]) + ' for ' + show(want) + ' (saved ' + show(c[0][k]) + ')');
     });
   });
   Object.keys(SHAPES).forEach(function (id) {
@@ -1022,7 +1058,7 @@ check(heard.length === 1 && heard[0][0] === 'change' && order.join(' | ') === 'a
 // ... and it shows the loaded value from the moment it is bound, whatever the page's markup says
 /** Whether a store's bindSwitch sets the switch from the loaded value: one the markup has on for a value saved off, and the other way round. */
 function showsLoaded(store) {
-  var st = Storage('{"v":2,"realSand":false,"chime":true}', 'ok');
+  var st = Storage('{"v":3,"realSand":false,"chime":true}', 'ok');
   store.load(st.reach, '', REG);
   var off = { checked: true, addEventListener: function () {} }, on = { checked: false, addEventListener: function () {} };
   store.bindSwitch(off, 'realSand'); store.bindSwitch(on, 'chime');

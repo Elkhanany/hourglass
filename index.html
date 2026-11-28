@@ -204,10 +204,6 @@
             <span><b>Layered sand</b><small>Two tones that settle into strata as they fall</small></span>
             <input id="opt-layers" class="switch" type="checkbox" role="switch">
           </label>
-          <label class="row" for="opt-realsand" id="realsand-row">
-            <span><b>Real sand</b><small id="realsand-note">On: every grain simulated on the graphics chip</small></span>
-            <input id="opt-realsand" class="switch" type="checkbox" role="switch">
-          </label>
           <div class="row" id="grain-row">
             <span><b>Grain</b><small id="grain-note">Finer sand is more grains, and more work for the phone</small></span>
           </div>
@@ -239,6 +235,8 @@
         </div>
 
         <p class="colophon"><span id="grain-count">—</span> grains<span id="spilled"></span>, each one simulated<span id="sim-where"></span>. Every sound is synthesised live.</p>
+        <!-- only where the sand cannot be simulated on the graphics chip (app.js, showReal): why, and a report after a failure -->
+        <p class="colophon fallback" id="fallback-line" data-state="starting" hidden><span id="fallback-why"></span></p>
       </div>
 
       <!-- Glass: its shape, and the frame round it -->

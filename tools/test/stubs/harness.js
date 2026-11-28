@@ -236,7 +236,7 @@ async function open(env, o) {
   await context.addInitScript({ path: PROFILES });
   await context.addInitScript({ path: PAGE_INIT });
   await context.addInitScript(tune.pageSide, tune.SHEET);     // the page's side of lib/tune.js: where a control of Tune is
-  // every page: { v: 2, realSand: false } under what the test seeds (Real sand only when it asks
+  // every page: { v: 3, realSand: false } under what the test seeds (Real sand only when it asks
   // for it), or o.rawStorage as it is; once per test page, so a reload sees what the app saved
   await context.addInitScript(seed.seedOnce, seed.storageFor(o));
   if (o.init) await context.addInitScript(o.init, o.initArg);

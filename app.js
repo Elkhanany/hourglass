@@ -87,7 +87,7 @@
   // "./?t=300" (seconds) preselects a duration — used by the app shortcuts (a saved session gives way to it)
   var qt = Store.preset(location.search);
   // Applied once: ?t= then leaves the address, every other item of the query kept. A reload (the
-  // app's own for a shape, a grain or Real sand, or the browser's) is then a plain launch, which
+  // app's own for a shape or a grain, or the browser's) is then a plain launch, which
   // picks the running glass up and keeps the duration chosen since (the boot's saves hold it).
   if (qt) try { history.replaceState(history.state, '', location.pathname + Store.unpreset(location.search) + location.hash); } catch (e) {}
   function save() { Store.save(settings); }
@@ -116,10 +116,10 @@
     if (id !== 'classic' && P.SHAPES && P.SHAPES[id] && !(P.checkShape && P.checkShape(id, scale, fine).length)) o.shape = id;
     return o;
   }
-  // Real sand (Tune, on by default; see "Real sand" below): while it runs, `sim` is the GPU sand
-  // (`real`), which has the CPU Sim's members; the CPU Sim stays alive as the glass's model and the
-  // fallback. With the switch off, or where it cannot run, `real` stays null and the CPU Sim is the
-  // classic sand; with the switch off nothing of it is loaded.
+  // Real sand (the sand wherever it can run; see "Real sand" below): while it runs, `sim` is the GPU
+  // sand (`real`), which has the CPU Sim's members; the CPU Sim stays alive as the glass's model and
+  // the fallback. Where it cannot run `real` stays null and the CPU Sim is the classic sand; with the
+  // hidden setting off (the tests) nothing of it is loaded.
   var cpuSim = sim, real = null;
   var renderer = new P.Renderer(sim, {
     back: $('c-back'), sand: $('c-sand'), bloom: $('c-bloom'), front: $('c-front'), light: lightCanvas,
@@ -3317,8 +3317,8 @@
    * the sheet); once it is scrolled from its top, its rows fade out under the tab row
    * ('scrolled'). Within EDGE_SLACK px of either end counts as the end. Read again on a scroll, a
    * tab shown and an opening; and, through a ResizeObserver, whenever the scroller changes size
-   * (a resize, a rotation) or a panel does (rows that appear or go: Grain with Real sand, "Copy a
-   * report", the breathing choice), which moves no scroll. A closed sheet has nothing to scroll
+   * (a resize, a rotation) or a panel does (rows that appear or go: Grain with Real sand, the line
+   * that says the sand is drawn without the graphics chip, the breathing choice), which moves no scroll. A closed sheet has nothing to scroll
    * and shows neither.
    */
   var EDGE_SLACK = 2;
@@ -3768,7 +3768,7 @@
   // second one within three seconds; the second puts the look and the sound back as a new
   // install has them: the sand, the frame and its finish, layered sand, the sand's light (Sunlit), the background (dark), the volume, the sand's sound
   // and its level, the ambience, its level and its fade before the end, the bowl, its rings and its
-  // level. Everything else is kept: Real sand and the grain, the durations and a sequence,
+  // level. Everything else is kept: the grain, the durations and a sequence,
   // breathing, Zen, the screen kept awake, haptics, Real motion, sound in silent mode (how the
   // phone treats the app: put back on, it could ring in a quiet room), the mute button, what the
   // app has learned and hinted. Nothing is loaded again, and the running
@@ -4215,13 +4215,13 @@
   }
 
   /* ======================================================================
-   *  Real sand (Tune: on by default)
+   *  Real sand (the sand, wherever it can run)
    *
    *  The sand simulated on the graphics chip, the sand lab's engine
-   *  (realsand/), with an exact neck. It is the default from 1.10.0
-   *  (settings design 5); with the switch off nothing of it is loaded and
-   *  the app runs the classic sand, as it was. With it on, and where WebGPU
-   *  exists, the page loads realsand/boot.mjs, which hands this script the
+   *  (realsand/), with an exact neck. From 1.22.0 it is the only sand Tune
+   *  speaks of: there is no switch, and the classic sand (sand/) is the
+   *  fallback where it cannot run. Where WebGPU exists, the page loads
+   *  realsand/boot.mjs, which hands this script the
    *  engine's class and build stamp (attachRealSand). The CPU sand runs,
    *  and shows, while the engine starts (a cold start in a home-screen web
    *  app took 3.4 s on an iPhone), and a slow start is never a
@@ -4230,23 +4230,28 @@
    *  takes over between two frames (handover): `sim` becomes the GPU sand,
    *  which has every member of the CPU Sim this script uses, and the two
    *  canvases cross-fade. Any failure gives the CPU sand back in the same
-   *  frame, the clock untouched. The switch is the person's alone: this
-   *  script never turns it off, and never disables it.
+   *  frame, the clock untouched. While the classic sand stands in, one
+   *  quiet line at the foot of Tune's Sand tab says so and why
+   *  (#fallback-line); while Real sand runs, or starts, nothing shows.
+   *  The setting realSand stays, as a hidden switch: false (set only by
+   *  the tests, which run the classic sand, or by an edit of the storage)
+   *  loads nothing and says nothing; version 3 of the settings turned it
+   *  on for everyone once (app/settings.js).
    *    - no WebGPU at all: "Needs WebGPU", found at every launch for
    *      nothing; nothing is stored;
    *    - WebGPU, but no adapter or only a software one (found by loading
    *      the engine): "Needs WebGPU" (or too slow), and this browser's user
    *      agent is kept (realSandNa); while it is the same, a launch says so
    *      without loading anything. Another user agent (an iOS update, if it
-   *      changes it), seven days gone by, or a tap on the row: tried again.
+   *      changes it) or seven days gone by: tried again.
    *      One that came while the page was put away is not believed: it is
    *      tried again once the page is in view. One that comes after the
    *      chip was reset, lost or stopped answering in this session is not
    *      kept either (the chip may only be on its way back): the CPU sand
    *      for the session, and the next launch tries again;
-   *    - anything else at start: the CPU sand this session, the setting
-   *      kept, the note says why; the next launch tries again, and after
-   *      three launches in a row that failed it stops trying;
+   *    - anything else at start: the CPU sand this session, the line
+   *      says why; the next launch tries again, and after three launches
+   *      in a row that failed it stops trying until another engine build;
    *    - hidden, or the graphics chip reset, while it started: again once
    *      the page is in view (iOS keeps a home-screen app alive for days,
    *      so "the next launch" can be far off);
@@ -4275,11 +4280,11 @@
   var realStopped = null;            // the engine the watchdog stopped, kept 600 ms for the cross-fade: nothing it still says is heard
   var REAL_NA_MS = 7 * 86400000;     // how long "this browser cannot have it" is believed without another try
   var realLogLines = [];
-  var optReal = $('opt-realsand'), realNote = $('realsand-note'), realRow = $('realsand-row');
+  var fallLine = $('fallback-line'), fallWhy = $('fallback-why');
   var grainRow = $('grain-row'), grainChoice = $('grains') && $('grains').parentNode, tiltCrack = $('tilt-crack');
   var REAL_WHY = {
     nogpu: 'Needs WebGPU (iOS 26 or later)', noadapter: 'Needs WebGPU (iOS 26 or later)',
-    fallback: 'This device\'s graphics are too slow for Real sand',
+    fallback: 'Its graphics are too slow',
     device: 'the graphics chip could not be opened', load: 'the sand engine could not be loaded',
     compile: 'the sand engine could not be built on this device', selftest: 'its self-test failed',
     lost: 'the graphics chip was reset', hidden: 'the app was put away as it started',
@@ -4294,35 +4299,33 @@
     return REAL_WHY[e && e.code] || 'an error (' + String(e && e.message || e).slice(0, 80) + ')';
   }
   /**
-   * The switch, its note and the row's state (design 11; settings design 5.2, 5.5). The row's
-   * data-state is the bare state ('on', 'starting', 'off', 'na', 'failed', 'gaveup', 'updating',
-   * 'lost', 'paused'). In 'na' the switch shows off and stays live: a tap tries again. Grain and
-   * the crack sentence of Real motion are the classic sand's: shown only while it is the sand
-   * that runs, or will run for the session.
+   * The line at the foot of the Sand tab (design 11; settings design 5.2, 5.5), shown only while
+   * the classic sand stands in for Real sand: in 'na', 'failed', 'gaveup', 'updating', 'lost' and
+   * 'paused' it says that the sand is drawn without the graphics chip, and why. In 'on' and
+   * 'starting', and in 'off' (the hidden switch), it is hidden and empty. Its data-state is the
+   * bare state, whether shown or not. Grain and the crack sentence of Real motion are the classic
+   * sand's: shown only while it is the sand that runs, or will run for the session.
    */
   function showReal(state, why) {
     realState = state;
-    var na = state === 'na';
-    optReal.checked = !na && settings.realSand;
-    realRow.setAttribute('data-state', state);
-    realNote.textContent =
-      na ? why + '. Tap to try again' :
-      state === 'starting' ? 'Starting…' :
-      state === 'on' ? 'On: every grain simulated on the graphics chip' :
-      state === 'failed' ? 'Could not start this time: ' + why + '. It will try again next launch' :
-      state === 'gaveup' ? 'Did not start 3 times: ' + why + '. Turn it off and on to try again' :
-      state === 'updating' ? 'Real sand is updating; it will be back at the next launch' :
-      state === 'lost' ? 'Real sand paused: ' + (why || REAL_WHY.lost) :
-      state === 'paused' ? why :
-      'Off: the classic sand';
+    var said =
+      state === 'na' ? why :
+      state === 'failed' ? 'It could not start this time: ' + why + '; it will try again next launch' :
+      state === 'gaveup' ? 'It did not start 3 times: ' + why :
+      state === 'updating' ? 'It is being updated, and will be back at the next launch' :
+      state === 'lost' ? 'Paused: ' + (why || REAL_WHY.lost) :
+      state === 'paused' ? why : '';
+    fallLine.setAttribute('data-state', state);
+    fallWhy.textContent = said ? 'The sand is drawn without the graphics chip on this device. ' + said + '.' : '';
+    fallLine.hidden = !said;
     var gpu = settings.realSand && (state === 'on' || state === 'starting' || state === 'lost');
     if (grainRow) grainRow.hidden = gpu;
     if (grainChoice) grainChoice.hidden = gpu;
     if (tiltCrack) tiltCrack.hidden = gpu;
-    showReportLink(settings.realSand && !na);
+    showReportLink(!!said && state !== 'na' && state !== 'updating');
   }
   /**
-   * With the switch on, the row has a link that copies the report (realReport). A web app on the
+   * After a failure the line has a link that copies the report (realReport). A web app on the
    * home screen keeps its own storage and opens at its own address, so ?debug=sand never reaches
    * it, and that is where a home-screen app is used (and where Gate A found the slow start).
    */
@@ -4334,9 +4337,8 @@
       realReportEl.id = 'realsand-report';
       realReportEl.href = '#';
       realReportEl.textContent = 'Copy a report';
-      // (inside the switch's label: the link copies, it does not turn the switch)
       realReportEl.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); copyReport(); });
-      realNote.parentNode.insertBefore(realReportEl, realNote.nextSibling);
+      fallLine.appendChild(realReportEl);
     }
     realReportEl.hidden = false;
   }
@@ -4467,11 +4469,11 @@
       // (found after the chip was reset, lost or stopped answering in this session, or in a page
       // put away with its retries used up: the chip may only be on its way back, so it is neither
       // remembered nor counted; the CPU sand for the session, and the next launch tries again)
-      showReal('paused', 'Real sand could not restart; it will try again next launch');
+      showReal('paused', 'It could not restart; it will try again next launch');
       return;
     }
     else if (e && e.capability) {
-      // this browser cannot have it: remembered by its user agent, the switch left on (settings design 5.2)
+      // this browser cannot have it: remembered by its user agent, the setting left on (settings design 5.2)
       settings.realSandNa = navigator.userAgent; settings.realSandNaAt = Date.now();
       settings.realSandWhy = why; settings.realSandFails = 0;
       save();
@@ -4582,16 +4584,6 @@
     }, 600);
     if (!final) setTimeout(function () { whenVisible(startAgain); }, 2000);
   }
-  optReal.addEventListener('change', function (e) {
-    // on or off, the page is built afresh, as for another grain; the running time is kept. Not
-    // available ('na', the switch shown off): a tap is a try again, what was remembered forgotten.
-    settings.realSand = e.target.checked;
-    settings.realSandFails = 0; settings.realSandWhy = ''; settings.realSandNa = ''; settings.realSandNaAt = 0;
-    save();
-    saveSession();
-    app.classList.add('regrain');
-    setTimeout(function () { location.reload(); }, 320);
-  });
   /* ---- ?debug=sand: the engine's figures, for a report ---------------- */
   var dbgSand = /[?&]debug=sand(?:&|$)/.test(location.search) ? { el: null, text: null, at: 0 } : null;
   if (dbgSand) {
@@ -4612,14 +4604,14 @@
     dbgSand.el.appendChild(copy);
     app.appendChild(dbgSand.el);
   }
-  /** Everything a report needs: the device, the switch, the engine's figures and its log. */
+  /** Everything a report needs: the device, the setting, the engine's figures and its log. */
   function realReport() {
     var st = null;
     try { st = realEng ? realEng.stats() : null; } catch (e) { st = String(e); }
     return JSON.stringify({
       at: new Date().toISOString(), ua: navigator.userAgent, standalone: !!navigator.standalone ||
         !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches),
-      build: REALSAND_BUILD, setting: settings.realSand, state: realState, note: realNote.textContent, live: !!real,
+      build: REALSAND_BUILD, setting: settings.realSand, state: realState, note: fallWhy.textContent, live: !!real,
       watchdog: realHangs.length, na: !!settings.realSandNa,
       timer: { state: T.state, rem: Math.round(T.rem), durationMs: T.durationMs, total: sim.total, top: sim.nTop },
       stats: st, log: realLogLines
@@ -4865,7 +4857,7 @@
   Object.defineProperty(window.Hourglass, 'sim', {
     get: function () { return sim; }, enumerable: true
   });
-  // Real sand: its engine (starting, live, lost; null with the switch off), and the hook boot.mjs calls
+  // Real sand: its engine (starting, live, lost; null where it is not loaded), and the hook boot.mjs calls
   Object.defineProperty(window.Hourglass, 'realSand', {
     get: function () { return realEng; }, enumerable: true
   });
