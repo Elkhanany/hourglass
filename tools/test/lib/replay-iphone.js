@@ -32,6 +32,7 @@ var staticServer = require('./static-server.js');
 var REPO = require('./paths.js').ROOT;
 var seed = require('./seed.js');
 var tune = require('./tune.js');
+var ASK = require('./ask.js');
 var PROBE = path.join(__dirname, 'replay-probe.js');
 var STREAMS = path.join(__dirname, 'replay-streams.js');
 
@@ -181,11 +182,13 @@ async function open(env, o) {
   await page.goto(env.base + (o.query || ''));
   await page.waitForFunction(function () { return window.Hourglass && window.__probe && window.__probe.hooked; }, null, { timeout: 20000 });
   await sleep(1700);                                   // the app fades up from dark
-  var cdp = await context.newCDPSession(page);
+  var cdp = await context.newCDPSession(page), evaluate = page.evaluate.bind(page);
   var t = {
     context: context, page: page, cdp: cdp, errors: errors,
     finger: makeFinger(cdp),
-    eval: function (fn, arg) { return page.evaluate(fn, arg); },
+    // a question to the page: it ends after 30 s, and an answer of more than 20,000 values is
+    // refused in the page (ask.js); o.max raises that for one question that truly needs it
+    eval: function (fn, arg, o) { return ASK.ask(evaluate, fn, arg, o); },
     /** Where the glass is on screen, the lattice under it, and the room it has. */
     glass: function () {
       return page.evaluate(function () {

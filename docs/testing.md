@@ -47,7 +47,13 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   browser harness refuses a tree that lacks a script the page loads, naming
   it, `run-all.js` fails when its filter matches no suite, and every suite
   that needs no browser is either in GitHub's list or in the check's own
-  list of the eight left to a run by hand.
+  list of the eight left to a run by hand; and every question a suite asks
+  a page through the harness (`t.eval`, of `stubs/harness.js` and
+  `lib/replay-iphone.js`, through `lib/ask.js`) ends after 30 s with an
+  error that names it, and an answer of more than 20,000 values is refused
+  in the page with a message that says so (a typed array is one value; one
+  question may raise the count with `t.eval(fn, arg, { max })`; a harness
+  whose `t.eval` asks as before is found out).
   `check-registry`: the sound cards of `index.html` and the
   registry of `sound/audio.js` say the same (the ids, names and icons of
   `HourglassAudio.characters()` and `.ambiences()`, in order, each card a
@@ -114,7 +120,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   come up with them and every other value as saved; each value of their
   range kept, 28 out of it or of the wrong type and a name every object has
   as the rings the default; seven stores with one thing wrong in them found
-  out); the version step (Real sand on, once, for a save from before version 2); a
+  out); the version steps (Real sand on, once, for a save from before version 2,
+  and once more for one from before version 3: a save of 1.21.1 with the old
+  switch off opens on Real sand; set off after that, it stays off; a store
+  without version 3's step is found out, and the 500 launches hold it as a
+  third difference made on purpose, the version 3 for 2); a
   record's `from` and the steps' order, on a made-up store, and an example
   for every `from` the app has, which must come up with something other
   than the default; the Time tab's two records (`quick` then `endsAt`,
@@ -487,9 +497,10 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   finished glass runs. Every script `index.html` loads
   script `index.html` loads is served as it is, except that a suite may ask
   for the motion stub (`stubs/motion-stub.js`, driven by the test), which is
-  then served at `motion.js`'s path. Real sand is the app's default, and
+  then served at `motion.js`'s path. Real sand is the app's only sand, and
   this Chromium has `navigator.gpu` but no adapter, so every page a suite
-  opens starts from a saved `{ v: 2, realSand: false }` merged under what
+  opens starts from a saved `{ v: 3, realSand: false }` (the hidden switch,
+  in a save of the version whose step leaves it alone) merged under what
   the suite seeds itself (`lib/seed.js`, in the harness and in the suites
   that open the app on their own: `render-app`, `audio-api` and
   `lib/replay-iphone.js`): the suites measure the classic sand, as before. A
@@ -500,9 +511,11 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   5-minute glass is a new glass, after a plain launch has picked that glass
   up (the control); then, launched at `./?t=300`, a running glass is kept
   with its time through the browser's reload and the app's own for "Use this
-  shape", Grain and Real sand, and so is a duration picked after the launch
-  (the control: a copy of `app.js` that leaves `?t=` in the address loses
-  all five). `app-breath` covers breathing pace: the Tune row and what is
+  shape" and Grain, and so is a duration picked after the launch (the
+  control: a copy of `app.js` that leaves `?t=` in the address loses all
+  four; Real sand's switch, whose reload was a fifth, went in 1.22.0). The
+  crack's pixels are compared in the page, the patch before a reload kept
+  in its `sessionStorage`. `app-breath` covers breathing pace: the Tune row and what is
   saved, the toast's place just above the sheet, the three patterns against
   the wall clock, a blocked main thread, a hidden page and a long sleep,
   easing back to rest, Reduce Motion, Full Zen, the landscape halo, a damaged
@@ -511,17 +524,21 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   rounds, a watched sequence (the length and last grain of every phase, the
   bowls, the turns, Zen), pause, Flip and Reset inside a phase, the clock
   moved on through phase ends (asleep, hidden), reloads, and Reduce Motion.
-  `app-realsand` covers the Real sand switch in this harness, which has no
-  WebGPU adapter, reading the row's state from its `data-state`: off,
-  nothing under `realsand/` is requested, and Grain and Real motion's crack
-  sentence are shown; on with the real engine, it finds no adapter, the
-  switch shows off but is not disabled ("Needs WebGPU (iOS 26 or later). Tap
-  to try again"), the setting stays on and the browser's user agent is kept;
-  with nothing saved (a first launch), the engine is loaded once, the next
-  launch loads nothing, and another user agent (an iOS update) or a tap
-  tries again, while a failure in a page that was hidden meanwhile keeps
-  nothing; a save without a version or of version 1 comes up on, once, and a
-  version-2 save that is off stays off; a new engine build forgets three
+  `app-realsand` covers Real sand in this harness, which has no WebGPU
+  adapter, reading its state from the `data-state` of the line at the foot
+  of Tune's Sand tab (`#fallback-line`): Tune offers no choice of sand (no
+  row, switch or note for it, 15 rows); the hidden switch off, nothing
+  under `realsand/` is requested, nothing is said, and Grain and Real
+  motion's crack sentence are shown; on with the real engine, it finds no
+  adapter, the line says the sand is drawn without the graphics chip on
+  this device ("Needs WebGPU (iOS 26 or later)"), the setting stays on and
+  the browser's user agent is kept; with nothing saved (a first launch), the
+  engine is loaded once, the next launch loads nothing, and another user
+  agent (an iOS update) tries again, while a failure in a page that was
+  hidden meanwhile keeps nothing; a failure to start shows the line with
+  "Copy a report", and while Real sand runs nothing shows; a save without a
+  version or of version 1 comes up on, once, so does a save of 1.21.1
+  (version 2) with Real sand off, and a version-3 save that is off stays off; a new engine build forgets three
   failed starts and a kept user agent; the dark opening waits for the GPU
   sand's first frame (not on a reload marked `hourglass.openNow`); the
   watchdog: the GPU stopping while the glass runs in view gives the CPU sand
@@ -687,8 +704,9 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   reaches the row under it (the lowest point of the hint over a control
   that does not load the page again); the sheet, the tab row and each tab's
   first row stand where they did before the hint (Sand's first control, a
-  sand since 1.14.0, where the first material card stood); Grain appearing or going with Real
-  sand keeps it right; and Reduce Motion shows it without a fade. The
+  sand since 1.14.0, where the first material card stood); Grain and the
+  line at the Sand tab's foot appearing or going with Real sand (a start
+  that fails, the next launch and its failure) keep it right; and Reduce Motion shows it without a fade. The
   suites reach a control of Tune through `lib/tune.js`, which opens the
   sheet and taps the tab whose panel holds it, read from the page.
   `app-time` covers the Time tab's own rows (settings design 3.4, rows 1
@@ -803,7 +821,8 @@ node tools/test/run-all.js check-        # the check group, in Node, in seconds
   protocol about 5 µs and 200 bytes in Node (1.63, measured), and the two
   drawn layers are 19 million of them at 390 x 844, 100 s and over 3 GB a
   picture. In this suite every question to a page ends after 30 s, an answer
-  of more than 20,000 values is refused in the page, a case that is stopped
+  of more than 20,000 values is refused in the page (`lib/ask.js`, which
+  every suite's `t.eval` has too), a case that is stopped
   so fails by name and the next one runs, and the suite stops itself if its
   own process passes 1 GB.
   `HOURGLASS_SHOTS=<folder>` keeps pictures of both looks. It runs alone

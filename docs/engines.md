@@ -214,7 +214,7 @@ against the page (at least 2.5 : 1 for the pale sands, about 4 here, where
 #### Real sand under the same light
 
 Real sand is lit by the same key, with the same constants and the same
-colours, so that with Real sand on or off the heap is lit from the same side
+colours, so that in either sand the heap is lit from the same side
 with the same strength (measured in pictures of the app on the same
 half-run glass, the upper bed's side toward the light over its other side,
 relative luminance, Real sand to the classic sand: Sahara 1.57 to 1.50 in
@@ -963,20 +963,28 @@ tuned by ear (the brook was matched to measurements, not by listening), so
 treat the numbers in `audio.js` (the characters' records, `BEDS`, the `MODES_*`
 sets, `WATER`, `SURF`, `FALLS`, `DRIPS`, the ambiences' records, `LEVEL`) as a starting point.
 
-## Real sand: the switch in Tune
+## Real sand in the app
 
-**Real sand**, in Tune's Material group after Grain, is on by default from
-1.10.0 (settings design 5). With it off nothing of the GPU engine is
-requested and the app runs the classic sand, as it was. On or off, the page
-saves the session and loads again, as for another grain, so the running
-time is kept. The setting is the person's alone: the app never writes it off.
-The settings carry a version, `v: 2`, read once from the saved object: a
-save without it, or of version 1, comes up with Real sand on (every launch
-before 1.10.0 saved `realSand: false`, so such a save cannot say "turned
-off"); from version 2 on a saved `false` is kept.
+**Real sand** is the app's sand: the default from 1.10.0 (settings design
+5), and from 1.22.0 the only sand Tune speaks of. There is no switch; the
+classic sand is the fallback, wherever Real sand cannot run or did not
+start (below), and then the line `#fallback-line` at the foot of Tune's
+Sand tab, between the colophon and the version line, says that the sand is
+drawn without the graphics chip on this device, and why, with **Copy a
+report** after a failure. While Real sand starts or runs it is hidden and
+empty. The setting `realSand` stays, as a hidden switch: with it false
+nothing of the GPU engine is requested, the app runs the classic sand and
+says nothing; only the tests set it so (`tools/test/lib/seed.js`), or an
+edit of the storage. The app never writes it off. The settings carry a
+version, `v: 3`, read once from the saved object: a save without it, or of
+version 1, comes up with Real sand on (every launch before 1.10.0 saved
+`realSand: false`, so such a save cannot say "turned off"), and so does a
+save of version 2 (1.10.0 to 1.21.1 had a switch, and a `false` saved with
+it would keep the classic sand for good with no switch to turn it back);
+from version 3 on a saved `false` is kept.
 
 `app.js` is a classic script and stays one, so it never imports the engine
-itself: with the switch on, and where `navigator.gpu` exists, it appends
+itself: with the setting on, and where `navigator.gpu` exists, it appends
 `<script type="module" src="./realsand/boot.mjs">`, which imports the
 adapter (`realsand/app-sand.mjs`, `RealSand`) and hands its class and the
 engine's build stamp to `Hourglass.attachRealSand`. A stamp other than the
@@ -1004,10 +1012,11 @@ and after any gap (a lock, another app) the app's catch-up moves what is
 owed through the engine's transfer.
 
 Where it cannot run, the CPU sand stays, with the clock untouched, and the
-note under the switch says why; the row's `data-state` holds the bare state
-(`on`, `starting`, `off`, `na`, `failed`, `gaveup`, `updating`, `lost`,
-`paused`). Without `navigator.gpu` the row says *Needs WebGPU*, found at
-every launch for nothing, and nothing is stored. With it, but no adapter or
+line at the foot of the Sand tab says why; its `data-state` holds the bare
+state (`on`, `starting`, `off`, `na`, `failed`, `gaveup`, `updating`,
+`lost`, `paused`), and it shows in all but `on`, `starting` and `off`.
+Without `navigator.gpu` it says *Needs WebGPU*, found at every launch for
+nothing, and nothing is stored. With it, but no adapter or
 only a software one (found by loading the engine), the same, and the
 browser's user agent is kept (`realSandNa`, with the time in
 `realSandNaAt`): while it is the same, and for seven days, a launch
@@ -1016,15 +1025,14 @@ changed it (whether one does in a home-screen app is not known), the launch
 tries again. The same failure from a start made again in a session that saw
 the chip reset, lost or not answering (the watchdog's new engine, the retry
 of a start the reset cut short) may only be the chip on its way back: it is
-neither kept nor counted, the note says *Real sand could not restart; it
-will try again next launch*, and the classic sand runs for the session.
+neither kept nor counted, the line says *It could not restart; it will try
+again next launch*, and the classic sand runs for the session.
 Such a failure in a page that was put away since the
 start began is not believed (iOS may refuse an adapter to a page in the
-background): it is retried once in view. The switch is never disabled: in
-that state it shows off, and a tap clears what was kept and reloads. Any
-other failure at the start keeps the setting and tries again at the next
-launch, and after three launches in a row it stops trying until the switch
-is turned off and on; a start cut short by the app being put away tries
+background): it is retried once in view. Any other failure at the start
+keeps the setting and tries again at the next launch, and after three
+launches in a row it stops trying until another engine build; a start cut
+short by the app being put away tries
 again once it is in view. All of this was found with one engine build:
 `realSandBuild` keeps it, and another build forgets `realSandFails`,
 `realSandWhy` and `realSandNa`. If the graphics chip is reset while the sand
@@ -1404,7 +1412,7 @@ A third sand engine would follow the same checklist: every member of the
 first group; the lifecycle members the app calls on the GPU engine; loaded
 behind its own switch and its own build stamp; every file it loads in the
 service worker's `SHELL`, and in a licence table if it is derived from other
-work. The app's Real sand section in `app.js` (the switch, `attachRealSand`,
+work. The app's Real sand section in `app.js` (`loadRealSand`, `attachRealSand`,
 `startReal`, `handover`, `onRealLost`) is the model, and would be made
 general then, with that engine as the test of it.
 
@@ -1629,8 +1637,10 @@ and the rest stays by hand in the controller. In order:
    tools/test/app-tune-trace.test.js --write` write them from the tree
    just run. Read the diff: the new key in each save, the new control's
    lines and each file's `from` line, and nothing else.
-7. The row count: five suites count Tune's rows (`app-regression`,
-   `e2e-calm`, `app-breath`, `app-sequence`, `app-realsand`), so a new row
+7. The row count: seven suites count Tune's rows (`app-regression`,
+   `e2e-calm`, `app-breath`, `app-sequence`, `app-realsand`, and `app-tune`
+   at the reset link's place), 15 since Real sand's switch went in 1.22.0,
+   and `app-grain` holds that Grain follows Layered sand, so a new row
    changes those on purpose.
 
 `settings-unit` needs no change for a record after the old ones: it holds

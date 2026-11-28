@@ -68,14 +68,14 @@ deep-water teal.
   phone). The finer sand flows, slumps, sounds and keeps time as the classic
   sand does; there is simply more of it, each grain smaller, and more work
   for the phone.
-- **Real sand on the graphics chip** (Tune, on by default from 1.10.0). The
-  sand of the sand lab: every grain a point of a continuum simulated on the
-  phone's graphics chip, in the same glass, keeping the same exact time. It
-  needs WebGPU (iOS 26 or later); where that is missing its note says so and
-  the classic sand runs, as it always has, and it tries again after an iOS
-  update or a tap on the switch. While it runs the glass does not crack and
-  **Grain** is hidden: turn Real sand off in **Tune** for the classic sand,
-  its finer grains and a glass you can break and mend.
+- **Real sand on the graphics chip**, the only sand from 1.22.0. The sand of
+  the sand lab: every grain a point of a continuum simulated on the phone's
+  graphics chip, in the same glass, keeping the same exact time. It needs
+  WebGPU (iOS 26 or later); where that is missing, or it did not start, the
+  classic sand stands in, with its finer grains and a glass you can break and
+  mend, and one quiet line at the foot of **Tune**'s Sand tab says why; it
+  tries again after an iOS update or a new engine. While Real sand runs the
+  glass does not crack and **Grain** is hidden.
 - **Real sound.** The soft hush of sand landing, made of thousands of tiny
   grains, the first grains ticking on bare glass, a singing bowl at the end
   (once, three times, or until a tap), and optional water behind it (a brook,

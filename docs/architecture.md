@@ -23,7 +23,7 @@ sand/                       the classic sand (pieces of HourglassPhysics, below)
 sound/audio.js              the procedural sound engine
 motion/motion.js            the phone's motion sensors
 sw.js  manifest.json        offline cache and install metadata
-realsand/                   the GPU sand engine: the sand lab's, and the app's with Real sand on
+realsand/                   the GPU sand engine: the sand lab's, and the app's sand
   boot.mjs  app-sand.mjs    what the app loads, and RealSand, the GPU sand as the app's sim
   valve.mjs                 the ledger of the sand above the neck, and the neck's meter
   solver.mjs  shaders/      the solver on WebGPU and its WGSL
@@ -334,8 +334,8 @@ a save from before it, is 'sunlit', and the reset link puts it back to that.
 
 `HourglassSettings.load(storage, search, reg)` gives the values: the
 defaults; over them the saved values of the right type; the version step
-(the settings carry `v`; a save of no version, or of version 1, comes up with
-Real sand on, once, and the values then say version 2); the checks; and the
+(the settings carry `v`; a save of no version, or of version 1 or 2, comes up
+with Real sand on, once, and the values then say version 3); the checks; and the
 repairs that read two keys (`?t=300` sets the duration and ends a saved
 sequence; once it has been applied, `app.js` takes `t=` out of the address
 with `history.replaceState`, every other item kept (`unpreset(search)`), so
@@ -556,8 +556,8 @@ These hold until a change says otherwise, with its reason.
   syntax error stops a whole file, and an old parser rejects a file that
   holds `import()`, so
   `app.js` stays classic and appends `realsand/boot.mjs`, the only module
-  the app loads, and only with the Real sand switch on where `navigator.gpu`
-  exists. `check-shell` checks every classic script for module syntax,
+  the app loads, and only where `navigator.gpu` exists (and the hidden
+  setting `realSand`, which only the tests turn off, is on). `check-shell` checks every classic script for module syntax,
   `import()` and the kinds of syntax newer than ES5 that it lists
   ([Tests](testing.md)). The
   Node suites load the pieces, joined, as one classic script into isolated
@@ -593,13 +593,17 @@ These hold until a change says otherwise, with its reason.
   leaves nothing behind, and a hole is filled only from the same release.
   The cost: a change shipped without a new `VERSION` never reaches a phone,
   which is why `check-release` runs on every pull request.
-- **Real sand is the default, and its switch is the person's alone** (1.10.0,
-  [settings design 5](design/settings.md)): the app never writes it off. A
-  browser that cannot have it is remembered by its user agent and tried
-  again after seven days, an iOS update that changes the user agent, a new
-  engine build or a tap; the classic sand
-  is always there to run instead. The test harness seeds every page with
-  Real sand off (`tools/test/lib/seed.js`) unless the test asks for it.
+- **Real sand is the only sand** (the default from 1.10.0, [settings design
+  5](design/settings.md); from 1.22.0 Tune has no switch for it): the app
+  never writes it off, and the classic sand is the fallback, always there to
+  run instead, with one quiet line at the foot of Tune's Sand tab while it
+  does. A browser that cannot have it is remembered by its user agent and
+  tried again after seven days, an iOS update that changes the user agent or
+  a new engine build. The setting `realSand` stays as a hidden switch: the
+  settings' version 3 turned it on once for everyone (a save of 1.21.1 could
+  hold the old switch's off), and the test harness seeds every page with a
+  version-3 save with it off (`tools/test/lib/seed.js`), the classic sand,
+  unless the test asks for Real sand.
 - **What an iPhone allows a web app** decides a good deal: motion
   permission is forgotten when the app is closed, so it is asked for by a
   tap at each launch; there is no vibration API, so a tap is felt through a

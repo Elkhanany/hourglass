@@ -47,40 +47,16 @@ var tune = require('./lib/tune.js');
 var sleep = H.sleep;
 
 /* ---- every wait has an end, and what comes back from a page is small ---------------------- */
-// A question to a page (page.evaluate) has no time limit of its own: a frame that is never drawn,
-// a picture that is never read back, would hang the run. Here each one ends after ASK_MS with an
-// error that says which question it was, and the case fails by name (run(), in main).
-//
-// And every value of an answer costs Playwright's protocol about 5 µs and 200 bytes of this
-// process's memory while it crosses (measured with 1.63: an array of a million numbers takes
-// 5.6 s and 190 MB; the glass's two drawn canvases, 19 million numbers, 100 s and over 3 GB a
-// time, ten times in FADE). So pixels are kept and measured in the page (pixels(), below), and an
-// answer of more than ANSWER_MAX values is refused in the page, before it crosses: the case fails
-// and says which question gave it.
-var ASK_MS = 30000, ANSWER_MAX = 20000, RSS_MAX_MB = 1000;
-/** What `p` gives or, after `ms`, an error that says what did not come. */
-function within(ms, what, p) {
-  var timer, late = new Promise(function (_, fail) { timer = setTimeout(function () { fail(new Error(what + ': nothing after ' + ms / 1000 + ' s')); }, ms); });
-  return Promise.race([p, late]).finally(function () { clearTimeout(timer); });
-}
-/**
- * In the page: fn(arg), awaited, and its answer counted there (every number, string, array and
- * object of it; a typed array is one): over `max` values it is not sent.
- */
-function smallAnswer(fn, arg, max) {
-  return Promise.resolve(fn(arg)).then(function (v) {
-    var n = 0, todo = [v], seen = new Set(), x, k;
-    while (todo.length && n + todo.length <= max) {
-      x = todo.pop(); n++;
-      if (!x || typeof x !== 'object' || ArrayBuffer.isView(x) || seen.has(x)) continue;
-      seen.add(x);
-      if (Array.isArray(x)) { if (n + todo.length + x.length > max) { n += x.length; break; } for (k = 0; k < x.length; k++) todo.push(x[k]); }
-      else for (k in x) todo.push(x[k]);
-    }
-    if (n + todo.length > max) throw new Error('the answer holds more than ' + max + ' values (' + (n + todo.length) + ' at the least): measure in the page and send the measure');
-    return v;
-  });
-}
+// A question to a page (page.evaluate) has no time limit of its own, and every value of an answer
+// costs Playwright's protocol about 5 µs and 200 bytes of this process's memory while it crosses
+// (the glass's two drawn canvases, 19 million numbers, 100 s and over 3 GB a time, ten times in
+// FADE). Here each question ends after ASK_MS with an error that says which it was, and an answer
+// of more than ANSWER_MAX values is refused in the page (lib/ask.js, which the harness's t.eval
+// uses too); pixels are kept and measured in the page (pixels(), below). The case fails by name
+// (run(), in main).
+var ASK = require('./lib/ask.js');
+var ASK_MS = ASK.ASK_MS, ANSWER_MAX = ASK.ANSWER_MAX, RSS_MAX_MB = 1000;
+var within = ASK.within, smallAnswer = ASK.smallAnswer;
 var OPEN = [];                      // the pages a case has open (closed for it if it fails)
 /** A page whose every question has an end and a small answer. */
 function bounded(t) {

@@ -143,14 +143,10 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   default, and with it off the sand is exactly as it was. Turning the glass
   over tumbles the sand, and within about four seconds it settles into a new
   pattern, drawn afresh for each bulb at every turn.
-- **Real sand** (on by default) runs the sand on the phone's graphics chip
-  (see "Real sand" below; "[Real sand: the switch in
-  Tune](engines.md#real-sand-the-switch-in-tune)" says how it works);
-  turning it on or off builds the glass afresh, keeping the running time,
-  and its note says how it is doing.
 - **Grain** is Classic, Fine (×2) or Finest (×4): how many grains the same
   glass holds. It sets the classic sand, so it shows only while the classic
-  sand is the one that runs (Real sand off, or not available this time).
+  sand stands in for Real sand (see "Real sand" below), where Real sand
+  cannot run or did not start this time.
   Another grain is another lattice, so choosing one builds the glass afresh
   behind a short fade; the running time is kept, a crack is not. Finer sand
   is more work for the phone: if the glass ever stutters on Finest, Fine has
@@ -166,8 +162,8 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   on the whole than under Soft and keeps its calm. Soft is the even light of
   earlier versions; in the light look it also gets the falling sand's darker
   side and a pale sand's deeper top (above), as Sunlit does.
-  Both sands take the same light: with Real sand on, the heap is lit from
-  the same side and as strongly as the classic sand's.
+  Both sands take the same light: Real sand's heap is lit from the same
+  side and as strongly as the classic sand's, where it stands in.
   Nothing else changes with it: not the timer, the flow or the sounds. *Put
   the look and sound back as they came* puts it back to Sunlit.
 - **In the hand: Real motion**: the sand feels what the phone feels. Lean it
@@ -331,7 +327,7 @@ one chosen; the arrow keys, `Home` and `End` choose another in it.
   finish (walnut), layered sand, the background (Dark), the volume, the sand sound and the Sand level
   (100), the ambience, its level and its fade before the end (off), and the
   completion bowl, its Rings (Once) and the Bowl level (50) go back to how the
-  app came; everything else stays as you set it (Real sand and the grain, the
+  app came; everything else stays as you set it (the grain, the
   glass's shape, the durations and the six quick durations, *Show when it
   ends*, work and rest, breathing, Zen, the screen, haptics, Real motion,
   Sound in silent mode, the mute button), and the running glass carries on.
@@ -443,8 +439,8 @@ tap, the tilt icon, the glass taken and let go), and one is enough.
 
 ## Breaking it
 
-All of this is the classic sand's glass. While Real sand runs (the default
-where the phone has WebGPU) the glass does not crack: see *What it leaves out
+All of this is the classic sand's glass. While Real sand runs (wherever the
+phone has WebGPU) the glass does not crack: see *What it leaves out
 for now* under [Real sand](#real-sand).
 
 Everything that strikes the glass strikes it at some speed, and the speed
@@ -488,14 +484,15 @@ back, as any tap does).
 
 ## Real sand
 
-**Real sand**, in **Tune**'s Sand tab under the sands, runs the sand on the
-phone's graphics chip: the sand of the sand lab, every grain a point of a
-simulated continuum, in the same glass. It is on by default from version
-1.10.0, and the classic sand (the sand as it has always been) is the
-fallback. An install from before then finds it on once, whatever it had,
-since those versions saved it off at every launch; turned off after that,
-it stays off. Turning it on or off loads the page again, as another grain
-does, and the running time is kept. The app never turns it off by itself.
+**Real sand** is the sand: it runs on the phone's graphics chip, the sand
+of the sand lab, every grain a point of a simulated continuum, in the same
+glass. There is nothing to choose. The classic sand (the sand as it was
+before 1.10.0) is only the fallback, where Real sand cannot run or did not
+start; then one quiet line at the foot of **Tune**'s Sand tab, above the
+version, says that the sand is drawn without the graphics chip on this
+device, and why (below). Where Real sand runs, nothing is said. Until
+1.21.1 Tune had a switch for it; an install that turned it off with that
+switch finds it on again once, at its first launch of 1.22.0.
 
 What stays as it was: the clock (the last grain leaves the neck at
 `00:00.0`; in the sand lab on an iPhone it left within 5 ms of it in every
@@ -531,11 +528,10 @@ takes when it grows warm): before, such a landing could come out quieter or
 not be heard.
 
 What it needs: WebGPU, which Safari has from iOS 26, also in a web app on
-the home screen. Without it the switch shows off and says *Needs WebGPU (iOS
-26 or later). Tap to try again*, and the classic sand runs; where the only
-graphics adapter is a software one, it says the device's graphics are too
-slow. The switch is never greyed: a tap on it tries again. A browser with
-WebGPU but no usable adapter is remembered by its user agent for seven
+the home screen. Without it the line at the foot of the Sand tab says *Needs
+WebGPU (iOS 26 or later)*, and the classic sand runs; where the only
+graphics adapter is a software one, it says its graphics are too slow. A
+browser with WebGPU but no usable adapter is remembered by its user agent for seven
 days, so later launches say so without loading the engine; after that, or
 once an iOS update has changed the user agent, a launch tries again (and one
 that finds no adapter right after the graphics chip was reset or stopped
@@ -622,29 +618,32 @@ What it leaves out for now:
 - The sand lab's known faults: a turned bed slides round the glass as a
   block before it breaks up, a bed at rest creeps, heaps stand steep.
 
-The note under the switch says how it is doing:
+While Real sand starts, and while it runs, nothing is said. While the
+classic sand stands in, the line at the foot of the Sand tab begins *The
+sand is drawn without the graphics chip on this device.* and goes on:
 
-| Note | What it means |
+| Then | What it means |
 | --- | --- |
-| *Starting…* | the graphics chip is getting ready (the classic sand meanwhile) |
-| *On: every grain simulated on the graphics chip* | Real sand runs |
-| *Off: the classic sand* | switched off: the classic sand, nothing of Real sand loaded |
-| *Needs WebGPU (iOS 26 or later). Tap to try again* | not in this browser: the switch shows off; a tap tries again, and so does a launch seven days on |
-| *Could not start this time: (why). It will try again next launch* | the classic sand until then |
-| *Did not start 3 times: (why). Turn it off and on to try again* | it stops trying |
-| *Real sand is updating; it will be back at the next launch* | old and new files of an update met; the next launch has the new ones |
-| *Real sand paused: the graphics chip was reset* | the classic sand took over at once, at the same time and with the same sand above; Real sand comes back by itself |
-| *Real sand paused: the graphics chip stopped answering* | the same, when Real sand sent nothing back for 4 s; it starts again 2 s later |
-| *Real sand paused: the graphics chip stopped answering three times; it will try again next launch* | the classic sand until the app is opened again |
-| *Paused after the graphics chip was reset twice; it will try again next launch* | the classic sand until the app is opened again |
-| *Real sand could not restart after the graphics chip was reset; it will try again next launch* | the same, when the chip could not be opened again |
-| *Real sand could not restart; it will try again next launch* | the same, when no graphics adapter was found right after the chip was reset or stopped answering: nothing is remembered or counted, and the next launch tries again |
+| *Needs WebGPU (iOS 26 or later).* | not in this browser; a launch tries again seven days on, or after an iOS update |
+| *Its graphics are too slow.* | the only graphics adapter is a software one |
+| *It could not start this time: (why); it will try again next launch.* | the classic sand until then |
+| *It did not start 3 times: (why).* | it stops trying, until an update brings a new engine |
+| *It is being updated, and will be back at the next launch.* | old and new files of an update met; the next launch has the new ones |
+| *Paused: the graphics chip was reset.* | the classic sand took over at once, at the same time and with the same sand above; Real sand comes back by itself |
+| *Paused: the graphics chip stopped answering.* | the same, when Real sand sent nothing back for 4 s; it starts again 2 s later |
+| *Real sand paused: the graphics chip stopped answering three times; it will try again next launch.* | the classic sand until the app is opened again |
+| *Paused after the graphics chip was reset twice; it will try again next launch.* | the classic sand until the app is opened again |
+| *Real sand could not restart after the graphics chip was reset; it will try again next launch.* | the same, when the chip could not be opened again |
+| *It could not restart; it will try again next launch.* | the same, when no graphics adapter was found right after the chip was reset or stopped answering: nothing is remembered or counted, and the next launch tries again |
+
+After a failure (all but the first two and the update) the line ends with
+**Copy a report**, which copies the report described below.
 
 Around a lock or a switch to another app, a reset graphics chip is
 rebuilt without a word.
 
-To report how it does: with the switch on, Tune's Sand tab has **Copy a report** under
-it. Tap it and paste the report into your message, with what you did (which
+To report how it does: after a failure, the line at the foot of Tune's Sand
+tab ends with **Copy a report**. Tap it and paste the report into your message, with what you did (which
 glass, the phone still or in the hand, Real motion on or off) and what you
 saw. It holds how long the start took, the stream's first fall from the neck
 to the floor, the power mode and rate, each heat guard trip and the engine's
@@ -659,10 +658,10 @@ at the bottom left show the power mode, the rate, how fast the sand runs
 against real time, the sand above the neck, the first fall and the start,
 with the same report under **copy the report**. (A web app on the home
 screen keeps its own storage and always opens at its own address, so
-`?debug=sand` cannot reach it; those figures are Safari's.) For the battery:
-run the same 30-minute glass with Real sand on and then off, at a fixed
-brightness (Auto-Brightness off), not charging, and note the battery before
-and after each.
+`?debug=sand` cannot reach it; those figures are Safari's, and while Real
+sand runs in a home-screen web app there is no report to copy.) For the
+battery: run a 30-minute glass at a fixed brightness (Auto-Brightness off),
+not charging, and note the battery before and after.
 
 ## Browser notes
 

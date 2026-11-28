@@ -13,7 +13,7 @@ section 7.4 below, and the section numbers are kept so that those citations
 stay true. Where this document and the code disagree, the code is right and
 this document is to be corrected. What the switch means for someone using the
 app is in the [guide](../guide.md#real-sand); how the engine's parts work, in
-prose, is in [How it works](../engines.md#real-sand-the-switch-in-tune).
+prose, is in [How it works](../engines.md#real-sand-in-the-app).
 
 ---
 
