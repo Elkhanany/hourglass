@@ -325,7 +325,7 @@
     if (min !== endsMin) {                             // (worked out again only when its minute changes, or the zone)
       endsMin = min;
       try {
-        if (!endsFmt) endsFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
+        if (!endsFmt) endsFmt = shortTime();
         endsWords = 'ends ' + endsFmt.format(new Date(at));
       } catch (e) {
         var d = new Date(at);
@@ -334,6 +334,8 @@
     }
     return endsWords;
   }
+  /** The device's own short time of day (12 or 24 hour, as its locale has it): the end's, and Daytime's hours in Tune. */
+  function shortTime() { return new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }); }
   /** The end on the state line, and in the time's label: written only when it changes. */
   function showEnds() {
     var text = endsText();
@@ -2170,7 +2172,7 @@
   // Daytime's hours under the row, in the device's own 12 or 24 hour clock, as the state line's end says them
   (function () {
     var note = $('look-note'), b = document.querySelector('#looks [data-look="hours"]'), f, a, z;
-    try { f = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }); a = f.format(new Date(2000, 0, 1, DAY[0])); z = f.format(new Date(2000, 0, 1, DAY[1])); } catch (e) { return; }
+    try { f = shortTime(); a = f.format(new Date(2000, 0, 1, DAY[0])); z = f.format(new Date(2000, 0, 1, DAY[1])); } catch (e) { return; }
     if (note) note.textContent = note.textContent.replace('7:00 to 19:00', a + ' to ' + z);
     if (b) b.setAttribute('aria-label', 'Daytime: light from ' + a + ' to ' + z + ', dark at night');
   })();
